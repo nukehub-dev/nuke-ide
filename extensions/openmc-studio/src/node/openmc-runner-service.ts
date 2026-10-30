@@ -61,12 +61,26 @@ import {
     ChainBuildResult,
     MgxsLibraryGenerationRequest,
     MgxsLibraryGenerationResult,
-    ActiveSimulationInfo
+    ActiveSimulationInfo,
+    StartShutdownDoseRequest,
+    ShutdownDoseProgress,
+    ShutdownDoseProgressEvent,
+    ShutdownDoseResult,
+    ShutdownDoseStartResponse,
+    ShutdownDoseValidationRequest,
+    ShutdownDoseValidationResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
+    ReadShutdownDoseSummaryRequest,
+    ReadShutdownDoseSummaryResult
 } from '../common/openmc-studio-protocol';
 import { OpenMCCmfdSettings } from '../common/openmc-state-schema';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
+import { parseDepletionBlock } from '../common/depletion-config';
+import { buildOpenMCRunCommand, buildPythonDriverCommand, describeParallelism } from '../common/openmc-run-command';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { STUDIO_CORE_PACKAGES } from '../common/packages';
+import { assessShutdownDoseReadiness } from '../common/shutdown-dose';
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 interface RunningSimulation {
@@ -76,6 +90,17 @@ interface RunningSimulation {
     request: SimulationRunRequest;
     logFilePath: string;
     logStream?: fs.WriteStream;
+}
+
+/** A shutdown-dose driver process tracked for progress streaming and cancel. */
+interface RunningShutdownDose {
+    processId: string;
+    process: any;
+    startTime: Date;
+    request: StartShutdownDoseRequest;
+    logFilePath: string;
+    logStream?: fs.WriteStream;
+    progressBuffer: string;
 }
 
 /**
@@ -117,6 +142,7 @@ export class OpenMCRunnerService {
 
     private runningSimulations = new Map<string, RunningSimulation>();
     private completedSimulations = new Map<string, { workingDirectory: string; logFilePath: string }>();
+    private runningShutdownDose = new Map<string, RunningShutdownDose>();
     private client?: OpenMCStudioClient;
     private runOutputWatchers = new Map<string, NodeJS.Timeout>();
 
@@ -132,102 +158,37 @@ export class OpenMCRunnerService {
             return { enabled: false };
         }
 
-        const extractTag = (xml: string, tag: string): string | undefined => {
-            const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
-            return match ? match[1] : undefined;
-        };
-
-        const unescapeXml = (text: string): string =>
-            text
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&quot;/g, '"')
-                .replace(/&apos;/g, "'")
-                .replace(/&amp;/g, '&');
-
         try {
             const content = fs.readFileSync(settingsPath, 'utf-8');
-            // Check for <depletion> tag
-            const depletionMatch = content.match(/<depletion>[\s\S]*?<\/depletion>/);
-            if (!depletionMatch) {
+            const parsed = parseDepletionBlock(content);
+            if (!parsed) {
                 return { enabled: false };
             }
-
-            const depletionXml = depletionMatch[0];
-
-            // Extract chain file
-            const chainFile = extractTag(depletionXml, 'chain_file');
-
-            // Extract time steps
-            const timeStepsText = extractTag(depletionXml, 'time_steps');
-            const timeSteps = timeStepsText
-                ? timeStepsText
-                      .trim()
-                      .split(/\s+/)
-                      .map(Number)
-                      .filter((n) => !isNaN(n))
-                : [];
-
-            // Extract power
-            const powerText = extractTag(depletionXml, 'power');
-            const power = powerText !== undefined ? Number(powerText) : undefined;
-
-            // Extract power density
-            const powerDensityText = extractTag(depletionXml, 'power_density');
-            const powerDensity = powerDensityText !== undefined ? Number(powerDensityText) : undefined;
-
-            const settings: DepletionRunSettings = { chainFile, timeSteps, power, powerDensity };
-
-            // Advanced options
-            const operator = extractTag(depletionXml, 'operator');
-            if (operator) {
-                settings.operator = operator as DepletionRunSettings['operator'];
+            for (const warning of parsed.warnings) {
+                this.log(`Warning: ${warning}`);
             }
-            const solver = extractTag(depletionXml, 'solver');
-            if (solver) {
-                // Legacy stored values (leapfrog, predictor-corrector, …) map
-                // to canonical OpenMC integrator ids
-                settings.solver = resolveDepletionSolver(solver);
-            }
-            const normalization = extractTag(depletionXml, 'normalization');
-            if (normalization) {
-                settings.normalization = normalization;
-            }
-            if (extractTag(depletionXml, 'diff_burnable_mats') === 'true') {
-                settings.diffBurnableMats = true;
-            }
-            const diffVolumeMethod = extractTag(depletionXml, 'diff_volume_method');
-            if (diffVolumeMethod) {
-                settings.diffVolumeMethod = diffVolumeMethod as DepletionRunSettings['diffVolumeMethod'];
-            }
-            const fluxFiles = extractTag(depletionXml, 'flux_files');
-            if (fluxFiles) {
-                settings.fluxFiles = fluxFiles.split(',').filter((f) => f.length > 0);
-            }
-            const microxsFiles = extractTag(depletionXml, 'microxs_files');
-            if (microxsFiles) {
-                settings.microxsFiles = microxsFiles.split(',').filter((f) => f.length > 0);
-            }
-            if (extractTag(depletionXml, 'generate_microxs') === 'true') {
-                settings.generateFromModel = true;
-            }
-            const transferRates = extractTag(depletionXml, 'transfer_rates');
-            if (transferRates) {
-                try {
-                    settings.transferRates = JSON.parse(unescapeXml(transferRates));
-                } catch {
-                    this.log('Warning: failed to parse <transfer_rates> JSON in settings.xml');
-                }
-            }
-            const fissionQ = extractTag(depletionXml, 'fission_q');
-            if (fissionQ) {
-                try {
-                    settings.fissionQ = JSON.parse(unescapeXml(fissionQ));
-                } catch {
-                    this.log('Warning: failed to parse <fission_q> JSON in settings.xml');
-                }
-            }
-
+            const settings: DepletionRunSettings = {
+                chainFile: parsed.depletion.chainFile,
+                timeSteps: parsed.depletion.timeSteps as number[],
+                power: parsed.depletion.power,
+                powerDensity: parsed.depletion.powerDensity,
+                operator: parsed.depletion.operator,
+                solver: parsed.depletion.solver,
+                normalization: parsed.depletion.normalizationMode,
+                diffBurnableMats: parsed.depletion.diffBurnableMats,
+                diffVolumeMethod: parsed.depletion.diffVolumeMethod,
+                fluxFiles: parsed.depletion.fluxFiles,
+                microxsFiles: parsed.depletion.microxsFiles,
+                generateFromModel: parsed.depletion.generateFromModel,
+                transferRates: parsed.depletion.transferRates,
+                fissionQ: parsed.depletion.fissionQ,
+                substeps: parsed.depletion.substeps,
+                decayOnlySteps: parsed.depletion.decayOnlySteps,
+                reactivityControl: parsed.depletion.reactivityControl,
+                externalSourceRates: parsed.depletion.externalSourceRates,
+                continueFromResults: parsed.depletion.continueFromResults,
+                continueTimesteps: parsed.depletion.continueTimesteps
+            };
             return { enabled: true, settings };
         } catch (e) {
             console.error('[OpenMC Runner] Error checking depletion settings:', e);
@@ -343,6 +304,18 @@ export class OpenMCRunnerService {
         this.flushClientLogs();
         try {
             this.client.onSimulationStatus(status);
+        } catch (error) {
+            console.warn('[OpenMC Runner] Client disconnected, clearing client reference');
+            this.client = undefined;
+        }
+    }
+
+    /** Safely send a shutdown-dose progress event to the client. */
+    private safeSendShutdownDose(event: ShutdownDoseProgressEvent): void {
+        if (!this.client?.onShutdownDoseProgress) return;
+        this.flushClientLogs();
+        try {
+            this.client.onShutdownDoseProgress(event);
         } catch (error) {
             console.warn('[OpenMC Runner] Client disconnected, clearing client reference');
             this.client = undefined;
@@ -585,26 +558,17 @@ export class OpenMCRunnerService {
         // Build command - find openmc executable
         const openmcExe = await this.findOpenMCExecutable(pythonCommand);
 
-        let command: string;
-        let args: string[];
+        const launch = buildOpenMCRunCommand({
+            openmcExecutable: openmcExe,
+            threads: request.threads,
+            mpi: request.mpi,
+            restartFile: request.restartFile,
+            extraArgs: request.args
+        });
+        const command = launch.command;
+        const args = launch.args;
 
-        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
-            command = 'mpirun';
-            args = ['-np', String(request.mpi.processes), openmcExe];
-        } else {
-            command = openmcExe;
-            args = [];
-        }
-
-        // Restart from a previous statepoint file (openmc -r <file>)
-        if (request.restartFile) {
-            args.push('-r', request.restartFile);
-        }
-
-        // Add any additional arguments
-        if (request.args) {
-            args.push(...request.args);
-        }
+        this.log(`Run parallelism: ${describeParallelism(request.threads, request.mpi)}`);
 
         // Build environment - ensure PATH includes Python bin directory
         const pythonBinDir = path.dirname(pythonCommand);
@@ -806,26 +770,17 @@ export class OpenMCRunnerService {
         // Build command - find openmc executable
         const openmcExe = await this.findOpenMCExecutable(pythonCommand);
 
-        let command: string;
-        let args: string[];
+        const launch = buildOpenMCRunCommand({
+            openmcExecutable: openmcExe,
+            threads: request.threads,
+            mpi: request.mpi,
+            restartFile: request.restartFile,
+            extraArgs: request.args
+        });
+        const command = launch.command;
+        const args = launch.args;
 
-        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
-            command = 'mpirun';
-            args = ['-np', String(request.mpi.processes), openmcExe];
-        } else {
-            command = openmcExe;
-            args = [];
-        }
-
-        // Restart from a previous statepoint file (openmc -r <file>)
-        if (request.restartFile) {
-            args.push('-r', request.restartFile);
-        }
-
-        // Add any additional arguments
-        if (request.args) {
-            args.push(...request.args);
-        }
+        this.log(`Run parallelism: ${describeParallelism(request.threads, request.mpi)}`);
 
         // Build environment - ensure PATH includes Python bin directory
         const pythonBinDir = path.dirname(pythonCommand);
@@ -1042,6 +997,12 @@ export class OpenMCRunnerService {
         // Solver and operator
         args.push('--solver', resolveDepletionSolver(depletionSettings.solver));
         args.push('--operator', depletionSettings.operator ?? 'coupled');
+        if (depletionSettings.substeps !== undefined) {
+            args.push('--substeps', String(depletionSettings.substeps));
+        }
+        if (depletionSettings.decayOnlySteps && depletionSettings.decayOnlySteps.length > 0) {
+            args.push('--decay-only-steps', depletionSettings.decayOnlySteps.join(','));
+        }
 
         // Advanced options
         if (depletionSettings.normalization) {
@@ -1068,13 +1029,32 @@ export class OpenMCRunnerService {
         if (depletionSettings.fissionQ && Object.keys(depletionSettings.fissionQ).length > 0) {
             args.push('--fission-q', JSON.stringify(depletionSettings.fissionQ));
         }
+        if (depletionSettings.reactivityControl) {
+            args.push('--reactivity-control', JSON.stringify(depletionSettings.reactivityControl));
+        }
+        if (depletionSettings.externalSourceRates && depletionSettings.externalSourceRates.length > 0) {
+            args.push('--external-source-rates', JSON.stringify(depletionSettings.externalSourceRates));
+        }
+        if (depletionSettings.continueFromResults) {
+            args.push('--continue-from-results', depletionSettings.continueFromResults);
+        }
+        if (depletionSettings.continueTimesteps) {
+            args.push('--continue-timesteps');
+        }
 
         // Add MPI processes if enabled
         if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
             args.push('--mpi-processes', String(request.mpi.processes));
         }
+        if (request.threads !== undefined) {
+            args.push('--threads', String(request.threads));
+        }
 
-        this.log(`Running depletion: ${pythonCommand} ${args.join(' ')}`);
+        const launch = buildPythonDriverCommand(pythonCommand, args, request.mpi);
+        const command = launch.command;
+        const launchArgs = launch.args;
+
+        this.log(`Running depletion (${describeParallelism(request.threads, request.mpi)}): ${command} ${launchArgs.join(' ')}`);
 
         // Build environment
         const pythonBinDir = path.dirname(pythonCommand);
@@ -1100,7 +1080,7 @@ export class OpenMCRunnerService {
             const logFilePath = path.join(logDir, `${processId}.log`);
             const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 
-            const childProcess = spawn(pythonCommand, args, {
+            const childProcess = spawn(command, launchArgs, {
                 cwd: request.workingDirectory,
                 env,
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -1277,20 +1257,19 @@ export class OpenMCRunnerService {
 
         // Build command; MPI wraps the driver in mpirun (the driver hands the
         // world communicator to the C API via mpi4py)
-        const mpiProcesses = request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1 ? request.mpi.processes : undefined;
         const driverArgs = [cmfdRunnerPath, request.workingDirectory, '--cmfd-config', JSON.stringify(cmfd)];
-
-        let command: string;
-        let args: string[];
-        if (mpiProcesses) {
-            command = 'mpirun';
-            args = ['-np', String(mpiProcesses), pythonCommand, ...driverArgs, '--mpi-processes', String(mpiProcesses)];
-        } else {
-            command = pythonCommand;
-            args = driverArgs;
+        if (request.mpi?.enabled && request.mpi.processes && request.mpi.processes > 1) {
+            driverArgs.push('--mpi-processes', String(request.mpi.processes));
+        }
+        if (request.threads !== undefined) {
+            driverArgs.push('--threads', String(request.threads));
         }
 
-        this.log(`Running with CMFD acceleration: ${command} ${args.join(' ')}`);
+        const launch = buildPythonDriverCommand(pythonCommand, driverArgs, request.mpi);
+        const command = launch.command;
+        const args = launch.args;
+
+        this.log(`Running with CMFD acceleration (${describeParallelism(request.threads, request.mpi)}): ${command} ${args.join(' ')}`);
 
         // Build environment
         const pythonBinDir = path.dirname(pythonCommand);
@@ -1587,6 +1566,335 @@ export class OpenMCRunnerService {
         }));
     }
 
+    // ============================================================================
+    // Shutdown Dose (R2S / D1S)
+    // ============================================================================
+
+    /**
+     * Validate a shutdown-dose configuration before running.
+     *
+     * Combines the pure state checks (`assessShutdownDoseReadiness`) with
+     * filesystem checks for the chain and run directory.
+     */
+    async validateShutdownDose(request: ShutdownDoseValidationRequest): Promise<ShutdownDoseValidationResult> {
+        const readiness = assessShutdownDoseReadiness(request.state, request.config);
+        const issues = [...readiness.errors, ...readiness.warnings];
+        const fs = await import('fs');
+        const path = await import('path');
+
+        if (request.config.chainFile && !fs.existsSync(request.config.chainFile)) {
+            issues.push({
+                severity: 'error',
+                field: 'chain',
+                message: `Chain file not found: ${request.config.chainFile}`,
+                suggestion: 'Choose an existing depletion chain XML in the Schedule step.'
+            });
+        }
+        const checkedDirectories = new Set<string>();
+        for (const directory of [request.config.outputDirectory, request.config.workingDirectory]) {
+            if (!directory || checkedDirectories.has(directory)) {
+                continue;
+            }
+            checkedDirectories.add(directory);
+            const field = 'output';
+            if (!fs.existsSync(directory)) {
+                issues.push({
+                    severity: 'error',
+                    field,
+                    message: `Run directory does not exist: ${directory}`,
+                    suggestion: 'Choose an existing directory or create it in the file picker.'
+                });
+                continue;
+            }
+            try {
+                if (!fs.statSync(directory).isDirectory()) {
+                    issues.push({
+                        severity: 'error',
+                        field,
+                        message: `Run path is not a directory: ${directory}`,
+                        suggestion: 'Choose a directory for the generated XML and driver output.'
+                    });
+                }
+            } catch (error) {
+                issues.push({
+                    severity: 'error',
+                    field,
+                    message: `Cannot inspect run directory: ${directory}`,
+                    suggestion: 'Check filesystem permissions and try again.'
+                });
+            }
+        }
+
+        if (
+            request.config.workingDirectory &&
+            fs.existsSync(request.config.workingDirectory) &&
+            !fs.existsSync(path.join(request.config.workingDirectory, 'geometry.xml'))
+        ) {
+            issues.push({
+                severity: 'warning',
+                field: 'output',
+                message: 'Model XML has not been generated in the run directory yet.',
+                suggestion: 'The wizard writes it automatically when you press Run.'
+            });
+        }
+
+        return {
+            success: true,
+            ready: issues.every((issue) => issue.severity !== 'error'),
+            issues
+        };
+    }
+
+    /**
+     * Launch an R2S or D1S driver. Progress streams through
+     * {@link OpenMCStudioClient.onShutdownDoseProgress}.
+     */
+    async startShutdownDose(request: StartShutdownDoseRequest): Promise<ShutdownDoseStartResponse> {
+        const processId = `dose-${Date.now()}`;
+        const fs = await import('fs');
+        const path = await import('path');
+        const { spawn } = await import('child_process');
+
+        const config = request.config;
+        if (!config || (config.method !== 'r2s' && config.method !== 'd1s')) {
+            return { processId, success: false, error: "Shutdown-dose method must be 'r2s' or 'd1s'" };
+        }
+        if (!request.workingDirectory || !fs.existsSync(request.workingDirectory)) {
+            return { processId, success: false, error: `Run directory not found: ${request.workingDirectory}` };
+        }
+
+        const scriptName = config.method === 'r2s' ? 'run_r2s.py' : 'run_d1s.py';
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName });
+        if (!scriptPath) {
+            return { processId, success: false, error: `Python script not found: ${scriptName}` };
+        }
+
+        const configPath = path.join(request.workingDirectory, '.nuke-shutdown-dose.json');
+        try {
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { processId, success: false, error: `Failed to write driver configuration: ${message}` };
+        }
+
+        const pythonInfo = await this.detectPythonCommand();
+        const pythonCommand = pythonInfo.command;
+        if (!pythonCommand) {
+            return { processId, success: false, error: 'Python with OpenMC not found. Please check your environment.' };
+        }
+
+        const pythonBinDir = path.dirname(pythonCommand);
+        const currentPath = process.env.PATH || '';
+        const newPath = currentPath.includes(pythonBinDir) ? currentPath : `${pythonBinDir}:${currentPath}`;
+
+        const logDir = path.join(request.workingDirectory, 'logs');
+        if (!fs.existsSync(logDir)) {
+            fs.mkdirSync(logDir, { recursive: true });
+        }
+        const logFilePath = path.join(logDir, `${processId}.log`);
+        const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+
+        this.log(`Starting shutdown-dose ${config.method.toUpperCase()} in ${request.workingDirectory}`);
+        this.log(`Using Python: ${pythonCommand}${pythonInfo.version ? ` (${pythonInfo.version})` : ''}`);
+
+        try {
+            const childProcess = spawn(pythonCommand, [scriptPath, request.workingDirectory, '--config', configPath], {
+                cwd: request.workingDirectory,
+                env: { ...process.env, PATH: newPath, ...request.env },
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stdout = '';
+            let stderr = '';
+            const entry: RunningShutdownDose = {
+                processId,
+                process: childProcess,
+                startTime: new Date(),
+                request,
+                logFilePath,
+                logStream,
+                progressBuffer: ''
+            };
+            this.runningShutdownDose.set(processId, entry);
+
+            this.safeSendShutdownDose({
+                processId,
+                progress: {
+                    step: config.method === 'd1s' ? 'd1s' : 'neutron',
+                    message: 'Starting shutdown-dose calculation',
+                    fraction: 0
+                }
+            });
+
+            childProcess.stdout?.on('data', (data: Buffer) => {
+                const chunk = data.toString();
+                stdout = appendOutputTail(stdout, chunk);
+                this.safeLog(chunk);
+                logStream.write(chunk);
+            });
+
+            childProcess.stderr?.on('data', (data: Buffer) => {
+                const chunk = data.toString();
+                stderr = appendOutputTail(stderr, chunk);
+                this.safeLog(chunk);
+                logStream.write(chunk);
+                this.parseShutdownDoseProgress(entry, chunk);
+            });
+
+            let finished = false;
+            const finish = (code: number | null, failure?: string): void => {
+                if (finished) {
+                    return;
+                }
+                finished = true;
+                this.flushShutdownDoseProgress(entry);
+                logStream.end();
+                this.runningShutdownDose.delete(processId);
+
+                let result = this.parseShutdownDoseResult(stdout);
+                if (failure) {
+                    result = { success: false, error: failure, outputDirectory: result?.outputDirectory };
+                } else if (!result) {
+                    const detail = stderr.trim() || stdout.trim();
+                    result = {
+                        success: false,
+                        error: `Driver exited with code ${code}${detail ? `: ${detail.slice(-800)}` : ''}`
+                    };
+                } else if (code !== 0 && result.success !== false) {
+                    result.success = false;
+                    result.error = result.error || `Driver exited with code ${code}`;
+                }
+
+                this.safeSendShutdownDose({
+                    processId,
+                    progress: {
+                        step: 'done',
+                        message: result.success ? 'Shutdown-dose calculation complete' : result.error || 'Shutdown-dose calculation failed',
+                        fraction: 1
+                    },
+                    result
+                });
+            };
+
+            childProcess.on('close', (code: number | null) => finish(code));
+            childProcess.on('error', (error: Error) => finish(null, `Failed to start Python: ${error.message}`));
+
+            return { processId, success: true };
+        } catch (error) {
+            logStream.end();
+            const message = error instanceof Error ? error.message : String(error);
+            return { processId, success: false, error: `Failed to start shutdown-dose driver: ${message}` };
+        }
+    }
+
+    /** Cancel a running shutdown-dose driver. */
+    async cancelShutdownDose(processId: string): Promise<boolean> {
+        const entry = this.runningShutdownDose.get(processId);
+        if (!entry) {
+            return false;
+        }
+        try {
+            entry.process.kill('SIGTERM');
+        } catch {
+            // Process already exited.
+        }
+        return true;
+    }
+
+    /** Read a previously written shutdown-dose summary JSON. */
+    async readShutdownDoseSummary(request: ReadShutdownDoseSummaryRequest): Promise<ReadShutdownDoseSummaryResult> {
+        const fs = await import('fs');
+        const path = await import('path');
+        const directory = request.outputDirectory;
+        if (!directory || !fs.existsSync(directory)) {
+            return { success: false, error: `Output directory not found: ${directory}` };
+        }
+        for (const filename of ['r2s_summary.json', 'd1s_summary.json']) {
+            const summaryPath = path.join(directory, filename);
+            if (!fs.existsSync(summaryPath)) {
+                continue;
+            }
+            try {
+                const result = JSON.parse(fs.readFileSync(summaryPath, 'utf-8')) as ShutdownDoseResult;
+                return { success: true, result };
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                return { success: false, error: `Could not read ${filename}: ${message}` };
+            }
+        }
+        return { success: false, error: `No shutdown-dose summary in ${directory}` };
+    }
+
+    /** Read photon dose coefficients from OpenMC's shipped ICRP tables. */
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'dose_coefficients.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Python script not found: dose_coefficients.py' };
+        }
+        const args = [
+            scriptPath,
+            '--particle',
+            request.particle ?? 'photon',
+            '--data-source',
+            request.dataSource,
+            '--dose-quantity',
+            request.doseQuantity,
+            '--geometry',
+            request.geometry
+        ];
+        return this.executePythonScriptJson<DoseCoefficientsResult>(args, process.cwd());
+    }
+
+    /** Split a stderr chunk into progress markers and forward them. */
+    private parseShutdownDoseProgress(entry: RunningShutdownDose, chunk: string): void {
+        entry.progressBuffer += chunk;
+        const lines = entry.progressBuffer.split('\n');
+        entry.progressBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+            this.forwardShutdownDoseProgress(entry.processId, line);
+        }
+    }
+
+    /** Flush a trailing marker without a newline. */
+    private flushShutdownDoseProgress(entry: RunningShutdownDose): void {
+        if (entry.progressBuffer.trim().length > 0) {
+            this.forwardShutdownDoseProgress(entry.processId, entry.progressBuffer);
+            entry.progressBuffer = '';
+        }
+    }
+
+    /** Parse and send one `@@NUKE_PROGRESS@@` line. */
+    private forwardShutdownDoseProgress(processId: string, line: string): void {
+        const marker = '@@NUKE_PROGRESS@@';
+        const index = line.indexOf(marker);
+        if (index < 0) {
+            return;
+        }
+        try {
+            const progress = JSON.parse(line.slice(index + marker.length).trim()) as ShutdownDoseProgress;
+            this.safeSendShutdownDose({ processId, progress });
+        } catch {
+            // Ignore malformed progress markers; the log keeps the raw line.
+        }
+    }
+
+    /** Scan stdout backwards for the last JSON object (the driver result). */
+    private parseShutdownDoseResult(stdout: string): ShutdownDoseResult | undefined {
+        const lines = stdout.trim().split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const candidate = lines[i].trim();
+            if (!candidate.startsWith('{')) {
+                continue;
+            }
+            try {
+                return JSON.parse(candidate) as ShutdownDoseResult;
+            } catch {
+                // Keep scanning.
+            }
+        }
+        return undefined;
+    }
+
     /**
      * Parse progress information from OpenMC stdout output.
      * @param output - Output chunk from OpenMC process
@@ -1864,11 +2172,21 @@ export class OpenMCRunnerService {
             }
         }
 
+        for (const [processId, dose] of this.runningShutdownDose) {
+            this.log(`Terminating shutdown-dose driver ${processId}`);
+            try {
+                dose.process.kill('SIGTERM');
+            } catch (error) {
+                // Ignore errors during cleanup
+            }
+        }
+
         for (const processId of this.runOutputWatchers.keys()) {
             this.stopRunOutputWatcher(processId);
         }
 
         this.runningSimulations.clear();
+        this.runningShutdownDose.clear();
     }
 
     // ============================================================================

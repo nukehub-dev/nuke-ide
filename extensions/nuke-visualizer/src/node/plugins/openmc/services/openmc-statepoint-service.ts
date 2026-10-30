@@ -26,11 +26,19 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import {
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
+    OpenMCTallySeries,
+    OpenMCTallySeriesOptions,
     OpenMCFilter,
     OpenMCStatepointFullInfo,
+    OpenMCDerivedTallyDefinition,
+    OpenMCDerivedTallyEvaluation,
     OpenMCKGenerationData,
     OpenMCSourceData,
     OpenMCEnergyDistribution,
@@ -126,6 +134,21 @@ export class OpenMCStatepointService {
         }));
     }
 
+    async getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries> {
+        await this.pythonHelper.syncConfig(this.pythonConfig);
+        const args = ['openmc.tally-series', '--tally-id', String(options.tallyId), ...files.flatMap((file) => ['--file', file])];
+        if (options.score !== undefined) {
+            args.push('--score', options.score);
+        }
+        if (options.nuclide !== undefined) {
+            args.push('--nuclide', options.nuclide);
+        }
+        if (options.statistic !== undefined) {
+            args.push('--statistic', options.statistic);
+        }
+        return await this.pythonHelper.executeScriptJson<OpenMCTallySeries>(this.getScriptPath(), args, { timeout: 120000 });
+    }
+
     async getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo> {
         await this.pythonHelper.syncConfig(this.pythonConfig);
         return await this.pythonHelper.executeScriptJson<OpenMCStatepointFullInfo>(
@@ -133,6 +156,47 @@ export class OpenMCStatepointService {
             ['openmc.statepoint-info', statepointPath],
             { timeout: 30000 }
         );
+    }
+
+    /**
+     * Evaluate persisted derived tallies against a statepoint.
+     *
+     * Derived tallies are owned by OpenMC Studio (definitions + evaluator) and
+     * displayed here; the evaluator script is resolved from that extension so
+     * one implementation serves the builder, comparison widget, and viewer.
+     */
+    async getDerivedTallies(statepointPath: string, definitions: OpenMCDerivedTallyDefinition[]): Promise<OpenMCDerivedTallyEvaluation> {
+        if (definitions.length === 0) {
+            return { success: true, statepoint: statepointPath, derivedTallies: [], errors: [] };
+        }
+        await this.pythonHelper.syncConfig(this.pythonConfig);
+        const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'derive_tallies.py' });
+        if (!scriptPath) {
+            return {
+                success: false,
+                statepoint: statepointPath,
+                derivedTallies: [],
+                errors: [],
+                error: 'Derived-tally evaluator not found. Reinstall OpenMC Studio.'
+            };
+        }
+
+        const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nuke-derived-tallies-'));
+        try {
+            const definitionsPath = path.join(temporaryDirectory, 'derived-tallies.json');
+            fs.writeFileSync(definitionsPath, JSON.stringify(definitions), 'utf-8');
+            return await this.pythonHelper.executeScriptJson<OpenMCDerivedTallyEvaluation>(
+                scriptPath,
+                ['--statepoint', statepointPath, '--definitions-file', definitionsPath, '--json'],
+                { timeout: 120000 }
+            );
+        } finally {
+            try {
+                fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+            } catch {
+                // Best-effort cleanup; the evaluator has already read the file.
+            }
+        }
     }
 
     async getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData> {

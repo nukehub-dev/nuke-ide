@@ -43,8 +43,11 @@ Update parent docs when parent-level structure, ownership, workflow, or child in
 
 - **User/dev docs** when a change alters user-visible or developer-facing behavior — features, UI, RPC/protocol contracts, settings, file formats, workflows. Product docs live in `docs/*.md`; extension docs are the source of truth under `extensions/<name>/docs/` (`user/` and `dev/`), read in-IDE by `extensions/nuke-docs`. See `docs/AGENTS.md`.
 - **`CHANGELOG.md`** (`Unreleased`, Keep a Changelog format) for every user-visible addition, change, or fix — the release flow extracts release notes from it, so an unlogged feature never reaches users.
+- New entries go under `Unreleased` in the single matching `### Added` / `### Changed` / `### Fixed` / `### Removed` section (never per-extension sub-sections), sorted by extension prefix. One bullet per feature/fix, one line, max ~140 cols: `<extension>: <what + user-visible effect>` (e.g. `nuke-visualizer: native 3D output viewers render in-IDE with instant color-by`). No implementation internals, file names, perf numbers, or history — detail lives in `extensions/<name>/docs/user/`. Never edit released `## [x.y.z]` sections.
 
 Internal refactors, bug fixes with no behavior change, and test-only work need neither.
+
+Docs are part of the behavior contract. Commands, menu paths, labels, controls, empty states, package pins, file formats, and screenshots are user-visible behavior: update the owning pages in the same change and run the checks in `docs/AGENTS.md`. Formatter, link, and image-manifest checks cannot detect stale prose — compare changed labels and states with the source.
 
 ## Hierarchy
 
@@ -71,6 +74,7 @@ Default section order:
 - Keep docs concise, current, and operational.
 - Document stable contracts, not diary entries.
 - Put broad rules in parent docs and concrete details in child docs.
+- `AGENTS.md` bullets stay short (max ~3 lines, ~140 cols): stable rule + pointer (`see docs/dev/<topic>.md`). Subsystem detail, command lists, deleted-symbol history, and migration notes live in `extensions/<name>/docs/dev/`, never in `AGENTS.md`.
 - Prefer direct bullets with explicit names.
 - Do not duplicate rules across many files unless each scope needs a local version.
 - Delete stale notes instead of explaining history.
@@ -82,12 +86,25 @@ Default section order:
 2. Update nearest owning docs and any affected parents or children.
 3. Refresh every affected Child NAD Index.
 4. Remove stale or contradictory text.
-5. Run existing verification when relevant.
-6. Report any docs intentionally left unchanged and why.
+5. Scan changed tracked files for `.planning/`, Wave/phase IDs, feature IDs, brief/roadmap citations, and
+   replace them with the durable technical name (domain notation such as MGXS `P0`, `Q1/Q3`, `F1`, and
+   capture phase stays).
+6. Run existing verification when relevant.
+7. Report any docs intentionally left unchanged and why.
 
 ## User Preferences
 
 When the user requests a durable behavior change, record it here or in the relevant child `AGENTS.md`.
+
+- Never reference `.planning/`, Wave/phase IDs, planning briefs, or roadmap labels in tracked source,
+  tests, docs, or comments. Describe the stable technical contract instead; planning material stays local
+  and gitignored.
+- Use the shared nuke-essentials `Tooltip` for product hover/focus tooltips. Native `title` attributes are
+  not the product tooltip and must not be used for UI hints.
+- Keep a domain icon one coherent glyph. Do not compose detached symbols (for example a grid plus bars) into
+  a single icon; redraw it as one shape.
+- Keep domain-standard notation where renaming would reduce correctness: MGXS `P0`, quartiles `Q1/Q3`,
+  `F1`, and DOM capture phase are not planning labels.
 
 ---
 
@@ -119,20 +136,20 @@ Notes:
 
 ## UI smoke tests (Playwright)
 
-- `tests/ui/` holds the Playwright GUI smoke suite (`playwright.config.ts` at root). Run it with `yarn test:ui`; it starts the built browser app itself via the config's `webServer` (`yarn --cwd applications/browser start` on 127.0.0.1:3000, `reuseExistingServer` locally) and tears it down afterwards.
+- `tests/ui/` holds the Playwright GUI smoke suite (`playwright.config.ts` at root). Run it with `yarn test:ui`; it starts the built browser app itself via the config's `webServer` (`yarn --cwd applications/browser start ../..` — repo root as workspace, on 127.0.0.1:3000, `reuseExistingServer` locally) and tears it down afterwards. Quick Open file search needs the workspace open, and the first search warms the index — specs opening files must tolerate a slow first query.
 - Prerequisites: `yarn build:browser` first (the suite tests the bundled app), and `npx playwright install chromium` once to download the browser (the npm package `@playwright/test` does not include it).
-- Suite conventions: no testing-only hooks in the app — selectors use Theia/lumino ids and widget classes (`#theia-app-shell`, `.simulation-dashboard`, widget root classes); the Command Palette is driven with `Ctrl+Shift+P` plus the `>` command prefix (F1 is a browser help shortcut in headless Chromium and the quick-open searches files without `>`); every spec collects console severity-`error` + pageerror messages and asserts zero. Artifacts (`test-results/`, screenshots/traces on failure) are gitignored.
+- Suite conventions: no testing-only hooks in the app — selectors use Theia/lumino ids and widget classes (`#theia-app-shell`, `.simulation-dashboard`, widget root classes); the Command Palette is driven with `Ctrl+Shift+P` plus the `>` command prefix (F1 is a browser help shortcut in headless Chromium and the quick-open searches files without `>`); every spec collects console severity-`error` + pageerror messages and asserts zero. Tiny committed fixtures live in `tests/ui/fixtures/`. Artifacts (`test-results/`, screenshots/traces on failure) are gitignored.
 - CI runs it weekly via `.github/workflows/ui-smoke.yml` (build → boot → tests → artifact on failure); it is not part of per-PR CI because the browser bundle is heavy.
 
 ## CI/CD
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), pytest with coverage, and vitest. This must stay green.
+- `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), docs screenshot manifest (`yarn docs:screenshots:check`), extension compile (`npx lerna run build`), pytest with coverage in the full CAD/OpenMC conda env (the 94% gate runs there), and vitest. This must stay green.
 - `build.yml` — Electron packaging for Linux/Windows/macOS and draft GitHub Releases on `v*` tags.
-- `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch. Smoke coverage: Python env import check, the extension pytest suite in-image, a functional rendering check (`applications/docker/render_smoke_test.py` — the trame/ParaView/VTK seam the unit tests skip), and an IDE boot check. Green builds archive a dependency snapshot (`conda list` + `pip freeze`); a failed weekly run opens/updates an `upstream-regression` issue.
-- `ui-smoke.yml` — weekly Playwright GUI smoke (`yarn test:ui`): bundles the browser app, boots it in headless Chromium, and runs `tests/ui/` (boot console errors, dashboard tabs, dedicated windows, controlled selects). Uploads `test-results/` on failure; node_modules cache uses the `ui-smoke-yarn-` prefix (never `ci-yarn-`/`build-yarn-` — scriptless installs must not collide, see pitfalls).
-- `upstream-latest.yml` — weekly early-warning job: builds the backend conda env with the `paraview` pin relaxed (everything else already floats) and runs pytest + the rendering smoke test headless on the runner. Catches a breaking upstream release before it reaches a pin bump; failures open/update an `upstream-regression` issue.
+- `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch. Smoke coverage: Python env import check, the extension pytest suite in-image, a functional converter check (`applications/docker/render_smoke_test.py` — the headless VTK converter seam the unit tests skip), and an IDE boot check. Green builds archive a dependency snapshot (`conda list` + `pip freeze`); a failed weekly run opens/updates an `upstream-regression` issue.
+- `ui-smoke.yml` — weekly Playwright GUI smoke (`yarn test:ui`): bundles the browser app, boots it in headless Chromium, and runs `tests/ui/` (boot console errors, dashboard tabs, dedicated windows, controlled selects). Uploads `test-results/` on failure; node_modules cache uses the `ui-smoke-yarn-` prefix (never `ci-yarn-`/`build-yarn-` — scriptless installs must not collide, see pitfalls). The scriptless install skips the lerna prepare build, so the workflow compiles explicitly (`npx lerna run build`) and rebuilds native modules (cpu-features/keytar/drivelist/@theia/ffmpeg) before bundling — without both, webpack fails on `*/lib/...` and `*.node` resolves.
+- `upstream-latest.yml` — weekly early-warning job: builds the backend conda env straight from `environment.yml` (everything floats except deliberate pins) and runs pytest + the converter smoke test headless on the runner. Catches a breaking upstream release before it reaches a pin bump; failures open/update an `upstream-regression` issue.
 - `openmc-dev.yml` — weekly early-warning job against the _development_ OpenMC: checks out `openmc-dev/openmc@develop` (its default branch), builds libopenmc from source (cached by upstream SHA — skipped when develop hasn't moved, incremental on a new SHA), `pip install .` (openmc's own deps incl. `endf` come from PyPI; plus `pytest` + `vtk` wheels), downloads the NNDC HDF5 / ENDF-B-VII.1 / ENDF-B-VII.1-PWR-chain data (same tarballs OpenMC's own CI uses, cached), then runs `yarn test:python:full` and the openmc-studio vitest e2e with the same env gates we use locally. Failures open/update an `upstream-regression` issue.
 
 ## Releases
@@ -147,10 +164,10 @@ GitHub Actions workflows under `.github/workflows/`:
 Tiered policy; the project does not chase one uniform percentage.
 
 - **Logic layer** (Python parsers/converters/services/command handlers, TS pure helpers): measured and ratcheted. `.coveragerc` holds `fail_under` — it may only go UP; bump it whenever the baseline improves.
-- **Rendering layer** (trame/ParaView/VTK server modules, plugin glue): excluded in `.coveragerc`; covered by error-path contract tests and the docker smoke test instead.
+- **Rendering layer** (headless VTK converter modules, plugin glue): excluded in `.coveragerc`; covered by error-path contract tests and the docker smoke test instead.
 - Run `yarn test:python:cov` for the Python report (writes `coverage.xml`) and `yarn test:ts` for vitest.
 - `yarn test:python:full` runs the suite against a full-dependency Python (integration tests execute instead of skipping). Point it at an env with openmc/h5py/vtk via `NUKE_TEST_PYTHON`, e.g. `NUKE_TEST_PYTHON=$HOME/.conda/envs/nuke/bin/python yarn test:python:full` (set `OPENMC_CROSS_SECTIONS` for tests that run models). The docker image test step exercises the same profile in CI.
-- **E2E layer** (real OpenMC runs, full profile only): `extensions/openmc-studio/tests/e2e/` (pytest, driver-level: pincell fixtures built with the openmc API, real CMFD/depletion/k-eff-search/volume/MGXS/collision-track runs, DAGMC asset checks, native plotting via C++ plot mode) and `extensions/openmc-studio/src/node/e2e/` (vitest, project-level: small `.nuke-openmc` fixtures → migration → XML generation → real runs; `codegen-run.test.ts` additionally executes the exporter's generated `model.py`). Env vars — all optional (tests skip cleanly when unset): `NUKE_TEST_PYTHON` (env python; its `bin/openmc` runs the binary), `OPENMC_CROSS_SECTIONS` (openmc-standard, needed for any model run), `NUKE_E2E_CHAIN` (depletion chain, only for depletion e2e), `NUKE_E2E_ENDF` (ENDF-B library dir with `decay/` `nfy/` `neutron(s)/`, only for the ENDF-mode chain-builder e2e). Get nuclear data from the official OpenMC data libraries (openmc.org) or the docker image's environment; the DAGMC test asset is committed at `tests/e2e/assets/fuel_pin.h5m`. No machine-specific paths anywhere in the layer. Every e2e test skips cleanly in the minimal profile, so minimal CI is unaffected; e2e tests carry the `@pytest.mark.e2e` marker.
+- **E2E layer** (real OpenMC runs, full profile only): `extensions/openmc-studio/tests/e2e/` (pytest, driver-level: pincell fixtures built with the openmc API, real CMFD/depletion/k-eff-search/volume/MGXS/collision-track runs, DAGMC asset checks, native plotting via C++ plot mode), `extensions/openmc-studio/src/node/e2e/` (vitest, project-level: small `.nuke-openmc` fixtures → migration → XML generation → real runs; `codegen-run.test.ts` additionally executes the exporter's generated `model.py`), and `extensions/nuke-cad/tests/e2e/` (pytest: labeled pincell → STEP → imprinted DAGMC h5m → real OpenMC run asserting zero lost particles; GUI-document gates for the tokamak and W7X coil documents → manifest → imprinted h5m → OpenMC run, plus a per-solid drift check of the W7X coils against a developer-local reference STEP, an e2e build of the generated 15-body/55-instance W7-X project, the 4/6-module coil studies (45/65 solids, simulation export blocked), and the self-contained native coil shape study (50 solids, no STEP)). Env vars — all optional (tests skip cleanly when unset): `NUKE_TEST_PYTHON` (env python; its `bin/openmc` runs the binary), `OPENMC_CROSS_SECTIONS` (openmc-standard, needed for any model run), `NUKE_E2E_CHAIN` (depletion chain, only for depletion e2e), `NUKE_E2E_ENDF` (ENDF-B library dir with `decay/` `nfy/` `neutron(s)/`, only for the ENDF-mode chain-builder e2e), `NUKE_E2E_W7X_STEP` (reference W7-X STEP path, used by the W7X drift and generator e2e — the STEP itself is never committed). The W7X-scale suites (`test_w7x_performance.py`, `test_w7x_dagmc_e2e.py`) are additionally opt-in via `NUKE_CAD_W7X_PERF=1` / `NUKE_CAD_W7X_GATE=1` (the ×50 pattern fuse takes ~45 min) with `*_COUNT` overrides for partial runs. Get nuclear data from the official OpenMC data libraries (openmc.org) or the docker image's environment; the DAGMC test asset is committed at `tests/e2e/assets/fuel_pin.h5m`. No machine-specific paths anywhere in the layer. Every e2e test skips cleanly in the minimal profile, so minimal CI is unaffected; e2e tests carry the `@pytest.mark.e2e` marker.
 - New Python tests must pass with only `pytest` + `numpy` installed (use `pytest.importorskip`/guarded imports for heavy deps); the full-dependency profile is exercised by the docker image test step. Tests for dependency-absence guards must force the absence (monkeypatch `sys.modules` entries to `None` or module-level `HAS_*` flags to `False`) rather than assume the ambient environment lacks the dependency, so they pass in both profiles.
 
 ## Architecture pointer
@@ -161,13 +178,13 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 - `extensions/` — custom Theia extensions; several ship Python backends under `python/` with pytest suites under `tests/python/`.
 - `docs/` — product documentation (read natively in the IDE by `extensions/nuke-docs`).
 - `resources/` — static assets (logos, preload templates, tips/quotes).
-- `scripts/` — Node build/utility scripts (preload generation, version bumps, css copy, electron patch).
+- `scripts/` — Node build/utility scripts (preload generation, version bumps, css copy, electron patch, colormap-library generation).
 - `configs/` — shared `base.tsconfig.json`.
 - `plugins/` — downloaded Theia `.vsix` plugins (generated; populated by `yarn download:plugins`).
 
 ## Common pitfalls
 
-- **Never edit generated artifacts**: `extensions/*/lib/`, `applications/*/lib/`, `**/src-gen/`, `gen-webpack*.js`, `*.tsbuildinfo`, `plugins/`, and `resources/preload.html` (generated from `resources/preload.template.html` by `scripts/generate-preload.js` — edit the template instead).
+- **Never edit generated artifacts**: `extensions/*/lib/`, `applications/*/lib/`, `**/src-gen/`, `gen-webpack*.js`, `*.tsbuildinfo`, `plugins/`, `resources/preload.html` (from `resources/preload.template.html`), and `extensions/nuke-cad/src/common/samples/*.json` (from the canonical e2e fixtures; see `extensions/nuke-cad/AGENTS.md`).
 - **New extensions must be registered** as dependencies in both `applications/browser/package.json` and `applications/electron/package.json`, and in the `REQUIRED`/`OPTIONAL` registry of `scripts/with-extension-set.js` (with their local extension dependencies), or they will not ship.
 - **Optional extensions are selectable at build time**: `NUKE_EXTENSIONS=<allow-list|all>` / `NUKE_EXCLUDE_EXTENSIONS=<deny-list>` prune optional extensions from `yarn build:browser` / `yarn build:electron(:prod)` and the docker image (build args, passed through by `compose.yml`); unset variables bundle everything except `nukelab-integration`, which only applies to NukeLab deployments and is opt-in (`NUKE_EXTENSIONS=all`). `nuke-core`/`nuke-essentials` are always required; local dependency closure is automatic. Preview the resolved set with `yarn ext:list`.
 - **Extension Python code is not pip-installed**; tests put `extensions/<name>/python/` on `sys.path` via `tests/python/conftest.py`. Keep imports package-relative to that layout (`nuke_viz.*`, `plugins.*`, top-level service modules).
@@ -186,3 +203,4 @@ High-level layout; see the Child NAD Index below for domain-specific details.
   - `extensions/nuke-core/AGENTS.md` — shared services, environment subsystem, and the Nuke Tools sidebar.
   - `extensions/nuke-visualizer/AGENTS.md` — visualization plugin framework and its Python backend.
   - `extensions/openmc-studio/AGENTS.md` — OpenMC workspace extension and its Python backend.
+  - `extensions/nuke-cad/AGENTS.md` — parametric CAD / meshing / FEM extension and its Python backend.

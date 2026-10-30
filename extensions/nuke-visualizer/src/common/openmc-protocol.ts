@@ -194,6 +194,20 @@ export interface OpenMCVisualizationResult {
     spatialWarning?: string;
 }
 
+/** Result of extracting CSG geometry as mesh JSON (`openmc.geometry-mesh --out`, no server) */
+export interface OpenMCGeometryMeshResult {
+    /** Whether extraction was successful */
+    success: boolean;
+    /** Absolute path of the written mesh JSON file (for `GeometryNativeViewerWidget.setModelFile`) */
+    meshPath?: string;
+    /** Geometry file the mesh was extracted from */
+    sourceFile?: string;
+    /** Cell/surface counts reported by the extractor */
+    stats?: Record<string, unknown>;
+    /** Error message if failed */
+    error?: string;
+}
+
 // === OpenMC Backend Service ===
 
 export const OpenMCBackendService = Symbol('OpenMCBackendService');
@@ -212,43 +226,11 @@ export interface OpenMCBackendService {
     /** List all tallies in a statepoint file */
     listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
 
-    /** Visualize a mesh tally from statepoint file */
-    visualizeMeshTally(statepointPath: string, tallyId: number, score?: string, nuclide?: string): Promise<OpenMCVisualizationResult>;
-
-    /** Visualize source distribution from source.h5 */
-    visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
-
-    /** Overlay tally on geometry (geometry + statepoint) */
-    visualizeTallyOnGeometry(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        filterGraveyard?: boolean,
-        pixelated?: boolean
-    ): Promise<OpenMCVisualizationResult>;
+    /** Read one tally/score across multiple statepoints (headless `openmc.tally-series`) */
+    getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries>;
 
     /** Get geometry bounds from DAGMC file */
     getGeometryBounds(geometryPath: string): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | null>;
-
-    /** Overlay tally on geometry with slice-based visualization */
-    visualizeTallySlice(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        options: OpenMCSliceOptions,
-        score?: string,
-        nuclide?: string
-    ): Promise<OpenMCVisualizationResult>;
-
-    /** Overlay tally on geometry with source particles (geometry + statepoint) */
-    visualizeTallyAndSourceOnGeometry(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        filterGraveyard?: boolean
-    ): Promise<OpenMCVisualizationResult>;
 
     /** Get energy spectrum data for a tally */
     getEnergySpectrum(statepointPath: string, tallyId: number, scoreIndex?: number, nuclideIndex?: number): Promise<OpenMCSpectrumData>;
@@ -320,27 +302,37 @@ export interface OpenMCBackendService {
         includeActivity?: boolean
     ): Promise<OpenMCDepletionResponse>;
 
+    /** Photon contact dose rate for one activated material */
+    getDepletionContactDose(
+        filePath: string,
+        materialIndex: number,
+        doseQuantity: DepletionDoseQuantity,
+        buildUp: number,
+        byNuclide: boolean
+    ): Promise<OpenMCDepletionContactDoseResult>;
+
+    /** Decay-photon spectrum at one depletion time index */
+    getDepletionDecaySpectrum(filePath: string, materialIndex: number, timeIndex: number): Promise<OpenMCDepletionDecaySpectrumResult>;
+
     // === Geometry Hierarchy Viewer ===
 
     /** Get geometry hierarchy from OpenMC geometry file */
     getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
 
-    /** Visualize geometry in 3D */
-    visualizeGeometry(
-        filePath: string,
-        highlightCellIds?: number[],
-        overlaps?: any[]
-    ): Promise<{
-        success: boolean;
-        port?: number;
-        url?: string;
-        error?: string;
-    }>;
+    /**
+     * Extract CSG geometry as three.js-ready mesh JSON without starting a
+     * server (runs `openmc.geometry-mesh --out`). The returned `meshPath`
+     * feeds `GeometryNativeViewerWidget.setModelFile`.
+     */
+    extractGeometryMesh(filePath: string, segments?: number): Promise<OpenMCGeometryMeshResult>;
 
     // === Statepoint Viewer ===
 
     /** Get complete statepoint information */
     getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
+
+    /** Evaluate persisted derived tallies against a statepoint (analysis-only) */
+    getDerivedTallies(statepointPath: string, definitions: OpenMCDerivedTallyDefinition[]): Promise<OpenMCDerivedTallyEvaluation>;
 
     /** Get k-generation data for convergence plot */
     getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
@@ -350,9 +342,6 @@ export interface OpenMCBackendService {
 
     /** Get energy distribution histogram */
     getEnergyDistribution(statepointPath: string, nBins?: number): Promise<OpenMCEnergyDistribution>;
-
-    /** Visualize source from statepoint file */
-    visualizeStatepointSource(statepointPath: string): Promise<OpenMCVisualizationResult>;
 
     // === Material Explorer ===
 
@@ -384,7 +373,7 @@ export interface OpenMCBackendService {
     /** Get decimated track polylines (paginated) */
     getTracksData(filePath: string, options?: OpenMCTracksDataOptions): Promise<OpenMCTracksData>;
 
-    /** Convert track file(s) to a VTK polyline file for the trame viewer */
+    /** Convert track file(s) to a VTK polyline file for the native viewer */
     convertTracksToVtk(filePath: string, options?: OpenMCTracksVtkOptions): Promise<OpenMCVtkConversionResult>;
 
     /** Get summary info for a collision track file */
@@ -393,13 +382,13 @@ export interface OpenMCBackendService {
     /** Get collision track rows (filtered, paginated) */
     getCollisionTrackData(filePath: string, query?: OpenMCCollisionTrackQuery): Promise<OpenMCCollisionTrackData>;
 
-    /** Convert a collision track file to a VTK point cloud for the trame viewer */
+    /** Convert a collision track file to a VTK point cloud for the native viewer */
     convertCollisionTrackToVtk(filePath: string, options?: OpenMCCollisionVtkOptions): Promise<OpenMCVtkConversionResult>;
 
     /** Read a weight windows file (meshes + bounds) */
     getWeightWindows(filePath: string): Promise<OpenMCWeightWindowsData>;
 
-    /** Convert a weight windows file to a VTK rectilinear grid for the trame viewer */
+    /** Convert a weight windows file to a VTK rectilinear grid for the native viewer */
     convertWeightWindowsToVtk(filePath: string, meshId?: number): Promise<OpenMCVtkConversionResult>;
 
     /** Get IFP kinetics parameters (beta_eff, Lambda_eff) from a statepoint */
@@ -434,6 +423,31 @@ export interface OpenMCBackendService {
 
     /** Detail for one ENDF evaluation file (decay / yields / reactions) */
     getEndfDetail(request: EndfDetailRequest): Promise<EndfDetailResult>;
+
+    /** Read the shipped ICRP-74 / ICRP-116 dose-coefficient tables */
+    getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult>;
+
+    /** Convert a statepoint mesh tally to VTK image data (`.vti`, no server) for the native tally viewer */
+    convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Convert a source file (or statepoint source bank) to a VTK point cloud (`.vtp`, no server) */
+    convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Convert a mesh tally to an overlay/slice VTK cloud (`.vtp`, no server) for the native tally viewer */
+    convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+    /** Map a mesh tally onto DAGMC geometry volumes (multiblock `.vtm`, no server) for the native DAGMC viewer */
+    convertOverlayGeometryToVtk(
+        statepointPath: string,
+        h5mPath: string,
+        options?: OpenMCOverlayGeometryVtkOptions
+    ): Promise<OpenMCVtkConversionResult>;
+
+    /** Sample a mesh tally along a line segment (flux profile probe series) */
+    getTallyLineProbe(statepointPath: string, options: OpenMCTallyLineProbeOptions): Promise<OpenMCTallyLineProbeResult>;
+
+    /** Extract iso-surfaces from a mesh tally (`.vtp` triangles, no server) for a contour sibling tab */
+    convertTallyContourToVtk(statepointPath: string, options: OpenMCTallyContourOptions): Promise<OpenMCVtkConversionResult>;
 }
 
 // === Cross-Section (XS) Plotting Types ===
@@ -934,8 +948,85 @@ export interface OpenMCDepletionResponse {
     error?: string;
 }
 
+/** Contact dose quantity reported by the depletion viewer. */
+export type DepletionDoseQuantity = 'absorbed-air' | 'effective';
+
+/** One nuclide's contact dose contribution over time (Gy/h or Sv/h). */
+export interface OpenMCDepletionDoseNuclide {
+    /** Nuclide name (for example I135) */
+    nuclide: string;
+    /** Contact dose rate at each depletion state */
+    values: number[];
+}
+
+/** Photon contact dose rate for an activated material. */
+export interface OpenMCDepletionContactDoseResult {
+    success: boolean;
+    file?: string;
+    materialIndex: number;
+    materialName: string;
+    volume?: number | null;
+    doseQuantity: DepletionDoseQuantity;
+    /** Dose unit for `total` and `byNuclide` values. */
+    unit: 'Gy/h' | 'Sv/h';
+    buildUp: number;
+    timeSeconds: number[];
+    timeDays: number[];
+    total: number[];
+    /** Named contributions; present only when `byNuclide` was requested. */
+    byNuclide?: OpenMCDepletionDoseNuclide[];
+    contributingNuclides: number;
+    /** Set when no unstable nuclide has decay-photon data. */
+    emptyReason?: string;
+    caveat?: string;
+    error?: string;
+}
+
+/** One discrete decay-photon line. */
+export interface OpenMCDepletionDecayLine {
+    energyEv: number;
+    /** Photons per second at the line energy. */
+    intensity: number;
+}
+
+/** One continuous decay-photon component (spectral density per eV). */
+export interface OpenMCDepletionDecayCurve {
+    energyEv: number[];
+    intensityPerEv: number[];
+}
+
+/** Decay-photon spectrum for one material and time index. */
+export interface OpenMCDepletionDecaySpectrumResult {
+    success: boolean;
+    file?: string;
+    materialIndex: number;
+    materialName: string;
+    volume?: number | null;
+    timeIndex: number;
+    timeSeconds: number;
+    timeDays: number;
+    /** Total material activity [Bq]. */
+    totalActivityBq: number;
+    /** Integral of the decay-photon distribution [photons/s]. */
+    totalPhotonIntensityBq: number;
+    kind: 'discrete' | 'continuous' | 'mixture';
+    lines: OpenMCDepletionDecayLine[];
+    curves: OpenMCDepletionDecayCurve[];
+    emptyReason?: string;
+    error?: string;
+}
+
 /** Plot type for depletion visualization */
-export type DepletionPlotType = 'concentration' | 'mass' | 'activity' | 'decay_heat' | 'normalized' | 'stacked';
+export type DepletionPlotType =
+    | 'concentration'
+    | 'mass'
+    | 'activity'
+    | 'decay_heat'
+    | 'normalized'
+    | 'stacked'
+    | 'contact_dose_air'
+    | 'contact_dose_effective'
+    | 'decay_spectrum';
 
 /** Y-axis scale type */
 export type DepletionScaleType = 'linear' | 'log';
@@ -1374,6 +1465,76 @@ export interface OpenMCOverlapVizData {
 }
 
 // ============================================================================
+// Derived Tallies (post-processing)
+// ============================================================================
+
+/**
+ * Derived-tally definitions are persisted by OpenMC Studio in `.nuke-openmc`
+ * state; the statepoint viewer reads them without importing the other
+ * extension. These types mirror that JSON contract.
+ */
+export type OpenMCDerivedOperandDefinition =
+    { kind: 'tally'; tallyId: number; score: string; nuclide?: string } | { kind: 'scalar'; value: number };
+
+export type OpenMCDerivedExpressionDefinition =
+    | OpenMCDerivedOperandDefinition
+    | { kind: 'binary'; op: '+' | '-' | '*' | '/'; left: OpenMCDerivedExpressionDefinition; right: OpenMCDerivedExpressionDefinition }
+    | { kind: 'unary'; op: '-'; operand: OpenMCDerivedExpressionDefinition };
+
+/** One persisted derived tally (analysis-only; never a simulation input). */
+export interface OpenMCDerivedTallyDefinition {
+    id: number;
+    name: string;
+    description?: string;
+    expression: OpenMCDerivedExpressionDefinition;
+    unit?: string;
+    color?: string;
+}
+
+/** One result filter axis from a derived tally. */
+export interface OpenMCDerivedTallyAxis {
+    type: string;
+    bins: unknown[];
+}
+
+/** Evaluated derived-tally result from the shared evaluator script. */
+export interface OpenMCDerivedTallyResult {
+    id: number;
+    name: string;
+    description?: string;
+    formula: string;
+    unit?: string;
+    color?: string;
+    /** Flattened filter-major mean values (`filter bins x nuclides x 1 score`). */
+    mean: number[];
+    stdDev: number[];
+    totalBins: number;
+    filters: OpenMCDerivedTallyAxis[];
+    scores: string[];
+    nuclides: string[];
+    shape: { filterBins: number; nuclides: number; scores: number };
+    warnings?: string[];
+}
+
+/** One derived tally that failed for a statepoint. */
+export interface OpenMCDerivedTallyEvaluationError {
+    id?: number;
+    name?: string;
+    error: string;
+    traceback?: string;
+}
+
+/** Result of evaluating derived tallies against a statepoint. */
+export interface OpenMCDerivedTallyEvaluation {
+    success: boolean;
+    statepoint?: string;
+    derivedTallies: OpenMCDerivedTallyResult[];
+    errors: OpenMCDerivedTallyEvaluationError[];
+    error?: string;
+    traceback?: string;
+}
+
+// ============================================================================
 // Statepoint Viewer Types
 // ============================================================================
 
@@ -1415,6 +1576,14 @@ export interface OpenMCStatepointFullInfo {
     kColTra?: number;
     /** Absorption/transport k-estimator */
     kAbsTra?: number;
+
+    // Convergence
+    /** Shannon entropy of the fission source per batch [bits] */
+    entropy?: number[];
+    /** Shannon entropy of the CMFD fission source per batch [bits] */
+    cmfdEntropy?: number[];
+    /** First batch represented by `cmfdEntropy` (1-based) */
+    cmfdEntropyStartBatch?: number;
 
     // Source Distribution
     /** Number of source particles */
@@ -1715,6 +1884,10 @@ export interface OpenMCVtkConversionResult {
     error?: string;
     /** Conversion stats (keys vary per command, e.g. nLines, nPoints, arrays) */
     stats?: Record<string, unknown>;
+    /** Sampled data-array name (overlay-geometry drape) */
+    arrayName?: string;
+    /** Sampled data-array association (`point` when smooth, `cell` when pixelated) */
+    arrayAssociation?: 'point' | 'cell';
 }
 
 // ============================================================================
@@ -1841,6 +2014,38 @@ export interface NuclearDataLibraryResult {
     nuclideCount?: number;
     /** Per-nuclide entries, sorted by name */
     nuclides?: NuclearDataNuclideEntry[];
+    error?: string;
+}
+
+/** Dose-coefficient reference request (`openmc.dose-coefficients`) */
+export interface DoseCoefficientsRequest {
+    /** Incident particle (photon, neutron, electron, ...) */
+    particle: string;
+    /** ICRP data source */
+    dataSource: 'icrp74' | 'icrp116';
+    /** Effective dose or ambient dose equivalent H*(10) */
+    doseQuantity: 'effective' | 'ambient';
+    /** Irradiation geometry for effective dose */
+    geometry: string;
+}
+
+/** Dose-coefficient reference table */
+export interface DoseCoefficientsResult {
+    success: boolean;
+    particle?: string;
+    dataSource?: 'icrp74' | 'icrp116';
+    doseQuantity?: 'effective' | 'ambient';
+    geometry?: string;
+    /** Energy grid [eV] */
+    energyEv?: number[];
+    /** Coefficients in `units` */
+    response?: number[];
+    /** `pSv cm^2` or `Sv/Gy` for photon kerma */
+    units?: string;
+    /** Particles with tables for the selected source/quantity */
+    availableParticles?: string[];
+    /** Geometries available for the selected particle */
+    availableGeometries?: string[];
     error?: string;
 }
 
@@ -2049,4 +2254,159 @@ export interface EndfDetailResult {
     energyCount?: number;
     energies?: EndfYieldEnergy[];
     error?: string;
+}
+
+// ============================================================================
+// Tally Viewer Types (`openmc.tally-mesh-vtk` / `openmc.source-vtk` /
+// `openmc.overlay-vtk`: headless extracts for `TallyNativeViewerWidget`)
+// ============================================================================
+
+/** Options for `openmc.tally-mesh-vtk` */
+export interface OpenMCTallyMeshVtkOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+}
+
+/** Aggregate shown by a tally series. */
+export type OpenMCTallySeriesStatistic = 'total' | 'mean' | 'max';
+
+/** Options for `openmc.tally-series` */
+export interface OpenMCTallySeriesOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Aggregation across the selected score/nuclide bins (default: total). */
+    statistic?: OpenMCTallySeriesStatistic;
+}
+
+/** One statepoint step of a tally series. */
+export interface OpenMCTallySeriesStep {
+    /** Contiguous 0-based position in the series. */
+    index: number;
+    /** X-axis value: explicit time, numeric statepoint suffix, or position. */
+    time: number;
+    /** Absolute statepoint path. */
+    file: string;
+    /** Basename shown in the widget. */
+    fileName: string;
+    /** Aggregated score value for this step. */
+    value: number;
+    /** Aggregated standard deviation for this step. */
+    std: number;
+    /** Number of finite bins contributing to the aggregate. */
+    nBins: number;
+}
+
+/** Full `openmc.tally-series` payload. */
+export interface OpenMCTallySeries {
+    files: string[];
+    tallyId: number;
+    tallyName: string;
+    score: string;
+    nuclide: string;
+    statistic: OpenMCTallySeriesStatistic;
+    timeLabel: string;
+    steps: OpenMCTallySeriesStep[];
+    /** Min/max of the aggregated step values. */
+    range: [number, number];
+    /** Global per-cell mean range across mesh steps (shared 3D color range). */
+    viewRange?: [number, number];
+    hasMesh: boolean;
+    volumeWeighted: boolean;
+}
+
+/** Options for `openmc.source-vtk` */
+export interface OpenMCSourceVtkOptions {
+    /** Maximum number of particles to convert (default: all) */
+    limit?: number;
+}
+
+/** Options for `openmc.overlay-vtk` */
+export interface OpenMCOverlayVtkOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** `slice` resamples the tally on a plane; `full` writes mesh cell centers */
+    mode?: 'slice' | 'full';
+    plane?: 'x' | 'y' | 'z';
+    /** Slice position in cm (default: grid center) */
+    position?: number;
+    /** Slice points per in-plane axis (1-1024, default 200) */
+    resolution?: number;
+    /** Nearest-cell slice values (actual mesh cells) instead of trilinear interpolation */
+    pixelated?: boolean;
+}
+
+/** Options for `openmc.overlay-geometry-vtk` (true 3D tally-on-geometry drape) */
+export interface OpenMCOverlayGeometryVtkOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Keep the Graveyard termination volume (default false) */
+    includeGraveyard?: boolean;
+    /** Trilinearly interpolate tally values at surface vertices (point data) instead of nearest-cell centroids */
+    smooth?: boolean;
+}
+
+/** Options for `openmc.tally-line-probe` (flux profile along a segment) */
+export interface OpenMCTallyLineProbeOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Probe start point in cm */
+    p0: [number, number, number];
+    /** Probe end point in cm */
+    p1: [number, number, number];
+    /** Samples along the segment (default 100) */
+    npoints?: number;
+    /** Trilinear interpolation (default true; false = nearest-cell/pixelated) */
+    smooth?: boolean;
+    /** Write the probe-path polyline (.vtp) to a default temp path */
+    writeVtp?: boolean;
+}
+
+/** One sample of an `openmc.tally-line-probe` series */
+export interface OpenMCTallyLineProbePoint {
+    /** Distance from p0 in cm */
+    distance: number;
+    /** Sample position in cm */
+    position: [number, number, number];
+    /** Sampled tally value */
+    value: number;
+}
+
+/** Line-probe series from `openmc.tally-line-probe` */
+export interface OpenMCTallyLineProbeResult {
+    /** Statepoint file the probe sampled */
+    sourceFile?: string;
+    tallyId?: number;
+    tallyName?: string;
+    score?: string;
+    nuclide?: string;
+    arrayName?: string;
+    p0?: [number, number, number];
+    p1?: [number, number, number];
+    npoints?: number;
+    smooth?: boolean;
+    /** Segment length in cm */
+    length?: number;
+    /** Sampled series (distance/position/value per point) */
+    series?: OpenMCTallyLineProbePoint[];
+    /** [min, max] over the series values */
+    dataRange?: [number, number];
+    /** Probe-path polyline (.vtp) when requested via writeVtp */
+    vtkPath?: string | null;
+    error?: string;
+}
+
+/** Options for `openmc.tally-contour` (iso-surfaces over the tally mesh) */
+export interface OpenMCTallyContourOptions {
+    tallyId: number;
+    score?: string;
+    nuclide?: string;
+    /** Iso values in tally units (1-8 per call; every value becomes a surface) */
+    isoValues: number[];
+    /** Interpolated edge crossings (default true; false = midpoint-snapped/pixelated) */
+    smooth?: boolean;
 }

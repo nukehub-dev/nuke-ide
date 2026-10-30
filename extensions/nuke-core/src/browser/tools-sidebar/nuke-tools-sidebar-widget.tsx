@@ -74,6 +74,8 @@ export class NukeToolsSidebarWidget extends ReactWidget {
 
     constructor() {
         super();
+        // Sidebar panels scroll natively (see the sidebar CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
         this.id = NukeToolsSidebarWidget.ID;
         this.title.label = NukeToolsSidebarWidget.LABEL;
         this.title.caption = NukeToolsSidebarWidget.LABEL;
@@ -257,7 +259,7 @@ export class NukeToolsSidebarWidget extends ReactWidget {
     }
 
     protected renderItem(item: NukeToolsItem): React.ReactNode {
-        const iconClass = item.icon ? codicon(item.icon) : codicon('circle-small');
+        const iconClass = item.iconClass ?? (item.icon ? codicon(item.icon) : codicon('circle-small'));
         const disabled = item.enabled ? !item.enabled() : false;
         const className = `nuke-tools-item${disabled ? ' nuke-tools-item-disabled' : ''}`;
 

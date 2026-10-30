@@ -7,6 +7,7 @@ Full-profile only: every test skips without openmc/cross sections.
 
 import json
 import os
+import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 
 import pytest
@@ -94,6 +95,102 @@ def test_run_depletion_e2e(pincell_dir):
     assert os.path.exists(pincell_dir / "depletion_results.h5")
     # Fuel was marked depletable by the operator path
     assert result["burnupMWdPerKg"][-1] > 0
+
+
+@pytest.mark.e2e
+def test_run_depletion_substeps_e2e(pincell_dir):
+    """CRAM substeps run a real two-step depletion (OpenMC 0.16+ only)."""
+    chain = require_chain()
+
+    import run_depletion
+
+    if not run_depletion.supports_integrator_option("substeps"):
+        pytest.skip("Installed OpenMC does not support CRAM substeps")
+
+    args = SimpleNamespace(
+        working_directory=str(pincell_dir),
+        chain_file=chain,
+        time_steps="86400,86400",
+        power=1.0,
+        power_density=None,
+        solver="cecm",
+        operator="coupled",
+        substeps=2,
+        normalization="fission-q",
+        mpi_processes=None,
+        flux_files=None,
+        microxs_files=None,
+        generate_microxs=False,
+        transfer_rates=None,
+        fission_q=None,
+        diff_burnable_mats=False,
+        diff_volume_method="divide equally",
+        reactivity_control=None,
+        external_source_rates=None,
+        continue_from_results=None,
+        continue_timesteps=False,
+    )
+
+    result = run_depletion.run_depletion(args)
+
+    assert result["success"] is True
+    assert result["substeps"] == 2
+    assert result["effectiveSteps"] == 2
+
+
+@pytest.mark.e2e
+def test_run_depletion_external_rate_e2e(pincell_dir):
+    """An external feed rate runs a real depletion step."""
+    chain = require_chain()
+
+    import run_depletion
+
+    if not run_depletion.supports_integrator_method("add_external_source_rate"):
+        pytest.skip("Installed OpenMC does not support external source rates")
+
+    # Material ids are process-global in OpenMC; read the exported fuel id
+    # instead of assuming a fresh interpreter starts at id 1.
+    materials_root = ET.parse(pincell_dir / "materials.xml").getroot()
+    fuel_id = int(materials_root.find("material").get("id"))
+
+    args = SimpleNamespace(
+        working_directory=str(pincell_dir),
+        chain_file=chain,
+        time_steps="86400",
+        power=1.0,
+        power_density=None,
+        solver="predictor",
+        operator="coupled",
+        substeps=1,
+        normalization="fission-q",
+        mpi_processes=None,
+        flux_files=None,
+        microxs_files=None,
+        generate_microxs=False,
+        transfer_rates=None,
+        fission_q=None,
+        diff_burnable_mats=False,
+        diff_volume_method="divide equally",
+        reactivity_control=None,
+        external_source_rates=json.dumps(
+            [
+                {
+                    "material": fuel_id,
+                    "composition": [{"name": "U235", "weightPercent": 100}],
+                    "rate": 1e-9,
+                    "units": "g/s",
+                    "timesteps": [0],
+                }
+            ]
+        ),
+        continue_from_results=None,
+        continue_timesteps=False,
+    )
+
+    result = run_depletion.run_depletion(args)
+
+    assert result["success"] is True
+    assert result["externalSourceRates"][0]["material"] == fuel_id
 
 
 @pytest.mark.e2e

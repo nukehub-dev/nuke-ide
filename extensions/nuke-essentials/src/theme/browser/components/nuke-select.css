@@ -1,0 +1,155 @@
+/* ============================================================================
+   NukeIDE Custom Select (replaces builtin <select> across the IDE)
+   All colors come from Theia CSS variables; animation mirrors the Nuke
+   tooltip fade. The dropdown portals to document.body (see nuke-select.tsx)
+   so narrow sidebars and scrolling panels can never clip it.
+   ============================================================================ */
+
+.nuke-select {
+    position: relative;
+    display: inline-block;
+    min-width: 0;
+}
+
+/* Hidden native select: form semantics only, never visible. */
+.nuke-select-native {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.nuke-select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 2px 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: var(--nuke-radius-sm);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color var(--nuke-transition-fast);
+}
+
+.nuke-select-trigger:hover:not(:disabled) {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuke-select-trigger:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.nuke-select-trigger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.nuke-select-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.nuke-select-placeholder {
+    color: var(--theia-input-placeholderForeground);
+}
+
+.nuke-select-chevron {
+    flex-shrink: 0;
+    color: var(--theia-input-foreground);
+    transition: transform 150ms ease-out;
+}
+
+.nuke-select-chevron.is-open {
+    transform: rotate(180deg);
+}
+
+.nuke-select-list {
+    z-index: 10000;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: var(--nuke-radius-lg);
+    box-shadow: 0 8px 24px var(--theia-scrollbar-shadow);
+    padding: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+    animation: nuke-select-pop-in 0.15s ease-out;
+}
+
+@keyframes nuke-select-pop-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.nuke-select-options {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.nuke-select-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 4px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--theia-input-foreground);
+    cursor: pointer;
+    outline: none;
+}
+
+.nuke-select-option:hover,
+.nuke-select-option.is-highlighted {
+    background: var(--theia-list-hoverBackground);
+    color: var(--theia-list-hoverForeground);
+}
+
+.nuke-select-option.is-selected:not(.is-highlighted) {
+    color: var(--theia-focusBorder);
+}
+
+.nuke-select-option.is-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.nuke-select-option.is-disabled:hover {
+    background: transparent;
+}
+
+.nuke-select-check {
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+.nuke-select-option-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}

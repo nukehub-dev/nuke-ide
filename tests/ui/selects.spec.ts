@@ -4,7 +4,8 @@ import { collectErrors, runCommand, waitForWorkbench } from './helpers';
 /**
  * Controlled-select regression: changing a select in the settings tab must
  * stick (the select must not snap back to its previous value on the next
- * render pass).
+ * render pass). Dropdowns are the shared NukeSelect (portal list), so the
+ * spec drives the trigger + listbox instead of a native select.
  */
 test.describe('controlled selects', () => {
     test('settings tab select value sticks after change', async ({ page }) => {
@@ -16,23 +17,26 @@ test.describe('controlled selects', () => {
         const dashboard = page.locator('.simulation-dashboard');
         await expect(dashboard).toBeVisible({ timeout: 30_000 });
 
-        // The Settings tab is the default; find the first select with > 1 option
-        const select = dashboard.locator('select').first();
-        await expect(select).toBeVisible({ timeout: 30_000 });
+        // The Settings tab is the default; find the first enabled select
+        // with > 1 option
+        const trigger = dashboard.locator('.nuke-select-trigger:not([disabled])').first();
+        await expect(trigger).toBeVisible({ timeout: 30_000 });
+        await trigger.click();
+        const list = page.locator('.nuke-select-list');
+        await expect(list).toBeVisible();
+        const options = list.getByRole('option');
+        expect(await options.count(), 'settings select should offer multiple options').toBeGreaterThan(1);
 
-        const options = await select.locator('option').allTextContents();
-        expect(options.length, 'settings select should offer multiple options').toBeGreaterThan(1);
-
-        const current = await select.inputValue();
-        const optionValues = await select.locator('option').evaluateAll((nodes) => nodes.map((n) => (n as HTMLOptionElement).value));
-        const next = optionValues.find((v) => v !== current);
+        const current = ((await trigger.textContent()) ?? '').trim();
+        const labels = await options.allTextContents();
+        const next = labels.map((label) => label.trim()).find((label) => label !== current);
         expect(next, 'no alternative option found').toBeTruthy();
 
-        await select.selectOption(next!);
+        await list.getByRole('option', { name: next! }).click();
 
         // Let any state round-trip / re-render settle, then verify it stuck
         await page.waitForTimeout(500);
-        await expect(select).toHaveValue(next!);
+        await expect(trigger).toHaveText(next!);
 
         expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
     });

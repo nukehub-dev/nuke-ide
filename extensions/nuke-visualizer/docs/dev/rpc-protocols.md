@@ -15,11 +15,9 @@ export const MyBackendService = Symbol('MyBackendService');
 export const MY_BACKEND_PATH = '/services/my-plugin';
 
 export interface MyBackendService {
-  // Server management
-  startServer(filePath: string): Promise<{ port: number; url: string }>;
-  stopServer(port: number): Promise<void>;
-
-  // Domain methods
+  // Headless converters: commands write files and exit.
+  // Legacy startServer/stopServer declarations may remain for protocol
+  // compatibility, but new plugins must not add them.
   getData(filePath: string): Promise<MyData>;
 }
 
@@ -54,22 +52,16 @@ Defines the contract for the base 3D mesh visualizer.
 
 ```typescript
 export interface VisualizerBackendService {
-  // Server lifecycle
-  startServer(filePath?: string, config?: PythonConfig, theme?: string): Promise<ServerInfo>;
-  stopServer(port: number): Promise<void>;
+  // Headless converters (no servers — each command writes VTK/JSON and exits)
+  convertDagmc(filePath: string, volumeId?: number): Promise<string>;
+  convertStep(filePath: string): Promise<string>;
+  convertGmsh(filePath: string): Promise<string>;
 
   // Environment
   checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
 
-  // File conversion
-  convertDagmc(filePath: string, volumeId?: number): Promise<string>;
-
-  // Visualization controls (placeholders for future API)
-  getVisualizationState(port: number): Promise<VisualizationState>;
-  updateVisualizationState(port: number, state: Partial<VisualizationState>): Promise<void>;
-  resetCamera(port: number): Promise<boolean>;
-  setCameraView(port: number, viewType: CameraViewType): Promise<boolean>;
-  captureScreenshot(port: number, options: ScreenshotOptions): Promise<ScreenshotResult>;
+  // Legacy port-based hook; headless converters never start a server
+  stopServer(port: number): Promise<void>;
 
   // Client for log streaming
   setClient(client: VisualizerClient): void;
@@ -85,18 +77,16 @@ export interface VisualizerClient {
   log(message: string): void; // stdout
   error(message: string): void; // stderr / errors
   warn(message: string): void; // warnings (shown as toast)
-  onServerStop(port: number): void; // server process exited
+  onServerStop(port: number): void; // legacy process-exit callback; viewers do not track ports
 }
 ```
 
 ### Key Types
 
-| Type                 | Description                                                           |
-| -------------------- | --------------------------------------------------------------------- |
-| `VisualizationState` | Opacity, representation, colorBy, colorMap, clip settings, background |
-| `CameraViewType`     | `isometric`, `front`, `back`, `left`, `right`, `top`, `bottom`        |
-| `ScreenshotOptions`  | Format, resolution, transparent background                            |
-| `PlotlyFigure`       | Generic figure for PlotlyService                                      |
+| Type                | Description                                |
+| ------------------- | ------------------------------------------ |
+| `ScreenshotOptions` | Format, resolution, transparent background |
+| `PlotlyFigure`      | Generic figure for PlotlyService           |
 
 ---
 
@@ -104,7 +94,7 @@ export interface VisualizerClient {
 
 **File:** `src/common/openmc-protocol.ts`
 
-The largest protocol (~1400 lines), covering all OpenMC domain types.
+The OpenMC protocol covers the OpenMC domain types (statepoints, tallies, geometry, depletion, cross sections, nuclear data).
 
 ### Service Interface
 
@@ -117,12 +107,16 @@ export interface OpenMCBackendService {
   loadStatepoint(statepointPath: string): Promise<OpenMCStatepointInfo>;
   listTallies(statepointPath: string): Promise<OpenMCTallyInfo[]>;
   getStatepointFullInfo(statepointPath: string): Promise<OpenMCStatepointFullInfo>;
+  getDerivedTallies(statepointPath: string, definitions: OpenMCDerivedTallyDefinition[]): Promise<OpenMCDerivedTallyEvaluation>;
   getKGenerationData(statepointPath: string): Promise<OpenMCKGenerationData>;
 
-  // Tally visualization
-  visualizeMeshTally(statepointPath, tallyId, score?, nuclide?): Promise<OpenMCVisualizationResult>;
-  visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult>;
-  visualizeTallyOnGeometry(geometryPath, statepointPath, tallyId, score?, filterGraveyard?): Promise<OpenMCVisualizationResult>;
+  // Headless VTK converters (no visualize* servers — each writes VTK and exits)
+  convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult>;
+  convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult>;
+  convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+  // Legacy port-based hook; nothing listens on ports
+  stopServer(port: number): Promise<void>;
 
   // Plot data
   getEnergySpectrum(statepointPath, tallyId, scoreIndex?, nuclideIndex?): Promise<OpenMCSpectrumData>;
@@ -143,7 +137,6 @@ export interface OpenMCBackendService {
 
   // Geometry
   getGeometryHierarchy(filePath: string): Promise<OpenMCGeometryResponse>;
-  visualizeGeometry(filePath, highlightCellIds?, overlaps?): Promise<{ success; port?; url?; error? }>;
   checkOverlaps(request: OpenMCOverlapRequest): Promise<OpenMCOverlapResponse>;
   getOverlapVisualization(geometryPath, overlaps): Promise<OpenMCOverlapVizData>;
 
@@ -153,8 +146,7 @@ export interface OpenMCBackendService {
   mixMaterials(request: OpenMCMaterialMixRequest): Promise<OpenMCMaterialMixResponse>;
   addMaterial(filePath: string, materialXml: string): Promise<void>;
 
-  // Server lifecycle
-  stopServer(port: number): Promise<void>;
+  // Environment
   checkOpenMCAvailable(): Promise<{ available; message; warning? }>;
   checkOpenMCPythonAvailable(): Promise<{ available; message; warning? }>;
 }

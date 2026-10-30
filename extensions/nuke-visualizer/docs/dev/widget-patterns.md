@@ -4,25 +4,25 @@
 
 ---
 
-## Pattern A: Iframe Widget (`VisualizerWidget`)
+## Pattern A: Native 3D Widget (`NativeVtkViewerWidget`)
 
-**Best for:** Python servers that render their own UI (Trame, Dash, Flask, etc.)
+**Best for:** 3D visualization of converted VTK datasets (meshes, tracks, tallies, DAGMC, Exodus steps).
 
 ### How It Works
 
-1. Frontend creates a `VisualizerWidget` (or subclass).
-2. Backend spawns a Python process that starts an HTTP server.
-3. Widget sets an `<iframe src="http://localhost:PORT">`.
-4. The Python server renders the full 3D/interactive UI.
+1. Frontend creates a `NativeVtkViewerWidget` (or subclass).
+2. Backend runs a short-lived Python converter command that writes XML VTK and exits.
+3. Frontend reads the file text and calls `setVtkText(text)`.
+4. The widget parses the XML and renders it with three.js — color-by, clip, and screenshots are all client-side.
 
 ```
 ┌─────────────────────────────┐
 │  Theia IDE (React)          │
 │  ┌───────────────────────┐  │
-│  │ <iframe>              │  │
+│  │ NativeVtkViewerWidget │  │
 │  │  ┌─────────────────┐  │  │
-│  │  │  Trame/Dash UI  │  │  │
-│  │  │  (Python server)│  │  │
+│  │  │ three.js canvas │  │  │
+│  │  │ (client-side)   │  │  │
 │  │  └─────────────────┘  │  │
 │  └───────────────────────┘  │
 └─────────────────────────────┘
@@ -30,47 +30,43 @@
 
 ### When to Use
 
-- 3D visualization (ParaView/Trame, VTK, OpenGL)
-- Complex interactive controls that are easier in Python
-- Existing Python web UIs you want to embed
+- 3D visualization (VTK datasets, converted DAGMC/STEP/OpenMC outputs)
+- Instant array switching without re-conversion or restarts
 
 ### Example: Base Visualizer
 
 ```typescript
 // Widget creation
-const widget = (await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { uri: fileUri.toString() })) as VisualizerWidget;
+const widget = (await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, { uri: fileUri.toString() })) as NativeVtkViewerWidget;
 
-// Backend starts server
-const server = await this.visualizerBackend.startServer(filePath, undefined, theme);
-
-// Widget points iframe to server
-widget.setServerUrl(server.url, server.port);
+// Backend converts, frontend reads + renders (no server, no port)
+const vtkPath = await this.visualizerBackend.convertDagmc(filePath);
+const text = (await this.fileService.read(URI.file(vtkPath))).value.toString();
+await widget.setVtkText(text);
 ```
 
 ### Lifecycle
 
-| Event          | Action                                          |
-| -------------- | ----------------------------------------------- |
-| Widget created | Show loading spinner                            |
-| Server starts  | Poll `http://localhost:PORT` every 2s           |
-| Server ready   | Set iframe `src`, hide spinner                  |
-| Widget closed  | Call `backend.stopServer(port)`                 |
-| Server crashes | `VisualizerClient.onServerStop()` clears iframe |
+| Event          | Action                                                |
+| -------------- | ----------------------------------------------------- |
+| Widget created | Show loading spinner                                  |
+| Convert done   | `setVtkText` parses + renders, hide spinner           |
+| Widget closed  | Nothing to stop — no server was started               |
+| Convert fails  | Error panel with retry (points at the generic viewer) |
 
 ### Multi-Instance
 
-Each file gets its own widget and its own Python server:
+Each file gets its own widget and its own short-lived conversion:
 
 ```typescript
 const widgetId = `visualizer-${filePath}`;
-const widget = await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { uri: fileUri.toString(), id: widgetId });
+const widget = await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, { uri: fileUri.toString(), id: widgetId });
 ```
 
 ### Limitations
 
-- **No direct React control** over the inner UI (must use iframe postMessage or server API).
-- **CSP concerns** — iframe sandbox must allow `allow-same-origin allow-scripts`.
-- **One process per widget** — can be heavy for many tabs.
+- **VTK XML or legacy ASCII only** — the native parser reads both forms; binary VTK and other formats must convert first.
+- **No server-side rendering** — very large datasets parse and render on the client.
 
 ---
 
@@ -151,6 +147,16 @@ await this.plotlyService.showPlot({
 | Data received  | `setFigure()` or `setState()` triggers React render |
 | Widget closed  | Nothing special (no server to kill)                 |
 
+Empty states use `NukeEmptyState` with either a codicon or `iconNode` for a domain SVG illustration. Reusable
+visualizer illustrations live in `src/browser/widgets/domain-icons.tsx`; use them for file-specific empty states
+instead of generic repo/database glyphs.
+
+Title, command, and Nuke Tools `iconClass` hooks use `nuke-visualizer-icon nuke-visualizer-icon-<domain>` for
+the domain panels (geometry, overlap, materials, nuclear, tally, statepoint). The classes live in
+`src/browser/icons/domain-icon-classes.css` and are CSS masks so they follow the active theme color.
+Keep each domain glyph one coherent symbol; do not compose detached pieces (for example a grid plus bars)
+into one icon.
+
 ### Advantages
 
 - **Lightweight** — no Python process.
@@ -159,30 +165,53 @@ await this.plotlyService.showPlot({
 
 ---
 
-## Pattern C: Hybrid (React + Iframe)
+## Pattern C: Hybrid (React + Native 3D)
 
 Some features combine both patterns:
 
 **Example: Statepoint Viewer**
 
 - Main viewer is a **React widget** showing metadata, tables, and Plotly charts.
-- Clicking "View Source" spawns a **VisualizerWidget** with an iframe for the 3D scatter plot.
+- Clicking **Visualize 3D** in the Source Bank section opens a **NativeVtkViewerWidget** with the converted source scatter.
 
 **Example: Geometry Hierarchy**
 
 - Tree is a **React widget** in the sidebar.
-- Clicking "View 3D" spawns a **VisualizerWidget** with a Python server rendering the geometry.
+- Clicking "View 3D" opens a **native viewer** with the extracted geometry mesh.
+
+---
+
+## Sidebar Panel Contracts (Viewer Settings / DAGMC Outline)
+
+The two visualizer sidebars share the CAD Model Outline grammar and stay
+readable at the 250 px default width:
+
+- **Section headers** are 11 px uppercase, weight 600, 0.3 px letter-spacing,
+  7 px gap, with plain-integer count badges (`3`, never `03` or `0/3`).
+- **Settings rows** reserve a non-shrinking label column (`flex: 0 0 auto`,
+  `min-width: 82px`, `white-space: nowrap`) and let controls absorb the
+  remaining width. Never shrink or ellipsize a label so a control fits; dense
+  rows wrap extra controls only when the panel is too narrow.
+- **Categorical color modes** report no scalar mapping through
+  `ViewerSettingsSnapshot.colormap.disabled` (Solid Color and DAGMC
+  Material/Volume/Group). The panel must omit the colormap, Invert/Log, range,
+  threshold, and color-legend rows instead of rendering disabled controls,
+  leaving Color by plus the muted `note` line. `solidColor` renders only in
+  Solid Color.
+- **DAGMC Outline rows** are 24 px with the same header treatment; count
+  badges, material/group swatches, search, and visibility/isolate actions are
+  behavior, not chrome — keep them when restyling.
 
 ---
 
 ## Decision Flowchart
 
 ```
-Does your visualization need a Python rendering library
-(Paraview, VTK, OpenMC 3D, custom GL)?
+Does your visualization need 3D rendering
+(VTK datasets, converted meshes, tallies)?
 │
-├─ YES → Use Pattern A: Iframe Widget
-│        (VisualizerWidget or subclass)
+├─ YES → Use Pattern A: Native 3D Widget
+│        (NativeVtkViewerWidget or subclass)
 │
 └─ NO  → Is it 2D data that can be rendered with Plotly/Charts?
          │
@@ -199,7 +228,7 @@ Does your visualization need a Python rendering library
 
 | Widget                         | Pattern          | Purpose                            |
 | ------------------------------ | ---------------- | ---------------------------------- |
-| `VisualizerWidget`             | A (iframe)       | Base 3D mesh/DAGMC viewer          |
+| `VisualizerWidget`             | A (native)       | Base 3D mesh/DAGMC viewer          |
 | `OpenMCPlotWidget`             | B (React+Plotly) | 2D tally plots (spectrum, spatial) |
 | `OpenMCHeatmapWidget`          | B (React+Plotly) | 2D mesh tally slices               |
 | `XSPlotWidget`                 | B (React+Plotly) | Cross-section plotting             |
@@ -209,4 +238,3 @@ Does your visualization need a Python rendering library
 | `OpenMCDepletionWidget`        | B (React+Plotly) | Depletion curves                   |
 | `OpenMCMaterialExplorerWidget` | B (React)        | Material compositions              |
 | `OpenMCOverlapWidget`          | B (React)        | Overlap checker UI                 |
-| `OpenMCGeometry3DWidget`       | A (iframe)       | 3D geometry renderer               |

@@ -2,6 +2,12 @@
 node_modules
 **/.browser_modules
 
+# Python virtual environments
+.venv/
+
+# Research/scratch artifacts (large generated JSON, throwaway scripts)
+.planning/
+
 # Build output (tsc / webpack / electron-builder)
 extensions/*/lib
 applications/*/lib
@@ -16,6 +22,7 @@ applications/electron/dist
 
 # Generated files
 resources/preload.html
+extensions/nuke-cad/src/common/samples/*.json
 
 # Caches and logs
 **/.electron-cache

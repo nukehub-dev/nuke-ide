@@ -35,16 +35,13 @@ import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../../openmc-service';
 import { OpenMCOverlapWidget } from './openmc-overlap-widget';
+import { GeometryNativeViewerWidget } from '../geometry-native/geometry-native-viewer-widget';
 import { OpenMCGeometryHierarchy, OpenMCUniverse, OpenMCCell, OpenMCSurface, OpenMCLattice } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
 import './openmc-geometry-tree.css';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
-import {
-    SimpleLoadingSpinner,
-    EmptyState,
-    ErrorDisplay,
-    LoadingAnimations
-} from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { SimpleLoadingSpinner, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { DomainGeometryIcon } from '../../../../widgets/domain-icons';
 
 export interface GeometryView3DRequest {
     fileUri: URI;
@@ -98,12 +95,18 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private readonly _onGeometryLoaded = new Emitter<GeometryLoadedEvent>();
     readonly onGeometryLoaded: Event<GeometryLoadedEvent> = this._onGeometryLoaded.event;
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     @postConstruct()
     protected init(): void {
         this.id = OpenMCGeometryTreeWidget.ID;
         this.title.label = OpenMCGeometryTreeWidget.LABEL;
         this.title.caption = OpenMCGeometryTreeWidget.LABEL;
-        this.title.iconClass = codicon('repo');
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-geometry';
         this.title.closable = false;
 
         this.node.tabIndex = 0;
@@ -223,12 +226,17 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         if (!this.hierarchy) {
             return (
                 <div className="openmc-geometry-tree empty">
-                    <EmptyState
-                        icon="repo"
-                        message="No geometry file loaded"
-                        actionLabel="Browse Geometry File"
-                        onAction={() => this.handleBrowse()}
-                    />
+                    <NukeEmptyState
+                        iconNode={<DomainGeometryIcon />}
+                        title="No geometry loaded"
+                        message="Open a geometry.xml or summary.h5 file to browse cells, universes, and materials."
+                        hint="Surfaces and lattices are included when available."
+                    >
+                        <button className="theia-button" onClick={() => this.handleBrowse()}>
+                            <i className={codicon('folder-opened')}></i>
+                            Browse Geometry File
+                        </button>
+                    </NukeEmptyState>
                 </div>
             );
         }
@@ -242,7 +250,7 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
                     <div className="header-title">
                         <Tooltip content={fileName} position="bottom">
                             <span className="file-name">
-                                <i className={codicon('repo')}></i>
+                                <DomainGeometryIcon size={14} className="file-name-icon" />
                                 {fileName}
                             </span>
                         </Tooltip>
@@ -468,12 +476,8 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         else if (surface.type.includes('torus')) icon = 'refresh';
 
         return (
-            <Tooltip content={surface.description || `${surface.type} surface`} position="top">
-                <div
-                    key={`surface-${surface.id}`}
-                    className={`surface-item ${isSelected ? 'selected' : ''}`}
-                    onClick={() => this.selectSurface(surface.id)}
-                >
+            <Tooltip key={`surface-${surface.id}`} content={surface.description || `${surface.type} surface`} position="top">
+                <div className={`surface-item ${isSelected ? 'selected' : ''}`} onClick={() => this.selectSurface(surface.id)}>
                     <i className={codicon(icon)}></i>
                     <span className="surface-id">{surface.id}</span>
                     <span className="surface-type">{surface.type}</span>
@@ -577,7 +581,21 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
     private selectCell(cellId: number, universeId: number): void {
         this.selectedItem = { type: 'cell', id: cellId, parentId: universeId };
         this._onGeometrySelected.fire(this.selectedItem);
+        this.forwardCellToNativeViewer(cellId);
         this.update();
+    }
+
+    /**
+     * Forward a tree cell pick to every open native geometry viewer. Guarded:
+     * a no-op when none is open. The trame-3D highlight path (the
+     * `onGeometrySelected` event above) is untouched.
+     */
+    protected forwardCellToNativeViewer(cellId: number): void {
+        for (const widget of this.shell.getWidgets('main')) {
+            if (widget instanceof GeometryNativeViewerWidget && !widget.isDisposed) {
+                widget.selectCell(cellId);
+            }
+        }
     }
 
     private selectSurface(surfaceId: number): void {
@@ -592,6 +610,11 @@ export class OpenMCGeometryTreeWidget extends ReactWidget {
         this.update();
     }
 
+    /**
+     * View 3D delegates to `OpenMCGeometryContribution.showGeometry3D`, which
+     * tries the native viewer (`extractGeometryMesh` → `setModelFile`) first
+     * and falls back to the trame 3D widget — no native logic is duplicated here.
+     */
     private viewIn3D(): void {
         if (this.geometryUri) {
             this._onView3D.fire({ fileUri: this.geometryUri });

@@ -166,6 +166,62 @@ export interface CADImportResult {
     dagmcInfo?: DAGMCInfo;
 }
 
+/** Nuke-cad import request */
+export interface NukeCADImportRequest {
+    /** Path to the DAGMC .h5m file produced by nuke-cad */
+    h5mPath: string;
+    /** Optional explicit path to the nuke-cad region manifest (.regions.json) */
+    manifestPath?: string;
+}
+
+/** Physical-model link from a nuke-cad region manifest volume. */
+export interface NukeCADMaterialLink {
+    selector: string;
+    name?: string;
+    material?: string;
+    materialId?: string;
+    parentId?: string;
+    /** True when inherited from the manifest's default entry. */
+    fromDefault?: boolean;
+}
+
+/** Nuke-cad import result */
+export interface NukeCADImportResult {
+    /** Whether import was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Warning messages */
+    warnings?: string[];
+    /** Absolute path to the imported DAGMC file */
+    dagmcFile?: string;
+    /** DAGMC model information */
+    dagmcInfo?: DAGMCInfo;
+    /** Parsed nuke-cad region manifest, if found */
+    manifest?: {
+        version: number;
+        volumes: Array<{
+            selector: string;
+            name?: string;
+            material?: string;
+            materialId?: string;
+            parentId?: string;
+            default?: boolean;
+            tags?: string[];
+            meshSize?: number;
+        }>;
+        surfaces: Array<{
+            selector: string;
+            name?: string;
+            role?: string;
+        }>;
+    };
+    /** Material names extracted from the manifest or DAGMC file */
+    materialNames?: string[];
+    /** Physical-model links from the manifest (additive; nuclear sidecar stays keyed by material name). */
+    materialLinks?: NukeCADMaterialLink[];
+}
+
 /**
  * CAD Import Service for OpenMC
  *
@@ -367,6 +423,116 @@ export class OpenMCCADImportService {
                 success: false,
                 error: `CAD import failed: ${msg}`
             };
+        }
+    }
+
+    /**
+     * Import a DAGMC model produced by nuke-cad into an OpenMC project.
+     *
+     * Reads the optional ``.regions.json`` manifest beside the ``.h5m`` file and
+     * returns both DAGMC metadata and the manifest material names so the caller
+     * can create matching OpenMC materials.
+     *
+     * @param request - Import request with h5m path and optional manifest path
+     * @returns Import result with DAGMC info and extracted material names
+     */
+    async importNukeCAD(request: NukeCADImportRequest): Promise<NukeCADImportResult> {
+        const warnings: string[] = [];
+        try {
+            const h5mPath = path.resolve(request.h5mPath);
+            if (!fs.existsSync(h5mPath)) {
+                return { success: false, error: `DAGMC file not found: ${h5mPath}` };
+            }
+
+            // Resolve the manifest: explicit path, then sibling <stem>.regions.json.
+            let manifestPath = request.manifestPath ? path.resolve(request.manifestPath) : undefined;
+            if (!manifestPath || !fs.existsSync(manifestPath)) {
+                const sibling = path.join(path.dirname(h5mPath), `${path.basename(h5mPath, '.h5m')}.regions.json`);
+                if (fs.existsSync(sibling)) {
+                    manifestPath = sibling;
+                }
+            }
+
+            let manifest: NukeCADImportResult['manifest'] | undefined;
+            if (manifestPath && fs.existsSync(manifestPath)) {
+                try {
+                    const content = fs.readFileSync(manifestPath, 'utf-8');
+                    manifest = JSON.parse(content);
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    warnings.push(`Could not read nuke-cad manifest: ${msg}`);
+                }
+            }
+
+            // Extract DAGMC metadata using the existing DAGMC import path.
+            const dagmcResult = await this.importDAGMC(h5mPath);
+            if (!dagmcResult.success) {
+                return {
+                    success: false,
+                    error: dagmcResult.error || 'Failed to read DAGMC file',
+                    warnings: [...warnings, ...(dagmcResult.warnings || [])]
+                };
+            }
+
+            // Collect material names from the manifest first, then from the DAGMC file.
+            // Physical-model links from the nuke-cad region manifest (additive; the
+            // nuclear sidecar stays keyed by material name as today).
+            const defaultEntry = manifest?.volumes?.find((v) => v.default === true);
+            const materialLinks: NukeCADMaterialLink[] = (manifest?.volumes ?? [])
+                .filter((v) => v.selector && v.selector !== defaultEntry?.selector)
+                .map((v) => ({
+                    selector: v.selector,
+                    name: v.name,
+                    material: v.material,
+                    materialId: v.materialId,
+                    parentId: v.parentId
+                }));
+            const materialSet = new Set<string>();
+            if (manifest?.volumes) {
+                for (const vol of manifest.volumes) {
+                    if (vol.material) {
+                        materialSet.add(vol.material);
+                    }
+                }
+            }
+            if (dagmcResult.dagmcInfo?.materials) {
+                for (const matName of Object.keys(dagmcResult.dagmcInfo.materials)) {
+                    if (matName && matName.toLowerCase() !== 'graveyard') {
+                        materialSet.add(matName);
+                    }
+                }
+            }
+
+            // Per-body default: DAGMC selectors without an explicit entry inherit it.
+            if (defaultEntry) {
+                const explicitSelectors = new Set(materialLinks.map((l) => l.selector));
+                const dagmcSelectors: string[] = Object.keys(dagmcResult.dagmcInfo?.materials ?? {});
+                for (const sel of dagmcSelectors) {
+                    if (!explicitSelectors.has(sel)) {
+                        materialLinks.push({
+                            selector: sel,
+                            name: defaultEntry.name,
+                            material: defaultEntry.material,
+                            materialId: defaultEntry.materialId,
+                            parentId: defaultEntry.materialId ?? undefined,
+                            fromDefault: true
+                        });
+                    }
+                }
+            }
+
+            return {
+                success: true,
+                warnings,
+                dagmcFile: h5mPath,
+                dagmcInfo: dagmcResult.dagmcInfo,
+                manifest,
+                materialNames: Array.from(materialSet),
+                materialLinks
+            };
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return { success: false, error: `nuke-cad import failed: ${msg}`, warnings };
         }
     }
 

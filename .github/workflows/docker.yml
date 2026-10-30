@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Free disk space
-        # The all-in-one image (Theia bundle + conda ParaView/VTK/OCCT) is large.
+        # The all-in-one image (Theia bundle + conda VTK/OCCT) is large.
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell
           df -h /
@@ -50,10 +50,14 @@ jobs:
         run: |
           docker run --rm --entrypoint python nuke-ide:latest -c "
           import numpy, scipy, h5py, matplotlib, pandas, yaml
-          import openmc, trame
+          import openmc
           import vtk
-          from paraview import simple
-          import OCP, cadquery, OCC, gmsh
+          import OCP, OCC, gmsh
+          import build123d, meshio, netCDF4
+          # Guard: conda-forge offers a broken build123d 0.7.0 that the solver
+          # picks if the image recipe ever reintroduces conda build123d (the
+          # real 0.9.1 is pip-installed --no-deps by the Dockerfile).
+          assert tuple(int(p) for p in build123d.__version__.split('.')[:2]) >= (0, 9), build123d.__version__
           from pymoab import core
           import pydagmc
           print('python env OK')
@@ -67,12 +71,12 @@ jobs:
             pip install -q pytest && python -m pytest -q
           "
 
-      - name: Smoke test the rendering stack
-        # Functional check of the trame/ParaView/VTK seam the unit tests skip
-        # (they run without the rendering stack): offscreen render, composite
-        # data serialization for local (vtk.js) rendering, and the
-        # VtkRemoteLocalView API surface. This is what catches upstream
-        # trame-vtk/ParaView/OpenMC releases breaking the visualizer.
+      - name: Smoke test the converter stack
+        # Functional check of the headless converter seam the unit tests skip
+        # (they run without the VTK stack): synthetic tracks.h5 -> .vtp
+        # through the repo's own converter, read back via vtk, plus the same
+        # conversion end to end through the server.py CLI. This is what
+        # catches upstream vtk/OpenMC releases breaking the visualizer.
         run: |
           docker run --rm --entrypoint python nuke-ide:latest \
             /opt/nuke-ide/applications/docker/render_smoke_test.py
@@ -115,7 +119,7 @@ jobs:
           fi
 
       - name: Open issue on scheduled failure
-        # Weekly runs float the unpinned deps (trame, trame-vtk, openmc wheel,
+        # Weekly runs float the unpinned deps (openmc wheel,
         # base images); a red run means an upstream release broke us. File it
         # so it becomes a work item instead of a silently missed signal.
         if: failure() && github.event_name == 'schedule'
@@ -131,7 +135,7 @@ jobs:
               labels: labels.join(','),
             });
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `The weekly docker build & smoke test failed.\n\nRun: ${runUrl}\n\nCheck the "Smoke test the rendering stack" step first — it exercises the trame/ParaView/VTK seam against the latest upstream releases. Diff the run's \`dependency-snapshot\` artifact against the last green one to identify the breaking release.`;
+            const body = `The weekly docker build & smoke test failed.\n\nRun: ${runUrl}\n\nCheck the "Smoke test the converter stack" step first — it exercises the headless VTK converter seam against the latest upstream releases. Diff the run's \`dependency-snapshot\` artifact against the last green one to identify the breaking release.`;
             const open = existing.find((issue) => issue.title === title);
             if (open) {
               await github.rest.issues.createComment({

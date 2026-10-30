@@ -89,6 +89,21 @@ class TestImportNCrystal:
             ncrystal_import.main()
         assert exc.value.code == 2
 
+    def test_unexpected_errors_are_reported_as_json(self, monkeypatch, capsys):
+        """Unexpected failures carry a traceback field and exit 0."""
+        monkeypatch.setattr(sys, "argv", ["ncrystal_import.py", "bad.ncmat"])
+        monkeypatch.setattr(
+            ncrystal_import,
+            "import_ncrystal",
+            lambda cfg: (_ for _ in ()).throw(ValueError("bad cfg")),
+        )
+        with pytest.raises(SystemExit) as exc:
+            ncrystal_import.main()
+        assert exc.value.code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"] == "bad cfg"
+        assert "traceback" in payload
+
 
 class TestNCrystalIntegration:
     def test_real_ncrystal_import(self):

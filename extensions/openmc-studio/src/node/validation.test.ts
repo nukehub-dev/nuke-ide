@@ -31,6 +31,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { OpenMCState } from '../common/openmc-state-schema';
@@ -43,7 +46,7 @@ function buildState(): OpenMCState {
         geometry: {
             surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
             cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-            universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+            universes: [{ id: 0, name: 'root', cellIds: [1] }],
             lattices: [],
             rootUniverseId: 0
         },
@@ -66,6 +69,65 @@ function buildState(): OpenMCState {
         plots: []
     } as OpenMCState;
 }
+
+describe('validateState plot appearance warnings', () => {
+    it('warns when a slice mask references a missing domain', async () => {
+        const state = buildState();
+        state.plots = [
+            {
+                id: 1,
+                type: 'slice',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                colorBy: 'material',
+                mask: { components: [1, 99] }
+            }
+        ];
+
+        const result = await new OpenMCStudioBackendServiceImpl().validateState({ state });
+        const warning = result.issues.find((issue) => issue.severity === 'warning' && issue.message.includes('99'));
+        expect(warning).toBeDefined();
+        expect(warning!.suggestion).toContain('Remove the missing IDs');
+        expect(warning!.path).toBe('plots.1.mask');
+    });
+
+    it('warns when a voxel plot carries display-only appearance fields', async () => {
+        const state = buildState();
+        state.plots = [
+            {
+                id: 2,
+                type: 'voxel',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                colorBy: 'cell',
+                background: [1, 2, 3],
+                mask: { components: [1] }
+            }
+        ];
+
+        const result = await new OpenMCStudioBackendServiceImpl().validateState({ state });
+        expect(result.issues.some((issue) => issue.severity === 'warning' && issue.message.includes('voxel'))).toBe(true);
+    });
+
+    it('warns when overlap highlighting is set on a ray-traced plot', async () => {
+        const state = buildState();
+        state.plots = [
+            {
+                id: 3,
+                type: 'solid-raytrace',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                colorBy: 'cell',
+                showOverlaps: true
+            }
+        ];
+
+        const result = await new OpenMCStudioBackendServiceImpl().validateState({ state });
+        expect(
+            result.issues.some((issue) => issue.severity === 'warning' && issue.message.includes('only detects overlaps for slice'))
+        ).toBe(true);
+    });
+});
 
 describe('validateState depletion operator restrictions', () => {
     /** Enable depletion with the required basics so only the operator checks fire. */
@@ -168,6 +230,105 @@ describe('validateState depletion operator restrictions', () => {
 
         expect(result.issues.some((i) => i.message.includes('flux and MicroXS'))).toBe(false);
     });
+
+    it('rejects an unknown reactivity-control cell', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.reactivityControl = {
+            enabled: true,
+            parameter: 'cell-translation',
+            cellId: 99,
+            axis: 'z',
+            x0: 0,
+            x1: 1,
+            bracket: [-1, 1]
+        };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.category === 'depletion' && i.message.includes('Cell #99 does not exist'))).toBe(true);
+    });
+
+    it('accepts a valid search and external rate', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.substeps = 2;
+        state.depletion!.reactivityControl = {
+            enabled: true,
+            parameter: 'nuclide-density',
+            materialId: 1,
+            nuclide: 'H1',
+            x0: 0.01,
+            x1: 0.02,
+            bracket: [0.001, 0.1]
+        };
+        state.depletion!.externalSourceRates = [
+            {
+                material: 1,
+                composition: [{ name: 'H1', weightPercent: 100 }],
+                rate: -1e-6,
+                units: 'g/s',
+                timesteps: [0]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        const depletionErrors = result.issues.filter((i) => i.category === 'depletion' && i.severity === 'error');
+        expect(depletionErrors).toEqual([]);
+    });
+
+    it('errors when the previous depletion results file is missing', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.continueFromResults = '/no/such/depletion_results.h5';
+        state.depletion!.continueTimesteps = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.category === 'depletion' && i.message.includes('Previous depletion results file not found'))
+        ).toBe(true);
+    });
+
+    it('errors when continuing timesteps without a previous results file', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.continueTimesteps = true;
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some(
+                (i) => i.category === 'depletion' && i.message.includes('Continue timesteps needs a previous depletion results file')
+            )
+        ).toBe(true);
+    });
+
+    it('errors on a nuclide that the control material does not contain', async () => {
+        const state = buildState();
+        enableDepletion(state);
+        state.depletion!.reactivityControl = {
+            enabled: true,
+            parameter: 'nuclide-density',
+            materialId: 1,
+            nuclide: 'U235',
+            x0: 0.01,
+            x1: 0.02,
+            bracket: [0.001, 0.1]
+        };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.category === 'depletion' && i.message.includes('Nuclide "U235" is not in material "Water"'))
+        ).toBe(true);
+    });
 });
 
 describe('validateState random ray (multi-group) restrictions', () => {
@@ -239,6 +400,38 @@ describe('validateState random ray (multi-group) restrictions', () => {
         const result = await backend.validateState({ state });
 
         expect(result.issues.some((i) => i.message.includes('random ray'))).toBe(false);
+    });
+
+    it('accepts cell-instance filters and rejects unsupported filters in random ray mode', async () => {
+        const state = buildState();
+        state.settings.energyMode = 'multigroup';
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Instance flux',
+                scores: ['flux'],
+                nuclides: [],
+                filters: [{ type: 'cellinstance', bins: [1, 0], pairs: [{ first: 1, second: 0 }] }]
+            },
+            {
+                id: 2,
+                name: 'Weighted flux',
+                scores: ['flux'],
+                nuclides: [],
+                filters: [{ type: 'weight', bins: [0, 1] }]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        const filterError = result.issues.find(
+            (i) => i.severity === 'error' && i.message.includes('Filters not supported in random ray mode')
+        );
+        expect(filterError).toBeDefined();
+        expect(filterError!.message).toContain('tally 2 (Weighted flux): weight');
+        expect(filterError!.message).not.toContain('tally 1');
+        expect(filterError!.suggestion).toContain('cell instance');
     });
 
     it('errors when multi-group mode has nuclide-decomposed materials', async () => {
@@ -558,5 +751,151 @@ describe('validateState FW-CADIS weight window generator', () => {
         const result = await backend.validateState({ state });
 
         expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('FW-CADIS'))).toBe(false);
+    });
+});
+
+describe('validateState geometry model', () => {
+    it('errors when a cell fills a lattice that does not exist', async () => {
+        const state = buildState();
+        state.geometry.cells[0] = { id: 1, fillType: 'lattice', fillId: 99 };
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((issue) => issue.severity === 'error' && issue.message.includes('fills lattice #99 which does not exist'))
+        ).toBe(true);
+    });
+
+    it('errors when a periodic pair is not reciprocal', async () => {
+        const state = buildState();
+        state.geometry.surfaces = [
+            { id: 1, type: 'x-plane', coefficients: { x0: -1 }, boundary: 'periodic', periodicSurfaceId: 2 },
+            { id: 2, type: 'x-plane', coefficients: { x0: 1 }, boundary: 'periodic' }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((issue) => issue.severity === 'error' && issue.message.includes('does not point back'))).toBe(true);
+    });
+});
+
+describe('validateState mesh authoring', () => {
+    it('errors on invalid rectilinear grids', async () => {
+        const state = buildState();
+        state.meshes = [{ type: 'rectilinear', id: 4, xGrid: [0, 2, 1], yGrid: [0], zGrid: [0, 1] }];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('x-grid') && i.message.includes('strictly increase'))
+        ).toBe(true);
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('y-grid') && i.message.includes('at least two'))
+        ).toBe(true);
+    });
+
+    it('errors when an unstructured file extension does not match the library', async () => {
+        const state = buildState();
+        state.meshes = [{ type: 'unstructured', id: 5, filename: '/meshes/core.vtk', library: 'libmesh' }];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(
+            result.issues.some((i) => i.severity === 'error' && i.message.includes('.vtk is not supported by the libmesh library'))
+        ).toBe(true);
+    });
+
+    it('errors when an absolute unstructured mesh file is missing', async () => {
+        const state = buildState();
+        state.meshes = [{ type: 'unstructured', id: 5, filename: '/definitely/missing/core.h5m', library: 'moab' }];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('file does not exist'))).toBe(true);
+    });
+
+    it('errors when a mesh filter references a missing mesh', async () => {
+        const state = buildState();
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Mesh flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [99], meshId: 99 }]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('references mesh 99 which does not exist'))).toBe(
+            true
+        );
+    });
+
+    it('accepts a valid rectilinear grid and an existing unstructured file', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-valid-'));
+        const meshFile = path.join(tempDir, 'mesh.h5m');
+        fs.writeFileSync(meshFile, 'placeholder');
+
+        const state = buildState();
+        state.meshes = [
+            { type: 'rectilinear', id: 4, xGrid: [0, 1, 2], yGrid: [0, 1], zGrid: [-1, 1] },
+            { type: 'unstructured', id: 5, filename: meshFile, library: 'moab' }
+        ];
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Mesh flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [4], meshId: 4 }]
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        expect(result.issues.some((i) => i.message.includes('grid is invalid'))).toBe(false);
+        expect(result.issues.some((i) => i.message.includes('file does not exist'))).toBe(false);
+        expect(result.issues.some((i) => i.message.includes('which does not exist'))).toBe(false);
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+});
+
+describe('validateState source distributions', () => {
+    it('reports malformed tabular, mixture, and time distributions with fixes', async () => {
+        const state = buildState();
+        state.settings.sources = [
+            {
+                id: 'bad source',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'mixture',
+                    probability: [0.2, 0.2],
+                    distributions: [
+                        { type: 'tabular', energies: [2, 1], probabilities: [1, 1, 1] },
+                        { type: 'uniform', min: 0, max: 1 }
+                    ]
+                },
+                time: { type: 'discrete', energies: [1, 0], probabilities: [0.5, 0.5] }
+            }
+        ];
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const result = await backend.validateState({ state });
+
+        const messages = result.issues.map((issue) => issue.message).join('\n');
+        expect(messages).toContain('bad source: Energy mixture component 1 x values must strictly increase');
+        expect(messages).toContain('bad source: Energy mixture component 1 table has 2 x values but 3 probabilities');
+        expect(messages).toContain('bad source: Time values are not ordered');
+        expect(result.issues.every((issue) => (issue.suggestion ?? '').length > 0)).toBe(true);
     });
 });

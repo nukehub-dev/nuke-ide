@@ -1,0 +1,80 @@
+{
+  "$comment": "Canonical install specs for Python packages shared by the extension packages.json files (nuke-cad, nuke-visualizer, openmc-studio). Any package listed here must carry exactly these spec fields (submodule, condaOnly, channels, extraIndexUrl, pipSpec, pipArgs, condaSpec) wherever it appears; `required`/`minVersion` stay per-group context. Enforced by package-registry.test.ts. See extensions/AGENTS.md.",
+  "openmc": {
+    "extraIndexUrl": "https://shimwell.github.io/wheels"
+  },
+  "moab": {
+    "extraIndexUrl": "https://shimwell.github.io/wheels"
+  },
+  "pydagmc": {
+    "pipSpec": "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
+  },
+  "gmsh": {
+    "condaSpec": "python-gmsh"
+  },
+  "OCP": {
+    "condaSpec": "ocp=7.9.3.1",
+    "pipSpec": "cadquery-ocp<7.9"
+  },
+  "OCC": {
+    "condaSpec": "pythonocc-core"
+  },
+  "build123d": {
+    "pipSpec": "build123d==0.9.1",
+    "pipArgs": ["--no-deps"]
+  },
+  "cadquery": {
+    "condaSpec": "cadquery"
+  },
+  "netgen": {
+    "condaSpec": "ngsolve",
+    "pipSpec": "ngsolve"
+  },
+  "ngsolve": {
+    "condaSpec": "ngsolve"
+  },
+  "h5py": {
+    "condaSpec": "h5py"
+  },
+  "numpy": {
+    "condaSpec": "numpy"
+  },
+  "meshio": {
+    "condaSpec": "meshio"
+  },
+  "netCDF4": {
+    "condaSpec": "netcdf4"
+  },
+  "ncrystal": {
+    "condaSpec": "ncrystal"
+  },
+  "mpi4py": {
+    "condaOnly": true,
+    "condaSpec": "mpi4py"
+  },
+  "svgpathtools": {
+    "condaSpec": "svgpathtools"
+  },
+  "anytree": {
+    "condaSpec": "anytree"
+  },
+  "ezdxf": {
+    "condaSpec": "ezdxf"
+  },
+  "trianglesolver": {
+    "condaSpec": "trianglesolver"
+  },
+  "ocpsvg": {
+    "pipSpec": "ocpsvg==0.6.0",
+    "pipArgs": ["--no-deps"]
+  },
+  "py-lib3mf": {
+    "pipSpec": "py-lib3mf"
+  },
+  "ipython": {
+    "condaSpec": "ipython<9"
+  },
+  "svgelements": {
+    "condaSpec": "svgelements"
+  }
+}

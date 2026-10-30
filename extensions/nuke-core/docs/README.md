@@ -43,21 +43,17 @@ docs/
 ├── README.md              # You are here
 ├── user/                  # End-user guides
 │   ├── index.md
+│   ├── getting-started.md
 │   ├── environment-management.md
-│   ├── package-management.md
-│   ├── health-checks.md
-│   ├── status-bar.md
-│   ├── workspace-auto-detect.md
-│   ├── settings.md
+│   ├── package-installation.md
+│   ├── tools-sidebar.md
 │   └── troubleshooting.md
 └── dev/                   # Developer guides
     ├── index.md
     ├── architecture.md
     ├── service-api.md
-    ├── backend-api.md
-    ├── menu-contributions.md
-    ├── status-bar-visibility.md
-    └── integration-guide.md
+    ├── status-bar-integration.md
+    └── tools-sidebar.md
 ```
 
 ---
@@ -74,5 +70,5 @@ API reference is **not duplicated** in these docs. Instead:
 
 ## Related Documentation
 
-- [**OpenMC Studio Documentation**](../openmc-studio/docs/README.md) — No-code OpenMC simulation workspace
-- [**Nuke Visualizer Documentation**](../nuke-visualizer/docs/README.md) — 3D/2D nuclear data visualization
+- [**OpenMC Studio Documentation**](../../openmc-studio/docs/README.md) — No-code OpenMC simulation workspace
+- [**Nuke Visualizer Documentation**](../../nuke-visualizer/docs/README.md) — 3D/2D nuclear data visualization

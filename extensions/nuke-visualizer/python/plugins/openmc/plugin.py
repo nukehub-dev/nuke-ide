@@ -13,7 +13,6 @@ _COMMAND_MODULES = [
     "depletion",
     "xs_plot",
     "statepoint",
-    "tally_viz",
     "tracks",
     "collision_track",
     "weight_windows",
@@ -23,6 +22,8 @@ _COMMAND_MODULES = [
     "ncrystal_data",
     "endf_data",
     "output_vtk",
+    "tally_vtk",
+    "tally_series",
 ]
 
 load_command_modules("plugins.openmc.commands", _COMMAND_MODULES)

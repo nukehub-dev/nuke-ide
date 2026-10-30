@@ -46,3 +46,4 @@
 export * from './environment/environment-service';
 export * from './package-service';
 export * from './health-service';
+export * from './dependency-install-planner';

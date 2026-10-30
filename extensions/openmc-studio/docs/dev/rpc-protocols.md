@@ -43,6 +43,16 @@ The main backend service interface is intentionally broad — it is the single R
 | ------------------------- | ----------------------------------------------------------------------- |
 | `setPythonConfig(config)` | Sets Python path / conda env (shared with nuke-visualizer preferences). |
 
+### Files and Compatibility
+
+| Method                  | Purpose                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `getOpenMCCompat()`     | Probes the configured Python environment once and caches feature capabilities (never version parsing). |
+| `checkFileExists(path)` | Stats an absolute local path for the mesh editor's missing-file hint (exists + size + diagnostic).     |
+
+The compatibility probe runs Python asynchronously so unrelated JSON-RPC calls stay responsive while an
+environment is detected.
+
 ### XML Generation
 
 | Method                   | Purpose                                                                                             |
@@ -57,15 +67,19 @@ The main backend service interface is intentionally broad — it is the single R
 
 ### Simulation Runner
 
-| Method                        | Blocking?        | Purpose                                                                                                         |
-| ----------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| `runSimulation(request)`      | **Blocking**     | Spawns OpenMC and returns the complete result (exit code, stdout, stderr, output files).                        |
-| `startSimulation(request)`    | **Non-blocking** | Spawns OpenMC in the background and returns a `processId` immediately.                                          |
-| `cancelSimulation(processId)` | —                | Kills the running process identified by `processId`.                                                            |
-| `getSimulationLog(processId)` | —                | Reads the log file for a running or completed simulation.                                                       |
-| `getActiveSimulations()`      | —                | Lists in-flight runs as `ActiveSimulationInfo[]` (`processId`, `workingDirectory`, `logFilePath`, `startTime`). |
-| `checkOpenMC()`               | —                | Detects whether `openmc` is available and returns version/path.                                                 |
-| `checkMPI()`                  | —                | Detects MPI availability and recommended process count.                                                         |
+| Method                          | Blocking?        | Purpose                                                                                                         |
+| ------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| `runSimulation(request)`        | **Blocking**     | Spawns OpenMC and returns the complete result (exit code, stdout, stderr, output files).                        |
+| `startSimulation(request)`      | **Non-blocking** | Spawns OpenMC in the background and returns a `processId` immediately.                                          |
+| `cancelSimulation(processId)`   | —                | Kills the running process identified by `processId`.                                                            |
+| `getSimulationLog(processId)`   | —                | Reads the log file for a running or completed simulation.                                                       |
+| `getActiveSimulations()`        | —                | Lists in-flight runs as `ActiveSimulationInfo[]` (`processId`, `workingDirectory`, `logFilePath`, `startTime`). |
+| `checkOpenMC()`                 | —                | Detects whether `openmc` is available and returns version/path.                                                 |
+| `checkMPI()`                    | —                | Detects MPI availability and recommended process count.                                                         |
+| `runVolumeCalculation(request)` | **Blocking**     | Runs a stochastic volume calculation and returns per-cell volumes.                                              |
+| `generatePlots(request)`        | **Blocking**     | Renders native OpenMC plots for the native plotting window.                                                     |
+| `runKeffSearch(request)`        | **Blocking**     | Searches one model parameter for a target k-effective (`openmc.search_for_keff`); iterates stream to logs.      |
+| `cancelKeffSearch(runId)`       | —                | Cancels a running k-effective search.                                                                           |
 
 **Concept:** Two execution modes serve different UX needs. The blocking call is used for quick validation runs or when the user explicitly waits. The non-blocking call is used for long production runs where the dashboard shows real-time progress. Both modes write a dedicated log file so output is never lost, even if the WebSocket disconnects.
 
@@ -76,20 +90,20 @@ Status events are one-shot pushes, so a reloaded frontend cannot discover in-fli
 | Method                             | Purpose                                                                                             |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `validateState(request)`           | Checks geometry, materials, settings, tallies, and depletion configuration for errors and warnings. |
-| `checkOverlaps(request)`           | Samples geometry for cell overlaps (placeholder for Phase 2).                                       |
+| `checkOverlaps(request)`           | Samples geometry for cell overlaps (placeholder).                                                   |
 | `validateRegion(region, surfaces)` | Parses a region string against the available surface list.                                          |
 
 **Concept:** Validation runs in the backend because it may need to inspect cross-references across the entire state (e.g., verifying that every surface referenced in a cell region actually exists). The frontend can trigger validation on demand or before run/export.
 
 ### Project Management
 
-| Method                     | Purpose                                                                            |
-| -------------------------- | ---------------------------------------------------------------------------------- |
-| `createProject(request)`   | Creates a `.nuke-openmc` file with default state.                                  |
-| `loadProject(projectPath)` | Reads and parses a `.nuke-openmc` file.                                            |
-| `saveProject(request)`     | Serializes state to JSON, optionally also generating XML.                          |
-| `getTemplates()`           | Returns built-in templates (pin-cell, fuel-assembly, full-core, shielding, blank). |
-| `applyTemplate(request)`   | Merges a template's default state into the current state.                          |
+| Method                     | Purpose                                                                                                              |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `createProject(request)`   | Creates a `.nuke-openmc` file with default state.                                                                    |
+| `loadProject(projectPath)` | Reads and parses a `.nuke-openmc` file.                                                                              |
+| `saveProject(request)`     | Serializes state to JSON, optionally also generating XML.                                                            |
+| `getTemplates()`           | Returns built-in templates (pin-cell, 17x17 PWR assembly, demonstration core, shielding, criticality safety, blank). |
+| `applyTemplate(request)`   | Merges a template's default state into the current state.                                                            |
 
 ### WWINP Import/Export
 
@@ -107,7 +121,7 @@ Status events are one-shot pushes, so a reloaded frontend cannot discover in-fli
 | `readDepletionResults(request)` | Reads `depletion_results.h5` and returns material evolution data.                          |
 | `analyzeConvergence(request)`   | Computes running averages, drift, and convergence recommendations from a statepoint.       |
 
-**Concept:** Statepoint operations delegate to `python/statepoint_reader.py`. The backend spawns Python as a subprocess, captures JSON stdout, and returns the parsed result. This keeps HDF5 parsing logic out of TypeScript.
+**Concept:** Statepoint operations delegate to `python/statepoint_reader.py`. The backend spawns Python as a subprocess, captures JSON stdout, and returns the parsed result. This keeps HDF5 parsing logic out of TypeScript. `evaluateDerivedTallies(request)` uses the separate `python/derive_tallies.py` evaluator and returns analysis-only `OpenMCDerivedTallyResult` entries plus per-definition errors.
 
 ### CAD Import
 
@@ -161,6 +175,27 @@ Status events are one-shot pushes, so a reloaded frontend cannot discover in-fli
 | `getIterationLogsIndex(runId)`      | Lists which iterations have log files and their timestamps.                  |
 | `getIterationLog(runId, iteration)` | Returns the full log content for a specific iteration.                       |
 
+### Multi-group / MGXS
+
+| Method                                | Purpose                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------ |
+| `generateMgxs(request)`               | Runs `Model.convert_to_multigroup` and writes a multi-group cross-section library.   |
+| `generateMgxsLibrary(request)`        | Builds a fine-grained MGXS library with `openmc.mgxs.Library`.                       |
+| `convertToMultigroupProject(request)` | Generates MGXS and maps materials/XS data to produce a multi-group project.          |
+| `getMgxsDataNames(mgxsPath)`          | Reads the material/XS-data mapping from an existing library without regenerating it. |
+| `buildChain(request)`                 | Builds a custom depletion chain (subset or ENDF mode).                               |
+| `importNCrystalMaterial(cfg)`         | Imports a material composition from an NCrystal configuration string.                |
+
+### Shutdown Dose (R2S / D1S)
+
+| Method                             | Purpose                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `validateShutdownDose(request)`    | Validates a shutdown-dose configuration with pure state checks plus filesystem checks.           |
+| `startShutdownDose(request)`       | Launches an R2S or D1S driver; progress streams via `OpenMCStudioClient.onShutdownDoseProgress`. |
+| `cancelShutdownDose(processId)`    | Cancels a running shutdown-dose driver.                                                          |
+| `readShutdownDoseSummary(request)` | Reads `r2s_summary.json` / `d1s_summary.json` from an output directory.                          |
+| `getDoseCoefficients(request)`     | Reads photon dose-response coefficients from OpenMC's shipped ICRP tables.                       |
+
 ### Utility
 
 | Method                     | Purpose                                             |
@@ -186,8 +221,9 @@ export interface OpenMCStudioClient {
   onSimulationStatus(event: SimulationStatusEvent): void;
   onProgress(progress: SimulationProgress): void;
   onStateChange(event: StateChangeEvent): void;
-  onOptimizationProgress(event: OptimizationProgressEvent): void;
-  onOptimizationIterationComplete(runId: string, result: OptimizationResult): void;
+  onOptimizationProgress?(event: OptimizationProgressEvent): void;
+  onOptimizationIterationComplete?(runId: string, result: OptimizationIterationResult): void;
+  onShutdownDoseProgress?(event: ShutdownDoseProgressEvent): void;
 }
 ```
 

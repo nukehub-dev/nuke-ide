@@ -53,7 +53,16 @@ import {
     EndfEvaluationsRequest,
     EndfEvaluationsResult,
     EndfDetailRequest,
-    EndfDetailResult
+    EndfDetailResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
+    OpenMCTallyMeshVtkOptions,
+    OpenMCSourceVtkOptions,
+    OpenMCOverlayVtkOptions,
+    OpenMCOverlayGeometryVtkOptions,
+    OpenMCTallyLineProbeOptions,
+    OpenMCTallyLineProbeResult,
+    OpenMCTallyContourOptions
 } from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
@@ -226,6 +235,141 @@ export class OpenMCOutputService {
         return this.executeCommandJson<EndfDetailResult>(args, 120000);
     }
 
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.executeCommandJson<DoseCoefficientsResult>(
+            [
+                'openmc.dose-coefficients',
+                '--particle',
+                request.particle,
+                '--data-source',
+                request.dataSource,
+                '--dose-quantity',
+                request.doseQuantity,
+                '--geometry',
+                request.geometry
+            ],
+            30000
+        );
+    }
+
+    async convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.tally-mesh-vtk', statepointPath];
+        if (options?.tallyId !== undefined) {
+            args.push('--tally-id', String(options.tallyId));
+        }
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        return this.runConversion(args, 120000);
+    }
+
+    async convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.source-vtk', filePath];
+        if (options?.limit !== undefined) {
+            args.push('--limit', String(options.limit));
+        }
+        return this.runConversion(args, 120000);
+    }
+
+    async convertOverlayGeometryToVtk(
+        statepointPath: string,
+        h5mPath: string,
+        options?: OpenMCOverlayGeometryVtkOptions
+    ): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.overlay-geometry-vtk', statepointPath, '--h5m', h5mPath];
+        if (options?.tallyId !== undefined) {
+            args.push('--tally-id', String(options.tallyId));
+        }
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        if (options?.includeGraveyard) {
+            args.push('--include-graveyard');
+        }
+        if (options?.smooth) {
+            args.push('--smooth');
+        }
+        return this.runConversion(args, 600000);
+    }
+
+    async convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.overlay-vtk', statepointPath];
+        if (options?.tallyId !== undefined) {
+            args.push('--tally-id', String(options.tallyId));
+        }
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        if (options?.mode) {
+            args.push('--mode', options.mode);
+        }
+        if (options?.plane) {
+            args.push('--plane', options.plane);
+        }
+        if (options?.position !== undefined) {
+            args.push('--position', String(options.position));
+        }
+        if (options?.resolution !== undefined) {
+            args.push('--resolution', String(options.resolution));
+        }
+        if (options?.pixelated) {
+            args.push('--pixelated');
+        }
+        return this.runConversion(args, 120000);
+    }
+
+    async getTallyLineProbe(statepointPath: string, options: OpenMCTallyLineProbeOptions): Promise<OpenMCTallyLineProbeResult> {
+        const args = ['openmc.tally-line-probe', statepointPath];
+        args.push('--tally-id', String(options.tallyId));
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        args.push('--p0', ...options.p0.map(String));
+        args.push('--p1', ...options.p1.map(String));
+        if (options?.npoints !== undefined) {
+            args.push('--npoints', String(options.npoints));
+        }
+        if (options?.smooth === false) {
+            args.push('--pixelated');
+        } else if (options?.smooth === true) {
+            args.push('--smooth');
+        }
+        if (options?.writeVtp) {
+            args.push('--write-vtp');
+        }
+        return this.executeCommandJson<OpenMCTallyLineProbeResult>(args, 120000);
+    }
+
+    async convertTallyContourToVtk(statepointPath: string, options: OpenMCTallyContourOptions): Promise<OpenMCVtkConversionResult> {
+        const args = ['openmc.tally-contour', statepointPath];
+        args.push('--tally-id', String(options.tallyId));
+        if (options?.score) {
+            args.push('--score', options.score);
+        }
+        if (options?.nuclide) {
+            args.push('--nuclide', options.nuclide);
+        }
+        args.push('--iso', ...options.isoValues.map(String));
+        if (options?.smooth === false) {
+            args.push('--pixelated');
+        } else if (options?.smooth === true) {
+            args.push('--smooth');
+        }
+        return this.runConversion(args, 120000);
+    }
+
     /**
      * Run an openmc.* command and parse its stdout JSON. Error reporting is
      * stdout-first: on non-zero exit, a parsed `{"error": ...}` payload
@@ -282,8 +426,17 @@ export class OpenMCOutputService {
             if (typeof raw.error === 'string') {
                 return { success: false, error: raw.error };
             }
-            const { vtkPath, ...stats } = raw;
-            return { success: true, vtkPath: vtkPath as string, stats };
+            // `arrayName`/`arrayAssociation` are first-class fields
+            // (overlay-geometry drape defaults color-by to them); everything
+            // else rides in stats.
+            const { vtkPath, arrayName, arrayAssociation, ...stats } = raw;
+            return {
+                success: true,
+                vtkPath: vtkPath as string,
+                arrayName: typeof arrayName === 'string' ? arrayName : undefined,
+                arrayAssociation: arrayAssociation === 'point' || arrayAssociation === 'cell' ? arrayAssociation : undefined,
+                stats
+            };
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };
         }

@@ -27,23 +27,21 @@
 
 import * as React from '@theia/core/shared/react';
 import { injectable } from '@theia/core/shared/inversify';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import {
     OpenMCState,
     OpenMCRunSettings,
     OpenMCSource,
-    OpenMCSourceType,
     OpenMCIndependentSource,
     OpenMCFileSource,
     OpenMCCompiledSource,
     OpenMCMeshSource,
-    OpenMCTokamakSource,
-    OpenMCSourceSpatial,
-    OpenMCSourceEnergy
+    OpenMCTokamakSource
 } from '../../../../common/openmc-state-schema';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
 import { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
+import { NEUTRON_PARTICLE } from '../../../../common/particle-types';
 import { CollapsibleSection } from './settings/collapsible-section';
 import {
     changeSourceType,
@@ -52,11 +50,14 @@ import {
     renderMeshSourceEditor,
     renderTokamakSourceEditor,
     ConstraintsEditor,
-    renderSurfaceSourceSection
+    renderSurfaceSourceSection,
+    updateSourceAt
 } from './settings/source-details';
+import { IndependentSourceEditor, SourceSection, SourceTypeSelector, sourceTypeLabel } from './settings/source-editor';
+import { SourceSnapAction } from './settings/source-distributions';
 import { renderOutputSection } from './settings/output-section';
 import { renderPhysicsSection } from './settings/physics-section';
-import { renderAdvancedSection } from './settings/advanced-section';
+import { AdvancedSection } from './settings/advanced-section';
 import { renderConvergenceSection } from './settings/convergence-section';
 import { calculateGeometryBounds } from './settings/geometry-bounds';
 
@@ -70,16 +71,19 @@ export class SettingsTabContribution implements DashboardTabContribution {
     readonly icon = 'settings';
     readonly order = 0;
 
-    /** Indices of collapsed source cards (persisted per card index). */
-    private readonly collapsedSources = new Set<number>();
+    /** Explicit open/closed state per source card index (default: first opens, rest close). */
+    private readonly sourceCardOpen = new Map<number, boolean>();
 
     /** Probed OpenMC compatibility for feature gating (fetched once). */
     private compat?: OpenMCCompat;
     private compatRequested = false;
+    /** MPI availability from the backend (fetched once). */
+    private mpiAvailable?: boolean;
+    private mpiCheckRequested = false;
 
     /**
      * Fetch the OpenMC compatibility descriptor once and re-render when it
-     * arrives (gates the tokamak source type on 0.15.3 and older).
+     * arrives (gates the tokamak source type on older releases).
      * @param host - Simulation dashboard widget host.
      */
     private requestCompat(host: SimulationDashboardWidget): void {
@@ -94,6 +98,28 @@ export class SettingsTabContribution implements DashboardTabContribution {
     }
 
     /**
+     * Fetch MPI availability once so the Execution group can show whether
+     * `mpirun` is present.
+     * @param host - Simulation dashboard widget host.
+     */
+    private requestMpiAvailability(host: SimulationDashboardWidget): void {
+        if (this.mpiCheckRequested) {
+            return;
+        }
+        this.mpiCheckRequested = true;
+        void host.studioService
+            .getBackendService()
+            .checkMPI()
+            .then((result) => {
+                this.mpiAvailable = result.available;
+                host.update();
+            })
+            .catch(() => {
+                this.mpiAvailable = false;
+            });
+    }
+
+    /**
      * Whether a source card is collapsed. Default: expanded for the first
      * source, collapsed for the others when there are multiple sources.
      * @param index - Source index.
@@ -101,8 +127,9 @@ export class SettingsTabContribution implements DashboardTabContribution {
      * @returns Whether the card should render collapsed.
      */
     private isSourceCardCollapsed(index: number, totalSources: number): boolean {
-        if (this.collapsedSources.has(index)) {
-            return true;
+        const explicitOpen = this.sourceCardOpen.get(index);
+        if (explicitOpen !== undefined) {
+            return !explicitOpen;
         }
         return index > 0 && totalSources > 1;
     }
@@ -113,11 +140,9 @@ export class SettingsTabContribution implements DashboardTabContribution {
      * @param index - Source index.
      */
     private toggleSourceCard(host: SimulationDashboardWidget, index: number): void {
-        if (this.collapsedSources.has(index)) {
-            this.collapsedSources.delete(index);
-        } else {
-            this.collapsedSources.add(index);
-        }
+        const totalSources = host.stateManager.getState().settings.sources.length;
+        const collapsed = this.isSourceCardCollapsed(index, totalSources);
+        this.sourceCardOpen.set(index, collapsed);
         host.update();
     }
 
@@ -131,6 +156,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
         const { settings } = state;
         const runSettings = settings.run;
         this.requestCompat(host);
+        this.requestMpiAvailability(host);
 
         return (
             <div className="settings-tab">
@@ -201,14 +227,19 @@ export class SettingsTabContribution implements DashboardTabContribution {
                     </div>
                 </div>
 
-                <CollapsibleSection title="General" icon="run">
+                <CollapsibleSection title="General" icon="openmc-run">
                     <div className="form-group">
                         <label>Run Mode</label>
-                        <select value={runSettings.mode} onChange={(e) => host.updateRunMode(e.target.value as OpenMCRunSettings['mode'])}>
-                            <option value="eigenvalue">Eigenvalue (Criticality)</option>
-                            <option value="fixed source">Fixed Source</option>
-                            <option value="volume">Volume Calculation</option>
-                        </select>
+                        <NukeSelect
+                            value={runSettings.mode}
+                            options={[
+                                { value: 'eigenvalue', label: 'Eigenvalue (Criticality)' },
+                                { value: 'fixed source', label: 'Fixed Source' },
+                                { value: 'volume', label: 'Volume Calculation' }
+                            ]}
+                            onChange={(value: string) => host.updateRunMode(value as OpenMCRunSettings['mode'])}
+                            ariaLabel="Run mode"
+                        />
                     </div>
 
                     {runSettings.mode === 'eigenvalue' && (
@@ -306,16 +337,6 @@ export class SettingsTabContribution implements DashboardTabContribution {
                                 onChange={(e) => host.updateSetting('seed', e.target.value ? parseInt(e.target.value) : undefined)}
                             />
                         </div>
-                        <div className="form-group">
-                            <label>Threads</label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={settings.threads || ''}
-                                placeholder="Auto"
-                                onChange={(e) => host.updateSetting('threads', e.target.value ? parseInt(e.target.value) : undefined)}
-                            />
-                        </div>
                     </div>
 
                     <div className="form-row">
@@ -339,7 +360,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
 
                 <CollapsibleSection
                     title="Sources"
-                    icon="source-control"
+                    icon="openmc-source"
                     actions={
                         <button className="theia-button secondary small" onClick={() => this.addSource(host)}>
                             <i className="codicon codicon-add"></i> Add Source
@@ -348,7 +369,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
                 >
                     {settings.sources.length === 0 ? (
                         <div className="empty-state">
-                            <i className="codicon codicon-info"></i>
+                            <i className="codicon codicon-openmc-source"></i>
                             <p>
                                 No sources defined. {runSettings.mode === 'eigenvalue' && 'A default point source at origin will be used.'}
                             </p>
@@ -357,76 +378,90 @@ export class SettingsTabContribution implements DashboardTabContribution {
                         settings.sources.map((source, index) => {
                             const sourceType = source.type ?? 'independent';
                             const isCollapsed = this.isSourceCardCollapsed(index, settings.sources.length);
+                            const decayUnsupportedReason =
+                                this.compat !== undefined && !this.compat.decaySpectrum ? 'Requires OpenMC ≥ 0.16.0' : undefined;
                             return (
                                 <div key={index} className={`source-card${isCollapsed ? ' collapsed' : ''}`}>
                                     <div className="source-card-header">
-                                        <i
-                                            className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'} source-card-chevron`}
+                                        <button
+                                            type="button"
+                                            className="source-card-toggle"
+                                            aria-expanded={!isCollapsed}
                                             onClick={() => this.toggleSourceCard(host, index)}
-                                        ></i>
-                                        <span className="source-card-title">Source {index + 1}</span>
-                                        <span className="strength-chip">×{source.strength ?? 1.0}</span>
-                                        <div className="segmented-control">
-                                            {(['independent', 'file', 'compiled', 'mesh', 'tokamak'] as const).map((type) => {
-                                                // TokamakSource is 0.15.4+ — block switching to it on
-                                                // unsupported envs; an existing tokamak source stays shown
-                                                const tokamakGated =
-                                                    type === 'tokamak' && this.compat !== undefined && !this.compat.tokamakSource;
-                                                const segment = (
-                                                    <button
-                                                        key={type}
-                                                        className={`segment${sourceType === type ? ' active' : ''}`}
-                                                        disabled={tokamakGated && sourceType !== 'tokamak'}
-                                                        onClick={() => changeSourceType(host, index, type as OpenMCSourceType)}
-                                                    >
-                                                        {type === 'independent'
-                                                            ? 'Independent'
-                                                            : type === 'file'
-                                                              ? 'File'
-                                                              : type === 'compiled'
-                                                                ? 'Compiled'
-                                                                : type === 'mesh'
-                                                                  ? 'Mesh'
-                                                                  : 'Tokamak'}
-                                                    </button>
-                                                );
-                                                return tokamakGated ? (
-                                                    <Tooltip
-                                                        key={type}
-                                                        content="TokamakSource requires OpenMC ≥ 0.15.4 (not available in the configured env)"
-                                                        position="top"
-                                                    >
-                                                        {segment}
-                                                    </Tooltip>
-                                                ) : (
-                                                    segment
-                                                );
-                                            })}
-                                        </div>
+                                        >
+                                            <i
+                                                className={`codicon codicon-chevron-${isCollapsed ? 'right' : 'down'} source-card-chevron`}
+                                                aria-hidden="true"
+                                            ></i>
+                                            <span className="source-card-title">Source {index + 1}</span>
+                                            <span className="strength-chip">×{source.strength ?? 1.0}</span>
+                                        </button>
                                         <Tooltip content="Remove Source" position="top">
-                                            <button className="theia-button secondary small" onClick={() => this.removeSource(host, index)}>
+                                            <button
+                                                className="theia-button secondary small"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    this.removeSource(host, index);
+                                                }}
+                                            >
                                                 <i className="codicon codicon-trash"></i>
                                             </button>
                                         </Tooltip>
                                     </div>
                                     {!isCollapsed && (
                                         <div className="source-card-body">
-                                            {sourceType === 'independent' &&
-                                                this.renderSourceEditor(host, source as OpenMCIndependentSource, index)}
+                                            <SourceSection
+                                                title="Source Type"
+                                                icon="symbol-class"
+                                                summary={sourceTypeLabel(sourceType)}
+                                                defaultOpen
+                                            >
+                                                <SourceTypeSelector
+                                                    source={source}
+                                                    compat={this.compat}
+                                                    onChange={(type) => changeSourceType(host, index, type)}
+                                                />
+                                            </SourceSection>
+                                            {sourceType === 'independent' && (
+                                                <IndependentSourceEditor
+                                                    source={source as OpenMCIndependentSource}
+                                                    onUpdate={(updates) => updateSourceAt(host, index, updates)}
+                                                    snapActions={this.sourceSnapActions(host, index)}
+                                                    onSnap={() => this.snapSourceToGeometry(host, index)}
+                                                    meshes={state.meshes}
+                                                    constraints={<ConstraintsEditor host={host} source={source} index={index} />}
+                                                    decayUnsupportedReason={decayUnsupportedReason}
+                                                    compat={this.compat}
+                                                />
+                                            )}
                                             {sourceType === 'file' && renderFileSourceEditor(host, source as OpenMCFileSource, index)}
                                             {sourceType === 'compiled' &&
                                                 renderCompiledSourceEditor(host, source as OpenMCCompiledSource, index)}
                                             {sourceType === 'mesh' &&
-                                                renderMeshSourceEditor(host, source as OpenMCMeshSource, index, state)}
+                                                renderMeshSourceEditor(
+                                                    host,
+                                                    source as OpenMCMeshSource,
+                                                    index,
+                                                    state,
+                                                    decayUnsupportedReason,
+                                                    this.compat
+                                                )}
                                             {sourceType === 'tokamak' &&
-                                                renderTokamakSourceEditor(host, source as OpenMCTokamakSource, index)}
+                                                renderTokamakSourceEditor(
+                                                    host,
+                                                    source as OpenMCTokamakSource,
+                                                    index,
+                                                    decayUnsupportedReason
+                                                )}
                                             {sourceType === 'tokamak' && this.compat && !this.compat.tokamakSource && (
                                                 <span className="form-hint">
-                                                    TokamakSource requires OpenMC ≥ 0.15.4 — it will be omitted from settings.xml with the
+                                                    TokamakSource requires OpenMC ≥ 0.16.0 — it will be omitted from settings.xml with the
                                                     configured environment.
                                                 </span>
                                             )}
-                                            <ConstraintsEditor host={host} source={source} index={index} />
+                                            {sourceType !== 'independent' && (
+                                                <ConstraintsEditor host={host} source={source} index={index} />
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -446,288 +481,12 @@ export class SettingsTabContribution implements DashboardTabContribution {
                 </CollapsibleSection>
 
                 <CollapsibleSection title="Advanced" icon="settings-gear" defaultOpen={false}>
-                    {renderAdvancedSection(host, state)}
+                    <AdvancedSection host={host} state={state} compat={this.compat} mpiAvailable={this.mpiAvailable} />
                 </CollapsibleSection>
 
-                <CollapsibleSection title="Convergence" icon="graph" defaultOpen={false}>
+                <CollapsibleSection title="Convergence" icon="openmc-plot" defaultOpen={false}>
                     {renderConvergenceSection(host, state, (s) => this.calculateGeometryBounds(s))}
                 </CollapsibleSection>
-            </div>
-        );
-    }
-
-    /**
-     * Render the editor for a single neutron/photon source.
-     * @param host - Simulation dashboard widget host.
-     * @param source - Source definition to edit.
-     * @param index - Source index in the sources array.
-     * @returns Source editor React node.
-     */
-    private renderSourceEditor(host: SimulationDashboardWidget, source: OpenMCIndependentSource, index: number): React.ReactNode {
-        const spatial = source.spatial as any;
-        const snapActions: Record<string, { label: string; icon: string; action: () => void }[]> = {
-            point: [
-                { label: 'Geometry Center', icon: 'target', action: () => this.snapSourceToGeometryCenter(host, index) },
-                { label: 'Sphere Center', icon: 'circle-outline', action: () => this.setSourceToSphereCenter(host, index) },
-                { label: 'Cylinder Axis', icon: 'dash', action: () => this.setSourceToCylinderAxis(host, index) }
-            ],
-            box: [
-                { label: 'Tight Fit', icon: 'target', action: () => this.snapSourceToGeometryBounds(host, index, 0) },
-                { label: 'With Padding', icon: 'expand-all', action: () => this.snapSourceToGeometryBounds(host, index, 0.1) }
-            ],
-            sphere: [
-                { label: 'Match Surface', icon: 'circle-outline', action: () => this.snapSourceToMatchSphere(host, index) },
-                { label: 'Enclose All', icon: 'expand-all', action: () => this.snapSourceToEncloseGeometry(host, index) }
-            ]
-        };
-
-        return (
-            <div className="source-editor">
-                {/* Source Header */}
-                <div className="source-editor-header">
-                    <div className="source-type-select">
-                        <label>Spatial Distribution</label>
-                        <select
-                            value={source.spatial.type}
-                            onChange={(e) => this.updateSourceSpatial(host, index, e.target.value as OpenMCSourceSpatial['type'])}
-                        >
-                            <option value="point">Point</option>
-                            <option value="box">Box</option>
-                            <option value="sphere">Sphere</option>
-                            <option value="cylinder">Cylinder</option>
-                        </select>
-                    </div>
-                    <button className="theia-button secondary snap-main-btn" onClick={() => this.snapSourceToGeometry(host, index)}>
-                        <i className="codicon codicon-target"></i>
-                        <span>Snap to Geometry</span>
-                    </button>
-                </div>
-
-                {/* Quick Snap Actions */}
-                {snapActions[source.spatial.type] && (
-                    <div className="source-quick-snaps">
-                        <span className="quick-snaps-label">Quick Position:</span>
-                        <div className="quick-snaps-buttons">
-                            {snapActions[source.spatial.type].map((btn, btnIdx) => (
-                                <button key={btnIdx} className="theia-button secondary small" onClick={btn.action}>
-                                    <i className={`codicon codicon-${btn.icon}`}></i>
-                                    {btn.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {source.spatial.type === 'point' && (
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>X</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={spatial.origin?.[0] || 0}
-                                onChange={(e) => this.updateSourceOrigin(host, index, 0, parseFloat(e.target.value))}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Y</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={spatial.origin?.[1] || 0}
-                                onChange={(e) => this.updateSourceOrigin(host, index, 1, parseFloat(e.target.value))}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Z</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={spatial.origin?.[2] || 0}
-                                onChange={(e) => this.updateSourceOrigin(host, index, 2, parseFloat(e.target.value))}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                {source.spatial.type === 'box' && (
-                    <>
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label>Min X</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.lowerLeft?.[0] ?? -5}
-                                    onChange={(e) => this.updateSourceBoxBound(host, index, 'lowerLeft', 0, parseFloat(e.target.value))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Min Y</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.lowerLeft?.[1] ?? -5}
-                                    onChange={(e) => this.updateSourceBoxBound(host, index, 'lowerLeft', 1, parseFloat(e.target.value))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Min Z</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.lowerLeft?.[2] ?? -5}
-                                    onChange={(e) => this.updateSourceBoxBound(host, index, 'lowerLeft', 2, parseFloat(e.target.value))}
-                                />
-                            </div>
-                        </div>
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label>Max X</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.upperRight?.[0] ?? 5}
-                                    onChange={(e) => this.updateSourceBoxBound(host, index, 'upperRight', 0, parseFloat(e.target.value))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Max Y</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.upperRight?.[1] ?? 5}
-                                    onChange={(e) => this.updateSourceBoxBound(host, index, 'upperRight', 1, parseFloat(e.target.value))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Max Z</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.upperRight?.[2] ?? 5}
-                                    onChange={(e) => this.updateSourceBoxBound(host, index, 'upperRight', 2, parseFloat(e.target.value))}
-                                />
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {source.spatial.type === 'sphere' && (
-                    <>
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label>Center X</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.center?.[0] || 0}
-                                    onChange={(e) => this.updateSourceSphereCenter(host, index, 0, parseFloat(e.target.value))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Center Y</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.center?.[1] || 0}
-                                    onChange={(e) => this.updateSourceSphereCenter(host, index, 1, parseFloat(e.target.value))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Center Z</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    value={spatial.center?.[2] || 0}
-                                    onChange={(e) => this.updateSourceSphereCenter(host, index, 2, parseFloat(e.target.value))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Radius</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    min={0}
-                                    value={spatial.radius || 1}
-                                    onChange={(e) => this.updateSourceSphereRadius(host, index, parseFloat(e.target.value))}
-                                />
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                <div className="form-group">
-                    <label>Energy Distribution</label>
-                    <select
-                        value={source.energy.type}
-                        onChange={(e) => this.updateSourceEnergy(host, index, e.target.value as OpenMCSourceEnergy['type'])}
-                    >
-                        <option value="discrete">Discrete</option>
-                        <option value="uniform">Uniform</option>
-                        <option value="maxwell">Maxwell</option>
-                        <option value="watt">Watt</option>
-                    </select>
-                </div>
-
-                {source.energy.type === 'discrete' && (
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Energy (eV)</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={(source.energy as any).energies?.[0] || 1.0}
-                                onChange={(e) => this.updateSourceDiscreteEnergy(host, index, parseFloat(e.target.value))}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                {source.energy.type === 'uniform' && (
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Min Energy (eV)</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={(source.energy as any).min || 0}
-                                onChange={(e) => this.updateSourceUniformEnergy(host, index, 'min', parseFloat(e.target.value))}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Max Energy (eV)</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={(source.energy as any).max || 10}
-                                onChange={(e) => this.updateSourceUniformEnergy(host, index, 'max', parseFloat(e.target.value))}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                <div className="form-row">
-                    <div className="form-group">
-                        <label>Particle Type</label>
-                        <select
-                            value={source.particle || 'neutron'}
-                            onChange={(e) => this.updateSourceParticle(host, index, e.target.value as 'neutron' | 'photon')}
-                        >
-                            <option value="neutron">Neutron</option>
-                            <option value="photon">Photon</option>
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label>Strength</label>
-                        <input
-                            type="number"
-                            min={0}
-                            value={source.strength || 1}
-                            onChange={(e) => this.updateSourceStrength(host, index, parseFloat(e.target.value))}
-                        />
-                    </div>
-                </div>
             </div>
         );
     }
@@ -741,7 +500,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
             spatial: { type: 'point', origin: [0, 0, 0] },
             energy: { type: 'discrete', energies: [1e6] },
             strength: 1,
-            particle: 'neutron'
+            particle: NEUTRON_PARTICLE
         };
         const settings = host.stateManager.getState().settings;
         host.stateManager.updateSettings({
@@ -759,6 +518,7 @@ export class SettingsTabContribution implements DashboardTabContribution {
         const settings = host.stateManager.getState().settings;
         const newSources = [...settings.sources] as OpenMCIndependentSource[];
         newSources.splice(index, 1);
+        this.shiftSourceCardState(index);
         host.stateManager.updateSettings({
             ...settings,
             sources: newSources
@@ -766,164 +526,50 @@ export class SettingsTabContribution implements DashboardTabContribution {
     }
 
     /**
-     * Change the spatial distribution type of a source.
+     * Keep per-card open/closed state attached to the right source after a removal.
+     * @param removedIndex - Index of the removed source card.
+     */
+    private shiftSourceCardState(removedIndex: number): void {
+        const shifted = new Map<number, boolean>();
+        this.sourceCardOpen.forEach((open, index) => {
+            if (index < removedIndex) {
+                shifted.set(index, open);
+            } else if (index > removedIndex) {
+                shifted.set(index - 1, open);
+            }
+        });
+        this.sourceCardOpen.clear();
+        shifted.forEach((open, index) => this.sourceCardOpen.set(index, open));
+    }
+
+    /**
+     * Snap helpers for the convenience spatial types (point/box/sphere).
      * @param host - Simulation dashboard widget host.
      * @param index - Source index.
-     * @param type - New spatial distribution type.
+     * @returns Snap actions keyed by spatial type.
      */
-    private updateSourceSpatial(host: SimulationDashboardWidget, index: number, type: OpenMCSourceSpatial['type']): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        let spatial: OpenMCSourceSpatial;
-
-        switch (type) {
-            case 'point':
-                spatial = { type: 'point', origin: [0, 0, 0] };
-                break;
-            case 'box':
-                spatial = { type: 'box', lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1] };
-                break;
-            case 'sphere':
-                spatial = { type: 'sphere', center: [0, 0, 0], radius: 1 };
-                break;
-            case 'cylinder':
-                spatial = { type: 'cylinder', center: [0, 0, 0], radius: 1, height: 2, axis: 'z' };
-                break;
-            default:
-                spatial = { type: 'point', origin: [0, 0, 0] };
-        }
-
-        newSources[index] = { ...newSources[index], spatial };
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
+    private sourceSnapActions(host: SimulationDashboardWidget, index: number): Record<string, SourceSnapAction[]> {
+        return {
+            point: [
+                { label: 'Geometry Center', icon: 'target', action: () => this.snapSourceToGeometryCenter(host, index) },
+                { label: 'Sphere Center', icon: 'circle-outline', action: () => this.setSourceToSphereCenter(host, index) },
+                { label: 'Cylinder Axis', icon: 'dash', action: () => this.setSourceToCylinderAxis(host, index) }
+            ],
+            box: [
+                { label: 'Tight Fit', icon: 'target', action: () => this.snapSourceToGeometryBounds(host, index, 0) },
+                { label: 'With Padding', icon: 'expand-all', action: () => this.snapSourceToGeometryBounds(host, index, 0.1) }
+            ],
+            sphere: [
+                { label: 'Match Surface', icon: 'circle-outline', action: () => this.snapSourceToMatchSphere(host, index) },
+                { label: 'Enclose All', icon: 'expand-all', action: () => this.snapSourceToEncloseGeometry(host, index) }
+            ]
+        };
     }
 
     /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceOrigin(host: SimulationDashboardWidget, index: number, coord: number, value: number): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        const origin = [...((newSources[index].spatial as any).origin || [0, 0, 0])];
-        origin[coord] = value;
-        (newSources[index].spatial as any).origin = origin;
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * Change the energy distribution type of a source.
+     * Set point source to the center of the first sphere in geometry.
      * @param host - Simulation dashboard widget host.
      * @param index - Source index.
-     * @param type - New energy distribution type.
-     */
-    private updateSourceEnergy(host: SimulationDashboardWidget, index: number, type: OpenMCSourceEnergy['type']): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        let energy: OpenMCSourceEnergy;
-
-        switch (type) {
-            case 'discrete':
-                energy = { type: 'discrete', energies: [1e6] };
-                break;
-            case 'uniform':
-                energy = { type: 'uniform', min: 0, max: 10e6 };
-                break;
-            case 'maxwell':
-                energy = { type: 'maxwell', temperature: 300 };
-                break;
-            case 'watt':
-                energy = { type: 'watt', a: 0.965, b: 2.29 };
-                break;
-            default:
-                energy = { type: 'discrete', energies: [1e6] };
-        }
-
-        newSources[index] = { ...newSources[index], energy };
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceDiscreteEnergy(host: SimulationDashboardWidget, index: number, value: number): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        (newSources[index].energy as any).energies = [value];
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceUniformEnergy(host: SimulationDashboardWidget, index: number, key: 'min' | 'max', value: number): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        (newSources[index].energy as any)[key] = value;
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceParticle(host: SimulationDashboardWidget, index: number, particle: 'neutron' | 'photon'): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        newSources[index] = { ...newSources[index], particle };
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceStrength(host: SimulationDashboardWidget, index: number, strength: number): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        newSources[index] = { ...newSources[index], strength };
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceBoxBound(
-        host: SimulationDashboardWidget,
-        index: number,
-        bound: 'lowerLeft' | 'upperRight',
-        coord: number,
-        value: number
-    ): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        const bounds = [...((newSources[index].spatial as any)[bound] || [-5, -5, -5])];
-        bounds[coord] = value;
-        (newSources[index].spatial as any)[bound] = bounds;
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceSphereCenter(host: SimulationDashboardWidget, index: number, coord: number, value: number): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        const center = [...((newSources[index].spatial as any).center || [0, 0, 0])];
-        center[coord] = value;
-        (newSources[index].spatial as any).center = center;
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * @param host - Simulation dashboard widget host.
-     */
-    private updateSourceSphereRadius(host: SimulationDashboardWidget, index: number, value: number): void {
-        const settings = host.stateManager.getState().settings;
-        const newSources = [...settings.sources] as OpenMCIndependentSource[];
-        (newSources[index].spatial as any).radius = Math.max(0, value);
-        host.stateManager.updateSettings({ ...settings, sources: newSources });
-    }
-
-    /**
-     * Set point source to the center of the first sphere in geometry
-     * @param host - Simulation dashboard widget host.
      */
     private setSourceToSphereCenter(host: SimulationDashboardWidget, index: number): void {
         const state = host.stateManager.getState();

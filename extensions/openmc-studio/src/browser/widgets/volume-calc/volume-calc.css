@@ -50,3 +50,20 @@
     color: var(--theia-descriptionForeground);
     font-weight: 600;
 }
+
+.volume-calc-widget .table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+@container (max-width: 600px) {
+    .volume-calc-widget .volume-calc-body {
+        padding: 12px;
+    }
+
+    .volume-calc-widget .volume-calc-actions {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+}

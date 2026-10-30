@@ -13,8 +13,12 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioBackendService } from '../../../common/openmc-studio-protocol';
+
+// NOTE: dropdowns use the shared `NukeSelect` (never a builtin `<select>`):
+// portal dropdown, full keyboard support, Theia-theme trigger.
 
 @injectable()
 export class CrossSectionViewerWidget extends ReactWidget {
@@ -50,17 +54,19 @@ export class CrossSectionViewerWidget extends ReactWidget {
                     <h3>Cross Section Viewer</h3>
                 </div>
                 <div className='viewer-controls'>
-                    <select
+                    <NukeSelect
+                        ariaLabel='Nuclide'
                         value={this.selectedNuclide}
-                        onChange={e => {
-                            this.selectedNuclide = e.target.value;
+                        options={[
+                            { value: 'U235', label: 'U-235' },
+                            { value: 'U238', label: 'U-238' },
+                            { value: 'O16', label: 'O-16' }
+                        ]}
+                        onChange={value => {
+                            this.selectedNuclide = value;
                             this.update();
                         }}
-                    >
-                        <option value='U235'>U-235</option>
-                        <option value='U238'>U-238</option>
-                        <option value='O16'>O-16</option>
-                    </select>
+                    />
                     <button
                         className='theia-button primary'
                         onClick={() => this.loadCrossSection()}
@@ -262,16 +268,31 @@ export interface OpenMCStudioBackendService {
 
 ### 6b: Implement in Backend Service
 
+There is no generic `executeScriptJson` helper on `OpenMCStudioBackendServiceImpl`. Short JSON queries follow the pattern used by `readStatepoint` / `readDepletionResults`: resolve the script through nuke-core, run it with `execSync`, and parse the JSON stdout.
+
 ```typescript
 // src/node/openmc-studio-backend-service.ts
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
+
 async loadCrossSection(nuclide: string, reaction: string): Promise<{ ... }> {
-    this.log(`Loading cross section for ${nuclide} ${reaction}`);
-    // Delegate to a specialized service or execute a Python script
-    return this.executeScriptJson('cross_section_loader.py', [
-        nuclide, reaction, '--json'
-    ]);
+    const { execSync } = await import('child_process');
+    const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'cross_section_loader.py' });
+    if (!scriptPath) {
+        return { success: false, error: 'cross_section_loader.py not found' };
+    }
+
+    // Existing statepoint methods use this runner helper the same way.
+    const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+    const output = execSync(`"${pythonInfo.command}" "${scriptPath}" "${nuclide}" "${reaction}" --json`, {
+        encoding: 'utf-8',
+        timeout: 60000,
+        stdio: ['pipe', 'pipe', 'pipe']
+    });
+    return JSON.parse(output);
 }
 ```
+
+Prefer adding a typed method to `OpenMCRunnerService` (which owns Python detection and long-running process management) and delegating from the orchestrator when the script needs streaming output or cancellation.
 
 ### 6c: Call from Widget
 
@@ -308,44 +329,40 @@ import argparse
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Load cross section data')
-    parser.add_argument('nuclide', help='Nuclide name, e.g., U235')
-    parser.add_argument('reaction', help='Reaction type, e.g., total, fission')
-    parser.add_argument('--json', action='store_true', help='Output as JSON')
+    parser = argparse.ArgumentParser(description="Load cross section data")
+    parser.add_argument("nuclide", help="Nuclide name, e.g., U235")
+    parser.add_argument("reaction", help="Reaction type, e.g., total, fission")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 
     try:
         import openmc
     except ImportError:
-        print(json.dumps({
-            'success': False,
-            'error': 'openmc is required for cross section loading'
-        }))
+        print(
+            json.dumps({"success": False, "error": "openmc is required for cross section loading"})
+        )
         sys.exit(0)
 
     try:
         # Example: load from ENDF data
-        data = openmc.data.IncidentNeutron.from_hdf5(f'{args.nuclide}.h5')
+        data = openmc.data.IncidentNeutron.from_hdf5(f"{args.nuclide}.h5")
         reaction = data[args.reaction]
 
         result = {
-            'success': True,
-            'nuclide': args.nuclide,
-            'reaction': args.reaction,
-            'energies': reaction.xs['294K'].x.tolist(),
-            'values': reaction.xs['294K'].y.tolist()
+            "success": True,
+            "nuclide": args.nuclide,
+            "reaction": args.reaction,
+            "energies": reaction.xs["294K"].x.tolist(),
+            "values": reaction.xs["294K"].y.tolist(),
         }
         print(json.dumps(result))
         sys.exit(0)
     except Exception as e:
-        print(json.dumps({
-            'success': False,
-            'error': str(e)
-        }))
+        print(json.dumps({"success": False, "error": str(e)}))
         sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 ```
 
@@ -416,8 +433,8 @@ After adding a widget, these files should be modified or created:
 
 ## Testing Your Widget
 
-1. **Build the extension:** `yarn build` from the project root
+1. **Build the extension:** `npx lerna run build --scope openmc-studio` from the repo root (or `yarn build` inside `extensions/openmc-studio`)
 2. **Start the IDE:** `yarn start:electron` or `yarn start:browser`
 3. **Open the widget:** `Tools → OpenMC Studio → Advanced → Cross Section Viewer`
 4. **Check the console:** Verify no DI binding errors
-5. **Test standalone script:** `python python/cross_section_loader.py U235 total --json`
+5. **Test standalone script:** `cd extensions/openmc-studio/python && python cross_section_loader.py U235 total --json`

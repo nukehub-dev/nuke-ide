@@ -1,0 +1,69 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ **************************************************************************** */
+
+/* Domain icons for Theia title/command iconClass hooks. CSS masks keep the
+   glyph inheriting the surrounding foreground color in every theme. */
+
+.nuke-visualizer-icon {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask-image: var(--nuke-visualizer-icon-mask);
+    mask-image: var(--nuke-visualizer-icon-mask);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+}
+
+.nuke-visualizer-icon-geometry {
+    --nuke-visualizer-icon-mask: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHJlY3QgeD0iOCIgeT0iMiIgd2lkdGg9IjgiIGhlaWdodD0iNSIgcng9IjEuNSIvPjxyZWN0IHg9IjIiIHk9IjE3IiB3aWR0aD0iOCIgaGVpZ2h0PSI1IiByeD0iMS41Ii8+PHJlY3QgeD0iMTQiIHk9IjE3IiB3aWR0aD0iOCIgaGVpZ2h0PSI1IiByeD0iMS41Ii8+PHBhdGggZD0iTTEyIDd2NU02IDE3di01aDEydjUiLz48L3N2Zz4=');
+}
+
+.nuke-visualizer-icon-overlap {
+    --nuke-visualizer-icon-mask: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PGNpcmNsZSBjeD0iOSIgY3k9IjEzIiByPSI2LjIiLz48Y2lyY2xlIGN4PSIxNSIgY3k9IjEzIiByPSI2LjIiLz48cGF0aCBkPSJtMTYuOCA0LjIgMS43IDEuNyAzLTMuMiIvPjwvc3ZnPg==');
+}
+
+.nuke-visualizer-icon-materials {
+    --nuke-visualizer-icon-mask: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTkgM2g2TTEwIDN2NmwtNSA5YTIgMiAwIDAgMCAyIDNoMTBhMiAyIDAgMCAwIDItM2wtNS05VjMiLz48cGF0aCBkPSJNOCAxNmg4Ii8+PC9zdmc+');
+}
+
+.nuke-visualizer-icon-nuclear {
+    --nuke-visualizer-icon-mask: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMiIvPjxlbGxpcHNlIGN4PSIxMiIgY3k9IjEyIiByeD0iOSIgcnk9IjQiLz48ZWxsaXBzZSBjeD0iMTIiIGN5PSIxMiIgcng9IjkiIHJ5PSI0IiB0cmFuc2Zvcm09InJvdGF0ZSg2MCAxMiAxMikiLz48ZWxsaXBzZSBjeD0iMTIiIGN5PSIxMiIgcng9IjkiIHJ5PSI0IiB0cmFuc2Zvcm09InJvdGF0ZSgxMjAgMTIgMTIpIi8+PC9zdmc+');
+}
+
+.nuke-visualizer-icon-tally {
+    --nuke-visualizer-icon-mask: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTMgMjFoMTgiLz48cGF0aCBkPSJNNyAyMXYtN00xMSAyMXYtMTFNMTUgMjF2LTZNMTkgMjF2LTEzIiBzdHJva2Utd2lkdGg9IjIuNCIvPjwvc3ZnPg==');
+}
+
+.nuke-visualizer-icon-statepoint {
+    --nuke-visualizer-icon-mask: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PGVsbGlwc2UgY3g9IjgiIGN5PSI1IiByeD0iNSIgcnk9IjIiLz48cGF0aCBkPSJNMyA1djEzYzAgMS4xIDIuMiAyIDUgMnM1LS45IDUtMlY1Ii8+PHBhdGggZD0iTTMgMTFjMCAxLjEgMi4yIDIgNSAyczUtLjkgNS0yIi8+PHBhdGggZD0iTTE1IDE5di03aDYiLz48cGF0aCBkPSJtMTYuNSAxNi41IDEuNS0yIDEuNSAxIDEuNS0yLjUiLz48Y2lyY2xlIGN4PSIyMSIgY3k9IjEzIiByPSIuOCIgZmlsbD0iYmxhY2siIHN0cm9rZT0ibm9uZSIvPjwvc3ZnPg==');
+}

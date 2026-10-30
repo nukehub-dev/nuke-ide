@@ -10,8 +10,8 @@ This section is for developers who want to understand, modify, or extend `nuke-v
 | [**Shared Services**](shared-services.md) | Health checks, Python helper, Plotly service, widget lifecycle     |
 | [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract     |
 | [**DI Wiring**](di-wiring.md)             | InversifyJS container modules and binding patterns                 |
-| [**Widget Patterns**](widget-patterns.md) | When to use iframe widgets vs React widgets                        |
-| [**Output Viewers**](output-viewers.md)   | The OutputViewerRegistry and the convert → serve → iframe pipeline |
+| [**Widget Patterns**](widget-patterns.md) | When to use native 3D widgets vs React widgets                     |
+| [**Output Viewers**](output-viewers.md)   | The OutputViewerRegistry and the convert → parse → render pipeline |
 | [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin          |
 | [**Python Backends**](python-backends.md) | Conventions for Python server scripts                              |
 
@@ -24,7 +24,7 @@ src/
 │   └── openmc-protocol.ts
 ├── browser/                   # Frontend code
 │   ├── visualizer-frontend-module.ts   # DI bindings
-│   ├── visualizer-widget.tsx           # Base iframe widget
+│   ├── visualizer-widget.tsx           # Base native viewer widget
 │   ├── contributions/         # Menus, open handlers, view contributions
 │   ├── output-viewer/         # OutputViewerRegistry + file patterns
 │   ├── plotly/                # Plotly integration
@@ -55,8 +55,7 @@ python/                        # Python scripts
 │   └── base/                  # Base visualizer plugin
 │       ├── plugin.py
 │       ├── commands/
-│       │   ├── serve.py       # Trame server command
-│       │   └── convert.py     # File format converters
+│       │   └── convert.py     # Headless file-format converters
 │       └── lib/               # common.py, dagmc.py, step.py
 ```
 

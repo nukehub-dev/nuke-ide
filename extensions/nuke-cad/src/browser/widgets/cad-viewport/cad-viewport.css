@@ -1,0 +1,3588 @@
+.cad-viewport {
+    width: 100%;
+    height: 100%;
+    min-height: 200px;
+    /* `clip` (not just hidden) prevents focus/scrollIntoView from scrolling
+       the chrome overlay out of view — a 40 px scroll hid the sketch top bar
+       under the tab bar. Hidden stays as the fallback. */
+    overflow: hidden;
+    overflow: clip;
+    position: relative;
+    background: var(--theia-editor-background);
+}
+
+.cad-viewport.empty,
+.cad-viewport.loading {
+    background: var(--theia-editor-background);
+}
+
+/* Rubber-band box-select rectangle (Ctrl/Cmd+drag); positioned inline. */
+.cad-box-select-band {
+    position: absolute;
+    z-index: 14;
+    border: 1px solid var(--theia-focusBorder);
+    background: rgba(128, 128, 128, 0.08);
+    pointer-events: none;
+}
+
+/* The empty-state card must not be a flex item alongside the absolutely
+   positioned sketch overlay; in that layout Chrome resolves its width:100%
+   against min-content and squishes it to the left edge. */
+.cad-viewport-empty-wrapper {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    overflow: auto;
+    pointer-events: none;
+}
+
+.cad-viewport-empty-wrapper > * {
+    pointer-events: auto;
+}
+
+/* The three.js canvas is appended imperatively and survives React re-renders;
+   hide it while the loading overlay covers the viewport so it can't push the
+   overlay out via flex layout. */
+.cad-viewport.loading > canvas {
+    display: none;
+}
+
+.cad-viewport canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Gradient backdrop for the `gradient` viewport background style: the
+   renderer runs transparent (alpha) so this CSS shows through. Value mirrors
+   BACKGROUND_GRADIENT_CSS in viewport-colors.ts. */
+.cad-viewport-gradient {
+    background: linear-gradient(to bottom, #334155 0%, #000000 100%);
+}
+
+.cad-viewport-banners {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    /* Deliberately no z-index: the container must not form a stacking context,
+       so the warning strip/popover (z-index 30) can rise above the z-index-20
+       sketch overlay. The error banner carries no z-index and stays behind the
+       sketch chrome, exactly as before. */
+    z-index: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    pointer-events: none;
+}
+
+/* Document mode: drop the banner stack below the measured document toolbar
+   (`--nuke-cad-toolbar-bottom` is published on `.cad-viewport` by the toolbar's
+   ResizeObserver). Chromium supports `:has`, so no state round-trip is needed. */
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-banners {
+    top: calc(var(--nuke-cad-toolbar-bottom, 64px) + 4px);
+}
+
+/* In document mode the top-left slot belongs to the Assembly panel; park the
+   warning badge under the toolbar on the right, clear of the 68 px ViewCube
+   (right 10) with an 8 px gap. Its popover opens leftwards. */
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-warning-strip {
+    align-self: flex-end;
+    margin-right: 86px;
+}
+
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-warning-popover {
+    left: auto;
+    right: 0;
+}
+
+.cad-viewport-banners > * {
+    pointer-events: auto;
+}
+
+.cad-viewport-error-banner {
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: min(100%, 720px);
+    padding: 8px 10px;
+    border: 1px solid var(--theia-editorError-foreground);
+    border-radius: 6px;
+    background: var(--theia-inputValidation-errorBackground, var(--theia-editorWidget-background));
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-viewport-error-message {
+    flex: 1;
+    font-size: var(--theia-ui-font-size1);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.cad-viewport-error-dismiss {
+    flex-shrink: 0;
+    padding: 2px 6px;
+}
+
+/* Compact badge: only the header is in flow, so expanding the list never
+   stretches the strip or pushes it into the centered constraint bar. The
+   popover is anchored below it (see `.cad-viewport-warning-popover`). */
+.cad-viewport-warning-strip {
+    position: relative;
+    z-index: 30;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: fit-content;
+    max-width: min(260px, calc(100% - 16px));
+    padding: 6px 8px;
+    border: 1px solid var(--theia-editorWarning-foreground);
+    border-radius: 6px;
+    background: var(--theia-inputValidation-warningBackground, var(--theia-editorWidget-background));
+    color: var(--theia-editorWarning-foreground);
+}
+
+/* Icon, count/chevron toggle, and dismiss X share one line: the X must stay
+   fully visible and clickable at the compact max width. */
+.cad-viewport-warning-header {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cad-viewport-warning-header > .codicon {
+    flex-shrink: 0;
+}
+
+/* Tooltip wraps the dismiss button in an inline span; keep it from being
+   squeezed out of the compact header. */
+.cad-viewport-warning-header > span {
+    flex-shrink: 0;
+}
+
+.cad-viewport-warning-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    margin-right: auto;
+    padding: 1px 6px;
+    font-size: var(--theia-ui-font-size1);
+    white-space: nowrap;
+}
+
+.cad-viewport-warning-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    box-sizing: border-box;
+    width: min(340px, calc(100vw - 32px));
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+    pointer-events: auto;
+    white-space: normal;
+}
+
+.cad-viewport-warning-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-viewport-warning-item {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Persistent W7-X design-study banner: no dismiss control by design. It sits
+   in the banner stack below the measured toolbar, clear of the 320 px assembly
+   card (left) and the 68 px ViewCube (right). */
+.cad-viewport-design-study-banner {
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: min(100%, 720px);
+    padding: 8px 10px;
+    border: 1px solid var(--theia-editorWarning-foreground);
+    border-left-width: 4px;
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+}
+
+.cad-viewport:has(.cad-document-toolbar) .cad-viewport-design-study-banner {
+    width: min(720px, calc(100% - 430px));
+    margin-left: 336px;
+}
+
+.cad-viewport-design-study-banner.invalid {
+    border-color: var(--theia-editorError-foreground);
+}
+
+.cad-viewport-design-study-icon {
+    flex-shrink: 0;
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-viewport-design-study-banner.invalid .cad-viewport-design-study-icon {
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-viewport-design-study-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.cad-viewport-design-study-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-viewport-design-study-title {
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-viewport-design-study-status {
+    padding: 0 6px;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 15px;
+    white-space: nowrap;
+}
+
+.cad-viewport-design-study-status.valid {
+    color: var(--theia-editorInfo-foreground);
+}
+
+.cad-viewport-design-study-status.invalid {
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-viewport-design-study-summary {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.cad-viewport-design-study-note {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-viewport-design-study-note .codicon {
+    flex-shrink: 0;
+}
+
+/* Shared viewer chrome (nuke-essentials ViewCube/ViewBadge): the labeled
+   triad cube sits top-right below the document toolbar and the view badge
+   top-left, mirroring the native VTK viewers. Knob/pill looks live in
+   nuke-essentials; only the below-toolbar placement stays here. The toolbar
+   publishes its measured bottom as `--nuke-cad-toolbar-bottom` (density
+   changes the bar height); 64px is the no-toolbar fallback. */
+.cad-viewport .nuke-view-cube {
+    position: absolute;
+    top: var(--nuke-cad-toolbar-bottom, 64px);
+    right: 10px;
+    z-index: 12;
+    pointer-events: none;
+}
+
+.cad-viewport .nuke-view-cube .nuke-view-cube-knob-slot,
+.cad-viewport .nuke-view-cube .nuke-view-cube-knob {
+    pointer-events: auto;
+}
+
+.cad-viewport .nuke-view-badge {
+    position: absolute;
+    top: var(--nuke-cad-toolbar-bottom, 64px);
+    left: 10px;
+    z-index: 12;
+}
+
+/* Sketch mode overlay */
+
+.cad-sketch-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+}
+
+.cad-sketch-overlay > * {
+    pointer-events: auto;
+}
+
+/*
+ * Shared theming for every bare form control in the sketch overlay chrome
+ * (constraint value box, datum picker, feature dialog, parameters panel,
+ * dimension popover): unclassed inputs/selects otherwise keep the UA's white
+ * background in dark themes. Selects carrying Theia's .theia-select are
+ * excluded — @theia/core styles those with the dropdown variables.
+ */
+.cad-sketch-overlay input[type='text'],
+.cad-sketch-overlay input[type='number'],
+.cad-sketch-overlay select:not(.theia-select),
+.cad-sketch-overlay textarea {
+    padding: 3px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-overlay input[type='text']::placeholder,
+.cad-sketch-overlay input[type='number']::placeholder {
+    color: var(--theia-input-placeholderForeground);
+}
+
+.cad-sketch-overlay input[type='text']:focus,
+.cad-sketch-overlay input[type='number']:focus,
+.cad-sketch-overlay select:not(.theia-select):focus,
+.cad-sketch-overlay textarea:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+.cad-sketch-overlay input[type='checkbox'] {
+    width: auto;
+    accent-color: var(--theia-button-background);
+}
+
+/* No CSS-reachable dark/light signal exists for the native spinner glyphs;
+   drop them instead of shipping light-only arrows on themed fields. */
+.cad-sketch-overlay input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+/*
+ * Default spot sits a full row below the top chrome (constraint select centered,
+ * Finish Sketch pill right) so the horizontal tool strip clears both at init;
+ * dragged positions override this inline. The 100px reservation is the top
+ * offset (64px) plus the status line's own bottom band (~36px): the palette's
+ * bottom edge stops exactly at the status line top. Only the body scrolls, so
+ * the header (and its collapse/reset gestures) stays put.
+ */
+.cad-sketch-toolbar {
+    position: absolute;
+    top: 64px;
+    left: 8px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    min-width: 40px;
+    max-height: calc(100% - 100px);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    overflow: hidden;
+    pointer-events: auto;
+}
+
+.cad-sketch-toolbar-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 3px 5px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-titleBar-activeBackground);
+    cursor: grab;
+    user-select: none;
+}
+
+.cad-sketch-toolbar-header:active {
+    cursor: grabbing;
+}
+
+.cad-sketch-toolbar-context-menu {
+    position: absolute;
+    top: 30px;
+    left: 4px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    min-width: 150px;
+    padding: 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-sketch-toolbar-context-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-sketch-toolbar-context-item:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+/* 3D viewport right-click context menu (imperative DOM, opened at the pointer) */
+.cad-viewport-context-menu {
+    position: absolute;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    min-width: 170px;
+    padding: 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-viewport-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-viewport-context-menu-item:hover:not(:disabled) {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-viewport-context-menu-label {
+    white-space: nowrap;
+}
+
+.cad-viewport-context-menu-hint {
+    margin-left: auto;
+    padding-left: 16px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-viewport-context-menu-item:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.cad-viewport-context-menu-separator {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--theia-panel-border);
+}
+
+/* Select Other candidate popover (overlapping faces under the pointer) */
+.cad-select-other-menu {
+    position: absolute;
+    z-index: 31;
+    display: flex;
+    flex-direction: column;
+    min-width: 190px;
+    max-width: 320px;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-select-other-title {
+    padding: 4px 8px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-select-other-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-select-other-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-select-other-label {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.cad-select-other-detail {
+    margin-left: auto;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.cad-select-other-distance {
+    min-width: 40px;
+    color: var(--theia-descriptionForeground);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-sketch-toolbar-title {
+    flex: 1 1 auto;
+    overflow: hidden;
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    color: var(--theia-foreground);
+    text-transform: uppercase;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* History pair sits in the fixed header, so it is reachable without scrolling. */
+.cad-sketch-toolbar-history {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+}
+
+.cad-sketch-toolbar-history .cad-sketch-tool-button {
+    width: 22px;
+    height: 22px;
+}
+
+/*
+ * Compact two-column grouped grid: drawing tools / modify & constraint tools /
+ * inspect lists, separated by thin rules and labelled by full-width captions.
+ * The body owns scrolling (the toolbar root clips) so the header stays put and
+ * long palettes never spill under the status line. Tooltips anchor below the
+ * buttons (position="bottom"; header buttons use "top") so chips never sit on
+ * top of the neighbouring column.
+ */
+/* Fade the last few pixels of the scroll body so a clipped tool row reads as
+   "more below" rather than a layout bug. */
+.cad-sketch-toolbar::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 6px;
+    bottom: 0;
+    height: 12px;
+    background: linear-gradient(to top, var(--theia-editorWidget-background), transparent);
+    pointer-events: none;
+}
+
+.cad-sketch-toolbar-body {
+    display: grid;
+    flex: 1 1 auto;
+    grid-template-columns: repeat(2, 28px);
+    align-content: start;
+    justify-content: center;
+    gap: 3px 4px;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 5px 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--theia-scrollbarSlider-background) transparent;
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: var(--theia-scrollbarSlider-background);
+}
+
+.cad-sketch-toolbar-body::-webkit-scrollbar-thumb:hover {
+    background: var(--theia-scrollbarSlider-hoverBackground);
+}
+
+.cad-sketch-toolbar-group {
+    display: contents;
+}
+
+.cad-sketch-toolbar-group-label {
+    grid-column: 1 / -1;
+    padding: 3px 2px 1px;
+    font-size: 9px;
+    line-height: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-sketch-toolbar-separator {
+    grid-column: 1 / -1;
+    height: 1px;
+    margin: 2px 1px;
+    background: var(--theia-panel-border);
+}
+
+.cad-sketch-toolbar-toggle,
+.cad-sketch-toolbar-collapse {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+}
+
+/*
+ * Theia's .theia-button carries min-width: 65px, 6px/9px padding, and an 8px
+ * left margin. Every compact icon button in the CAD chrome must opt out, or
+ * 24px buttons render 65px+ wide and overlap their neighbors.
+ */
+.cad-sketch-toolbar-toggle,
+.cad-sketch-toolbar-collapse,
+.cad-sketch-tool-button,
+.cad-sketch-constraint-chip,
+.cad-viewport-nav-button,
+.cad-viewport-shading-item,
+.cad-viewport-section-axis,
+.cad-viewport-section-flip,
+.cad-viewport-warning-toggle,
+.cad-viewport-error-dismiss,
+.cad-measure-row-remove,
+.cad-measure-clear,
+.cad-command-search-trigger,
+.cad-sketch-parameter-actions button,
+.cad-feature-dialog-ref-row button,
+.cad-assembly-collapse {
+    min-width: 0;
+    margin-left: 0;
+}
+
+/*
+ * Positioned box carrying the collapsed toggle's default and dragged spot. The
+ * button stays in flow inside it so the Tooltip wrapper hugs the button and its
+ * tooltip anchors to the toggle instead of the overlay's full-width context.
+ */
+.cad-sketch-toolbar-toggle-anchor {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 20;
+}
+
+.cad-sketch-tool-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.cad-sketch-tool-button:disabled {
+    cursor: not-allowed;
+}
+
+.cad-sketch-tool-button.active,
+.cad-sketch-tool-button.theia-button.secondary.active {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    border-color: var(--theia-focusBorder);
+}
+
+.cad-sketch-grid-glyph {
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: 15px;
+    line-height: 1;
+}
+
+.cad-sketch-tool-button.active .cad-sketch-grid-glyph {
+    color: var(--theia-button-foreground);
+}
+
+/*
+ * Shared shell for the draggable floating panels (popover wrappers around
+ * NukePanel): the absolutely positioned wrapper owns placement — its class
+ * carries the default anchor, drag.js inline style overrides it while dragged
+ * — and the inner panel fills it.
+ */
+.cad-sketch-draggable {
+    position: absolute;
+    display: flex;
+}
+
+.cad-sketch-draggable > .nuke-panel {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.cad-sketch-draggable .nuke-panel-header {
+    cursor: grab;
+    user-select: none;
+}
+
+.cad-sketch-draggable .nuke-panel-header:active {
+    cursor: grabbing;
+}
+
+/*
+ * Top-right anchor box for the Finish Sketch pill. The pill stays in flow
+ * inside it so the Tooltip wrapper hugs the button and its tooltip anchors to
+ * the pill instead of the overlay's full-width positioning context.
+ */
+.cad-sketch-finish-anchor {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 21;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Unsaved-changes dot; inside the anchor so it can never slide under the pill
+   or into the centered constraint bar, whatever the viewport width. */
+.cad-sketch-finish-dirty {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-editorInfo-foreground);
+}
+
+.cad-sketch-finish-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    font-size: var(--theia-ui-font-size1);
+    white-space: nowrap;
+}
+
+.cad-sketch-toolbar-toggle {
+    cursor: grab;
+}
+
+/*
+ * Create/Edit Sketch task panel. Anchored just under the document toolbar and
+ * shifted left of the shared ViewCube's 68 px slot, so the card never covers
+ * the orientation cube (and does not float lower than needed when no model is
+ * open and the cube is hidden).
+ */
+.cad-sketch-datum-picker {
+    position: absolute;
+    top: calc(var(--nuke-cad-toolbar-bottom, 64px) + 8px);
+    right: 96px;
+    left: auto;
+    transform: none;
+    z-index: 21;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 260px;
+    max-height: calc(100% - var(--nuke-cad-toolbar-bottom, 64px) - 24px);
+    overflow-y: auto;
+    padding: 12px 14px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    pointer-events: auto;
+}
+
+/* While picking the datum face, the picker card must not block viewport clicks. */
+.cad-sketch-datum-picker.picking {
+    pointer-events: none;
+}
+
+.cad-sketch-datum-picker.picking button {
+    pointer-events: auto;
+}
+
+.cad-sketch-datum-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cad-sketch-datum-picker .cad-sketch-datum-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: var(--theia-focusBorder);
+    /* Custom CAD glyphs are 16px masks; scale them explicitly. */
+    -webkit-mask-size: 20px 20px;
+    mask-size: 20px 20px;
+}
+
+.cad-sketch-datum-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    text-align: left;
+}
+
+.cad-sketch-datum-close {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    min-width: 0;
+    margin-left: 0;
+    padding: 0;
+}
+
+.cad-sketch-datum-instruction {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.35;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Pick banners inside the task panel flow with the card instead of floating
+   over the viewport center (the card is their positioned ancestor). */
+.cad-sketch-datum-picker .cad-sketch-face-pick-banner {
+    position: static;
+    transform: none;
+    width: auto;
+    max-width: none;
+    padding: 6px 8px;
+}
+
+.cad-sketch-datum-buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+}
+
+.cad-sketch-datum-buttons button {
+    flex: 1;
+    min-width: 0;
+}
+
+.cad-sketch-datum-buttons button.active {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.cad-sketch-datum-offset {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-datum-offset input {
+    flex: 1;
+    min-width: 80px;
+}
+
+.cad-sketch-datum-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/*
+ * Owns the top-center chrome slot (the Finish Sketch pill moved to the
+ * top-right anchor); the sketch toolbar's default spot starts below this row.
+ * Bias the bar left of true center so its right edge always clears the
+ * unsaved dot that sits immediately left of the Finish Sketch pill.
+ */
+.cad-sketch-constraint-bar {
+    position: absolute;
+    top: 8px;
+    left: calc(50% - 20px);
+    transform: translateX(-50%);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px 6px;
+    box-sizing: border-box;
+    max-width: min(760px, calc(100% - 300px));
+    padding: 4px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-constraint-label {
+    flex: 0 0 auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.cad-sketch-constraint-chips {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+
+/*
+ * 26px glyph chips: Theia's .theia-button min-width/padding/margin are reset
+ * by the grouped compact-button rule above. Active state must beat
+ * `.theia-button.secondary` in both themes (same lesson as the ribbon).
+ */
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    min-width: 0;
+    margin-left: 0;
+    padding: 0;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 5px;
+    background: transparent;
+    background-image: none;
+    color: var(--theia-foreground);
+    font-family: var(--theia-code-font-family, monospace);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip:hover:not(:disabled) {
+    background: var(--theia-toolbar-hoverBackground);
+}
+
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip.active,
+.cad-sketch-constraint-bar button.cad-sketch-constraint-chip.active:hover:not(:disabled) {
+    background-color: var(--theia-focusBorder);
+    background-image: none;
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.cad-sketch-constraint-bar .cad-sketch-constraint-chip.active .cad-sketch-constraint-glyph {
+    color: var(--theia-button-foreground);
+}
+
+.cad-sketch-constraint-glyph {
+    color: inherit;
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.cad-sketch-constraint-more {
+    flex: 0 0 auto;
+    min-width: 88px;
+    max-width: 118px;
+}
+
+.cad-sketch-constraint-more .nuke-select-trigger {
+    height: 26px;
+    padding: 2px 6px;
+}
+
+.cad-sketch-constraint-hint {
+    flex: 0 0 auto;
+    opacity: 0.8;
+    font-size: var(--theia-ui-font-size0);
+    white-space: nowrap;
+}
+
+/* Sits above the full-width status line (which tops out ~38px) — never over it. */
+.cad-sketch-value-input {
+    position: absolute;
+    bottom: 46px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+}
+
+.cad-sketch-value-input label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-value-input input {
+    width: 90px;
+}
+
+.cad-sketch-status-line {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    box-sizing: border-box;
+    min-height: 28px;
+    padding: 4px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-status-hints {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.cad-sketch-status-hint-warning {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-sketch-status-badges {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-sketch-status-badge {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: 18px;
+    padding: 0 7px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 9px;
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-sketch-status-badge-error {
+    border-color: var(--theia-editorError-foreground);
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-sketch-status-badge-warning {
+    border-color: var(--theia-editorWarning-foreground);
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-sketch-status-badge-success {
+    border-color: var(--theia-inputValidation-successBorder, #16a34a);
+    color: var(--theia-inputValidation-successBorder, #16a34a);
+}
+
+.cad-sketch-status-badge-muted {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-sketch-status {
+    position: absolute;
+    bottom: 46px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-status-error {
+    color: var(--theia-editorError-foreground);
+    border: 1px solid var(--theia-editorError-foreground);
+}
+
+.cad-sketch-diameter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--theia-ui-font-size1);
+    white-space: nowrap;
+}
+
+.cad-sketch-diameter-toggle input {
+    width: auto;
+}
+
+.cad-sketch-dimension-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 2px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    pointer-events: auto;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.cad-sketch-dimension-label:hover,
+.cad-sketch-dimension-label.pinned {
+    border-color: var(--theia-focusBorder);
+}
+
+.cad-sketch-dimension-label.selected {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.cad-sketch-dimension-popover {
+    /* Fixed, not absolute: the transform value popovers live inside the
+       scrollable sketch palette and must escape its overflow clipping. */
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 40;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 220px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    pointer-events: auto;
+    box-shadow: var(--nuke-shadow-md);
+}
+
+.cad-sketch-dimension-popover-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    text-align: center;
+}
+
+.cad-sketch-dimension-popover-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-dimension-popover-row input[type='text'] {
+    flex: 1;
+    min-width: 100px;
+}
+
+.cad-sketch-dimension-popover-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.cad-sketch-parameters-panel {
+    /* Below the top-right Finish Sketch pill. */
+    top: 48px;
+    right: 8px;
+    width: 260px;
+    max-height: calc(100% - 88px);
+}
+
+.cad-sketch-parameters-subtitle {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.4;
+}
+
+.cad-sketch-parameters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cad-sketch-parameter-row {
+    display: grid;
+    grid-template-columns: 1fr 60px 50px auto;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-parameter-row input {
+    width: 100%;
+    min-width: 0;
+}
+
+.cad-sketch-parameter-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-sketch-parameter-value {
+    text-align: right;
+}
+
+.cad-sketch-parameter-hint {
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.7;
+    text-align: right;
+}
+
+.cad-sketch-parameter-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.cad-sketch-parameter-actions button {
+    padding: 2px 4px;
+    min-width: 0;
+}
+
+.cad-sketch-parameter-error {
+    grid-column: 1 / -1;
+    color: var(--theia-editorError-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-sketch-parameters-new {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.cad-sketch-parameters-new input {
+    flex: 1;
+    min-width: 0;
+}
+
+.cad-sketch-diagnostics-popover {
+    bottom: 40px;
+    left: 8px;
+    min-width: 260px;
+    max-height: 240px;
+}
+
+.cad-sketch-diagnostics-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cad-sketch-diagnostics-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-sketch-diagnostics-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size0);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.cad-sketch-diagnostics-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-sketch-diagnostics-id {
+    opacity: 0.8;
+}
+
+.cad-sketch-diagnostics-kind {
+    font-weight: 600;
+}
+
+.cad-sketch-diagnostics-targets {
+    opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-sketch-diagnostics-empty {
+    font-size: var(--theia-ui-font-size1);
+    opacity: 0.7;
+}
+
+/*
+ * Pick-mode banners float over the viewport but must never block picking: the
+ * box itself is click-through and only the Cancel button takes pointer events.
+ * width:max-content keeps the label on one line; max-width re-wraps it sanely
+ * on narrow viewports instead of squeezing to one word per line.
+ */
+.cad-sketch-face-pick-banner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    width: max-content;
+    max-width: min(480px, calc(100% - 32px));
+    pointer-events: none;
+}
+
+.cad-sketch-face-pick-banner button {
+    pointer-events: auto;
+}
+
+.cad-sketch-face-pick-banner .codicon {
+    color: var(--theia-focusBorder);
+}
+
+.cad-sketch-external-refs {
+    /* Below the top-right Finish Sketch pill. */
+    top: 48px;
+    right: 8px;
+    width: 220px;
+    max-height: calc(100% - 88px);
+}
+
+.cad-sketch-external-ref-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-external-ref-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-sketch-external-ref-kind {
+    text-transform: uppercase;
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.7;
+}
+
+.cad-sketch-external-ref-feature {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-sketch-status-line.has-diagnostics {
+    cursor: pointer;
+    border-color: var(--theia-editorWarning-foreground);
+}
+
+.cad-sketch-status-line.has-diagnostics:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+/* Document mode chrome */
+
+.cad-viewport-dirty-marker {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-editorInfo-foreground);
+}
+
+/* A faint dot grid makes the empty document read as a CAD canvas rather than
+   a blank editor page. The welcome card keeps the plain background. */
+.cad-viewport.empty:has(.cad-viewport-start-model) {
+    background-image: radial-gradient(circle, var(--theia-panel-border) 1px, transparent 1.2px);
+    background-position: center;
+    background-size: 24px 24px;
+}
+
+.cad-viewport-start-model {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 560px;
+    margin-inline: auto;
+    padding: 24px;
+    text-align: left;
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 14px;
+    box-shadow: var(--nuke-shadow-md);
+    container-type: inline-size;
+}
+
+.cad-viewport-document-empty-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.cad-viewport-document-empty-icon-tile {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-focusBorder);
+}
+
+.cad-viewport .cad-viewport-document-empty-icon {
+    width: 26px;
+    height: 26px;
+    opacity: 1;
+    /* Custom CAD glyphs are 16px masks; scale them explicitly. */
+    -webkit-mask-size: 26px 26px;
+    mask-size: 26px 26px;
+}
+
+.cad-viewport-document-empty-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.cad-viewport-document-empty-eyebrow {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.cad-viewport-document-empty-title {
+    font-size: calc(var(--theia-ui-font-size2) + 3px);
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.cad-viewport-document-empty-message {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-viewport-document-empty-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr);
+    gap: 10px;
+    width: 100%;
+    align-items: stretch;
+}
+
+.cad-viewport-document-empty-primary {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 10px;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-viewport-document-empty-primary:hover {
+    background: var(--theia-button-hoverBackground);
+}
+
+.cad-viewport-document-empty-primary:focus-visible,
+.cad-viewport-document-empty-action:focus-visible {
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: 2px;
+}
+
+.cad-viewport-document-empty-primary-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.18);
+    color: inherit;
+}
+
+.cad-viewport-document-empty-primary-icon .codicon {
+    width: 22px;
+    height: 22px;
+    font-size: 22px;
+    -webkit-mask-size: 22px 22px;
+    mask-size: 22px 22px;
+}
+
+.cad-viewport-document-empty-primary .cad-viewport-document-empty-action-copy {
+    align-self: stretch;
+}
+
+.cad-viewport-document-empty-action-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.cad-viewport-document-empty-action-label {
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.cad-viewport-document-empty-primary .cad-viewport-document-empty-action-label {
+    font-size: var(--theia-ui-font-size2);
+}
+
+.cad-viewport-document-empty-action-desc {
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.35;
+    opacity: 0.8;
+}
+
+.cad-viewport-document-empty-primary .cad-viewport-document-empty-action-desc {
+    opacity: 0.9;
+}
+
+.cad-viewport-document-empty-chevron {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    flex: none;
+    font-size: 16px;
+    opacity: 0.8;
+}
+
+.cad-viewport-document-empty-secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.cad-viewport-document-empty-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-viewport-document-empty-action:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-viewport-document-empty-action-icon {
+    flex: none;
+    color: var(--theia-focusBorder);
+    font-size: 18px;
+}
+
+.cad-viewport-document-empty-action .cad-viewport-document-empty-action-desc {
+    color: var(--theia-descriptionForeground);
+    opacity: 1;
+}
+
+.cad-viewport-document-empty-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid var(--theia-panel-border);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-viewport-document-empty-hint .codicon {
+    font-size: 13px;
+}
+
+@container (max-width: 480px) {
+    .cad-viewport-document-empty-actions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Very narrow editor (side panels still open): keep the launcher usable by
+   dropping the supporting copy rather than letting every line wrap. */
+@container (max-width: 260px) {
+    .cad-viewport-document-empty {
+        gap: 12px;
+        padding: 14px;
+    }
+
+    .cad-viewport-document-empty-header {
+        gap: 10px;
+    }
+
+    .cad-viewport-document-empty-icon-tile {
+        width: 38px;
+        height: 38px;
+    }
+
+    .cad-viewport .cad-viewport-document-empty-icon {
+        width: 22px;
+        height: 22px;
+        -webkit-mask-size: 22px 22px;
+        mask-size: 22px 22px;
+    }
+
+    .cad-viewport-document-empty-eyebrow,
+    .cad-viewport-document-empty-message,
+    .cad-viewport-document-empty-action-desc,
+    .cad-viewport-document-empty-hint {
+        display: none;
+    }
+
+    .cad-viewport-document-empty-title {
+        font-size: var(--theia-ui-font-size2);
+    }
+
+    .cad-viewport-document-empty-actions {
+        gap: 8px;
+    }
+
+    .cad-viewport-document-empty-primary {
+        padding: 12px;
+    }
+
+    .cad-viewport-document-empty-primary-icon {
+        width: 34px;
+        height: 34px;
+    }
+
+    .cad-viewport-document-empty-primary .cad-viewport-document-empty-action-label {
+        font-size: var(--theia-ui-font-size1);
+    }
+
+    .cad-viewport-document-empty-action {
+        padding: 8px 10px;
+    }
+
+    .cad-viewport-document-empty-action-label {
+        font-size: var(--theia-ui-font-size0);
+    }
+}
+
+@media (max-width: 620px) {
+    .cad-viewport-document-empty {
+        padding: 20px;
+    }
+}
+
+.cad-document-toolbar {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    z-index: 20;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-titleBar-activeBackground);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    pointer-events: auto;
+}
+
+.cad-document-toolbar-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+.cad-document-toolbar-icon {
+    color: var(--theia-focusBorder);
+    font-size: 18px;
+}
+
+.cad-document-toolbar-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cad-document-toolbar-name {
+    overflow: hidden;
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    color: var(--theia-foreground);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-document-toolbar-dirty {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--theia-editorInfo-foreground);
+}
+
+.cad-document-toolbar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+/*
+ * The shared ribbon owns section spacing, separators, and button sizing
+ * (nuke-essentials `nuke-ribbon.css`); the host only right-aligns it and lets
+ * it shrink at narrow widths.
+ */
+.cad-document-toolbar-actions .nuke-ribbon {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+/*
+ * Command-search launcher: a floating pill over the bottom-left of the canvas,
+ * outside the document toolbar so a dense ribbon can never slide a section
+ * under it. It mirrors the bottom-right navigation pill's surface.
+ */
+.cad-command-search-launcher {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+}
+
+.cad-command-search-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    margin-left: 0;
+    padding: 0 9px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size0);
+    cursor: pointer;
+    box-shadow: var(--nuke-shadow-sm);
+}
+
+.cad-command-search-trigger:hover,
+.cad-command-search-trigger[aria-expanded='true'] {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-foreground);
+}
+
+.cad-command-search-trigger .codicon {
+    font-size: 14px;
+}
+
+.cad-command-search-trigger-label {
+    font-weight: 500;
+    line-height: 1;
+}
+
+.cad-command-search-trigger-key {
+    min-width: 14px;
+    padding: 1px 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    background: var(--theia-input-background);
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-ui-font-family);
+    font-size: 9px;
+    line-height: 1.3;
+    text-align: center;
+}
+
+/* Narrow viewport: keep the document info on the first row and give the
+   ribbon a full-width second row. Otherwise seven section menus (or their
+   captions) are squeezed into the leftover pixels and clip to ellipses. */
+@media (max-width: 900px) {
+    .cad-document-toolbar {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .cad-document-toolbar-info {
+        flex: 1 1 auto;
+    }
+
+    .cad-document-toolbar-actions {
+        flex: 1 0 100%;
+        justify-content: flex-start;
+    }
+
+    .cad-document-toolbar-actions .nuke-ribbon {
+        justify-content: flex-start;
+    }
+
+    /* The wide-screen banner reserves 430 px for the ViewCube/panel column;
+       at narrow widths that collapses to one word per line. Use the full row
+       and push the assembly card below it. */
+    .cad-viewport:has(.cad-document-toolbar) .cad-viewport-design-study-banner {
+        width: min(100%, 720px);
+        margin-left: 0;
+    }
+
+    .cad-viewport:has(.cad-viewport-design-study-banner) .cad-assembly-panel {
+        top: 260px;
+    }
+}
+
+.cad-command-search-trigger:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+/*
+ * Command search popover: anchored to the viewport overlay, opening upward
+ * from the launcher so it never covers the ribbon.
+ */
+.cad-command-search-popover {
+    position: absolute;
+    bottom: 44px;
+    left: 8px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 340px;
+    max-width: calc(100% - 16px);
+    max-height: min(320px, calc(100% - 60px));
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+    pointer-events: auto;
+}
+
+.cad-command-search-results {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.cad-command-search-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-command-search-item:hover:not(:disabled),
+.cad-command-search-item.active {
+    background: var(--theia-list-hoverBackground);
+    color: var(--theia-list-hoverForeground);
+}
+
+.cad-command-search-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.cad-command-search-icon {
+    flex: 0 0 auto;
+    font-size: 16px;
+}
+
+.cad-command-search-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    gap: 1px;
+    min-width: 0;
+}
+
+.cad-command-search-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-command-search-reason {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.3;
+    white-space: normal;
+}
+
+.cad-command-search-group {
+    flex: 0 0 auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    white-space: nowrap;
+}
+
+.cad-command-search-empty {
+    padding: 6px 8px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+/* Feature creation dialog (shell provided by NukeDialog) */
+
+.cad-feature-dialog-error {
+    color: var(--theia-editorError-foreground);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-row {
+    display: grid;
+    grid-template-columns: minmax(110px, max-content) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-row.check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cad-feature-dialog-row input[type='text'],
+.cad-feature-dialog-row input[type='number'],
+.cad-feature-dialog-row select,
+.cad-feature-dialog-row .nuke-select,
+.cad-feature-dialog-row .nuke-select-trigger {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.cad-feature-dialog-row input[type='checkbox'] {
+    width: auto;
+}
+
+.cad-feature-dialog-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+/* Per-body Appearance dialog (shell + rows from NukeDialog/NukeFormRow) */
+
+.cad-body-appearance-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.cad-body-appearance-subtitle {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-body-appearance-preset {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+}
+
+.cad-body-appearance-preset-save {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.cad-body-appearance-preset-delete {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    min-width: 0;
+    height: 26px;
+    margin-left: 0;
+    padding: 0;
+}
+
+.cad-body-appearance-opacity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.cad-body-appearance-opacity .nuke-slider {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.nuke-form-row-control input.cad-body-appearance-percent {
+    flex: 0 0 auto;
+    width: 56px;
+}
+
+.cad-body-appearance-percent-unit {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-body-appearance-remove {
+    margin-right: auto;
+}
+
+/* “Import CAD as Body…” dialog (shell + rows from NukeDialog/NukeFormRow) */
+
+.cad-import-body-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.cad-import-body-subtitle {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-import-body-dialog {
+    width: 100%;
+}
+
+.cad-import-body-dialog .nuke-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cad-import-body-source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-import-body-source-name {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-import-body-source-chip {
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.4;
+}
+
+.cad-import-body-warnings {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--theia-editorWarning-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-table-wrap {
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 2px;
+}
+
+.cad-import-body-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-import-body-table th,
+.cad-import-body-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.cad-import-body-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--theia-editor-background);
+    font-weight: 600;
+}
+
+.cad-import-body-table tbody tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-import-body-table tbody tr.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.cad-import-body-table tbody tr.selected .cad-import-body-index-cell,
+.cad-import-body-table tbody tr.selected .cad-import-body-bbox-cell {
+    color: inherit;
+}
+
+.cad-import-body-checkbox-cell {
+    width: 32px;
+}
+
+.cad-import-body-index-cell {
+    width: 40px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-import-body-name-cell {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-import-body-number-cell {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cad-import-body-bbox-cell {
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.nuke-form-row-control input.cad-import-body-label-input {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+}
+
+.nuke-form-row-control input.cad-import-body-label-input:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.cad-import-body-strategy {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.cad-import-body-strategy legend {
+    margin-bottom: 4px;
+    padding: 0;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-strategy label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-import-body-summary {
+    margin-right: auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-import-body-error {
+    color: var(--theia-editorError-foreground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+/* “Create W7-X Coil Study…” dialog */
+.cad-w7x-study-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.cad-w7x-study-subtitle {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-w7x-study-dialog {
+    width: 100%;
+}
+
+.cad-w7x-study-dialog .nuke-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cad-w7x-study-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-editorWarning-foreground);
+    border-radius: 6px;
+    background: var(--theia-inputValidation-warningBackground, var(--theia-editorWidget-background));
+    color: var(--theia-editorWarning-foreground);
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+}
+
+.cad-w7x-study-warning .codicon {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.cad-w7x-study-module-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-w7x-study-module-label {
+    margin-right: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+}
+
+.cad-w7x-study-module.active {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.cad-w7x-study-report {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+}
+
+.cad-w7x-study-report-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.cad-w7x-study-report-title {
+    font-weight: 600;
+}
+
+.cad-w7x-study-status {
+    padding: 0 8px;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 16px;
+    white-space: nowrap;
+}
+
+.cad-w7x-study-status.valid {
+    color: var(--theia-editorInfo-foreground);
+}
+
+.cad-w7x-study-status.invalid {
+    color: var(--theia-editorError-foreground);
+}
+
+.cad-w7x-study-summary {
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+}
+
+.cad-w7x-study-metrics {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-w7x-study-metrics th,
+.cad-w7x-study-metrics td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+}
+
+.cad-w7x-study-metrics tr:last-child th,
+.cad-w7x-study-metrics tr:last-child td {
+    border-bottom: 0;
+}
+
+.cad-w7x-study-metrics th {
+    width: 50%;
+    color: var(--theia-descriptionForeground);
+    font-weight: 400;
+}
+
+.cad-w7x-study-metrics td {
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-w7x-study-collisions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.cad-w7x-study-collision-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cad-w7x-study-collision-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-w7x-study-count {
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 16px;
+}
+
+.cad-w7x-study-empty {
+    padding: 6px 8px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 4px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-w7x-study-overlap-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-w7x-study-overlap-table th,
+.cad-w7x-study-overlap-table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.cad-w7x-study-overlap-table th:last-child,
+.cad-w7x-study-overlap-table td:last-child {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-w7x-study-footer-note {
+    margin-right: auto;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+/* Native coil shape-study dialog: locked five-module inventory, five numeric
+   fields, and a display-only reference-volume note. */
+.cad-w7x-study-inventory {
+    align-self: flex-start;
+    padding: 3px 9px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-w7x-shape-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+}
+
+/* The shape-study dialog is not inside .cad-sketch-overlay, so its number
+   inputs need the theme-aware treatment explicitly; otherwise the browser
+   defaults to white fields in dark themes. */
+.cad-w7x-shape-grid input[type='number'] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: var(--theia-ui-font-size1);
+    color-scheme: inherit;
+}
+
+.cad-w7x-shape-grid input[type='number']:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.cad-w7x-shape-note {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-w7x-shape-note strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-w7x-shape-note-muted {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-viewport-design-study-banner.approximate .cad-viewport-design-study-status {
+    color: var(--theia-editorWarning-foreground);
+}
+
+@media (max-width: 640px) {
+    .cad-w7x-study-collisions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cad-w7x-shape-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.cad-feature-dialog-row.vertical {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.cad-feature-dialog-label {
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-refs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 120px;
+    overflow: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    padding: 4px;
+}
+
+.cad-feature-dialog-ref-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-ref-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-feature-dialog-ref-kind {
+    text-transform: uppercase;
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.7;
+}
+
+.cad-feature-dialog-ref-feature {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-feature-dialog-ref-row button {
+    padding: 2px 4px;
+    min-width: 0;
+}
+
+/* Loft section rows carry an order badge, the sketch name, and up/down/remove
+   buttons — one more auto column than the dress-up reference rows. */
+.cad-feature-dialog-section-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-feature-dialog-section-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-feature-dialog-section-row button {
+    padding: 2px 4px;
+    min-width: 0;
+}
+
+.cad-feature-dialog-section-index {
+    min-width: 16px;
+    text-align: right;
+    opacity: 0.7;
+    font-size: var(--theia-ui-font-size0);
+}
+
+/* CAD-only tools riding the shared bottom bar (shading, section, explode):
+   the ISO/T/F/R + fit + zoom core lives in nuke-essentials
+   (.nuke-viewer-nav-bar); only the host-specific buttons stay here. */
+.cad-viewport-nav-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 4px;
+}
+
+.cad-viewport-nav-button.active {
+    color: var(--theia-focusBorder);
+}
+
+.cad-viewport-nav-divider {
+    width: 1px;
+    height: 16px;
+    margin: 0 3px;
+    background: var(--theia-panel-border);
+}
+
+/* Shared card for the bottom-bar popovers (shading, section): positioning and
+   surface live here; the per-popover classes keep only their distinct spacing
+   so the two cards can never drift apart and overlap again. */
+.cad-viewport-popover {
+    position: absolute;
+    bottom: 42px;
+    right: 8px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    min-width: 180px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Shading-mode popover (anchored above the navigation cluster) */
+.cad-viewport-nav-popover {
+    padding: 4px;
+}
+
+.cad-viewport-shading-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-viewport-shading-item:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-viewport-shading-item.active {
+    color: var(--theia-focusBorder);
+}
+
+.cad-viewport-shading-label {
+    flex: 1;
+    white-space: nowrap;
+}
+
+.cad-viewport-ghost-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    padding: 6px 8px 2px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: var(--theia-ui-font-size0);
+    cursor: default;
+}
+
+.cad-viewport-ghost-row input[type='range'] {
+    flex: 1;
+    min-width: 80px;
+}
+
+/* Section-mode popover (anchored above the navigation cluster) */
+.cad-viewport-section-popover {
+    gap: 4px;
+}
+
+.cad-viewport-section-axis,
+.cad-viewport-section-flip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.cad-viewport-section-axis:hover,
+.cad-viewport-section-flip:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-viewport-section-axis.active,
+.cad-viewport-section-flip.active {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.cad-viewport-section-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    padding: 6px 2px 2px;
+    border-top: 1px solid var(--theia-panel-border);
+    font-size: var(--theia-ui-font-size0);
+    cursor: default;
+}
+
+.cad-viewport-section-slider-row input[type='range'] {
+    flex: 1;
+    min-width: 80px;
+}
+
+/* Status hint (bottom-center pill, like the document hint): layout stays
+   here; the muted text treatment is the shared `.nuke-viewer-status-line`. */
+.cad-viewport-shading-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 14;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    /* Keep the pill clear of the bottom-right navigation cluster: capped width
+       plus ellipsis instead of sliding underneath it. The static cap below is
+       only the pre-measurement fallback — React overwrites `max-width` from
+       the measured cluster width once it mounts. */
+    max-width: calc(100% - 380px);
+    padding: 4px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    pointer-events: none;
+}
+
+.cad-viewport-shading-hint .codicon {
+    flex-shrink: 0;
+}
+
+.cad-viewport-shading-hint-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Sketch keyboard-shortcuts cheat sheet (draggable, below the sketch-measure
+   popover's default spot so opening both never stacks them) */
+.cad-sketch-shortcuts-popover {
+    top: 120px;
+    left: 56px;
+    z-index: 22;
+    width: 300px;
+    max-height: calc(100% - 144px);
+}
+
+.cad-sketch-shortcuts-section + .cad-sketch-shortcuts-section {
+    margin-top: 10px;
+}
+
+.cad-sketch-shortcuts-title {
+    margin-bottom: 3px;
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-sketch-shortcuts-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-sketch-shortcuts-row > :last-child {
+    color: var(--theia-descriptionForeground);
+    text-align: right;
+}
+
+.cad-sketch-shortcuts-key {
+    flex-shrink: 0;
+    min-width: 20px;
+    padding: 1px 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    background: var(--theia-input-background);
+    font-size: var(--theia-ui-font-size0);
+    text-align: center;
+}
+
+/* Measure tool overlays */
+
+.cad-measure-label-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.cad-measure-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 1px 6px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size0);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.cad-measure-label-pending {
+    color: var(--theia-focusBorder);
+    opacity: 0.9;
+}
+
+/* Measurements popover in 3D document mode (below the document toolbar).
+   The bar publishes its measured bottom as `--nuke-cad-toolbar-bottom`
+   (density changes the bar height); 64px is the no-toolbar fallback. */
+.cad-viewport-measure-popover {
+    position: absolute;
+    top: calc(var(--nuke-cad-toolbar-bottom, 64px) + 4px);
+    right: 8px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 220px;
+    max-width: 300px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Measurements popover in sketch mode (on the floating sketch toolbar's row) */
+.cad-sketch-measure-popover {
+    position: absolute;
+    top: 64px;
+    left: 56px;
+    z-index: 21;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 220px;
+    max-width: 300px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.cad-measure-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: grab;
+    user-select: none;
+}
+
+.cad-measure-header:active {
+    cursor: grabbing;
+}
+
+.cad-measure-title {
+    flex: 1;
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.cad-measure-badge {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 16px;
+    text-align: center;
+}
+
+.cad-measure-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.cad-measure-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 2px;
+    border-radius: 4px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-measure-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-measure-value {
+    flex: 1;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-measure-row-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+}
+
+/* Popover buttons sit on the light editor-widget panel in light themes:
+   inherit the secondary-button foreground explicitly so they never pick up
+   the primary `button-foreground` (white) from the global .theia-button rule. */
+.cad-viewport-measure-popover .cad-measure-header .cad-measure-row-remove,
+.cad-viewport-measure-popover .cad-measure-list .cad-measure-row-remove,
+.cad-viewport-measure-popover .cad-measure-footer .cad-measure-clear {
+    color: var(--theia-secondaryButton-foreground);
+}
+
+.cad-measure-empty {
+    font-size: var(--theia-ui-font-size1);
+    color: var(--theia-descriptionForeground);
+    padding: 4px 2px;
+}
+
+.cad-measure-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 2px;
+    padding-top: 6px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.cad-measure-clear {
+    padding: 2px 8px;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-measure-note {
+    font-size: var(--theia-ui-font-size0);
+    color: var(--theia-descriptionForeground);
+    text-align: right;
+}
+
+/* Context shortcut bar (Q) */
+.cad-shortcut-bar {
+    position: absolute;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.cad-shortcut-bar-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 4px;
+}
+
+.cad-shortcut-bar-button .codicon {
+    font-size: 14px;
+}
+
+.cad-shortcut-bar-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--theia-panel-border);
+    margin: 0 2px;
+}
+
+/* Auto-dimension inline input */
+.cad-sketch-auto-dimension {
+    position: absolute;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    transform: translate(-50%, -100%);
+    margin-top: -8px;
+}
+
+.cad-sketch-auto-dimension label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--theia-ui-font-size1);
+    color: var(--theia-foreground);
+}
+
+.cad-sketch-auto-dimension input {
+    width: 100px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+/* Constraint context popover */
+.cad-sketch-constraint-popover {
+    position: absolute;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    transform: translate(-50%, 12px);
+    min-width: 120px;
+}
+
+.cad-sketch-constraint-popover-item {
+    justify-content: flex-start;
+    padding: 4px 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+/* Document template picker */
+.cad-template-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 320px;
+}
+
+.cad-template-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cad-template-section-title {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.cad-template-section-hint {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-template-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cad-template-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    color: var(--theia-foreground);
+    text-align: left;
+    cursor: pointer;
+}
+
+.cad-template-item:hover {
+    background: var(--theia-list-hoverBackground);
+    border-color: var(--theia-focusBorder);
+}
+
+.cad-template-name {
+    font-weight: 600;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-template-description {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-template-params {
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size0);
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-template-sample-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.cad-template-badge {
+    flex: none;
+    padding: 1px 7px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: var(--theia-activityBarBadge-background);
+    color: var(--theia-activityBarBadge-foreground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.cad-template-badge-large {
+    background: transparent;
+    border-color: var(--theia-editorWarning-foreground);
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-template-badge-experimental,
+.cad-template-badge-external {
+    background: transparent;
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+}
+
+.cad-template-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    color: var(--theia-editorWarning-foreground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.4;
+    text-align: left;
+}
+
+.cad-template-picker-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+/* Explode slider (inside the navigation cluster) */
+.cad-viewport-explode {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+    font-size: var(--theia-ui-font-size0);
+    cursor: default;
+    user-select: none;
+}
+
+.cad-viewport-explode input[type='range'] {
+    width: 90px;
+}
+
+.cad-viewport-explode-label,
+.cad-viewport-explode-value {
+    min-width: 30px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Measure tool mode selector (model3d popover) */
+.cad-measure-modes {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.cad-measure-mode {
+    flex: 1;
+    padding: 2px 6px;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.cad-measure-mode.active {
+    color: var(--theia-focusBorder);
+}
+
+/* Assembly instance list: draggable, collapsible card under the toolbar. */
+.cad-assembly-panel {
+    position: absolute;
+    top: 104px;
+    left: 8px;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 320px;
+    min-width: 280px;
+    max-width: min(360px, calc(100% - 16px));
+    max-height: 40%;
+    overflow: hidden;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    border: 1px solid var(--theia-editorWidget-border);
+    border-radius: 8px;
+    box-shadow: var(--nuke-shadow-md);
+    font-size: var(--theia-ui-font-size1);
+}
+
+.cad-assembly-header {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 6px;
+    height: 28px;
+    padding: 0 8px;
+    box-sizing: border-box;
+    border-bottom: 1px solid var(--theia-panel-border);
+    cursor: grab;
+    user-select: none;
+}
+
+.cad-assembly-panel.collapsed .cad-assembly-header {
+    border-bottom: 0;
+}
+
+.cad-assembly-header:active {
+    cursor: grabbing;
+}
+
+.cad-assembly-title {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.cad-assembly-count {
+    flex-shrink: 0;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 10px;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cad-assembly-spacer {
+    flex: 1;
+    min-width: 0;
+}
+
+.cad-assembly-dof {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cad-assembly-collapse {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 4px;
+}
+
+.cad-assembly-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    padding: 8px;
+    overflow-y: auto;
+}
+
+.cad-assembly-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cad-assembly-empty-title {
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+.cad-assembly-empty-hint {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-assembly-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cad-assembly-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: 4px;
+    cursor: default;
+}
+
+.cad-assembly-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.cad-assembly-row.grounded {
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.cad-assembly-label {
+    font-weight: 600;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-assembly-part {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-assembly-grounded-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.cad-assembly-action {
+    flex-shrink: 0;
+    min-width: 0;
+    margin-left: 0;
+    padding: 1px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.cad-assembly-delete {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    padding: 1px 0;
+}
+
+.cad-assembly-add {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cad-assembly-add-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cad-assembly-add-label {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-assembly-add-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.cad-assembly-add-actions .theia-button {
+    margin-left: 0;
+}
+
+.cad-assembly-part-input {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    box-sizing: border-box;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    padding: 0 8px;
+    font-size: 11px;
+}
+
+.cad-assembly-part-input::placeholder {
+    color: var(--theia-input-placeholderForeground);
+}
+
+.cad-assembly-rename-input {
+    width: 110px;
+    box-sizing: border-box;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    padding: 1px 4px;
+    font-size: 12px;
+}
+
+.cad-mate-connector-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--theia-descriptionForeground);
+}

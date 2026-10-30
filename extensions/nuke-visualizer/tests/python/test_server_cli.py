@@ -1,18 +1,20 @@
 """Subprocess-based tests for server.py — the unified CLI entry point."""
 
+import importlib.metadata
 import json
 import os
 import subprocess
 import sys
 
 import pytest
+import server
+from nuke_viz import registry
 
 _SERVER_PY = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "python", "server.py")
 )
 
-# Discovery imports every command module; tally_viz pulls in paraview/vtk
-# when available, so allow generous but bounded time.
+# Discovery imports every command module, so allow generous but bounded time.
 _TIMEOUT = 30
 
 
@@ -78,6 +80,74 @@ def test_help_lists_registered_commands():
 
     assert proc.returncode == 0
     assert "openmc.check" in proc.stdout
+
+
+def fake_handler(args):
+    return 7
+
+
+fake_handler._command_help = "fake command"
+
+
+def test_main_routes_to_the_registered_handler(monkeypatch):
+    monkeypatch.setattr(server, "discover_plugins", lambda: [])
+    monkeypatch.setattr(server, "get_commands", lambda: {"fake": fake_handler})
+    monkeypatch.setattr(sys, "argv", ["server.py", "fake"])
+    assert server.main() == 7
+
+
+def test_main_without_a_command_prints_help(monkeypatch, capsys):
+    monkeypatch.setattr(server, "discover_plugins", lambda: [])
+    monkeypatch.setattr(server, "get_commands", lambda: {})
+    monkeypatch.setattr(sys, "argv", ["server.py"])
+    assert server.main() == 1
+    assert "usage:" in capsys.readouterr().out
+
+
+def test_entry_point_discovery_loads_plugins(monkeypatch):
+    class EntryPoint:
+        name = "example"
+
+        def load(self):
+            return None
+
+    class EntryPoints(list):
+        def select(self, group):
+            return self
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda: EntryPoints([EntryPoint()]))
+    assert registry.discover_plugins_from_entry_points() == ["example"]
+
+
+def test_entry_point_discovery_reports_a_broken_plugin(monkeypatch, capsys):
+    class EntryPoint:
+        name = "broken"
+
+        def load(self):
+            raise RuntimeError("missing dependency")
+
+    class EntryPoints(list):
+        def select(self, group):
+            return self
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda: EntryPoints([EntryPoint()]))
+    assert registry.discover_plugins_from_entry_points() == []
+    assert "broken" in capsys.readouterr().err
+
+
+def test_entry_point_discovery_supports_the_legacy_mapping_api(monkeypatch):
+    class EntryPoint:
+        name = "legacy"
+
+        def load(self):
+            return None
+
+    class LegacyEntryPoints:
+        def get(self, group, default=None):
+            return [EntryPoint()]
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda: LegacyEntryPoints())
+    assert registry.discover_plugins_from_entry_points() == ["legacy"]
 
 
 if __name__ == "__main__":  # pragma: no cover

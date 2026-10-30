@@ -148,6 +148,12 @@ src/
 │   ├── contributions/
 │   │   ├── status-bar-contribution.ts  # Status bar widget + picker
 │   │   └── workspace-env-contribution.ts # Auto-detect workspace env configs
+│   ├── tools-sidebar/                  # Nuke Tools sidebar
+│   │   ├── nuke-tools-sidebar-widget.tsx # Searchable, collapsible sidebar
+│   │   ├── nuke-tools-sidebar-model.ts   # Grouping/search/order model
+│   │   ├── nuke-tools-sidebar-contribution.ts # View registration
+│   │   └── nuke-core-tools-contribution.ts # Nuke Core's own sidebar items
+│   ├── index.ts                        # Browser barrel exports
 │   ├── nuke-core-preferences.ts        # Preference schema
 │   ├── nuke-core-menus.ts              # Menu contributions (Tools menu)
 │   ├── nuke-core-preference-layout.ts  # Settings UI layout
@@ -167,10 +173,13 @@ src/
     │   │   │   ├── uv-resolver.ts      # Find uv binary
     │   │   │   └── python-info.ts      # Inspect Python versions & packages
     │   │   └── environment-service.ts  # Aggregates providers
+    │   ├── dependency-install-planner.ts # Pure conda/pip routing plan
     │   ├── package-service.ts          # Command preparation
     │   └── health-service.ts           # Diagnostics
     ├── utils/
-    │   └── asar-helper.ts              # Electron ASAR path helper for packaged apps
+    │   ├── asar-helper.ts              # Electron ASAR path helper for packaged apps
+    │   └── script-resolver.ts          # Resolve bundled Python scripts for spawn
     ├── nuke-core-backend-service.ts    # RPC implementation
-    └── nuke-core-backend-module.ts     # Backend DI bindings
+    ├── nuke-core-backend-module.ts     # Backend DI bindings
+    └── static-frontend-server.ts       # no-store HTML frontend server override
 ```

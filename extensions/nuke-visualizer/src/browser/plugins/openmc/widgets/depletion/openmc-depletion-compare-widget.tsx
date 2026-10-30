@@ -32,6 +32,7 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 import { OpenMCService } from '../../openmc-service';
 import URI from '@theia/core/lib/common/uri';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 type ComparePlotType = 'concentration' | 'normalized' | 'difference';
 type CompareXAxis = 'time' | 'burnup';
@@ -267,53 +268,41 @@ export class OpenMCDepletionCompareWidget extends ReactWidget {
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
                         Plot Type
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="Plot type"
                         value={this.plotType}
-                        onChange={(e) => {
-                            this.plotType = e.target.value as ComparePlotType;
+                        options={[
+                            { value: 'concentration', label: 'Concentration' },
+                            { value: 'normalized', label: 'Normalized (%)' },
+                            { value: 'difference', label: 'Difference (A - B)' }
+                        ]}
+                        onChange={(value) => {
+                            this.plotType = value as ComparePlotType;
                             this.update();
                         }}
-                        style={{
-                            width: '100%',
-                            padding: '6px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: `1px solid ${borderColor}`,
-                            backgroundColor: 'var(--theia-input-background)',
-                            color: textColor,
-                            marginBottom: '10px'
-                        }}
-                    >
-                        <option value="concentration">Concentration</option>
-                        <option value="normalized">Normalized (%)</option>
-                        <option value="difference">Difference (A - B)</option>
-                    </select>
+                        style={{ width: '100%', marginBottom: '10px' }}
+                    />
 
                     <label style={{ fontSize: '12px', color: textColor, fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
                         X-Axis
                     </label>
-                    <select
+                    <NukeSelect
+                        ariaLabel="X axis"
                         value={this.xAxisType}
-                        onChange={(e) => {
-                            this.xAxisType = e.target.value as CompareXAxis;
+                        options={[
+                            { value: 'time', label: 'Time (days)' },
+                            {
+                                value: 'burnup',
+                                label: `Burnup (MWd/kg) ${!this.caseA?.summary?.burnup || !this.caseB?.summary?.burnup ? '(N/A)' : ''}`,
+                                disabled: !this.caseA?.summary?.burnup || !this.caseB?.summary?.burnup
+                            }
+                        ]}
+                        onChange={(value) => {
+                            this.xAxisType = value as CompareXAxis;
                             this.update();
                         }}
-                        style={{
-                            width: '100%',
-                            padding: '6px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: `1px solid ${borderColor}`,
-                            backgroundColor: 'var(--theia-input-background)',
-                            color: textColor,
-                            marginBottom: '10px'
-                        }}
-                    >
-                        <option value="time">Time (days)</option>
-                        <option value="burnup" disabled={!this.caseA?.summary?.burnup || !this.caseB?.summary?.burnup}>
-                            Burnup (MWd/kg) {!this.caseA?.summary?.burnup || !this.caseB?.summary?.burnup ? '(N/A)' : ''}
-                        </option>
-                    </select>
+                        style={{ width: '100%', marginBottom: '10px' }}
+                    />
 
                     {/* Debug info for normalized plots */}
                     {this.plotType === 'normalized' && this.selectedNuclides.size > 0 && (

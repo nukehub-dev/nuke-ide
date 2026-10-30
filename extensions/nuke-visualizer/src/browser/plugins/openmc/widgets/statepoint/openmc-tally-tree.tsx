@@ -36,8 +36,9 @@ import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService } from '../../openmc-service';
 import { OpenMCTallyInfo, OpenMCStatepointInfo, HDF5_FILE_FILTER } from '../../../../../common/openmc-protocol';
 import { URI } from '@theia/core/lib/common/uri';
-import { SimpleLoadingSpinner, EmptyState, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { SimpleLoadingSpinner, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
+import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { DomainTallyIcon } from '../../../../widgets/domain-icons';
 
 export interface TallySelection {
     tallyId: number;
@@ -78,6 +79,12 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
     private readonly _onTallySelected = new Emitter<TallySelection>();
     readonly onTallySelected: Event<TallySelection> = this._onTallySelected.event;
 
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
     setLoading(loading: boolean, message: string = 'Loading...'): void {
         this.isLoading = loading;
         this.loadingMessage = message;
@@ -89,7 +96,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         this.id = OpenMCTallyTreeWidget.ID;
         this.title.label = OpenMCTallyTreeWidget.LABEL;
         this.title.caption = OpenMCTallyTreeWidget.LABEL;
-        this.title.iconClass = codicon('list-tree');
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-tally';
         this.title.closable = false; // Don't allow closing the widget itself
 
         this.node.tabIndex = 0;
@@ -170,12 +177,17 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
         if (!this.statepointInfo) {
             return (
                 <div className="openmc-tally-tree empty">
-                    <EmptyState
-                        icon="database"
-                        message="No statepoint file loaded"
-                        actionLabel="Browse Statepoint File"
-                        onAction={() => this.handleBrowse()}
-                    />
+                    <NukeEmptyState
+                        iconNode={<DomainTallyIcon />}
+                        title="No tallies loaded"
+                        message="Open a statepoint file to browse the tallies recorded by the simulation."
+                        hint="Mesh, energy, and cell tallies appear here."
+                    >
+                        <button className="theia-button" onClick={() => this.handleBrowse()}>
+                            <i className={codicon('folder-opened')}></i>
+                            Browse Statepoint File
+                        </button>
+                    </NukeEmptyState>
                 </div>
             );
         }
@@ -188,7 +200,7 @@ export class OpenMCTallyTreeWidget extends ReactWidget {
                     <div className="header-title">
                         <Tooltip content={fileName} position="bottom">
                             <span className="file-name">
-                                <i className={codicon('database')}></i>
+                                <DomainTallyIcon size={14} />
                                 {fileName}
                             </span>
                         </Tooltip>

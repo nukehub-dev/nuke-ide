@@ -62,7 +62,8 @@ import {
     ConfigValidationResult,
     CreateEnvironmentOptions,
     CreateEnvironmentResult,
-    CreateEnvironmentCommand
+    CreateEnvironmentCommand,
+    DependencyInstallCommand
 } from '../common/nuke-core-protocol';
 import { EnvironmentService, PackageService, HealthService } from './services';
 
@@ -263,6 +264,24 @@ export class NukeCoreBackendServiceImpl implements NukeCoreBackendServiceInterfa
      */
     async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
         return this.packageService.prepareInstallPackagesCommand(options);
+    }
+
+    /**
+     * Build the ordered shell commands for installing structured package dependencies,
+     * without actually running them.
+     *
+     * Routes each dependency through the dependency install plan (conda batch + pip
+     * groups) and prepares one command per group; the frontend executes them
+     * sequentially in a terminal widget for live output.
+     *
+     * @param defs - The {@link PackageDependency} entries to install
+     * @param pythonPath - Optional explicit target Python
+     * @returns A promise resolving to the ordered list of commands
+     * @throws Never throws
+     * @see {@link PackageService.prepareDependencyInstallCommands}
+     */
+    async prepareDependencyInstallCommands(defs: PackageDependency[], pythonPath?: string): Promise<DependencyInstallCommand[]> {
+        return this.packageService.prepareDependencyInstallCommands(defs, pythonPath);
     }
 
     /**

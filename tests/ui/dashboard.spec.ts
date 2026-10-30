@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { collectErrors, expectNonEmptyContent, runCommand, waitForWorkbench } from './helpers';
+import { collectErrors, createBlankProject, expectNonEmptyContent, runCommand, waitForWorkbench } from './helpers';
 
 /**
  * Simulation dashboard: opens via the command, every registered tab renders
@@ -39,7 +39,7 @@ test.describe('simulation dashboard', () => {
         await page.goto('/');
         await waitForWorkbench(page);
 
-        await runCommand(page, 'New Project');
+        await createBlankProject(page);
         const dashboard = page.locator('.simulation-dashboard');
         await expect(dashboard).toBeVisible({ timeout: 30_000 });
 
@@ -48,6 +48,33 @@ test.describe('simulation dashboard', () => {
         await expect(tabBarHasTabs(dashboard)).resolves.toBe(true);
 
         expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
+    });
+
+    test('narrow editor panels keep tabs reachable and avoid horizontal overflow', async ({ page }) => {
+        const errors = collectErrors(page);
+        // A split-editor-sized viewport leaves roughly 350 px for the widget.
+        await page.setViewportSize({ width: 700, height: 900 });
+        await page.goto('/');
+        await waitForWorkbench(page);
+
+        await runCommand(page, 'Open Simulation Dashboard');
+        const dashboard = page.locator('.simulation-dashboard');
+        await expect(dashboard).toBeVisible({ timeout: 30_000 });
+
+        // The page shell must not grow a horizontal scrollbar because of the
+        // dashboard header, tab row, or form grids.
+        const overflow = await dashboard.evaluate((element) => element.scrollWidth - element.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(1);
+
+        const tabBar = dashboard.locator('.dashboard-tabs');
+        await expect(tabBar).toBeVisible();
+        // Tab labels may collapse to icons; the accessible name stays.
+        const materialsTab = tabBar.getByRole('button', { name: 'Materials' });
+        await expect(materialsTab).toBeVisible();
+        await materialsTab.click();
+        await expectNonEmptyContent(dashboard, 100);
+
+        expect(errors, `console/page errors in narrow dashboard:\n${errors.join('\n')}`).toEqual([]);
     });
 });
 

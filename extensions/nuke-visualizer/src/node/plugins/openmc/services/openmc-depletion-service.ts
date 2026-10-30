@@ -26,6 +26,11 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
+import {
+    DepletionDoseQuantity,
+    OpenMCDepletionContactDoseResult,
+    OpenMCDepletionDecaySpectrumResult
+} from '../../../../common/openmc-protocol';
 import { PythonCommandHelper } from '../../../services/python-command-helper';
 
 @injectable()
@@ -35,6 +40,32 @@ export class OpenMCDepletionService {
 
     private get scriptPath(): string {
         return this.pythonHelper.findScript('server.py');
+    }
+
+    /** Run a command and surface the Python-side `{ error }` message cleanly. */
+    private async executeJson<T>(args: string[], timeout: number): Promise<T> {
+        const result = await this.pythonHelper.executeScript(this.scriptPath, args, {
+            timeout,
+            maxBuffer: 50 * 1024 * 1024
+        });
+        const stdout = (result.stdout ?? '').trim();
+        if (result.status !== 0) {
+            let message = (result.stderr ?? '').trim() || stdout;
+            try {
+                const parsed = JSON.parse(stdout);
+                if (typeof parsed?.error === 'string' && parsed.error) {
+                    message = parsed.error;
+                }
+            } catch {
+                // Keep the raw output when it is not JSON.
+            }
+            throw new Error(message || `Depletion analysis failed with exit code ${result.status}`);
+        }
+        try {
+            return JSON.parse(stdout) as T;
+        } catch (error) {
+            throw new Error(`Failed to parse depletion analysis output as JSON: ${error}`);
+        }
     }
 
     async getDepletionSummary(filePath: string): Promise<any> {
@@ -57,5 +88,32 @@ export class OpenMCDepletionService {
             args.push('--include-activity');
         }
         return this.pythonHelper.executeScriptJson<any>(this.scriptPath, args, { timeout: 60000, maxBuffer: 50 * 1024 * 1024 });
+    }
+
+    async getContactDose(
+        filePath: string,
+        materialIndex: number,
+        doseQuantity: DepletionDoseQuantity,
+        buildUp: number,
+        byNuclide: boolean
+    ): Promise<OpenMCDepletionContactDoseResult> {
+        const args = [
+            'openmc.depletion-contact-dose',
+            filePath,
+            materialIndex.toString(),
+            '--dose-quantity',
+            doseQuantity,
+            '--build-up',
+            buildUp.toString()
+        ];
+        if (byNuclide) {
+            args.push('--by-nuclide');
+        }
+        return this.executeJson<OpenMCDepletionContactDoseResult>(args, 120000);
+    }
+
+    async getDecaySpectrum(filePath: string, materialIndex: number, timeIndex: number): Promise<OpenMCDepletionDecaySpectrumResult> {
+        const args = ['openmc.depletion-decay-spectrum', filePath, materialIndex.toString(), timeIndex.toString()];
+        return this.executeJson<OpenMCDepletionDecaySpectrumResult>(args, 120000);
     }
 }

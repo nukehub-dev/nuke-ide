@@ -15,6 +15,7 @@
     color: var(--theia-editor-foreground);
     font-family: var(--theia-ui-font-family);
     animation: dashboard-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    container-type: inline-size;
 }
 
 @keyframes dashboard-fade-in {
@@ -163,11 +164,18 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     animation: header-slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.simulation-dashboard .project-info {
+    flex: 1 1 240px;
+    min-width: 0;
 }
 
 .simulation-dashboard .project-info h2 {
@@ -182,6 +190,8 @@
     padding: 4px 8px;
     border-radius: 6px;
     transition: background 150ms;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 
 .simulation-dashboard .project-info h2:hover {
@@ -217,6 +227,7 @@
 .simulation-dashboard .project-name-edit {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -226,6 +237,8 @@
     color: var(--theia-input-foreground);
     border: 1px solid var(--theia-input-border);
     border-radius: 4px;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .simulation-dashboard .project-name-input {
@@ -249,6 +262,7 @@
 
 .simulation-dashboard .project-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -276,6 +290,12 @@
     border-bottom: 1px solid var(--theia-panel-border);
     padding: 0 12px;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.simulation-dashboard .dashboard-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .simulation-dashboard .tab-button {
@@ -286,6 +306,7 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -405,14 +426,8 @@
     margin-bottom: 4px;
 }
 
-.simulation-dashboard .source-type-select select {
+.simulation-dashboard .source-type-select .nuke-select {
     width: 100%;
-    padding: 6px 8px;
-    font-size: 13px;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-    border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
 }
 
 .simulation-dashboard .snap-main-btn {
@@ -457,6 +472,7 @@
 .simulation-dashboard .source-editor .form-row {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
     margin-bottom: 12px;
 }
 
@@ -465,7 +481,7 @@
 }
 
 .simulation-dashboard .source-editor .form-group {
-    flex: 1;
+    flex: 1 1 170px;
     min-width: 0;
 }
 
@@ -670,7 +686,7 @@
     font-weight: 600;
 }
 
-.simulation-dashboard .template-selector select {
+.simulation-dashboard .template-selector .nuke-select {
     width: 100%;
 }
 
@@ -894,20 +910,13 @@
     margin: 0;
 }
 
-.simulation-dashboard .nuclide-row select {
+.simulation-dashboard .nuclide-row .nuke-select {
     width: 100px;
     min-width: 100px;
-    padding: 6px 8px;
-    border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
-    font-size: 13px;
     box-sizing: border-box;
 }
 
-.simulation-dashboard .nuclide-row input:focus,
-.simulation-dashboard .nuclide-row select:focus {
+.simulation-dashboard .nuclide-row input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
@@ -950,8 +959,9 @@
 .simulation-dashboard .material-id {
     font-family: var(--theia-code-font-family);
     font-size: 11px;
-    color: var(--theia-badge-foreground);
-    background: var(--theia-badge-background);
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 600;
@@ -1118,6 +1128,7 @@
 /* Simulation Actions */
 .simulation-dashboard .simulation-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     margin-bottom: 20px;
     justify-content: center;
@@ -1134,6 +1145,8 @@
     justify-content: center;
     gap: 8px;
     min-width: 140px;
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 .simulation-dashboard .simulation-actions button.large {
@@ -1346,6 +1359,74 @@
 /* ============================================================================
    Responsive Adjustments
    ============================================================================ */
+@container (max-width: 940px) {
+    .simulation-dashboard .tab-label {
+        display: none;
+    }
+
+    .simulation-dashboard .tab-button {
+        padding: 12px 14px;
+    }
+}
+
+@container (max-width: 640px) {
+    .simulation-dashboard .dashboard-header {
+        align-items: flex-start;
+        padding: 12px 14px;
+    }
+
+    .simulation-dashboard .dashboard-content {
+        padding: 14px;
+    }
+
+    .simulation-dashboard .form-row,
+    .simulation-dashboard .source-editor .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .simulation-dashboard .form-row .form-group,
+    .simulation-dashboard .source-editor .form-group {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 100%;
+        max-width: 100%;
+    }
+
+    .simulation-dashboard .simulation-actions,
+    .simulation-dashboard .wwinp-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .simulation-dashboard .nuclide-row {
+        flex-wrap: wrap;
+    }
+
+    .simulation-dashboard .checklist-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@container (max-width: 520px) {
+    .simulation-dashboard .project-actions {
+        width: 100%;
+    }
+
+    .simulation-dashboard .checkbox-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .simulation-dashboard .track-row {
+        grid-template-columns: 1fr 1fr 1fr auto;
+        gap: 6px;
+    }
+
+    .simulation-dashboard .track-row.track-header {
+        display: none;
+    }
+}
+
 @media (max-width: 768px) {
     .simulation-dashboard .form-row {
         flex-direction: column;
@@ -1627,8 +1708,7 @@
 }
 
 .simulation-dashboard button:focus-visible,
-.simulation-dashboard input:focus-visible,
-.simulation-dashboard select:focus-visible {
+.simulation-dashboard input:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.25);
 }
@@ -1966,10 +2046,11 @@
 }
 
 .simulation-dashboard .tally-id {
-    color: var(--theia-badge-foreground);
+    color: var(--theia-foreground);
     font-size: 11px;
     font-weight: 600;
-    background: var(--theia-badge-background);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
     padding: 2px 6px;
     border-radius: 4px;
 }
@@ -2159,8 +2240,7 @@
     margin-left: 4px;
 }
 
-.simulation-dashboard .config-item input,
-.simulation-dashboard .config-item select {
+.simulation-dashboard .config-item input {
     padding: 10px 12px;
     border: 1px solid var(--theia-input-border);
     border-radius: 6px;
@@ -2170,8 +2250,7 @@
     transition: all 150ms;
 }
 
-.simulation-dashboard .config-item input:focus,
-.simulation-dashboard .config-item select:focus {
+.simulation-dashboard .config-item input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
@@ -2210,12 +2289,8 @@
     border-bottom-right-radius: 0;
 }
 
-.simulation-dashboard .power-input-unit select {
+.simulation-dashboard .power-input-unit .nuke-select {
     width: 140px;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    border-left: none;
-    background: var(--theia-list-hoverBackground);
 }
 
 /* Depletion Warning Box */
@@ -2601,13 +2676,7 @@
     border-color: var(--theia-focusBorder);
 }
 
-.simulation-dashboard .duration-input-combo select {
-    padding: 10px 12px;
-    border: 1px solid var(--theia-input-border);
-    border-radius: 0 6px 6px 0;
-    background: var(--theia-list-hoverBackground);
-    color: var(--theia-input-foreground);
-    font-size: 14px;
+.simulation-dashboard .duration-input-combo .nuke-select {
     min-width: 130px;
 }
 
@@ -3284,12 +3353,38 @@
     border-bottom: none;
 }
 
-.simulation-dashboard .source-card-chevron {
+.simulation-dashboard .source-card-toggle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    text-align: left;
     cursor: pointer;
+}
+
+.simulation-dashboard .source-card-toggle:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.simulation-dashboard .source-card-chevron {
+    flex: 0 0 auto;
     color: var(--theia-focusBorder);
 }
 
 .simulation-dashboard .source-card-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -3424,6 +3519,202 @@
     margin-top: 16px;
 }
 
+/* Depletion run controls: substeps, reactivity search, feeds, continuation */
+.simulation-dashboard .depletion-run-controls {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .depletion-run-controls-intro {
+    margin: 0 0 16px 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.5;
+}
+
+.simulation-dashboard .depletion-run-controls code {
+    font-family: var(--theia-code-font-family);
+    background: var(--theia-textCodeBlock-background);
+    padding: 0 3px;
+    border-radius: 3px;
+}
+
+.simulation-dashboard .depletion-run-group {
+    margin-bottom: 20px;
+    padding: 14px;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+}
+
+.simulation-dashboard .depletion-run-group h4 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .depletion-run-group h4 i {
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .depletion-run-warning {
+    margin: 10px 0;
+}
+
+.simulation-dashboard .depletion-field-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.simulation-dashboard .depletion-field-message.error {
+    color: var(--theia-inputValidation-errorBorder);
+}
+
+.simulation-dashboard .depletion-field-message.warning {
+    color: var(--theia-inputValidation-warningBorder);
+}
+
+.simulation-dashboard .depletion-rate-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+    margin-bottom: 10px;
+}
+
+.simulation-dashboard .depletion-rate-table {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 640px;
+}
+
+.simulation-dashboard .depletion-rate-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.1fr) minmax(190px, 1.5fr) minmax(110px, 0.8fr) minmax(90px, 0.6fr) minmax(120px, 0.9fr) auto;
+    gap: 10px;
+    align-items: start;
+    padding: 10px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+}
+
+.simulation-dashboard .depletion-rate-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.simulation-dashboard .depletion-rate-cell label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .depletion-rate-cell input,
+.simulation-dashboard .depletion-rate-cell .nuke-select {
+    width: 100%;
+}
+
+.simulation-dashboard .depletion-composition-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 76px auto;
+    gap: 4px;
+    align-items: center;
+}
+
+.simulation-dashboard .depletion-composition-row input {
+    min-width: 0;
+}
+
+.simulation-dashboard .depletion-rate-actions {
+    justify-content: flex-end;
+    align-self: center;
+}
+
+.simulation-dashboard .depletion-rate-empty {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    margin-bottom: 10px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .depletion-rate-empty > i {
+    font-size: 22px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+.simulation-dashboard .depletion-rate-empty p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.simulation-dashboard .depletion-rate-footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.simulation-dashboard .depletion-rate-total {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .depletion-continuation-file .file-input-group {
+    min-width: 0;
+}
+
+@container (max-width: 760px) {
+    .simulation-dashboard .depletion-rate-table {
+        min-width: 0;
+    }
+
+    .simulation-dashboard .depletion-rate-row {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .simulation-dashboard .depletion-rate-composition {
+        grid-column: 1 / -1;
+    }
+}
+
+@container (max-width: 640px) {
+    .simulation-dashboard .depletion-run-group {
+        padding: 12px;
+    }
+
+    .simulation-dashboard .depletion-search-grid .form-group {
+        min-width: 100%;
+    }
+}
+
+@container (max-width: 460px) {
+    .simulation-dashboard .depletion-rate-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .simulation-dashboard .depletion-rate-actions {
+        justify-content: flex-start;
+    }
+}
+
 /* Depletion tab: narrow icon-only delete column in form-rows (fission Q) */
 .simulation-dashboard .form-row .form-group.row-delete {
     flex: 0 0 auto;
@@ -3460,4 +3751,914 @@
 
 .simulation-dashboard .source-list li.warn {
     color: var(--theia-inputValidation-warningBorder);
+}
+
+/* Advanced settings narrow-panel overrides. The base checkbox-grid and
+   form-row rules are declared later than the early @container blocks, so the
+   advanced groups need their own late container rule to collapse cleanly. */
+@container (max-width: 520px) {
+    .simulation-dashboard .advanced-section .checkbox-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .simulation-dashboard .advanced-section .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .simulation-dashboard .advanced-section .form-row .form-group {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .simulation-dashboard .advanced-section .trace-inputs {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================================
+   Source editor: collapsible sections, shared distribution editors, tables
+   ============================================================================ */
+
+.simulation-dashboard .source-type-controls {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.simulation-dashboard .source-type-segments {
+    margin-left: 0;
+    flex-wrap: wrap;
+}
+
+.simulation-dashboard .source-type-select-control {
+    display: none;
+    width: 100%;
+}
+
+.simulation-dashboard .source-type-disabled-wrap {
+    display: inline-flex;
+}
+
+.simulation-dashboard .source-type-segments .segment:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.simulation-dashboard .source-section {
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    padding: 8px 16px;
+    background: transparent;
+    color: var(--theia-foreground);
+    border: none;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.simulation-dashboard .source-section-header:hover {
+    background: var(--theia-tabBar-hoverBackground);
+}
+
+.simulation-dashboard .source-section-header:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.simulation-dashboard .source-section-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .source-summary-anchor {
+    display: inline-flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 50%;
+    margin-left: auto;
+}
+
+.simulation-dashboard .source-summary-anchor > span {
+    min-width: 0;
+}
+
+.simulation-dashboard .source-section-issue-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--theia-inputValidation-errorBorder);
+    font-size: 11px;
+}
+
+.simulation-dashboard .source-summary-chip {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .source-section-body {
+    padding: 0 16px 14px;
+}
+
+.simulation-dashboard .source-summary-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 16px 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.simulation-dashboard .source-summary-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.simulation-dashboard .source-vector-field {
+    margin-bottom: 12px;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .source-vector-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 6px;
+}
+
+.simulation-dashboard .source-vector-hint {
+    margin-top: 4px;
+}
+
+.simulation-dashboard .source-coordinate-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.simulation-dashboard .source-coordinate-editor {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editor-background);
+}
+
+.simulation-dashboard .source-coordinate-editor h4,
+.simulation-dashboard .source-subdistribution h4 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.simulation-dashboard .source-subdistribution {
+    margin: 12px 0;
+    padding-left: 10px;
+    border-left: 2px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-table-block,
+.simulation-dashboard .source-pointcloud-editor,
+.simulation-dashboard .source-decay-editor {
+    margin-bottom: 10px;
+}
+
+.simulation-dashboard .source-table-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.simulation-dashboard .source-table-count {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-right: auto;
+}
+
+.simulation-dashboard .source-table-scroll {
+    max-width: 100%;
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .source-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.simulation-dashboard .source-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 5px 8px;
+    background: var(--theia-titleBar-inactiveBackground);
+    color: var(--theia-descriptionForeground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .source-table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-table tr:last-child td {
+    border-bottom: none;
+}
+
+.simulation-dashboard .source-table input {
+    width: 100%;
+    min-width: 70px;
+    padding: 4px 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.simulation-dashboard .source-table input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .source-table-optional {
+    font-weight: 400;
+    opacity: 0.8;
+}
+
+.simulation-dashboard .source-table-pager {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .source-paste-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 8px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .source-paste-box textarea {
+    width: 100%;
+    resize: vertical;
+    padding: 6px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 3px;
+    font-family: var(--theia-code-font-family);
+    font-size: 12px;
+}
+
+.simulation-dashboard .source-paste-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.simulation-dashboard .source-mixture-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.simulation-dashboard .source-mixture-row {
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.simulation-dashboard .source-mixture-header {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.simulation-dashboard .source-mixture-header .form-group {
+    flex: 0 1 180px;
+}
+
+.simulation-dashboard .source-mixture-summary {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    padding-bottom: 6px;
+}
+
+.simulation-dashboard .source-probability-sum {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .source-probability-sum.invalid {
+    color: var(--theia-inputValidation-warningForeground, var(--theia-inputValidation-warningBorder));
+}
+
+.simulation-dashboard .source-univariate.compact {
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editor-background);
+}
+
+.simulation-dashboard .source-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.simulation-dashboard .source-issue {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.simulation-dashboard .source-issue .codicon {
+    color: var(--theia-inputValidation-errorBorder);
+    margin-top: 1px;
+}
+
+.simulation-dashboard .source-issue-message {
+    display: block;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .source-issue-fix {
+    display: block;
+    margin-top: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.simulation-dashboard .source-warning {
+    color: var(--theia-inputValidation-warningForeground, var(--theia-inputValidation-warningBorder));
+}
+
+.simulation-dashboard .source-inline-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .source-mesh-subsource {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-snap-action {
+    flex: 0 0 auto;
+}
+
+.simulation-dashboard .source-mesh-spatial-editor .form-row,
+.simulation-dashboard .source-mesh-subsource .form-row {
+    margin-bottom: 8px;
+}
+
+@container (max-width: 560px) {
+    .simulation-dashboard .source-type-segments {
+        display: none;
+    }
+
+    .simulation-dashboard .source-type-select-control {
+        display: block;
+    }
+
+    .simulation-dashboard .source-summary-anchor {
+        max-width: 45%;
+    }
+
+    .simulation-dashboard .source-mixture-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .simulation-dashboard .source-mixture-header .form-group {
+        flex: 1 1 auto;
+    }
+
+    .simulation-dashboard .source-mixture-summary {
+        white-space: normal;
+        padding-bottom: 0;
+    }
+
+    .simulation-dashboard .source-summary-card {
+        align-items: flex-start;
+    }
+
+    .simulation-dashboard .source-summary-text {
+        white-space: normal;
+    }
+}
+
+.simulation-dashboard .source-editor.independent-source-editor {
+    padding: 0;
+}
+
+.simulation-dashboard .independent-source-editor .source-summary-card {
+    margin: 12px 16px 0;
+}
+
+.simulation-dashboard .source-card-body > .source-section:first-child {
+    border-top: none;
+}
+
+.simulation-dashboard .source-section-header > span {
+    min-width: 0;
+}
+
+.simulation-dashboard .source-paste-box textarea,
+.simulation-dashboard .source-table input {
+    box-sizing: border-box;
+}
+
+/* ============================================================================
+   Source-distribution bias and weight-window list
+   ============================================================================ */
+
+.simulation-dashboard .source-bias-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 10px 0 2px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-bias-toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+    cursor: pointer;
+}
+
+.simulation-dashboard .source-bias-toggle-label input {
+    margin: 0;
+}
+
+.simulation-dashboard .source-bias-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--theia-focusBorder);
+    background: color-mix(in srgb, var(--theia-focusBorder) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--theia-focusBorder) 45%, transparent);
+    white-space: nowrap;
+}
+
+.simulation-dashboard .source-bias-editor {
+    margin: 8px 0 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 3px solid var(--theia-focusBorder);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .source-bias-editor .form-hint {
+    display: block;
+    margin-top: 6px;
+}
+
+.simulation-dashboard .source-bias-subhead {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 6px;
+}
+
+.simulation-dashboard .source-bias-unsupported {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    border: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .source-bias-unsupported i {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.simulation-dashboard .source-array-bias-header,
+.simulation-dashboard .ww-bound-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+
+.simulation-dashboard .source-array-bias-summary,
+.simulation-dashboard .ww-bound-summary {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-monospace-font-family);
+}
+
+.simulation-dashboard .source-array-bias textarea,
+.simulation-dashboard .ww-bound-editor textarea,
+.simulation-dashboard .ww-energy-add input {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--theia-monospace-font-family);
+    font-size: 11px;
+}
+
+.simulation-dashboard .source-array-bias-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.simulation-dashboard .source-bias-transport-note {
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+}
+
+.simulation-dashboard .ww-list-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.simulation-dashboard .ww-list-summary {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .ww-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 20px 12px;
+    text-align: center;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 8px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .ww-empty-state > i {
+    font-size: 28px;
+    opacity: 0.6;
+}
+
+.simulation-dashboard .ww-empty-state p {
+    margin: 0;
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-set-card {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editorWidget-background);
+}
+
+.simulation-dashboard .ww-set-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.simulation-dashboard .ww-set-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .ww-set-id {
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-set-particle {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.simulation-dashboard .ww-set-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.simulation-dashboard .ww-bound-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(170px, 1fr));
+    gap: 12px;
+    margin: 10px 0;
+}
+
+.simulation-dashboard .ww-energy-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.simulation-dashboard .ww-energy-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px 2px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-family: var(--theia-monospace-font-family);
+    background: var(--theia-list-hoverBackground);
+    border: 1px solid var(--theia-panel-border);
+}
+
+.simulation-dashboard .ww-energy-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.simulation-dashboard .ww-energy-add input {
+    flex: 1 1 auto;
+}
+
+.simulation-dashboard .ww-add-set {
+    margin-top: 12px;
+}
+
+.simulation-dashboard .ww-file-actions {
+    flex: 0 0 auto;
+}
+
+.simulation-dashboard .ww-enable-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.simulation-dashboard .ww-checkpoint-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+}
+
+.simulation-dashboard .ww-checkpoint-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-validation {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.simulation-dashboard .ww-validation-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    font-size: 12px;
+}
+
+.simulation-dashboard .ww-validation-item.error {
+    border-left: 3px solid var(--theia-errorForeground);
+}
+
+.simulation-dashboard .ww-validation-item.warning {
+    border-left: 3px solid var(--theia-editorWarning-foreground);
+}
+
+.simulation-dashboard .ww-validation-item > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.simulation-dashboard .ww-bootstrap-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--theia-focusBorder) 8%, transparent);
+}
+
+.simulation-dashboard .ww-bootstrap-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+    min-width: 0;
+}
+
+.simulation-dashboard .ww-bootstrap-text span {
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .vr-source-bias-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.simulation-dashboard .vr-source-bias-note i {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.simulation-dashboard .ufs-mesh-picker {
+    margin-top: 12px;
+}
+
+@container (max-width: 560px) {
+    .simulation-dashboard .ww-bound-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .simulation-dashboard .ww-set-header,
+    .simulation-dashboard .ww-list-header,
+    .simulation-dashboard .ww-bootstrap-action {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .simulation-dashboard .ww-enable-toggle {
+        white-space: normal;
+    }
+}
+
+/* ============================================================================
+   XML import report
+   ============================================================================ */
+.simulation-dashboard .import-report {
+    margin: 8px 14px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 3px solid var(--theia-focusBorder);
+    border-radius: 6px;
+    background: var(--theia-textBlock-background, var(--theia-editor-background));
+    color: var(--theia-foreground);
+    font-size: 12px;
+}
+
+.simulation-dashboard .import-report.has-issues {
+    border-left-color: var(--theia-editorWarning-foreground, #d7a12b);
+}
+
+.simulation-dashboard .import-report-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.simulation-dashboard .import-report-head > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.simulation-dashboard .import-report-files,
+.simulation-dashboard .import-report-counts,
+.simulation-dashboard .import-report-clean {
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .import-report-counts {
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+}
+
+.simulation-dashboard .import-report-head .icon-only {
+    flex: 0 0 auto;
+    padding: 2px 5px;
+    min-width: 0;
+}
+
+.simulation-dashboard .import-report-section {
+    margin-top: 7px;
+}
+
+.simulation-dashboard .import-report-label {
+    font-weight: 600;
+    color: var(--theia-foreground);
+}
+
+.simulation-dashboard .import-report-section ul {
+    margin: 3px 0 0;
+    padding-left: 18px;
+    color: var(--theia-descriptionForeground);
+}
+
+.simulation-dashboard .import-report-section li {
+    overflow-wrap: anywhere;
+}
+
+.simulation-dashboard .import-report-clean {
+    margin-top: 6px;
+}
+
+@container (max-width: 560px) {
+    .simulation-dashboard .import-report {
+        margin: 6px 8px 0;
+    }
 }

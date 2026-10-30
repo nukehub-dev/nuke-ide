@@ -48,6 +48,7 @@ import URI from '@theia/core/lib/common/uri';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 
 import { OpenMCStateManager } from '../openmc-state-manager';
+import { OpenMCStudioBackendService, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../../common/openmc-studio-protocol';
 import {
     OpenMCState,
     OpenMCMaterial,
@@ -56,19 +57,47 @@ import {
     OpenMCTally,
     OpenMCMesh,
     OpenMCRegularMesh,
+    OpenMCRectilinearMesh,
     OpenMCCylindricalMesh,
     OpenMCSphericalMesh,
+    OpenMCUnstructuredMesh,
     OpenMCSource,
     OpenMCSourceConstraints,
-    OpenMCSourceEnergy,
     OpenMCEigenvalueSettings,
     OpenMCFixedSourceSettings,
-    OpenMCPlotConfig
+    OpenMCPlotConfig,
+    OpenMCLattice
 } from '../../common/openmc-state-schema';
 import { getAutoIfpTallies } from '../../common/kinetics-ifp';
 import { generateCmfdCodeLines } from '../../common/cmfd';
+import { generateAngleCode, generateSpatialCode, generateTimeCode, generateUnivariateCode } from './source-codegen';
 import { getDepletionSolver, resolveDepletionSolver } from '../../common/depletion-solvers';
 import { isElementName } from '../../common/material-utils';
+import {
+    getCellInstancePairs,
+    getFilterSupportWarning,
+    getMeshMaterialPairs,
+    getParticleFilterBins,
+    getParticleProductionTypes,
+    isFilterSupported,
+    sanitizeParticleFilter
+} from '../../common/tally-filter-utils';
+import { sanitizeSourceParticle, sanitizeWeightWindowParticle } from '../../common/particle-types';
+import { normalizeReactionBin } from '../../common/reaction-catalog';
+import { generatePlotAppearancePythonLines } from '../../common/plot-appearance';
+import { generateShutdownDosePythonDriver } from '../../common/shutdown-dose-python';
+import {
+    generateMaterialIsotropicPython,
+    generateRuntimeSettingsPython,
+    generateTemperatureCutoffPython
+} from '../../common/settings-python-export';
+import {
+    resolveWeightWindowBounds,
+    resolveWeightWindowGeneratorMesh,
+    resolveWeightWindowsEnabled,
+    sourceHasBias,
+    stripSourceBias
+} from '../../common/variance-reduction';
 
 /** Options controlling how Python scripts are exported. */
 export interface PythonExportOptions {
@@ -80,6 +109,15 @@ export interface PythonExportOptions {
     includeComments?: boolean;
     /** Include shebang line (`#!/usr/bin/env python3`). */
     includeShebang?: boolean;
+    /** Probed OpenMC capabilities (0.16-only settings are gated when known). */
+    compat?: OpenMCCompat;
+    /**
+     * Whether the target OpenMC supports `openmc.MeshFilter.rotation`
+     * (0.16.0+). Mirrors the probed XML capability; when false, rotation is
+     * omitted with a comment instead of emitting code that cannot run.
+     * Callers may omit this and derive it from `compat.meshFilterRotation`.
+     */
+    meshFilterRotationSupported?: boolean;
 }
 
 /** Result of a Python export operation. */
@@ -99,6 +137,9 @@ export class OpenMCPythonExporter {
 
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
+
+    @inject(OpenMCStudioBackendService)
+    protected readonly backendService: OpenMCStudioBackendService;
 
     @inject(FileDialogService)
     protected readonly fileDialogService: FileDialogService;
@@ -128,6 +169,9 @@ export class OpenMCPythonExporter {
         };
 
         try {
+            if (!defaultOptions.compat) {
+                defaultOptions.compat = await this.backendService.getOpenMCCompat().catch(() => DEFAULT_OPENMC_COMPAT);
+            }
             if (defaultOptions.mode === 'single') {
                 return await this.exportSingleFile(state, defaultOptions);
             } else {
@@ -274,10 +318,21 @@ export class OpenMCPythonExporter {
             lines.push(`# Date: ${new Date().toISOString()}`);
             lines.push('');
         }
+        if ((state.derivedTallies?.length ?? 0) > 0) {
+            lines.push('# Derived tallies are analysis-only and are not part of this simulation script.');
+            lines.push('# Evaluate them against a statepoint; they are never emitted as openmc.Tally objects.');
+            lines.push('');
+        }
 
         lines.push('import openmc');
+        if (this.needsScriptRelativeMeshPath(state)) {
+            lines.push('import os');
+        }
         if (state.depletion?.enabled) {
             lines.push('import openmc.deplete');
+            if (state.depletion.reactivityControl && state.depletion.reactivityControl.enabled !== false) {
+                lines.push('import openmc.lib');
+            }
         }
         lines.push('');
 
@@ -341,8 +396,13 @@ export class OpenMCPythonExporter {
         }
 
         lines.push('model.export_to_xml()');
-
         lines.push('');
+
+        // Driver-only shutdown-dose workflow (R2S / D1S). None of its settings
+        // live in settings.xml, so the equivalent analysis driver is emitted
+        // here after the ordinary model export.
+        lines.push(...generateShutdownDosePythonDriver(state.shutdownDose));
+
         if (state.depletion?.enabled) {
             lines.push('print("OpenMC depletion model exported successfully!")');
             lines.push('print("Run with: python model.py")');
@@ -469,11 +529,50 @@ export class OpenMCPythonExporter {
         }
 
         lines.push('import openmc');
+        if (this.needsScriptRelativeMeshPath(state)) {
+            lines.push('import os');
+        }
         lines.push('');
 
         lines.push(...this.generateTallyMeshCode(state, options));
 
         return lines.join('\n');
+    }
+
+    /**
+     * Whether any unstructured mesh uses a project-relative filename that the
+     * generated script must resolve against its own directory.
+     *
+     * @param state - Current simulation state.
+     * @returns True when `import os` and `_script_dir` are required.
+     */
+    private needsScriptRelativeMeshPath(state: OpenMCState): boolean {
+        return (state.meshes ?? []).some(
+            (mesh) => mesh.type === 'unstructured' && !!mesh.filename && !this.isAbsoluteFilename(mesh.filename)
+        );
+    }
+
+    /**
+     * Test whether a path is absolute (POSIX, Windows drive, or UNC).
+     *
+     * @param filename - Path to inspect.
+     * @returns True for absolute paths.
+     */
+    private isAbsoluteFilename(filename: string): boolean {
+        return filename.startsWith('/') || filename.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(filename);
+    }
+
+    /**
+     * Build a Python expression for an unstructured mesh filename. Relative
+     * paths resolve against the exported script's directory so project-relative
+     * paths keep working when the script is run from elsewhere.
+     *
+     * @param filename - Mesh filename from state.
+     * @returns Python expression yielding the path.
+     */
+    private formatPythonMeshFilename(filename: string): string {
+        const quoted = `"${this.escapePythonString(filename)}"`;
+        return this.isAbsoluteFilename(filename) || !filename ? quoted : `os.path.join(_script_dir, ${quoted})`;
     }
 
     /**
@@ -555,6 +654,13 @@ export class OpenMCPythonExporter {
 
         if (state.plots && state.plots.length > 0) {
             lines.push('plots.plots.export_to_xml()');
+        }
+
+        if (state.shutdownDose) {
+            lines.push('');
+            lines.push('# Shutdown dose (R2S/D1S) is driver-only and is not part of settings.xml.');
+            lines.push('# Run it from the Shutdown Dose widget or export a single-file model.py,');
+            lines.push('# which appends an equivalent R2S/D1S driver.');
         }
 
         lines.push('');
@@ -672,6 +778,10 @@ export class OpenMCPythonExporter {
         if (material.temperature) {
             lines.push(`${varName}.temperature = ${material.temperature}`);
         }
+        const isotropic = generateMaterialIsotropicPython(material, varName);
+        if (isotropic.length > 0) {
+            lines.push(...isotropic);
+        }
 
         lines.push('');
         return lines;
@@ -704,6 +814,36 @@ export class OpenMCPythonExporter {
             lines.push('');
         }
 
+        // Generate universes before cells: cells and lattices reference them.
+        const hasRootUniverse = state.geometry.universes.some((universe) => universe.id === 0);
+        if (state.geometry.universes.length > 0) {
+            if (options.includeComments) {
+                lines.push('# Universes');
+            }
+            for (const universe of state.geometry.universes) {
+                const nameArg = universe.name ? `, name="${this.escapePythonString(universe.name)}"` : '';
+                lines.push(`universe_${universe.id} = openmc.Universe(universe_id=${universe.id}${nameArg})`);
+            }
+        }
+        if (!hasRootUniverse) {
+            if (options.includeComments) {
+                lines.push('# Root universe (OpenMC XML defaults cells without a universe attribute to 0)');
+            }
+            lines.push('universe_0 = openmc.Universe(universe_id=0, name="root universe")');
+        }
+        lines.push('');
+
+        // Generate lattices (they reference universes and are referenced by cells).
+        if (state.geometry.lattices.length > 0) {
+            if (options.includeComments) {
+                lines.push('# Lattices');
+            }
+            for (const lattice of state.geometry.lattices) {
+                lines.push(...this.generateLatticeCode(lattice));
+            }
+            lines.push('');
+        }
+
         // Generate cells
         if (state.geometry.cells.length > 0) {
             if (options.includeComments) {
@@ -715,11 +855,42 @@ export class OpenMCPythonExporter {
             lines.push('');
         }
 
-        // Create geometry object
+        // Add every cell to its owning universe. Cells not listed in any
+        // universe belong to universe 0, matching the XML default.
         if (state.geometry.cells.length > 0) {
-            const cellVars = state.geometry.cells.map((c) => `cell_${c.id}`).join(', ');
-            lines.push(`geometry = openmc.Geometry([${cellVars}])`);
-        } else if (state.settings.dagmcFile) {
+            const cellToUniverse = new Map<number, number>();
+            for (const universe of state.geometry.universes) {
+                for (const cellId of universe.cellIds) {
+                    if (!cellToUniverse.has(cellId)) {
+                        cellToUniverse.set(cellId, universe.id);
+                    }
+                }
+            }
+            if (options.includeComments) {
+                lines.push('# Universe membership');
+            }
+            for (const cell of state.geometry.cells) {
+                const universeId = cellToUniverse.get(cell.id) ?? 0;
+                lines.push(`universe_${universeId}.add_cell(cell_${cell.id})`);
+            }
+            lines.push('');
+        }
+
+        // Periodic surface pairs are assigned after both surfaces exist.
+        const periodicPairs = this.collectPeriodicPairs(state);
+        if (periodicPairs.length > 0) {
+            if (options.includeComments) {
+                lines.push('# Periodic boundary pairs');
+            }
+            for (const [first, second] of periodicPairs) {
+                lines.push(`surface_${first}.periodic_surface = surface_${second}`);
+            }
+            lines.push('');
+        }
+
+        // Create the geometry object from the root universe, never from a flat
+        // cell list: that would drop universes and lattices.
+        if (state.settings.dagmcFile && state.geometry.cells.length === 0) {
             if (options.includeComments) {
                 lines.push('# DAGMC geometry - uses CAD-based mesh geometry');
             }
@@ -734,12 +905,92 @@ export class OpenMCPythonExporter {
             lines.push(`dagmc_univ = openmc.DAGMCUniverse(filename="geometry.h5m"${dagmcArgsStr})`);
             lines.push('geometry = openmc.Geometry(dagmc_univ)');
         } else {
-            // Ensure we have at least a root universe, even if empty
-            lines.push('root_univ = openmc.Universe(universe_id=0, name="root universe")');
-            lines.push('geometry = openmc.Geometry(root_univ)');
+            lines.push('geometry = openmc.Geometry(universe_0)');
         }
 
         return lines;
+    }
+
+    /**
+     * Build `openmc.RectLattice` / `openmc.HexLattice` Python code.
+     * @param lattice - The {@link OpenMCLattice} to convert.
+     * @returns An array of code lines.
+     */
+    private generateLatticeCode(lattice: OpenMCLattice): string[] {
+        const lines: string[] = [];
+        const nameArg = lattice.name ? `, name="${this.escapePythonString(lattice.name)}"` : '';
+
+        if (lattice.type === 'rect') {
+            lines.push(`lattice_${lattice.id} = openmc.RectLattice(lattice_id=${lattice.id}${nameArg})`);
+            lines.push(`lattice_${lattice.id}.lower_left = ${this.pythonTuple(lattice.lowerLeft)}`);
+            lines.push(`lattice_${lattice.id}.pitch = ${this.pythonTuple(lattice.pitch)}`);
+            const slices = lattice.dimensions.length === 3 ? lattice.universes : lattice.universes[0];
+            lines.push(`lattice_${lattice.id}.universes = ${this.pythonUniverseArray(slices)}`);
+        } else {
+            lines.push(`lattice_${lattice.id} = openmc.HexLattice(lattice_id=${lattice.id}${nameArg})`);
+            lines.push(`lattice_${lattice.id}.center = ${this.pythonTuple(lattice.center)}`);
+            lines.push(`lattice_${lattice.id}.pitch = ${this.pythonTuple(lattice.pitch)}`);
+            if (lattice.orientation === 'x') {
+                lines.push(`lattice_${lattice.id}.orientation = "x"`);
+            }
+            const nAxial = lattice.nAxial ?? 1;
+            const slices = nAxial > 1 ? lattice.universes : lattice.universes[0];
+            lines.push(`lattice_${lattice.id}.universes = ${this.pythonUniverseArray(slices)}`);
+        }
+
+        if (lattice.outer !== undefined) {
+            lines.push(`lattice_${lattice.id}.outer = universe_${lattice.outer}`);
+        }
+        lines.push('');
+        return lines;
+    }
+
+    /** Render a numeric array as a Python tuple (1-element tuples need a comma). */
+    private pythonTuple(values: number[]): string {
+        if (values.length === 1) {
+            return `(${values[0]},)`;
+        }
+        return `(${values.join(', ')})`;
+    }
+
+    /** Render nested universe-ID arrays as Python `universe_<id>` lists. */
+    private pythonUniverseArray(universes: number[][][] | number[][]): string {
+        const render = (value: unknown): string => {
+            if (typeof value === 'number') {
+                return `universe_${value}`;
+            }
+            if (Array.isArray(value)) {
+                return `[${value.map(render).join(', ')}]`;
+            }
+            return 'universe_0';
+        };
+        return render(universes);
+    }
+
+    /**
+     * Collect reciprocal periodic pairs once (the lower ID owns the statement).
+     * @param state - The current {@link OpenMCState}.
+     * @returns Pairs of surface IDs.
+     */
+    private collectPeriodicPairs(state: OpenMCState): [number, number][] {
+        const surfaces = new Map(state.geometry.surfaces.map((surface) => [surface.id, surface]));
+        const pairs: [number, number][] = [];
+        const seen = new Set<string>();
+        for (const surface of state.geometry.surfaces) {
+            if (surface.boundary !== 'periodic' || surface.periodicSurfaceId === undefined) {
+                continue;
+            }
+            const partner = surfaces.get(surface.periodicSurfaceId);
+            if (!partner || partner.boundary !== 'periodic' || partner.periodicSurfaceId !== surface.id) {
+                continue;
+            }
+            const key = [surface.id, partner.id].sort((a, b) => a - b).join(':');
+            if (!seen.has(key)) {
+                seen.add(key);
+                pairs.push([surface.id, partner.id]);
+            }
+        }
+        return pairs;
     }
 
     /**
@@ -830,6 +1081,10 @@ export class OpenMCPythonExporter {
         // Add boundary condition
         if (surface.boundary && surface.boundary !== 'transmission') {
             constructor += `, boundary_type="${surface.boundary}"`;
+            const albedoCapable = surface.boundary === 'reflective' || surface.boundary === 'periodic' || surface.boundary === 'white';
+            if (albedoCapable && surface.albedo !== undefined && surface.albedo !== 1) {
+                constructor += `, albedo=${surface.albedo}`;
+            }
         }
 
         constructor += ')';
@@ -862,6 +1117,14 @@ export class OpenMCPythonExporter {
             if (material) {
                 fill = `fill=${this.sanitizeVariableName(material.name)}`;
             }
+        } else if (cell.fillType === 'universe' && cell.fillId !== undefined) {
+            if (state.geometry.universes.some((universe) => universe.id === cell.fillId)) {
+                fill = `fill=universe_${cell.fillId}`;
+            }
+        } else if (cell.fillType === 'lattice' && cell.fillId !== undefined) {
+            if (state.geometry.lattices.some((lattice) => lattice.id === cell.fillId)) {
+                fill = `fill=lattice_${cell.fillId}`;
+            }
         } else if (cell.fillType === 'void') {
             fill = 'fill=None';
         }
@@ -872,8 +1135,21 @@ export class OpenMCPythonExporter {
 
         lines.push(`cell_${cell.id} = openmc.Cell(cell_id=${cell.id}${nameArg}${regionArg}${fillArg})`);
 
+        if (cell.rotation) {
+            lines.push(`cell_${cell.id}.rotation = ${this.pythonTuple(cell.rotation)}`);
+        }
+        if (cell.translation) {
+            lines.push(`cell_${cell.id}.translation = ${this.pythonTuple(cell.translation)}`);
+        }
+        if (cell.density !== undefined) {
+            lines.push(`cell_${cell.id}.density = ${cell.density}`);
+        }
+
         if (cell.temperature) {
             lines.push(`cell_${cell.id}.temperature = ${cell.temperature}`);
+        }
+        if (cell.volume !== undefined) {
+            lines.push(`cell_${cell.id}.volume = ${cell.volume}`);
         }
 
         return lines;
@@ -961,12 +1237,17 @@ export class OpenMCPythonExporter {
         }
 
         // Sources
-        for (let i = 0; i < settings.sources.length; i++) {
-            lines.push(...this.generateSourceCode(settings.sources[i], i));
+        const sourceBiasSupported = options.compat?.sourceBias !== false;
+        const sources = sourceBiasSupported ? settings.sources : settings.sources.map(stripSourceBias);
+        if (!sourceBiasSupported && settings.sources.some(sourceHasBias)) {
+            lines.push('# Source bias requires OpenMC >= 0.16.0 and was omitted from this export.');
+        }
+        for (let i = 0; i < sources.length; i++) {
+            lines.push(...this.generateSourceCode(sources[i], i, undefined, options.compat));
         }
 
-        if (settings.sources.length > 0) {
-            const sourceVars = settings.sources.map((_, i) => `source_${i}`).join(', ');
+        if (sources.length > 0) {
+            const sourceVars = sources.map((_, i) => `source_${i}`).join(', ');
             lines.push(`settings.source = [${sourceVars}]`);
         }
 
@@ -993,10 +1274,8 @@ export class OpenMCPythonExporter {
             }
         }
 
-        // Threads
-        if (settings.threads) {
-            lines.push(`settings.threads = ${settings.threads}`);
-        }
+        // Threads are a runtime launch control (`openmc -s N`), not a
+        // Settings attribute — the runner applies settings.threads instead.
 
         // Advanced scalar settings (attribute names match settings.py)
         const boolSetting = (value: boolean): string => (value ? 'True' : 'False');
@@ -1042,6 +1321,7 @@ export class OpenMCPythonExporter {
         if (settings.uniformSourceSampling !== undefined) {
             lines.push(`settings.uniform_source_sampling = ${boolSetting(settings.uniformSourceSampling)}`);
         }
+        lines.push(...generateRuntimeSettingsPython(settings, options.compat));
         if (settings.tabularLegendre) {
             const entries: string[] = [];
             if (settings.tabularLegendre.enable !== undefined) {
@@ -1204,32 +1484,18 @@ export class OpenMCPythonExporter {
             lines.push('settings.entropy_mesh = entropy_mesh');
         }
 
-        // Temperature
-        if (settings.temperature) {
-            if (settings.temperature.default) {
-                lines.push(`settings.temperature['default'] = ${settings.temperature.default}`);
-            }
-            if (settings.temperature.method) {
-                lines.push(`settings.temperature['method'] = "${settings.temperature.method}"`);
-            }
-            if (settings.temperature.multipole) {
-                lines.push('settings.temperature["multipole"] = True');
-            }
-        }
-
-        // Cutoff
-        if (settings.cutoff) {
-            if (settings.cutoff.weight !== undefined) {
-                lines.push(`settings.cutoff['weight'] = ${settings.cutoff.weight}`);
-            }
-            if (settings.cutoff.weightAvg !== undefined) {
-                lines.push(`settings.cutoff['weight_avg'] = ${settings.cutoff.weightAvg}`);
-            }
-        }
+        // Temperature and cutoff settings (pure helper shared with tests).
+        // The variance-reduction tab's weight cutoff maps to the same
+        // settings.cutoff block; settings.cutoff wins when both are set.
+        const cutoff = state.varianceReduction?.cutoff
+            ? { ...state.varianceReduction.cutoff, ...(settings.cutoff ?? {}) }
+            : settings.cutoff;
+        lines.push(...generateTemperatureCutoffPython({ ...settings, cutoff }));
 
         // Variance reduction settings
         if (state.varianceReduction) {
             const vr = state.varianceReduction;
+            const weightWindowSets = vr.weightWindows ?? [];
 
             if (vr.survivalBiasing) {
                 lines.push('settings.survival_biasing = True');
@@ -1237,14 +1503,21 @@ export class OpenMCPythonExporter {
 
             if (vr.weightWindowGenerator) {
                 const wwg = vr.weightWindowGenerator;
-                const meshId = wwg.meshId ?? vr.weightWindows?.meshId ?? (vr.ufs?.enabled ? vr.ufs.meshId : undefined);
+                const meshId = resolveWeightWindowGeneratorMesh(vr);
                 if (meshId !== undefined) {
                     const wwgArgs = [`mesh=mesh_${meshId}`];
-                    const wwgEnergyBounds = wwg.energyBounds ?? vr.weightWindows?.energyBounds;
+                    const wwgEnergyBounds = wwg.energyBounds ?? weightWindowSets[0]?.energyBounds;
                     if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
                         wwgArgs.push(`energy_bounds=[${wwgEnergyBounds.join(', ')}]`);
                     }
-                    wwgArgs.push(`particle_type="${wwg.particleType ?? 'neutron'}"`);
+                    const generatorParticle = sanitizeWeightWindowParticle(
+                        wwg.particleType ?? weightWindowSets[0]?.particleType,
+                        'Weight-window generator'
+                    );
+                    if (generatorParticle.warning) {
+                        lines.push(`# ${generatorParticle.warning}`);
+                    }
+                    wwgArgs.push(`particle_type="${generatorParticle.particle.name}"`);
                     wwgArgs.push(`method="${wwg.method ?? 'magic'}"`);
                     const maxRealizations =
                         wwg.maxRealizations ??
@@ -1263,16 +1536,70 @@ export class OpenMCPythonExporter {
                     lines.push(`wwg = openmc.WeightWindowGenerator(${wwgArgs.join(', ')})`);
                     lines.push('settings.weight_window_generators = [wwg]');
                 } else {
-                    lines.push('# Weight window generator enabled but no mesh specified (checked weightWindows and ufs)');
+                    lines.push('# Weight window generator enabled but no mesh specified');
+                }
+            }
+
+            // Each set becomes one openmc.WeightWindows object.
+            if (weightWindowSets.length > 0) {
+                const setVars: string[] = [];
+                for (let index = 0; index < weightWindowSets.length; index++) {
+                    const set = weightWindowSets[index];
+                    const varName = `ww_${index + 1}`;
+                    const { lower, upper } = resolveWeightWindowBounds(set, state.meshes);
+                    const setParticle = sanitizeWeightWindowParticle(set.particleType, `Weight-window set ${set.id ?? index + 1}`);
+                    if (setParticle.warning) {
+                        lines.push(`# ${setParticle.warning}`);
+                    }
+                    const args = [
+                        `mesh=mesh_${set.meshId}`,
+                        `lower_ww_bounds=[${lower.join(', ')}]`,
+                        `upper_ww_bounds=[${upper.join(', ')}]`,
+                        `particle_type="${setParticle.particle.name}"`,
+                        `survival_ratio=${set.survivalWeight !== undefined ? set.survivalWeight : 3.0}`,
+                        `max_split=${set.maxSplit !== undefined ? set.maxSplit : 10}`,
+                        `weight_cutoff=${set.weightCutoff !== undefined ? set.weightCutoff : 1e-38}`,
+                        `id=${set.id ?? index + 1}`
+                    ];
+                    if (set.energyBounds && set.energyBounds.length >= 2) {
+                        args.splice(3, 0, `energy_bounds=[${set.energyBounds.join(', ')}]`);
+                    }
+                    lines.push(`${varName} = openmc.WeightWindows(${args.join(', ')})`);
+                    setVars.push(varName);
+                }
+                lines.push(`settings.weight_windows = [${setVars.join(', ')}]`);
+            }
+
+            const hasWeightWindows = weightWindowSets.length > 0 || !!vr.weightWindowsFile || !!vr.weightWindowGenerator;
+            if (hasWeightWindows && vr.weightWindowsOn !== undefined) {
+                lines.push(`settings.weight_windows_on = ${vr.weightWindowsOn ? 'True' : 'False'}`);
+            } else if (hasWeightWindows && resolveWeightWindowsEnabled(vr)) {
+                lines.push('settings.weight_windows_on = True');
+            }
+            if (vr.weightWindowsFile) {
+                lines.push(`settings.weight_windows_file = ${JSON.stringify(vr.weightWindowsFile)}`);
+            }
+            if (vr.weightWindowCheckpoints) {
+                const entries: string[] = [];
+                if (vr.weightWindowCheckpoints.collision !== undefined) {
+                    entries.push(`'collision': ${vr.weightWindowCheckpoints.collision ? 'True' : 'False'}`);
+                }
+                if (vr.weightWindowCheckpoints.surface !== undefined) {
+                    entries.push(`'surface': ${vr.weightWindowCheckpoints.surface ? 'True' : 'False'}`);
+                }
+                if (entries.length > 0) {
+                    lines.push(`settings.weight_window_checkpoints = {${entries.join(', ')}}`);
                 }
             }
         }
 
         // Uniform Fission Site (UFS)
         if (state.varianceReduction?.ufs?.enabled) {
-            const ufsMeshId = state.varianceReduction.ufs.meshId || state.varianceReduction.weightWindows?.meshId;
+            const ufsMeshId = state.varianceReduction.ufs.meshId;
             if (ufsMeshId !== undefined) {
                 lines.push(`settings.ufs_mesh = mesh_${ufsMeshId}`);
+            } else {
+                lines.push('# Uniform fission site enabled but no mesh specified');
             }
         }
 
@@ -1298,6 +1625,10 @@ export class OpenMCPythonExporter {
         }
 
         // Setup operator
+        if (depletion.continueFromResults) {
+            lines.push('# Previous depletion results for restart/continuation');
+            lines.push(`prev_results = openmc.deplete.Results(${JSON.stringify(depletion.continueFromResults)})`);
+        }
         if (depletion.operator === 'independent') {
             if (depletion.generateFromModel) {
                 lines.push('# Independent operator: compute fluxes and MicroXS from the model (transport solve)');
@@ -1324,6 +1655,9 @@ export class OpenMCPythonExporter {
             if (depletion.fissionQ && Object.keys(depletion.fissionQ).length > 0) {
                 indepArgs.push(`fission_q=${JSON.stringify(depletion.fissionQ)}`);
             }
+            if (depletion.continueFromResults) {
+                indepArgs.push('prev_results=prev_results');
+            }
             lines.push(`op = openmc.deplete.IndependentOperator(${indepArgs.join(', ')})`);
         } else {
             const coupledArgs = ['model', 'chain'];
@@ -1336,6 +1670,9 @@ export class OpenMCPythonExporter {
             coupledArgs.push(`normalization_mode="${depletion.normalizationMode ?? 'fission-q'}"`);
             if (depletion.fissionQ && Object.keys(depletion.fissionQ).length > 0) {
                 coupledArgs.push(`fission_q=${JSON.stringify(depletion.fissionQ)}`);
+            }
+            if (depletion.continueFromResults) {
+                coupledArgs.push('prev_results=prev_results');
             }
             lines.push(`op = openmc.deplete.CoupledOperator(${coupledArgs.join(', ')})`);
         }
@@ -1380,11 +1717,22 @@ export class OpenMCPythonExporter {
             return Number(ts);
         });
         lines.push(`timesteps = [${timesteps.join(', ')}]  # Timesteps in seconds`);
+        if ((depletion.decayOnlySteps?.length ?? 0) > 0) {
+            lines.push(`decay_only_steps = [${depletion.decayOnlySteps!.join(', ')}]`);
+            lines.push('power = [0.0 if i in decay_only_steps else power for i in range(len(timesteps))]');
+        }
 
         // Setup Integrator — canonical OpenMC integrator class (legacy solver
         // names resolve via the shared alias map)
         const solver = getDepletionSolver(resolveDepletionSolver(depletion.solver)).className;
-        lines.push(`integrator = openmc.deplete.${solver}(op, timesteps, power)`);
+        const integratorArgs = ['op', 'timesteps', 'power'];
+        if ((depletion.substeps ?? 1) > 1) {
+            integratorArgs.push(`substeps=${depletion.substeps}`);
+        }
+        if (depletion.continueTimesteps) {
+            integratorArgs.push('continue_timesteps=True');
+        }
+        lines.push(`integrator = openmc.deplete.${solver}(${integratorArgs.join(', ')})`);
 
         // External transfer rates (Integrator.add_transfer_rate)
         for (const tr of depletion.transferRates ?? []) {
@@ -1392,6 +1740,71 @@ export class OpenMCPythonExporter {
             lines.push(
                 `integrator.add_transfer_rate(${tr.material}, ["${tr.element}"], ${tr.rate}, transfer_rate_units="${tr.units ?? '1/s'}"${destArg})`
             );
+        }
+
+        // External source rates (Integrator.add_external_source_rate)
+        for (const rate of depletion.externalSourceRates ?? []) {
+            const composition = Object.fromEntries(
+                rate.composition.filter((entry) => entry.name.trim().length > 0).map((entry) => [entry.name, entry.weightPercent])
+            );
+            const timestepsArg = rate.timesteps && rate.timesteps.length > 0 ? `, timesteps=[${rate.timesteps.join(', ')}]` : '';
+            lines.push(
+                `integrator.add_external_source_rate(${rate.material}, ${JSON.stringify(composition)}, ${rate.rate}, rate_units="${
+                    rate.units ?? 'g/s'
+                }"${timestepsArg})`
+            );
+        }
+
+        // Reactivity control (keff search). The modifier must use openmc.lib,
+        // because OpenMC calls it inside a temporary C-API session.
+        const control = depletion.reactivityControl;
+        if (control && control.enabled !== false) {
+            const axisIndex = control.axis === 'x' ? 0 : control.axis === 'y' ? 1 : 2;
+            lines.push('# Reactivity control: adjust a model parameter to hold a target keff');
+            lines.push('def _openmc_studio_reactivity(value):');
+            if (control.parameter === 'cell-translation') {
+                lines.push(`    cell = openmc.lib.cells[${control.cellId ?? 1}]`);
+                lines.push('    translation = list(cell.translation)');
+                lines.push(`    translation[${axisIndex}] = value`);
+                lines.push('    cell.translation = translation');
+            } else {
+                lines.push(`    lib_mat = openmc.lib.materials[${control.materialId ?? 1}]`);
+                lines.push('    nuclides = list(lib_mat.nuclides)');
+                lines.push(`    index = nuclides.index(${JSON.stringify(control.nuclide ?? 'U235')})`);
+                lines.push('    densities = lib_mat.densities');
+                lines.push('    densities[index] = value');
+                lines.push('    lib_mat.set_densities(nuclides, densities)');
+            }
+            lines.push('integrator.add_keff_search_control(');
+            lines.push('    _openmc_studio_reactivity,');
+            lines.push(`    x0=${control.x0},`);
+            lines.push(`    x1=${control.x1},`);
+            lines.push(`    bracket=[${control.bracket[0]}, ${control.bracket[1]}],`);
+            if (control.targetKeff !== undefined) {
+                lines.push(`    target=${control.targetKeff},`);
+            }
+            if (control.kTol !== undefined) {
+                lines.push(`    k_tol=${control.kTol},`);
+            }
+            if (control.sigmaFinal !== undefined) {
+                lines.push(`    sigma_final=${control.sigmaFinal},`);
+            }
+            if (control.maxIterations !== undefined) {
+                lines.push(`    maxiter=${control.maxIterations},`);
+            }
+            lines.push(')');
+            if (control.onFailure === 'warn') {
+                lines.push('# OpenMC aborts on a non-converged search; wrap the controller installed by');
+                lines.push('# the public add_keff_search_control call to warn and continue instead.');
+                lines.push('_openmc_studio_search_run = integrator._keff_search_control.run');
+                lines.push('def _openmc_studio_tolerant_search(value):');
+                lines.push('    try:');
+                lines.push('        return _openmc_studio_search_run(value)');
+                lines.push('    except ValueError as exc:');
+                lines.push('        print(f"Warning: reactivity search did not converge: {exc}")');
+                lines.push('        return None');
+                lines.push('integrator._keff_search_control.run = _openmc_studio_tolerant_search');
+            }
         }
 
         // Run integration (commented out by default to allow XML export first)
@@ -1406,9 +1819,10 @@ export class OpenMCPythonExporter {
      * @param source - The {@link OpenMCSource} to convert.
      * @param index - The zero-based source index for variable naming.
      * @param varName - Optional variable name override (used for mesh sub-sources).
+     * @param compat - Probed capabilities used to gate PDG particle names.
      * @returns An array of code lines.
      */
-    private generateSourceCode(source: OpenMCSource, index: number, varName?: string): string[] {
+    private generateSourceCode(source: OpenMCSource, index: number, varName?: string, compat?: OpenMCCompat): string[] {
         const name = varName ?? `source_${index}`;
         const lines: string[] = [];
 
@@ -1424,7 +1838,7 @@ export class OpenMCPythonExporter {
             const subNames: string[] = [];
             (source.sources ?? []).forEach((sub, j) => {
                 const subName = `${name}_elem_${j}`;
-                lines.push(...this.generateSourceCode(sub, index, subName));
+                lines.push(...this.generateSourceCode(sub, index, subName, compat));
                 subNames.push(subName);
             });
             const meshArg = source.meshId !== undefined ? `mesh_${source.meshId}` : 'None';
@@ -1436,6 +1850,8 @@ export class OpenMCPythonExporter {
         } else if (source.type === 'tokamak') {
             // Tokamak source (openmc/source.py:901): Miller flux-surface
             // geometry + emission profile S(r/a) + single energy distribution
+            const energyCode = generateUnivariateCode(source.energy, `${name}_energy`);
+            lines.push(...energyCode.lines);
             const args: string[] = [
                 `major_radius=${source.majorRadius}`,
                 `minor_radius=${source.minorRadius}`,
@@ -1444,7 +1860,7 @@ export class OpenMCPythonExporter {
                 `shafranov_shift=${source.shafranovShift}`,
                 `r_over_a=[${source.profile.map((p) => p.r).join(', ')}]`,
                 `emission_density=[${source.profile.map((p) => p.s).join(', ')}]`,
-                `energy=${this.generateEnergyExpression(source.energy)}`
+                `energy=${energyCode.expression}`
             ];
             if (source.phiStart !== undefined) {
                 args.push(`phi_start=${source.phiStart}`);
@@ -1459,7 +1875,9 @@ export class OpenMCPythonExporter {
                 args.push(`vertical_shift=${source.verticalShift}`);
             }
             if (source.time) {
-                args.push(`time=${this.generateTimeExpression(source.time)}`);
+                const timeCode = generateTimeCode(source.time, `${name}_time`);
+                lines.push(...timeCode.lines);
+                args.push(`time=${timeCode.expression}`);
             }
             if (source.strength !== undefined && source.strength !== 1) {
                 args.push(`strength=${source.strength}`);
@@ -1473,67 +1891,37 @@ export class OpenMCPythonExporter {
             lines.push(`${name} = openmc.IndependentSource()`);
 
             // Spatial distribution
-            const spatial = source.spatial;
-            switch (spatial.type) {
-                case 'point':
-                    const point = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.Point([${point.origin.join(', ')}])`);
-                    break;
-                case 'box':
-                    const box = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.Box([${box.lowerLeft.join(', ')}], [${box.upperRight.join(', ')}])`);
-                    break;
-                case 'sphere':
-                    const sphere = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.Sphere([${sphere.center.join(', ')}], ${sphere.radius})`);
-                    break;
-                case 'cylinder':
-                    const cyl = spatial as any;
-                    lines.push(`${name}.space = openmc.stats.CylindricalIndependent(`);
-                    lines.push(`    r=openmc.stats.Uniform(0, ${cyl.radius}),`);
-                    lines.push(`    phi=openmc.stats.Uniform(0, 2*3.14159),`);
-                    lines.push(`    z=openmc.stats.Uniform(-${cyl.height / 2}, ${cyl.height / 2}),`);
-                    lines.push(`    origin=[${cyl.center.join(', ')}]`);
-                    lines.push(')');
-                    break;
+            const spaceCode = generateSpatialCode(source.spatial, `${name}_space`);
+            lines.push(...spaceCode.lines);
+            lines.push(`${name}.space = ${spaceCode.expression}`);
+
+            // Angular distribution
+            if (source.angle) {
+                const angleCode = generateAngleCode(source.angle, `${name}_angle`);
+                lines.push(...angleCode.lines);
+                lines.push(`${name}.angle = ${angleCode.expression}`);
             }
 
             // Energy distribution
-            const energy = source.energy;
-            if (energy) {
-                switch (energy.type) {
-                    case 'discrete':
-                        const discrete = energy as any;
-                        const energies = discrete.energies || [1e6];
-                        const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
-                        lines.push(`${name}.energy = openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`);
-                        break;
-                    case 'uniform':
-                        const uniform = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.Uniform(${uniform.min}, ${uniform.max})`);
-                        break;
-                    case 'maxwell':
-                        const maxwell = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.Maxwell(${maxwell.temperature})`);
-                        break;
-                    case 'watt':
-                        const watt = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.WattFission(${watt.a}, ${watt.b})`);
-                        break;
-                    case 'normal':
-                        const normal = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.Normal(${normal.mean}, ${normal.stdDev})`);
-                        break;
-                    case 'muir':
-                        const muir = energy as any;
-                        lines.push(`${name}.energy = openmc.stats.muir(${muir.e0}, ${muir.m_rat}, ${muir.kt})`);
-                        break;
-                }
+            const energyCode = generateUnivariateCode(source.energy, `${name}_energy`);
+            lines.push(...energyCode.lines);
+            lines.push(`${name}.energy = ${energyCode.expression}`);
+
+            // Time distribution (seconds)
+            if (source.time) {
+                const timeCode = generateTimeCode(source.time, `${name}_time`);
+                lines.push(...timeCode.lines);
+                lines.push(`${name}.time = ${timeCode.expression}`);
             }
 
-            // Particle type
+            // Particle type (fall back to neutron when the probed environment
+            // predates PDG-backed ParticleType).
             if (source.particle) {
-                lines.push(`${name}.particle = "${source.particle}"`);
+                const sanitized = sanitizeSourceParticle(source.particle, compat);
+                if (sanitized.warning) {
+                    lines.push(`# ${sanitized.warning}`);
+                }
+                lines.push(`${name}.particle = "${sanitized.particle.name}"`);
             }
         }
 
@@ -1585,60 +1973,6 @@ export class OpenMCPythonExporter {
     }
 
     /**
-     * Generate a Python expression for a time distribution (used by
-     * TokamakSource's optional `time` argument; delta maps to delta_function,
-     * a single-point Discrete in OpenMC).
-     *
-     * @param time - The time distribution to convert.
-     * @returns A Python expression string for the distribution.
-     */
-    private generateTimeExpression(time: {
-        type: 'delta' | 'uniform' | 'discrete';
-        params: { times?: number[]; probabilities?: number[]; min?: number; max?: number; time?: number };
-    }): string {
-        if (time.type === 'delta') {
-            return `openmc.stats.delta_function(${time.params.time ?? 0})`;
-        }
-        if (time.type === 'uniform') {
-            return `openmc.stats.Uniform(${time.params.min ?? 0}, ${time.params.max ?? 1})`;
-        }
-        const times = time.params.times ?? [0];
-        const probs = time.params.probabilities ?? times.map(() => 1.0 / times.length);
-        return `openmc.stats.Discrete([${times.join(', ')}], [${probs.join(', ')}])`;
-    }
-
-    /**
-     * Generate a Python expression for an energy distribution (used where a
-     * distribution is passed as a constructor argument, e.g. TokamakSource).
-     *
-     * @param energy - The {@link OpenMCSourceEnergy} to convert.
-     * @returns A Python expression string for the distribution.
-     */
-    private generateEnergyExpression(energy: OpenMCSourceEnergy): string {
-        switch (energy.type) {
-            case 'uniform':
-                return `openmc.stats.Uniform(${energy.min}, ${energy.max})`;
-            case 'maxwell':
-                return `openmc.stats.Maxwell(${energy.temperature})`;
-            case 'watt':
-                return `openmc.stats.WattFission(${energy.a}, ${energy.b})`;
-            case 'normal':
-                return `openmc.stats.Normal(${energy.mean}, ${energy.stdDev})`;
-            case 'muir':
-                // Function form (deprecated Muir class removed in a future version)
-                return `openmc.stats.muir(${energy.e0}, ${energy.m_rat}, ${energy.kt})`;
-            case 'tabular':
-                return `openmc.stats.Tabular([${energy.energies.join(', ')}], [${energy.probabilities.join(', ')}])`;
-            default: {
-                const discrete = energy as { energies?: number[]; probabilities?: number[] };
-                const energies = discrete.energies || [1e6];
-                const probs = discrete.probabilities || energies.map(() => 1.0 / energies.length);
-                return `openmc.stats.Discrete([${energies.join(', ')}], [${probs.join(', ')}])`;
-            }
-        }
-    }
-
-    /**
      * Generate the Python code block for tallies and meshes.
      *
      * @param state - The current {@link OpenMCState}.
@@ -1656,6 +1990,9 @@ export class OpenMCPythonExporter {
 
         // Meshes
         if (state.meshes.length > 0) {
+            if (this.needsScriptRelativeMeshPath(state)) {
+                lines.push('_script_dir = os.path.dirname(os.path.abspath(__file__))');
+            }
             if (options.includeComments) {
                 lines.push('# Meshes');
             }
@@ -1676,7 +2013,7 @@ export class OpenMCPythonExporter {
                 lines.push('# Tallies');
             }
             for (const tally of effectiveTallies) {
-                lines.push(...this.generateTallyCode(tally, state));
+                lines.push(...this.generateTallyCode(tally, state, options));
             }
             lines.push('');
         }
@@ -1705,6 +2042,24 @@ export class OpenMCPythonExporter {
             lines.push(`mesh_${mesh.id}.lower_left = [${regularMesh.lowerLeft.join(', ')}]`);
             lines.push(`mesh_${mesh.id}.upper_right = [${regularMesh.upperRight.join(', ')}]`);
             lines.push(`mesh_${mesh.id}.dimension = [${regularMesh.dimension.join(', ')}]`);
+        } else if (mesh.type === 'rectilinear') {
+            const rectMesh = mesh as OpenMCRectilinearMesh;
+            lines.push(`mesh_${mesh.id} = openmc.RectilinearMesh(mesh_id=${mesh.id})`);
+            lines.push(`mesh_${mesh.id}.x_grid = [${rectMesh.xGrid.join(', ')}]`);
+            lines.push(`mesh_${mesh.id}.y_grid = [${rectMesh.yGrid.join(', ')}]`);
+            lines.push(`mesh_${mesh.id}.z_grid = [${rectMesh.zGrid.join(', ')}]`);
+        } else if (mesh.type === 'unstructured') {
+            const unstructured = mesh as OpenMCUnstructuredMesh;
+            const lengthMultiplier =
+                unstructured.lengthMultiplier !== undefined && unstructured.lengthMultiplier !== 1
+                    ? `, length_multiplier=${unstructured.lengthMultiplier}`
+                    : '';
+            const options = unstructured.options ? `, options="${this.escapePythonString(unstructured.options)}"` : '';
+            lines.push(
+                `mesh_${mesh.id} = openmc.UnstructuredMesh(${this.formatPythonMeshFilename(
+                    unstructured.filename
+                )}, library="${unstructured.library}"${lengthMultiplier}${options}, mesh_id=${mesh.id})`
+            );
         } else if (mesh.type === 'cylindrical') {
             const cylMesh = mesh as OpenMCCylindricalMesh;
             lines.push(`mesh_${mesh.id} = openmc.CylindricalMesh(mesh_id=${mesh.id})`);
@@ -1734,12 +2089,22 @@ export class OpenMCPythonExporter {
      *
      * @param tally - The {@link OpenMCTally} to convert.
      * @param state - The current {@link OpenMCState} for mesh lookups.
+     * @param options - Export options (gates 0.16-only mesh rotation).
      * @returns An array of code lines.
      */
-    private generateTallyCode(tally: OpenMCTally, state: OpenMCState): string[] {
+    private generateTallyCode(tally: OpenMCTally, state: OpenMCState, options: PythonExportOptions): string[] {
         const lines: string[] = [];
 
         lines.push(`tally_${tally.id} = openmc.Tally(name="${this.escapePythonString(tally.name || '')}", tally_id=${tally.id})`);
+
+        // Optional output options (`multiply_density` defaults to True and
+        // `higher_moments` defaults to False, so only non-defaults are written).
+        if (tally.multiplyDensity === false) {
+            lines.push(`tally_${tally.id}.multiply_density = False`);
+        }
+        if (tally.higherMoments) {
+            lines.push(`tally_${tally.id}.higher_moments = True`);
+        }
 
         // Scores
         if (tally.scores.length > 0) {
@@ -1759,7 +2124,29 @@ export class OpenMCPythonExporter {
                 const filterVar = `filter_${tally.id}_${i}`;
                 filterVars.push(filterVar);
 
-                switch (filter.type) {
+                if (!isFilterSupported(filter.type, options.compat)) {
+                    const warning =
+                        getFilterSupportWarning(filter.type) ?? `Filter '${filter.type}' is not supported by this OpenMC version`;
+                    lines.push(`# ${warning} (filter index ${i} on tally ${tally.id})`);
+                    filterVars.pop();
+                    continue;
+                }
+
+                let effectiveFilter = filter;
+                if (filter.type === 'particle') {
+                    const sanitized = sanitizeParticleFilter(filter, options.compat, `Tally ${tally.id}`);
+                    if (sanitized.warning) {
+                        lines.push(`# ${sanitized.warning}`);
+                    }
+                    if (getParticleFilterBins(sanitized.filter).length === 0) {
+                        lines.push(`# Particle filter has no supported bins; the filter was omitted from tally ${tally.id}`);
+                        filterVars.pop();
+                        continue;
+                    }
+                    effectiveFilter = sanitized.filter;
+                }
+
+                switch (effectiveFilter.type) {
                     case 'energy':
                         lines.push(`${filterVar} = openmc.EnergyFilter([${filter.bins.join(', ')}])`);
                         break;
@@ -1767,10 +2154,29 @@ export class OpenMCPythonExporter {
                         lines.push(`${filterVar} = openmc.EnergyoutFilter([${filter.bins.join(', ')}])`);
                         break;
                     case 'mesh':
+                    case 'meshborn':
+                    case 'meshsurface': {
                         if (filter.meshId) {
-                            lines.push(`${filterVar} = openmc.MeshFilter(mesh_${filter.meshId})`);
+                            const filterClass =
+                                filter.type === 'mesh' ? 'MeshFilter' : filter.type === 'meshborn' ? 'MeshBornFilter' : 'MeshSurfaceFilter';
+                            lines.push(`${filterVar} = openmc.${filterClass}(mesh_${filter.meshId})`);
+                            if (filter.meshTranslation) {
+                                lines.push(`${filterVar}.translation = [${filter.meshTranslation.join(', ')}]`);
+                            }
+                            if (filter.meshRotation) {
+                                if (options.meshFilterRotationSupported ?? options.compat?.meshFilterRotation ?? false) {
+                                    lines.push(`${filterVar}.rotation = [${filter.meshRotation.join(', ')}]`);
+                                } else {
+                                    lines.push(
+                                        `# Mesh filter rotation ${filter.meshRotation.join(
+                                            ' '
+                                        )} requires OpenMC 0.16 or newer and was omitted from this script`
+                                    );
+                                }
+                            }
                         }
                         break;
+                    }
                     case 'cell':
                         lines.push(`${filterVar} = openmc.CellFilter([${filter.bins.join(', ')}])`);
                         break;
@@ -1794,7 +2200,9 @@ export class OpenMCPythonExporter {
                         break;
                     case 'particle':
                         lines.push(
-                            `${filterVar} = openmc.ParticleFilter([${filter.bins.map((b) => (b === 1 ? '"neutron"' : '"photon"')).join(', ')}])`
+                            `${filterVar} = openmc.ParticleFilter([${getParticleFilterBins(effectiveFilter)
+                                .map((particle) => `"${this.escapePythonString(particle.name)}"`)
+                                .join(', ')}])`
                         );
                         break;
                     case 'cellborn':
@@ -1841,10 +2249,69 @@ export class OpenMCPythonExporter {
                             `${filterVar} = openmc.EnergyFunctionFilter(energy=[${(filter.energyValues ?? []).join(', ')}], y=[${(filter.responseValues ?? []).join(', ')}], interpolation='${filter.interpolation ?? 'linear-linear'}')`
                         );
                         break;
-                    case 'meshsurface':
-                        if (filter.meshId) {
-                            lines.push(`${filterVar} = openmc.MeshSurfaceFilter(mesh_${filter.meshId})`);
+                    case 'materialfrom':
+                        lines.push(`${filterVar} = openmc.MaterialFromFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'cellinstance': {
+                        const pairs = getCellInstancePairs(filter);
+                        if (filter.bins.length % 2 !== 0) {
+                            lines.push(
+                                `# Cell-instance bins had an odd length (${filter.bins.length}); only complete cell/instance pairs are exported`
+                            );
                         }
+                        const pairText = pairs.map((pair) => `(${pair.first}, ${pair.second})`).join(', ');
+                        lines.push(`${filterVar} = openmc.CellInstanceFilter([${pairText}])`);
+                        break;
+                    }
+                    case 'parentnuclide':
+                        lines.push(
+                            `${filterVar} = openmc.ParentNuclideFilter([${(filter.nuclideBins ?? [])
+                                .map((name) => `"${this.escapePythonString(name)}"`)
+                                .join(', ')}])`
+                        );
+                        break;
+                    case 'meshmaterial': {
+                        if (filter.meshId) {
+                            const pairs = getMeshMaterialPairs(filter);
+                            if (filter.bins.length % 2 !== 0) {
+                                lines.push(
+                                    `# Mesh-material bins had an odd length (${filter.bins.length}); only complete element/material pairs are exported`
+                                );
+                            }
+                            const pairText = pairs.map((pair) => `(${pair.first}, ${pair.second})`).join(', ');
+                            lines.push(`${filterVar} = openmc.MeshMaterialFilter(mesh_${filter.meshId}, [${pairText}])`);
+                            if (filter.meshTranslation) {
+                                lines.push(`${filterVar}.translation = [${filter.meshTranslation.join(', ')}]`);
+                            }
+                        }
+                        break;
+                    }
+                    case 'collision':
+                        lines.push(`${filterVar} = openmc.CollisionFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'reaction':
+                        lines.push(
+                            `${filterVar} = openmc.ReactionFilter([${(filter.reactionBins ?? [])
+                                .map((bin) => `"${this.escapePythonString(normalizeReactionBin(bin) ?? bin)}"`)
+                                .join(', ')}])`
+                        );
+                        break;
+                    case 'particleproduction': {
+                        const particles = getParticleProductionTypes(effectiveFilter);
+                        const energies = filter.productionEnergyBins ?? [];
+                        const energyArg = energies.length > 0 ? `, energies=[${energies.join(', ')}]` : '';
+                        lines.push(
+                            `${filterVar} = openmc.ParticleProductionFilter([${particles
+                                .map((particle) => `"${this.escapePythonString(particle.name)}"`)
+                                .join(', ')}]${energyArg})`
+                        );
+                        break;
+                    }
+                    case 'musurface':
+                        lines.push(`${filterVar} = openmc.MuSurfaceFilter([${filter.bins.join(', ')}])`);
+                        break;
+                    case 'weight':
+                        lines.push(`${filterVar} = openmc.WeightFilter([${filter.bins.join(', ')}])`);
                         break;
                     default:
                         lines.push(`# Unsupported filter type '${filter.type}' skipped (filter index ${i} on tally ${tally.id})`);
@@ -1922,7 +2389,7 @@ export class OpenMCPythonExporter {
         }
 
         for (const plot of state.plots || []) {
-            lines.push(...this.generatePlotCode(plot));
+            lines.push(...this.generatePlotCode(plot, state));
         }
 
         if (state.plots && state.plots.length > 0) {
@@ -1937,9 +2404,10 @@ export class OpenMCPythonExporter {
      * Generate the construction code for a single plot configuration.
      *
      * @param plot - The {@link OpenMCPlotConfig} to convert.
+     * @param state - Current state, used to invert the mask selection.
      * @returns An array of code lines.
      */
-    private generatePlotCode(plot: OpenMCPlotConfig): string[] {
+    private generatePlotCode(plot: OpenMCPlotConfig, state: OpenMCState): string[] {
         const lines: string[] = [];
         const colorBy = plot.colorBy === 'material' ? 'material' : 'cell';
 
@@ -1984,6 +2452,10 @@ export class OpenMCPythonExporter {
                 lines.push(`plot_${plot.id}.wireframe_domains = [${plot.wireframeIds.map((id) => `${domainClass}(${id})`).join(', ')}]`);
             }
         }
+
+        // Display colors apply to slice and ray-traced plots; voxel output
+        // stores raw IDs and ignores them. Overlap highlighting is slice-only.
+        lines.push(...generatePlotAppearancePythonLines(plot, state));
 
         lines.push('');
         return lines;

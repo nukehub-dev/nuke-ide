@@ -41,6 +41,7 @@ const OPTIONAL = {
     'nuke-sysmon': [],
     'nuke-visualizer': [],
     'openmc-studio': ['nuke-visualizer'],
+    'nuke-cad': [],
     'nukelab-integration': []
 };
 

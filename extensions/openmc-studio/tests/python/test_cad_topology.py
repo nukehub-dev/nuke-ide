@@ -95,6 +95,21 @@ class TestMergeCoplanarSurfaces:
         assert merged[1] is sphere
 
 
+def test_merge_skips_already_merged_and_short_plane_coefficients():
+    """The inner scan ignores merged indices and malformed later planes."""
+    surfaces = [
+        _plane(1, [1, 0, 0, -2]),
+        _plane(2, [0, 0, 1, 0]),
+        _plane(3, [1, 0, 0, -2]),
+        _plane(4, [1, 0]),
+    ]
+    merged = merge_coplanar_surfaces(surfaces)
+    assert len(merged) == 3
+    assert merged[0]["_merged_ids"] == [1, 3]
+    assert merged[1] is surfaces[1]
+    assert merged[2] is surfaces[3]
+
+
 class TestDetectBooleanOps:
     def test_disjoint_boxes_are_union(self):
         """Non-overlapping bounding boxes suggest a union."""

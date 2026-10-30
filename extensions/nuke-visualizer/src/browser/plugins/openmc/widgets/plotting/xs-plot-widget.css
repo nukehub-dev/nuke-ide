@@ -1,0 +1,246 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ **************************************************************************** */
+
+/* Cross-section plot control sidebar: compact form sections layered on the
+   Theia sidebar tokens. Buttons stay outlined until they carry an active
+   selection, so the reaction list and presets read as controls rather than
+   filled blocks. */
+
+.xs-plot-controls {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.xs-plot-section {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.xs-plot-section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    color: var(--theia-foreground);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.xs-plot-section-title .codicon {
+    flex: 0 0 auto;
+}
+
+.xs-plot-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.xs-plot-mode-button {
+    min-width: 0;
+    padding: 5px 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: center;
+    cursor: pointer;
+    transition:
+        background-color 0.1s ease,
+        border-color 0.1s ease;
+}
+
+.xs-plot-mode-button:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.xs-plot-mode-button.active {
+    border-color: var(--theia-button-background);
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    font-weight: 500;
+}
+
+.xs-plot-mode-button:focus-visible,
+.xs-plot-region-option:has(.xs-plot-region-radio:focus-visible) {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+.xs-plot-reactions {
+    flex: 1 1 auto;
+    min-height: 150px;
+    overflow-y: auto;
+}
+
+.xs-plot-reaction-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.xs-plot-reaction-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--theia-foreground);
+    font-size: 12px;
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.xs-plot-reaction-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.xs-plot-reaction-row.selected {
+    border-color: color-mix(in srgb, var(--theia-focusBorder) 45%, transparent);
+    background: color-mix(in srgb, var(--theia-focusBorder) 12%, transparent);
+    color: var(--theia-foreground);
+}
+
+.xs-plot-reaction-row.selected:hover {
+    background: color-mix(in srgb, var(--theia-focusBorder) 18%, transparent);
+}
+
+.xs-plot-reaction-label {
+    flex: 1 1 auto;
+    overflow: hidden;
+    min-width: 0;
+    color: var(--theia-foreground);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xs-plot-reaction-mt {
+    flex: 0 0 auto;
+    margin-left: 4px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.xs-plot-checkbox {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--theia-focusBorder);
+    cursor: pointer;
+}
+
+.xs-plot-checkbox:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.xs-plot-region-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.xs-plot-region-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--theia-foreground);
+    font-size: 11px;
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.xs-plot-region-option:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.xs-plot-region-option.active {
+    border-color: color-mix(in srgb, var(--theia-focusBorder) 45%, transparent);
+    background: color-mix(in srgb, var(--theia-focusBorder) 10%, transparent);
+}
+
+.xs-plot-region-radio {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--theia-focusBorder);
+    cursor: pointer;
+}
+
+.xs-plot-region-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xs-plot-region-range {
+    flex: 0 0 auto;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.xs-plot-settings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.xs-plot-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+    font-size: 12px;
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.xs-plot-actions {
+    padding: 12px 14px;
+}

@@ -1,0 +1,298 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ **************************************************************************** */
+
+/*
+ * OpenMC Studio domain icons.
+ *
+ * Mask-based SVG glyphs on a 16x16 grid: the shape is punched out of
+ * `currentColor`, so the icons follow the active theme and work anywhere a
+ * codicon does — widget titles, command icons, Nuke Tools rows, tabs, and
+ * empty states. Use `codicon-openmc-<name>` directly or `icon: 'openmc-<name>'`
+ * in Nuke Tools items.
+ *
+ * Sizing is 1em so the parent's font-size controls the glyph, like a font icon.
+ * Generic utility actions (add, save, edit, trash, close) stay codicons.
+ */
+
+.codicon-openmc-atom,
+.codicon-openmc-geometry,
+.codicon-openmc-surface,
+.codicon-openmc-cell,
+.codicon-openmc-universe,
+.codicon-openmc-lattice,
+.codicon-openmc-transform,
+.codicon-openmc-periodic,
+.codicon-openmc-mesh,
+.codicon-openmc-grid,
+.codicon-openmc-material,
+.codicon-openmc-tally,
+.codicon-openmc-derived,
+.codicon-openmc-statepoint,
+.codicon-openmc-depletion,
+.codicon-openmc-variance,
+.codicon-openmc-source,
+.codicon-openmc-run,
+.codicon-openmc-compare,
+.codicon-openmc-optimize,
+.codicon-openmc-plot,
+.codicon-openmc-mask,
+.codicon-openmc-overlap,
+.codicon-openmc-mgxs,
+.codicon-openmc-volume,
+.codicon-openmc-validate,
+.codicon-openmc-reactivity,
+.codicon-openmc-feed,
+.codicon-openmc-shutdown-dose {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    vertical-align: -0.125em;
+    background-color: currentColor;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+}
+
+/* Centered empty-state icons: mask glyphs are fixed-width blocks, so the
+   surrounding text-align:center does not center them on its own. */
+.empty-state > i[class*='codicon-openmc-'],
+.empty-state-mini > i[class*='codicon-openmc-'],
+.timeline-empty-icon > i[class*='codicon-openmc-'] {
+    margin-inline: auto;
+}
+
+/* Nucleus with three orbits — OpenMC Studio identity. */
+.codicon-openmc-atom {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='1.3'/%3E%3Cellipse cx='8' cy='8' rx='6.4' ry='2.6'/%3E%3Cellipse cx='8' cy='8' rx='6.4' ry='2.6' transform='rotate(60 8 8)'/%3E%3Cellipse cx='8' cy='8' rx='6.4' ry='2.6' transform='rotate(120 8 8)'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='1.3'/%3E%3Cellipse cx='8' cy='8' rx='6.4' ry='2.6'/%3E%3Cellipse cx='8' cy='8' rx='6.4' ry='2.6' transform='rotate(60 8 8)'/%3E%3Cellipse cx='8' cy='8' rx='6.4' ry='2.6' transform='rotate(120 8 8)'/%3E%3C/svg%3E");
+}
+
+/* Overlapping CSG primitives — geometry builder. */
+.codicon-openmc-geometry {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Ccircle cx='6' cy='6' r='4.3'/%3E%3Crect x='5.7' y='5.7' width='8.8' height='8.8' rx='1'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Ccircle cx='6' cy='6' r='4.3'/%3E%3Crect x='5.7' y='5.7' width='8.8' height='8.8' rx='1'/%3E%3C/svg%3E");
+}
+
+/* Bounded plane with a normal — surface. */
+.codicon-openmc-surface {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M2 10.5 8 6l6 4.5-6 4.5Z'/%3E%3Cpath d='M8 6V2M6.2 3.8 8 1.9l1.8 1.9'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M2 10.5 8 6l6 4.5-6 4.5Z'/%3E%3Cpath d='M8 6V2M6.2 3.8 8 1.9l1.8 1.9'/%3E%3C/svg%3E");
+}
+
+/* Bounded region with a material nucleus — cell. */
+.codicon-openmc-cell {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M5.2 2.3h5.6l2.9 2.9v5.6l-2.9 2.9H5.2l-2.9-2.9V5.2Z'/%3E%3Ccircle cx='8' cy='8' r='2.1'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M5.2 2.3h5.6l2.9 2.9v5.6l-2.9 2.9H5.2l-2.9-2.9V5.2Z'/%3E%3Ccircle cx='8' cy='8' r='2.1'/%3E%3C/svg%3E");
+}
+
+/* Nested regions — universe. */
+.codicon-openmc-universe {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.6' y='1.6' width='9' height='9' rx='1.4'/%3E%3Crect x='5.4' y='5.4' width='9' height='9' rx='1.4'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.6' y='1.6' width='9' height='9' rx='1.4'/%3E%3Crect x='5.4' y='5.4' width='9' height='9' rx='1.4'/%3E%3C/svg%3E");
+}
+
+/* Triangulated solid — DAGMC / faceted geometry. */
+.codicon-openmc-mesh {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M8 8.5 14 5v6L8 14.5Z' fill='black' stroke='none' opacity='.14'/%3E%3Cpath d='M8 1.5 14 5v6L8 14.5 2 11V5Z'/%3E%3Cpath d='M2 5l6 3.5L14 5M8 8.5v6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M8 8.5 14 5v6L8 14.5Z' fill='black' stroke='none' opacity='.14'/%3E%3Cpath d='M8 1.5 14 5v6L8 14.5 2 11V5Z'/%3E%3Cpath d='M2 5l6 3.5L14 5M8 8.5v6'/%3E%3C/svg%3E");
+}
+
+/* Structured mesh — tally mesh / lattice. */
+.codicon-openmc-grid {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M8 1.5 14 5v6L8 14.5 2 11V5Z'/%3E%3Cpath d='M2 5l6 3.5L14 5M8 8.5v6M5 6.75v4.6M11 6.75v4.6M2 8l6 3.5 6-3.5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M8 1.5 14 5v6L8 14.5 2 11V5Z'/%3E%3Cpath d='M2 5l6 3.5L14 5M8 8.5v6M5 6.75v4.6M11 6.75v4.6M2 8l6 3.5 6-3.5'/%3E%3C/svg%3E");
+}
+
+/* Repeating 3×3 cell grid — rectangular / hexagonal lattice. */
+.codicon-openmc-lattice {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.8' y='1.8' width='12.4' height='12.4' rx='1.6'/%3E%3Cpath d='M5.9 1.8v12.4M10.1 1.8v12.4M1.8 5.9h12.4M1.8 10.1h12.4'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.8' y='1.8' width='12.4' height='12.4' rx='1.6'/%3E%3Cpath d='M5.9 1.8v12.4M10.1 1.8v12.4M1.8 5.9h12.4M1.8 10.1h12.4'/%3E%3C/svg%3E");
+}
+
+/* Square with a looping rotation arrow — cell transform. */
+.codicon-openmc-transform {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4.2' y='4.2' width='7.6' height='7.6' rx='1.2'/%3E%3Cpath d='M13.6 6.3a5.6 5.6 0 1 0 .3 3.4'/%3E%3Cpath d='M13.9 2.6v3.7h-3.7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4.2' y='4.2' width='7.6' height='7.6' rx='1.2'/%3E%3Cpath d='M13.6 6.3a5.6 5.6 0 1 0 .3 3.4'/%3E%3Cpath d='M13.9 2.6v3.7h-3.7'/%3E%3C/svg%3E");
+}
+
+/* Opposing planes with a link arrow — periodic pair. */
+.codicon-openmc-periodic {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 2.5v11M12 2.5v11M6.2 8h3.6M7.6 6.8 6.2 8l1.4 1.2M8.4 9.2 9.8 8 8.4 6.8'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 2.5v11M12 2.5v11M6.2 8h3.6M7.6 6.8 6.2 8l1.4 1.2M8.4 9.2 9.8 8 8.4 6.8'/%3E%3C/svg%3E");
+}
+
+/* Flask with a material nucleus — materials. */
+.codicon-openmc-material {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M6.4 1.8h3.2M7.2 1.8v4.5L3.1 12.6a1.3 1.3 0 0 0 1.1 2h7.6a1.3 1.3 0 0 0 1.1-2L8.8 6.3V1.8'/%3E%3Cpath d='M5.2 10.4h5.6'/%3E%3Ccircle cx='8' cy='12' r='.8' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M6.4 1.8h3.2M7.2 1.8v4.5L3.1 12.6a1.3 1.3 0 0 0 1.1 2h7.6a1.3 1.3 0 0 0 1.1-2L8.8 6.3V1.8'/%3E%3Cpath d='M5.2 10.4h5.6'/%3E%3Ccircle cx='8' cy='12' r='.8' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Binned mesh with rising bars — tallies. */
+.codicon-openmc-tally {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M2 14h12'/%3E%3Cpath d='M4 14V10M8 14V6M12 14V11' stroke-width='2'/%3E%3Cpath d='M8 4.8V2M6.6 2h2.8'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M2 14h12'/%3E%3Cpath d='M4 14V10M8 14V6M12 14V11' stroke-width='2'/%3E%3Cpath d='M8 4.8V2M6.6 2h2.8'/%3E%3C/svg%3E");
+}
+
+/* Function mark with a crossbar — derived tally arithmetic. */
+.codicon-openmc-derived {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.6 2.7c-1.5 0-2.3.9-2.6 2.5L6.2 13.3M4.8 6.4h5.4M6 13.3h3.2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.6 2.7c-1.5 0-2.3.9-2.6 2.5L6.2 13.3M4.8 6.4h5.4M6 13.3h3.2'/%3E%3C/svg%3E");
+}
+
+/* Database with a trend — statepoint results. */
+.codicon-openmc-statepoint {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='6' cy='4' rx='4' ry='1.6'/%3E%3Cpath d='M2 4v8c0 .9 1.8 1.6 4 1.6s4-.7 4-1.6V4M2 8c0 .9 1.8 1.6 4 1.6s4-.7 4-1.6'/%3E%3Cpath d='M10.5 11c1.4 0 1.2-2.2 2.2-2.2s.8 1.4 1.8.4'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='6' cy='4' rx='4' ry='1.6'/%3E%3Cpath d='M2 4v8c0 .9 1.8 1.6 4 1.6s4-.7 4-1.6V4M2 8c0 .9 1.8 1.6 4 1.6s4-.7 4-1.6'/%3E%3Cpath d='M10.5 11c1.4 0 1.2-2.2 2.2-2.2s.8 1.4 1.8.4'/%3E%3C/svg%3E");
+}
+
+/* Decay-chain nodes — depletion. */
+.codicon-openmc-depletion {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 2v12h12'/%3E%3Cpath d='M3 4.5c2.6 0 4.4 7.5 9.8 7.5'/%3E%3Ccircle cx='3.2' cy='4.6' r='.8' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 2v12h12'/%3E%3Cpath d='M3 4.5c2.6 0 4.4 7.5 9.8 7.5'/%3E%3Ccircle cx='3.2' cy='4.6' r='.8' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Distribution curve — variance reduction. */
+.codicon-openmc-variance {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 13.5h13'/%3E%3Cpath d='M2 12.5c2.2 0 2.7-9 6-9s3.8 9 6 9'/%3E%3Cpath d='M8 7.2v2.2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 13.5h13'/%3E%3Cpath d='M2 12.5c2.2 0 2.7-9 6-9s3.8 9 6 9'/%3E%3Cpath d='M8 7.2v2.2'/%3E%3C/svg%3E");
+}
+
+/* Radiating point — source definition / random ray. */
+.codicon-openmc-source {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='1.7'/%3E%3Cpath d='M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2M3.4 3.4l1.6 1.6M11 11l1.6 1.6M12.6 3.4 11 5M5 11l-1.6 1.6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='1.7'/%3E%3Cpath d='M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2M3.4 3.4l1.6 1.6M11 11l1.6 1.6M12.6 3.4 11 5M5 11l-1.6 1.6'/%3E%3C/svg%3E");
+}
+
+/* Orbit with a play mark — run simulation. */
+.codicon-openmc-run {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='M6.4 5.2 11 8l-4.6 2.8Z' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='M6.4 5.2 11 8l-4.6 2.8Z' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Opposing rows — simulation comparison. */
+.codicon-openmc-compare {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 4.5h9M8.8 2.4 11 4.5 8.8 6.6M14 11.5H5M7.2 9.4 5 11.5l2.2 2.1'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 4.5h9M8.8 2.4 11 4.5 8.8 6.6M14 11.5H5M7.2 9.4 5 11.5l2.2 2.1'/%3E%3C/svg%3E");
+}
+
+/* Slider bank — parameter optimization. */
+.codicon-openmc-optimize {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M2 4h12M2 8h12M2 12h12'/%3E%3Ccircle cx='5' cy='4' r='1.5' fill='black' stroke='none'/%3E%3Ccircle cx='10' cy='8' r='1.5' fill='black' stroke='none'/%3E%3Ccircle cx='7' cy='12' r='1.5' fill='black' stroke='none'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M2 4h12M2 8h12M2 12h12'/%3E%3Ccircle cx='5' cy='4' r='1.5' fill='black' stroke='none'/%3E%3Ccircle cx='10' cy='8' r='1.5' fill='black' stroke='none'/%3E%3Ccircle cx='7' cy='12' r='1.5' fill='black' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* Axes with a trend line — plotting and analysis. */
+.codicon-openmc-plot {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 2v12h12'/%3E%3Cpath d='M4 11 7 7l2.5 2L13 4.5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 2v12h12'/%3E%3Cpath d='M4 11 7 7l2.5 2L13 4.5'/%3E%3C/svg%3E");
+}
+
+/* Eye with a pupil — domain visibility / masking. */
+.codicon-openmc-mask {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.8 8S4.2 3.5 8 3.5 14.2 8 14.2 8 11.8 12.5 8 12.5 1.8 8 1.8 8Z'/%3E%3Ccircle cx='8' cy='8' r='2.1'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.8 8S4.2 3.5 8 3.5 14.2 8 14.2 8 11.8 12.5 8 12.5 1.8 8 1.8 8Z'/%3E%3Ccircle cx='8' cy='8' r='2.1'/%3E%3C/svg%3E");
+}
+
+/* Two overlapping circles — overlap detection. */
+.codicon-openmc-overlap {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Ccircle cx='6' cy='8' r='3.7'/%3E%3Ccircle cx='10' cy='8' r='3.7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2'%3E%3Ccircle cx='6' cy='8' r='3.7'/%3E%3Ccircle cx='10' cy='8' r='3.7'/%3E%3C/svg%3E");
+}
+
+/* Energy-group steps — MGXS. */
+.codicon-openmc-mgxs {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M2 13.5V9.5h3v4M5 9.5V6.5h3v7M8 6.5V3.5h3v10M11 3.5V1.5h3v12'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M2 13.5V9.5h3v4M5 9.5V6.5h3v7M8 6.5V3.5h3v10M11 3.5V1.5h3v12'/%3E%3C/svg%3E");
+}
+
+/* Solid with a dimension line — volume calculation. */
+.codicon-openmc-volume {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 5 8 2.3 13 5v6L8 13.7 3 11Z'/%3E%3Cpath d='M3 5l5 2.6L13 5M8 7.6v6.1'/%3E%3Cpath d='M1.5 15h13M2.5 14.2v1.6M13.5 14.2v1.6'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 5 8 2.3 13 5v6L8 13.7 3 11Z'/%3E%3Cpath d='M3 5l5 2.6L13 5M8 7.6v6.1'/%3E%3Cpath d='M1.5 15h13M2.5 14.2v1.6M13.5 14.2v1.6'/%3E%3C/svg%3E");
+}
+
+/* Shield with a check — model validation. */
+.codicon-openmc-validate {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.5 13.5 4v4.2c0 3-2.3 5.4-5.5 6.3-3.2-.9-5.5-3.3-5.5-6.3V4Z'/%3E%3Cpath d='m5.4 7.9 1.8 1.8 3.5-3.5'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.5 13.5 4v4.2c0 3-2.3 5.4-5.5 6.3-3.2-.9-5.5-3.3-5.5-6.3V4Z'/%3E%3Cpath d='m5.4 7.9 1.8 1.8 3.5-3.5'/%3E%3C/svg%3E");
+}
+
+/* Control rod moving inside a guide channel — reactivity control. */
+.codicon-openmc-reactivity {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='1.5' width='6' height='13' rx='1.2'/%3E%3Cpath d='M8 4v7M6.2 9.2 8 11l1.8-1.8'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='1.5' width='6' height='13' rx='1.2'/%3E%3Cpath d='M8 4v7M6.2 9.2 8 11l1.8-1.8'/%3E%3C/svg%3E");
+}
+
+/* Material droplet inside a flow loop — external feed/removal. */
+.codicon-openmc-feed {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.4 8a5.4 5.4 0 1 1-1.9-4.1'/%3E%3Cpath d='M13.6 2.1v2.4h-2.4'/%3E%3Cpath d='M8 5.4c1 1.1 1.7 1.9 1.7 2.8a1.7 1.7 0 0 1-3.4 0c0-.9.7-1.7 1.7-2.8Z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.4 8a5.4 5.4 0 1 1-1.9-4.1'/%3E%3Cpath d='M13.6 2.1v2.4h-2.4'/%3E%3Cpath d='M8 5.4c1 1.1 1.7 1.9 1.7 2.8a1.7 1.7 0 0 1-3.4 0c0-.9.7-1.7 1.7-2.8Z'/%3E%3C/svg%3E");
+}
+
+/* Three-bladed radiation trefoil — shutdown dose (R2S / D1S). */
+.codicon-openmc-shutdown-dose {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='1.25' fill='black' stroke='none'/%3E%3Cpath d='M8 6.7V2.3M6.8 8.7 3 10.8M9.2 8.7l3.8 2.1'/%3E%3Cpath d='M6.9 2.8a5.6 5.6 0 0 0-3.2 8.5M9.1 2.8a5.6 5.6 0 0 1 3.2 8.5M4.8 12.5a5.6 5.6 0 0 0 6.4 0'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='1.25' fill='black' stroke='none'/%3E%3Cpath d='M8 6.7V2.3M6.8 8.7 3 10.8M9.2 8.7l3.8 2.1'/%3E%3Cpath d='M6.9 2.8a5.6 5.6 0 0 0-3.2 8.5M9.1 2.8a5.6 5.6 0 0 1 3.2 8.5M4.8 12.5a5.6 5.6 0 0 0 6.4 0'/%3E%3C/svg%3E");
+}
+
+/* ============================================================================
+   Project Brand Mark
+   ============================================================================
+   The official OpenMC mark (openmc-dev/openmc docs/source/_images/openmc_logo.svg,
+   MIT) is used as a monochrome mask so it follows the active theme foreground
+   instead of hard-coding the brand red/gray. Feature chrome keeps the domain
+   icons above; this mark is only for project identity. */
+
+.openmc-brand {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
+    background-color: currentColor;
+    -webkit-mask-image: var(--openmc-brand-mask);
+    mask-image: var(--openmc-brand-mask);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+}
+
+.openmc-brand-header {
+    width: 24px;
+    height: 24px;
+}
+
+.openmc-brand-openmc {
+    --openmc-brand-mask: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2MSA2MCI+PHBhdGggZmlsbD0iYmxhY2siIGQ9Ik0zMC42MTQsMS4wMjRjLTEwLjg2NiwwLTIwLjMyNSw1Ljk5MS0yNS4yODQsMTQuODQ1aDIwLjQ5NWwxMy4xNjcsMjIuODA0bC0xMS42MDksMjAuMTFjMS4wNjIsMC4xMTksMi4xMzksMC4xOTIsMy4yMzEsMC4xOTJjMTYuMDAzLDAsMjguOTc1LTEyLjk3MiwyOC45NzUtMjguOTc2QzU5LjU4OSwxMy45OTcsNDYuNjE3LDEuMDI0LDMwLjYxNCwxLjAyNHoiLz48cGF0aCBmaWxsPSJibGFjayIgZD0iTTE2LjQxNiw1NS4yNDNoNS44MDdsOS41NjctMTYuNTdsLTkuNTY3LTE2LjU2NkgzLjA5M2wtMC42MDcsMS4wNTJDMS45NTQsMjUuMzU1LDEuNjM5LDI3LjYzOCwxLjYzOSwzMEMxLjYzOSw0MC44NCw3LjYwMyw1MC4yNzQsMTYuNDE2LDU1LjI0M3oiLz48L3N2Zz4=');
+}

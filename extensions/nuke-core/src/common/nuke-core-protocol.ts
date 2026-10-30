@@ -102,24 +102,59 @@ export interface ListEnvironmentsResult {
     selected?: NukeEnvironment;
 }
 
-/** Package dependency to check */
+/**
+ * Package dependency to check.
+ *
+ * The dependency entry is the single source of truth for both detection and
+ * installation. Install routing semantics (see `buildDependencyInstallPlan`):
+ * in a conda environment an entry with `condaOnly` or `condaSpec` installs via
+ * conda (`condaSpec || name`); every other entry installs via pip
+ * (`pipSpec || name`, plus `pipArgs` and `extraIndexUrl`). In a non-conda
+ * environment `condaOnly` entries cannot be auto-installed.
+ */
 export interface PackageDependency {
-    /** Package name to import (e.g., 'trame', 'openmc') */
+    /** Package name to import (e.g., 'openmc', 'pydagmc') */
     name: string;
-    /** Optional submodule path for version check (e.g., 'app' for trame.app) */
+    /** Optional submodule path for version check (e.g., 'data' for openmc.data) */
     submodule?: string;
     /** Whether this package is required or optional */
     required?: boolean;
     /** Minimum version required */
     minVersion?: string;
-    /** Whether this package is only available via conda (not pip), e.g. paraview */
+    /** Whether this package is only available via conda (not pip), e.g. mpi4py */
     condaOnly?: boolean;
     /** Conda channels to use for this package (defaults to global/preference channels) */
     channels?: string[];
     /** Extra pip index URL for this package (e.g. https://shimwell.github.io/wheels) */
     extraIndexUrl?: string;
-    /** Explicit install command override (e.g. 'pip install git+https://github.com/...') */
+    /**
+     * Pip requirement spec or VCS URL when it differs from `name`
+     * (e.g. 'build123d==0.9.1', 'git+https://github.com/svalinn/pydagmc@<commit>').
+     * VCS URLs must be pinned to a commit or tag — never track a moving branch.
+     */
+    pipSpec?: string;
+    /** Extra pip arguments for this package (e.g. ['--no-deps'] for build123d) */
+    pipArgs?: string[];
+    /**
+     * Conda package spec when it differs from `name` or to carry a pin
+     * (e.g. 'python-gmsh', 'ocp', 'pythonocc-core', 'netcdf4', 'ngsolve').
+     */
+    condaSpec?: string;
+    /**
+     * @deprecated Legacy hint-only override; never executed. Use the structured
+     * fields (`pipSpec` / `pipArgs` / `condaSpec` / `extraIndexUrl`) instead.
+     */
     installCommand?: string;
+}
+
+/** A single prepared dependency-install command (one conda batch or one pip group). */
+export interface DependencyInstallCommand {
+    /** Human-readable label for the terminal tab (e.g. 'Install (conda): mpi4py') */
+    label: string;
+    /** Full shell command string to execute */
+    command: string;
+    /** Working directory for the command */
+    cwd: string;
 }
 
 /**
@@ -368,7 +403,7 @@ export interface NukeCoreBackendServiceInterface {
 
     /**
      * Run health checks on the Nuke Core setup.
-     * @param packages Optional packages to check for (e.g., [{name: 'openmc'}, {name: 'paraview', condaOnly: true}])
+     * @param packages Optional packages to check for (e.g., [{name: 'openmc'}, {name: 'mpi4py', condaOnly: true}])
      * @returns A promise resolving to the health check result.
      */
     healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult>;
@@ -401,6 +436,19 @@ export interface NukeCoreBackendServiceInterface {
      * @returns A promise resolving to the command string and working directory.
      */
     prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }>;
+
+    /**
+     * Prepare the shell commands for installing structured package dependencies.
+     *
+     * Routes each dependency through {@link buildDependencyInstallPlan} (conda batch +
+     * pip groups) and prepares one command per plan group, reusing the same
+     * conda-prefix / uv / pip resolution as {@link prepareInstallPackagesCommand}.
+     * Used by the frontend to run the commands in a terminal widget for live output.
+     * @param defs The package dependencies to install.
+     * @param pythonPath Optional explicit target Python (defaults to the configured/detected environment).
+     * @returns A promise resolving to the ordered list of commands to execute.
+     */
+    prepareDependencyInstallCommands(defs: PackageDependency[], pythonPath?: string): Promise<DependencyInstallCommand[]>;
 
     /**
      * Get the best available conda/mamba command.

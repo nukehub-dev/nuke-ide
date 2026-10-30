@@ -1,6 +1,6 @@
 # Simulation Dashboard
 
-The Simulation Dashboard is the central workspace for building, configuring, and running OpenMC simulations without writing code. It organizes every aspect of a model into focused tabs and provides a unified workflow from configuration to results.
+The Simulation Dashboard is the central workspace for building, configuring, and running OpenMC simulations without writing code. It groups the model's settings, materials, tallies, depletion, variance-reduction, random-ray, and run surfaces into focused tabs. See [Coverage and Limitations](coverage.md) for the exact OpenMC feature boundary.
 
 ---
 
@@ -8,7 +8,7 @@ The Simulation Dashboard is the central workspace for building, configuring, and
 
 ### Method 1: New Project
 
-Create a new project (`Ctrl+Shift+P` → **"OpenMC Studio: New Project"**). The dashboard opens automatically.
+Create a new project (`Ctrl+Shift+P` → **`OpenMC/Project: New Project`**). The dashboard opens automatically.
 
 ### Method 2: Open Existing Project
 
@@ -16,7 +16,24 @@ Click any `.nuke-openmc` file in the Explorer.
 
 ### Method 3: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open Simulation Dashboard"**
+`Ctrl+Shift+P` → **`OpenMC/View: Open Simulation Dashboard`**
+
+### New Project Templates
+
+**New Project** opens a template picker. **Blank Project** is selected by default; other cards provide runnable starting points:
+
+| Template               | Preview                                                              |
+| ---------------------- | -------------------------------------------------------------------- |
+| **Blank Project**      | Empty model with default eigenvalue settings                         |
+| **Pin Cell**           | 1 fuel pin, UO2 + Zircaloy + light water, 4.5% enrichment by default |
+| **17x17 PWR Assembly** | 264 fuel pins, 24 guide tubes, 1 instrument tube                     |
+| **Demonstration Core** | 3×3 assembly demonstration core with nested 3×3 pin lattices         |
+| **Shielding**          | 14.1 MeV neutron source, lead slab, detector flux tally              |
+| **Criticality Safety** | Bare HEU sphere with a vacuum boundary and fission tally             |
+
+Each card shows what is included and a live preview. Template parameters (enrichment, pitch, source energy, shield thickness, sphere radius) are only shown where they change the model. Cards are keyboard-selectable with arrow keys, show a selected state, and stack in a narrow panel. Creating a template opens the dashboard on the **Simulation** tab.
+
+Templates are ordinary project states: you can edit every surface, material, tally, and setting afterwards. The demonstration core is intentionally small and is not a production benchmark.
 
 ---
 
@@ -26,32 +43,59 @@ The dashboard is a single tab with a toolbar at the top and a tabbed panel below
 
 ### Toolbar Actions
 
-| Button           | Action                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| **New Project**  | Scaffold a new OpenMC project                                                                          |
-| **Open Project** | Open an existing `.nuke-openmc` project                                                                |
-| **Save Project** | Save the current project (the dashboard also auto-saves on every change)                               |
-| **Generate XML** | Export the current configuration to `geometry.xml`, `materials.xml`, `settings.xml`, and `tallies.xml` |
+| Button                 | Action                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| **New Project**        | Scaffold a new OpenMC project                                                                          |
+| **Open Project**       | Open an existing `.nuke-openmc` project                                                                |
+| **Save Project**       | Save the current project to its `.nuke-openmc` file                                                    |
+| **Generate XML Files** | Export the current configuration to `geometry.xml`, `materials.xml`, `settings.xml`, and `tallies.xml` |
 
-Click the project name in the header to rename it.
+Click the project name in the header to edit its name and optional description.
 
 ### Tabs
 
-| Tab                    | What It Covers                                                                    |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| **Settings**           | Run mode, particles/batches, sources, output control, physics, convergence (CMFD) |
-| **Materials**          | Material library, templates, compositions, macroscopic materials, NCrystal import |
-| **Tallies**            | Quick view of all tallies; opens the Tally Configurator                           |
-| **Depletion**          | Burnup configuration, chain builder, transfer rates, timeline                     |
-| **Variance Reduction** | Survival biasing, UFS, weight cutoffs, weight window generator and editor         |
-| **Random Ray**         | Multi-group energy mode and the random ray solver                                 |
-| **Simulation**         | Setup checklist, run controls, restart, kinetics (IFP), live console              |
+| Tab                    | What It Covers                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| **Settings**           | Run mode, particles/batches, sources, output control, physics, convergence (CMFD)     |
+| **Materials**          | Material library, templates, compositions, macroscopic materials, NCrystal import     |
+| **Tallies**            | Quick view of all tallies; opens the Tally Configurator                               |
+| **Depletion**          | Burnup configuration, chain builder, substeps, reactivity search, feeds, continuation |
+| **Variance Reduction** | Survival biasing, UFS, weight cutoffs, weight window generator and editor             |
+| **Random Ray**         | Multi-group energy mode and the random ray solver                                     |
+| **Simulation**         | Setup checklist, run controls, restart, kinetics (IFP), live console                  |
+
+### Narrow Windows
+
+The dashboard responds to the width of its own editor panel, not just the browser window. In a split editor or a narrow dock:
+
+- Header actions wrap below the project name, and long project names/descriptions wrap instead of clipping.
+- The tab row scrolls horizontally; when space is tight, tabs collapse to their domain icons and keep the label as a tooltip.
+- Multi-column form rows stack, and wide result tables scroll inside their card.
+- Section cards and content padding tighten so controls stay usable down to phone-width panels.
+
+The same behavior applies to the CSG Builder, DAGMC Editor, Tally Configurator, Optimization, and Simulation Comparison windows.
+
+---
+
+## XML Import Report
+
+Use `Tools → OpenMC Studio → XML Configuration → Import from XML...` to read `materials.xml`, `geometry.xml`, `settings.xml`, `tallies.xml`, and `plots.xml` from a directory. Import replaces the current model state. After import, a report panel above the tabs shows:
+
+- **Imported** — how many materials, surfaces, cells, universes, lattices, tallies, meshes, plots, and sources were reconstructed.
+- **Ignored** — constructs that were deliberately not mapped, with the reason (for example a 9-element rotation matrix that cannot be represented as Tait-Bryan angles).
+- **Needs attention** — references or setup that require review before a run (for example a missing mesh file or a DAGMC `.h5m` that must be opened in the DAGMC Editor).
+
+Every parse warning appears in one of those buckets; import never silently drops a construct. Dismiss the report with its close button. The CSG Builder's **Import XML** button runs the same import and reports the imported counts in a status message.
 
 ---
 
 ## Settings Tab
 
 Global simulation parameters, organized into collapsible sections.
+
+![OpenMC Studio Simulation Dashboard Settings tab showing the Quick Start Guide and General run settings](images/dashboard-settings.png)
+
+_The Settings tab leads with recommended particle and batch ranges for each run mode, then the General section where you choose the mode and set the particle and active/inactive batch schedule._
 
 ### General
 
@@ -60,22 +104,71 @@ Global simulation parameters, organized into collapsible sections.
 | **Run Mode**                  | `Eigenvalue (Criticality)`, `Fixed Source`, or `Volume Calculation`                                                    |
 | **Particles / Batches**       | Eigenvalue: particles per generation, inactive and active batches. Fixed source: particles per batch and total batches |
 | **Random Seed**               | Optional fixed seed for reproducibility (Advanced Settings sub-block)                                                  |
-| **Threads**                   | OpenMP thread count                                                                                                    |
+| **OpenMP threads**            | Per-process thread count, configured in **Advanced → Execution** and passed to OpenMC as `-s N`                        |
 | **Source Rejection Fraction** | Fraction of source sites rejected during initial source sampling                                                       |
 
 ### Sources
 
-Click **Add Source** to append a collapsible source card. Each source has a type (segmented control) and a strength chip:
+Click **Add Source** to append a collapsible source card. The first source opens
+by default; additional cards start collapsed and expand from their header. The
+card starts with a compact summary line (for example `Box [-10, 10]³ · Tabular
+10 eV–14 MeV · Isotropic · t = 0 s`) and then exposes collapsible sections. Only
+the selected type's fields render, so the panel stays readable at narrow widths.
 
-| Type            | What You Configure                                                                                                                                                               |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Independent** | Spatial distribution (Point / Box / Sphere / Cylinder, with Snap-to-Geometry helpers), energy distribution (Discrete / Uniform / Maxwell / Watt / Muir), particle type, strength |
-| **File**        | Source file path (e.g. `surface_source.h5`), strength                                                                                                                            |
-| **Compiled**    | Library path (`libsource.so`), parameter string, strength                                                                                                                        |
-| **Mesh**        | A state mesh, one sub-source per mesh element (Fill button), per-element strength, particle, energy                                                                              |
-| **Tokamak**     | Miller flux-surface geometry (R₀, a, elongation, triangularity, Shafranov shift), emission profile S(r/a), energy distribution, optional time distribution                       |
+| Type            | What You Configure                                                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Independent** | Spatial, energy, direction, time, constraints, and advanced (strength/particle) sections — see below                                                       |
+| **File**        | Source file path (e.g. `surface_source.h5`), strength                                                                                                      |
+| **Compiled**    | Library path (`libsource.so`), parameter string, strength                                                                                                  |
+| **Mesh**        | A state mesh, one sub-source per mesh element (Fill button), per-element strength, particle, energy                                                        |
+| **Tokamak**     | Miller flux-surface geometry (R₀, a, elongation, triangularity, Shafranov shift), emission profile S(r/a), energy distribution, optional time distribution |
 
-Every source can carry **Source Constraints** (domain type + IDs, energy/time bounds, fissionable-sites-only, rejection strategy `resample`/`kill`) and a nested **Surface Source** section for writing surface crossings (`surface_source.h5` or MCPL) with cell/surface filters.
+**Independent source sections**
+
+| Section         | What You Can Build                                                                                                                                                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Spatial**     | Point, Box, Sphere, Cylinder (with Snap-to-Geometry helpers); Cartesian x/y/z; cylindrical r/phi/z with origin and axis directions; spherical r/cos θ/phi with origin; point cloud (x/y/z + optional strengths); mesh spatial distribution (mesh + element strengths) |
+| **Energy**      | Discrete, uniform, Maxwell, Watt, normal, Muir, power law, tabular (x/probability table + interpolation), mixture (nested distributions), and decay spectrum (OpenMC 0.16+, R2S/D1S)                                                                                  |
+| **Direction**   | Isotropic, monodirectional with a reference vector, or polar-azimuthal (mu-phi) with polar/azimuthal reference vectors and mu/phi distributions                                                                                                                       |
+| **Time**        | Born at t = 0, delta, uniform, discrete, tabular, or mixture. Every value is in **seconds**                                                                                                                                                                           |
+| **Constraints** | Domain type + IDs, energy/time bounds, fissionable-sites-only, rejection strategy `resample`/`kill`                                                                                                                                                                   |
+| **Advanced**    | Strength (relative source weight) and particle type presets (neutron, photon, electron, positron, proton, deuteron, triton, alpha, He3) or a custom PDG number with a resolved-name preview                                                                           |
+
+Particles beyond neutron/photon/electron/positron use OpenMC 0.16's PDG-backed `ParticleType`.
+On 0.15.3 the selector keeps the choice visible but shows an inline warning; generated XML and Python
+use neutron instead of an invalid particle.
+
+Tabular and point-cloud tables support **Add row** and **Paste** (space-, comma-,
+or semicolon-separated rows). Large tables page inside their card. Mixtures show
+a running probability sum and warn when it is not 1. Reference vectors must be
+non-zero; mu-phi references must not be parallel. Validation messages state what
+is wrong and how to fix it, for example a tabular table that is not strictly
+increasing or has a mismatched probability column.
+
+**Source bias** is configured per distribution, inside the section that owns it:
+
+- **Energy** and **Time** — turn on **Bias sampling** to sample from a nested distribution
+  (continuous types) or alternative probabilities (discrete/mixture). The bias must share the
+  parent support interval.
+- **Direction** — isotropic sources can use a polar-azimuthal bias. Monodirectional and mu-phi
+  sources explain that angle bias is not available.
+- **Spatial** — point-cloud and mesh distributions expose a probability array; point/box/sphere/
+  cylinder show “OpenMC does not support bias for this spatial type”. OpenMC 0.16's XML transport
+  reader rejects point-cloud/mesh array bias even though the Python export carries it, so use energy
+  or direction bias for XML runs.
+- A biased source shows a `biased` badge in its summary. OpenMC adjusts particle weights so the
+  reported estimate stays unbiased.
+- Source bias is an OpenMC 0.16+ feature. On older probed environments the editors keep the
+  configured bias in the project but warn that XML and Python export omit it; model validation blocks
+  a run until the bias is removed or a compatible environment is selected.
+
+Every source can also carry a nested **Surface Source** section for writing
+surface crossings (`surface_source.h5` or MCPL) with cell/surface filters.
+
+> **Boundaries:** `Legendre` is not offered because OpenMC cannot serialize it.
+> Tabular negative densities are rejected because `ignore_negative` has no XML
+> representation. Decay spectra require OpenMC 0.16+ and a depletion chain, and
+> are omitted from settings.xml with a warning on older environments.
 
 ### Output
 
@@ -99,20 +192,52 @@ Photon transport toggle; when enabled: electron treatment (`LED` / `TTB`) and at
 
 ### Advanced
 
-Particle creation & physics toggles (fission neutrons, delayed neutrons/photons, survival biasing, probability tables) and run behavior knobs (event-based parallelism, generations per batch, lost-particle limits, log grid bins, max scattering order, tabular Legendre conversion).
+Advanced settings are grouped behind collapsible headers with a name filter at the top. Type a setting
+name or OpenMC XML element (for example `threads`, `keff_trigger`, `free_gas_threshold`) to show only the
+matching group. Each group reports its own validation state with a red dot and an inline message.
+
+| Group           | Settings                                                                                                                                                                                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution**   | OpenMP threads (per MPI rank, passed as `openmc -s N`), MPI enable/processes/hosts, particle trace (batch/generation/particle), event-based parallelism, generations per batch, initial-source write, uniform source sampling                                              |
+| **Convergence** | k-eff trigger type/threshold, confidence intervals (fixed 95% half-widths)                                                                                                                                                                                                 |
+| **Physics**     | Temperature default/method/tolerance/windowed multipole, resonance elastic scattering (method and energy range), free-gas threshold, energy/time/weight cutoffs, shared secondary bank, surface grazing cutoff/ratio, particle creation and multi-group scattering options |
+| **Limits**      | Lost-particle limits, max particle events/in-flight/secondaries, max history splits, lost-particle restart files                                                                                                                                                           |
+| **Diagnostics** | Verbosity, no-reduce, random-number stride, plot seed, properties file, material/cell offsets                                                                                                                                                                              |
+
+**Threads and MPI.** OpenMP threads apply per process. With MPI enabled the run command is
+`mpirun -np <processes> openmc -s <threads>`, so total CPU demand is processes × threads. The optional
+host list is passed as `mpirun --host host1,host2` (Open MPI syntax). Threads and MPI are launch
+controls, not `settings.xml` content. CMFD and depletion drivers receive the same thread count; the
+depletion driver applies it through `OMP_NUM_THREADS` because `CoupledOperator` initializes libopenmc
+internally without a threads argument.
+
+**Version boundaries.** Shared secondary bank and surface grazing cutoffs are OpenMC 0.16.0+ settings.
+They are disabled when the configured environment lacks them and are omitted from XML/Python with a
+warning. `Material.decay_photon_energy` is a Python analysis helper derived from decay data, not an XML
+material field, so it is intentionally not exposed. `max_splits` is deprecated upstream in favor of
+`max_history_splits`; only the latter is emitted. The k-eff trigger has no per-batch option in OpenMC
+(only type and threshold); the "only last batch" flag exists on per-tally triggers.
 
 ---
 
 ## Materials Tab
 
-Define and manage materials. The tab shows all materials in the project with inline editing, plus a template gallery (UO₂, water, heavy water, graphite, Zircaloy-4, B₄C, stainless steel, helium) for one-click creation.
+Define and manage materials. The tab shows all materials in the project with inline editing, plus a template gallery (UO₂ fuel, light water, heavy water, graphite, stainless steel 304, B₄C, air/vacuum, helium) that prefills the material form.
 
 ### Editing a Material
 
 1. Click a material card to expand it.
-2. Edit **Name**, **ID**, **Density** and units, **Temperature**, and **S(α,β)** thermal scattering assignments.
+2. Edit **Name**, **ID**, **Density** and units, **Temperature**, **Isotropic scattering nuclides**, and **S(α,β)** thermal scattering assignments.
 3. Add or remove nuclides in the composition table (name, fraction, `wo`/`ao`).
 4. Toggle **Depletable** to include the material in burnup calculations.
+
+![Light water material editor showing density, S(alpha,beta) thermal scattering, and H1/O16 nuclide rows](images/material-form.png)
+
+_The material editor combines the composition table with optional S(α,β) rows; the Pin Cell template ships Light water with `c_H_in_H2O` already assigned._
+
+**Isotropic scattering nuclides** lists nuclides whose elastic scattering is treated as isotropic in the
+laboratory system (`Material.isotropic`, `<isotropic>` in `materials.xml`). Leave it empty for OpenMC's
+default anisotropic treatment.
 
 ### Macroscopic (Multigroup) Materials
 
@@ -160,6 +285,34 @@ A successful build reports the nuclide count and offers **Use as Depletion Chain
 | **Transfer Rates**          | Per-material element/nuclide transfer rates (from material, element, rate, units, optional destination) for moving species between materials                    |
 | **Custom Fission Q Values** | Per-nuclide fission Q overrides (eV) for fission-q normalization                                                                                                |
 | **diff_burnable_mats**      | Distinguish burnable materials with identical compositions (higher memory/runtime cost; optional volume assignment method)                                      |
+| **CRAM substeps**           | Subdivide each depletion interval into smaller CRAM solves (OpenMC 0.16+); improves accuracy for short-lived nuclides                                           |
+| **Reactivity control**      | Hold a target k-effective by moving a control-rod cell along one axis or adjusting a nuclide density in a material (OpenMC 0.16+)                               |
+| **External feed/removal**   | Add or remove material at a mass rate (g/s … g/a), optionally limited to chosen timestep indices (OpenMC 0.15.3+)                                               |
+| **Continuation**            | Start from a previous `depletion_results.h5`; continue the existing schedule instead of appending new steps                                                     |
+
+#### Reactivity control
+
+Enable **Hold a target k-effective** and choose one curated parameter:
+
+- **Control-rod position** — pick a cell and an x/y/z axis; the search writes the cell translation through `openmc.lib` before each depletion step.
+- **Nuclide density** — pick a material and a specific isotope; the search replaces that nuclide's atom density through `openmc.lib`.
+
+Set the two search guesses (`x0`, `x1`) and the absolute bracket. Both guesses must lie inside the bracket, and the bracket must increase. The target keff, `k_tol`, final uncertainty, and maximum iterations default to OpenMC's values. **On non-convergence** either stops the run with an actionable error or logs a warning and continues with the last searched value. A search runs at every depletion step, so it is off by default and adds transport time.
+
+#### External feed/removal
+
+Each row targets a depletable material with a composition of elements/nuclides and weight percents. **Positive rates feed material in; negative rates remove it.** OpenMC normalizes the composition vector, so weights that do not total 100% are accepted (the tab warns). Leave **Timesteps** blank to apply the rate to every step, or list zero-based indices. With continuation, indices refer to the steps this run executes (the first new step is 0).
+
+#### Continuation
+
+Pick the previous `depletion_results.h5`, then choose:
+
+- **Continue the previous timesteps** — the configured schedule must begin with the previous run's timesteps and use the same power/power-density/source-rate specification. OpenMC runs only the new steps.
+- **Append steps** (toggle off) — the configured steps are appended to the previous results.
+
+The previous results file must exist and be readable; validation and the Python driver both fail with a clear message otherwise.
+
+> **Driver-only settings:** substeps, reactivity control, external feed/removal, continuation, transfer rates, and independent-operator inputs are applied by the OpenMC Studio depletion driver, not by the standalone `openmc` binary. They are stored in the custom `<depletion>` block and XML export warns when they are present. Run depletion from the IDE to apply them.
 
 ### Burnup Timeline
 
@@ -169,13 +322,39 @@ Define irradiation steps as a table of power/duration rows. Use a zero-power ste
 
 ## Variance Reduction Tab
 
-| Section                     | What It Does                                                                                        |
-| --------------------------- | --------------------------------------------------------------------------------------------------- |
-| **Survival Biasing**        | Enable implicit capture (survival biasing)                                                          |
-| **Uniform Fission Site**    | UFS mesh (optional — falls back to the weight window mesh), method, max realizations, particle type |
-| **Weight Cutoffs**          | Cell-based average weight threshold; terminate particles below the cutoff                           |
-| **Weight Window Generator** | Magic-style weight window generation: particle type, update interval, target tallies (local VR)     |
-| **Weight Windows**          | Edit weight window sets and their meshes; import MCNP `wwinp` files                                 |
+| Section                     | What It Does                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Survival Biasing**        | Enable implicit capture (survival biasing)                                                            |
+| **Uniform Fission Site**    | Regular UFS mesh picker with a readiness error when missing; eigenvalue-only                          |
+| **Weight Cutoffs**          | Cell-based average weight threshold; terminate particles below the cutoff                             |
+| **Weight Window Generator** | MAGIC/FW-CADIS generation, particle type, update interval, target tallies; bootstrap to file          |
+| **Weight Windows**          | A list of sets (mesh, particle, energy bounds, lower/upper bounds, survival ratio), file, checkpoints |
+
+**Weight-window sets.** Click **Add weight-window set** to create one card per
+OpenMC `<weight_windows>` block. Each set picks a mesh and particle type (OpenMC
+accepts neutron or photon only, so the editor exposes that pair), has an
+energy-bound token editor, and accepts either one uniform lower/upper value or a
+per-cell/group array (the editor shows `N values`). A scalar broadcasts over
+`n_mesh_cells × n_energy_groups`; an explicit array is emitted verbatim. The
+header summarizes the list (`2 sets · 2 meshes · 3 energy groups`). Mesh,
+strictly increasing energy bounds, non-empty bound arrays, positive survival
+ratio, and unique set IDs are validated inline.
+
+**Reusable file.** Set **HDF5 file** (Browse) to load a generated
+`weight_windows.h5` at simulation start. OpenMC loads it in addition to any sets,
+so remove sets you do not want. A generator run can overwrite the same file; the
+editor warns and the generator section offers **Use generated weight_windows.h5**
+after a successful generation run, which fills the file field, enables weight
+windows, and turns the generator off for the production run.
+
+**Enable and checkpoints.** **Enable weight windows** maps to
+`<weight_windows_on>` and defaults on when sets or a file exist. Collision
+checking is OpenMC's default; surface checking is optional. At least one
+checkpoint must stay on while weight windows are enabled.
+
+**UFS** emits `<ufs_mesh>` (not `<ufs>`) and requires a regular mesh that covers
+every fissionable region. The toggle is disabled outside eigenvalue mode and
+model validation reports a missing/invalid mesh before a run.
 
 The generator method can be `MAGIC (default)` or `FW-CADIS (multi-group)`. **FW-CADIS requires random ray mode** — enable the random ray solver in the Random Ray tab (multi-group energy mode plus an MGXS library); the tab shows a warning otherwise, and model validation fails until random ray is enabled.
 
@@ -238,6 +417,10 @@ For DAGMC models, constraining the source to the plasma **material** or **volume
 
 Execute OpenMC and monitor progress in real time.
 
+![OpenMC Studio Simulation Dashboard Simulation tab showing the setup checklist, run controls, and run summary](images/dashboard-simulation.png)
+
+_The Simulation tab turns the model into a run: the setup checklist names missing inputs and links to their editors, Run Controls validate or start the run, and the Run Summary mirrors the launch configuration before and after execution._
+
 ### Setup Checklist
 
 A readiness checklist (with an `N / M configured` badge) verifies the model before running: Materials, Geometry, Source, Tallies (optional), Depletion (when enabled), Variance Reduction (optional), Kinetics (when IFP is enabled), and MGXS Library (in multi-group mode). The readiness pill shows **Ready to run** or what is missing; geometry items offer inline **Open CSG Builder** / **Edit** shortcuts.
@@ -253,6 +436,9 @@ A readiness checklist (with an `N / M configured` badge) verifies the model befo
 | **Restart…**       | Resume from a selected statepoint (sets `settings.restartFile`, shown as a dismissible chip)     |
 
 If you reload the browser tab or window while a simulation is running, the dashboard automatically re-attaches to the in-flight backend run: **Stop** keeps working and live progress and the log resume where they left off.
+
+The **Run Summary** card mirrors the launch configuration: mode, particles, batches, OpenMP threads,
+and the MPI rank/host selection, so the command that will run is visible before and after starting.
 
 ### Particle Restart
 
@@ -290,13 +476,13 @@ For DAGMC models, the geometry summary offers a **Copy DAGMC file into run direc
 4. **Tallies** — Configure scores and filters (see [Tally Configurator](tally-configurator.md)).
 5. **Depletion** _(optional)_ — Set burnup timeline and chain file.
 6. **Variance Reduction / Random Ray** _(optional)_ — Weight windows, multi-group mode.
-7. **Generate XML** — Export all configuration files.
+7. **Generate XML Files** — Export all configuration files.
 8. **Simulation** — Check readiness, run, monitor, and view results.
 
 ---
 
 ## Tips
 
-- **Auto-save:** The dashboard auto-saves the `.nuke-openmc` project file on every change.
+- **Save early:** The dashboard tracks unsaved changes (● in the title); save the project before a long run so settings and analysis definitions persist.
 - **XML diff:** After generating XML, use the Explorer's file comparison to diff against a previous version.
 - **Restart runs:** Use **Restart…** on the Simulation tab to continue long runs from the latest statepoint instead of starting over.

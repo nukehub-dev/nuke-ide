@@ -32,9 +32,9 @@
  * - during the drag the size is written directly to the DOM (`apply`), with
  *   no React re-render per pixel — `commit` runs once on mouseup;
  * - iframes inside the widget are click-shielded (`pointer-events: none`)
- *   for the duration of the drag, because an iframe (e.g. the trame 3D view)
- *   swallows every mouse event once the cursor crosses into it, which jams a
- *   plain document-level mousemove/mouseup drag.
+ *   for the duration of the drag, because an iframe swallows every mouse
+ *   event once the cursor crosses into it, which jams a plain
+ *   document-level mousemove/mouseup drag.
  */
 
 /** Minimal mouse-event shape the helper needs (React's MouseEvent qualifies). */

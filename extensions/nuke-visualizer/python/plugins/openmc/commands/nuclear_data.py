@@ -122,6 +122,121 @@ def read_nuclide_detail(path):
     }
 
 
+def _dose_table_catalog():
+    """Return the OpenMC dose-table catalog keyed by (source, quantity, particle).
+
+    The table map is OpenMC's own source of truth for which particles and
+    irradiation geometries exist; importing it avoids a hard-coded copy in the
+    viewer. Falls back to the documented neutron/photon set when a future
+    OpenMC release renames the private map.
+    """
+    import openmc.data.dose.dose as dose_module
+
+    tables = getattr(dose_module, "_TABLES", None)
+    if tables is None:
+        return {
+            ("icrp74", "effective", "neutron"): ("AP", "PA", "LLAT", "RLAT", "ROT", "ISO"),
+            ("icrp74", "effective", "photon"): ("AP", "PA", "LLAT", "RLAT", "ROT", "ISO"),
+            ("icrp74", "ambient", "neutron"): (),
+            ("icrp74", "ambient", "photon"): (),
+            ("icrp116", "effective", "neutron"): ("AP", "PA", "LLAT", "RLAT", "ROT", "ISO"),
+            ("icrp116", "effective", "photon"): ("AP", "PA", "LLAT", "RLAT", "ROT", "ISO"),
+        }
+    return {key: tuple(columns) if columns else () for key, (_path, columns) in tables.items()}
+
+
+def read_dose_coefficients(particle, data_source, dose_quantity, geometry):
+    """Read OpenMC's shipped ICRP dose-response coefficients.
+
+    Returns the energy grid [eV] and coefficients (pSv cm^2, or Sv/Gy for
+    photon kerma). The available particle and geometry lists come from the
+    same table catalog so the UI never offers an unsupported combination.
+    """
+    import openmc.data
+
+    catalog = _dose_table_catalog()
+    available_particles = sorted(
+        particle_name
+        for (source, quantity, particle_name) in catalog
+        if source == data_source and quantity == dose_quantity
+    )
+    geometries = list(catalog.get((data_source, dose_quantity, particle), ()))
+    if not geometries or dose_quantity == "ambient":
+        geometries = ["AP"]
+
+    if particle not in available_particles:
+        raise ValueError(
+            f"'{particle}' has no {dose_quantity} dose data in {data_source}. "
+            f"Available particles: {', '.join(available_particles)}"
+        )
+    if geometry not in geometries:
+        raise ValueError(
+            f"Geometry {geometry} is not defined for {particle} {dose_quantity} "
+            f"dose in {data_source}. Available geometries: {', '.join(geometries)}"
+        )
+
+    energy, response = openmc.data.dose_coefficients(particle, geometry, data_source, dose_quantity)
+    units = "Sv/Gy" if particle == "photon kerma" else "pSv cm^2"
+    return {
+        "success": True,
+        "particle": particle,
+        "dataSource": data_source,
+        "doseQuantity": dose_quantity,
+        "geometry": geometry,
+        "energyEv": [float(value) for value in energy],
+        "response": [float(value) for value in response],
+        "units": units,
+        "availableParticles": available_particles,
+        "availableGeometries": geometries,
+    }
+
+
+@command("openmc.dose-coefficients", help="Read ICRP dose conversion coefficients")
+@arg(
+    "--particle",
+    default="photon",
+    help="Incident particle (for example photon, neutron, electron, proton)",
+)
+@arg(
+    "--data-source",
+    choices=["icrp74", "icrp116"],
+    default="icrp116",
+    help="ICRP data source",
+)
+@arg(
+    "--dose-quantity",
+    choices=["effective", "ambient"],
+    default="effective",
+    help="Effective dose or ambient dose equivalent H*(10)",
+)
+@arg(
+    "--geometry",
+    default="AP",
+    help="Irradiation geometry for effective dose (AP, PA, LLAT, RLAT, ROT, ISO)",
+)
+def cmd_dose_coefficients(args):
+    """Read a dose-coefficient reference table (read-only nuclear data)."""
+    try:
+        result = read_dose_coefficients(
+            args.particle, args.data_source, args.dose_quantity, args.geometry
+        )
+        print(json.dumps(result))
+        return 0
+    except Exception as e:
+        payload = {"success": False, "error": str(e)}
+        try:
+            catalog = _dose_table_catalog()
+            payload["availableParticles"] = sorted(
+                particle
+                for (source, quantity, particle) in catalog
+                if source == args.data_source and quantity == args.dose_quantity
+            )
+        except Exception:
+            pass
+        print(json.dumps(payload))
+        return 1
+
+
 @command("openmc.nuclear-data-library", help="Summarize a cross_sections.xml data library")
 @arg("--cross-sections", help="Path to cross_sections.xml (default: openmc.config)")
 def cmd_nuclear_data_library(args):

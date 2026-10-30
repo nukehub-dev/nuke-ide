@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState } from '../../../../../common/openmc-state-schema';
 import type { SimulationDashboardWidget } from '../../simulation-dashboard-widget';
 
@@ -219,19 +219,15 @@ function renderCmfdBlock(
                     <div className="form-row">
                         <div className="form-group">
                             <label>CMFD Mesh</label>
-                            <select
-                                value={cmfd.meshRef ?? 'inline'}
-                                onChange={(e) =>
-                                    updateCmfd({ meshRef: e.target.value === 'inline' ? undefined : parseInt(e.target.value) })
-                                }
-                            >
-                                <option value="inline">Inline (custom bounds)</option>
-                                {regularMeshes.map((mesh) => (
-                                    <option key={mesh.id} value={mesh.id}>
-                                        {mesh.name || `Mesh ${mesh.id}`}
-                                    </option>
-                                ))}
-                            </select>
+                            <NukeSelect
+                                value={String(cmfd.meshRef ?? 'inline')}
+                                options={[
+                                    { value: 'inline', label: 'Inline (custom bounds)' },
+                                    ...regularMeshes.map((mesh) => ({ value: String(mesh.id), label: mesh.name || `Mesh ${mesh.id}` }))
+                                ]}
+                                onChange={(value: string) => updateCmfd({ meshRef: value === 'inline' ? undefined : parseInt(value) })}
+                                ariaLabel="CMFD mesh"
+                            />
                             <span className="form-hint">Reuse a tally mesh or define inline bounds below</span>
                         </div>
                     </div>
@@ -381,14 +377,16 @@ function renderCmfdBlock(
                         <div className="form-row">
                             <div className="form-group">
                                 <label>Window Type</label>
-                                <select
+                                <NukeSelect
                                     value={cmfd.windowType ?? 'none'}
-                                    onChange={(e) => updateCmfd({ windowType: e.target.value as 'expanding' | 'rolling' | 'none' })}
-                                >
-                                    <option value="none">None (default)</option>
-                                    <option value="expanding">Expanding</option>
-                                    <option value="rolling">Rolling</option>
-                                </select>
+                                    options={[
+                                        { value: 'none', label: 'None (default)' },
+                                        { value: 'expanding', label: 'Expanding' },
+                                        { value: 'rolling', label: 'Rolling' }
+                                    ]}
+                                    onChange={(value: string) => updateCmfd({ windowType: value as 'expanding' | 'rolling' | 'none' })}
+                                    ariaLabel="Window type"
+                                />
                             </div>
                             {cmfd.windowType === 'rolling' && (
                                 <div className="form-group">
@@ -436,13 +434,15 @@ function renderCmfdBlock(
                             {cmfd.runAdjoint && (
                                 <div className="form-group">
                                     <label>Adjoint Type</label>
-                                    <select
+                                    <NukeSelect
                                         value={cmfd.adjointType ?? 'physical'}
-                                        onChange={(e) => updateCmfd({ adjointType: e.target.value as 'physical' | 'math' })}
-                                    >
-                                        <option value="physical">Physical</option>
-                                        <option value="math">Math</option>
-                                    </select>
+                                        options={[
+                                            { value: 'physical', label: 'Physical' },
+                                            { value: 'math', label: 'Math' }
+                                        ]}
+                                        onChange={(value: string) => updateCmfd({ adjointType: value as 'physical' | 'math' })}
+                                        ariaLabel="Adjoint type"
+                                    />
                                 </div>
                             )}
                         </div>

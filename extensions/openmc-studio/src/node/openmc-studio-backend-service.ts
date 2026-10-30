@@ -37,6 +37,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
 import { BackendApplicationContribution } from '@theia/core/lib/node';
+import * as path from 'path';
 
 import {
     OpenMCStudioBackendService,
@@ -46,6 +47,7 @@ import {
     XMLGenerationResult,
     XMLImportRequest,
     XMLImportResult,
+    XMLImportReport,
     XMLValidationResult,
     SimulationRunRequest,
     SimulationRunResult,
@@ -70,6 +72,14 @@ import {
     MgxsGenerationRequest,
     MgxsGenerationResult,
     OpenMCCompat,
+    StartShutdownDoseRequest,
+    ShutdownDoseStartResponse,
+    ShutdownDoseValidationRequest,
+    ShutdownDoseValidationResult,
+    ReadShutdownDoseSummaryRequest,
+    ReadShutdownDoseSummaryResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-studio-protocol';
 
@@ -77,16 +87,47 @@ import {
     OpenMCState,
     OpenMCProjectFile,
     OpenMCIndependentSource,
+    OpenMCSettings,
     OpenMCTally,
     OpenMCTallyFilter,
     OpenMCMesh,
-    OpenMCPlotConfig
+    OpenMCPlotConfig,
+    OpenMCDepletion,
+    OpenMCVarianceReduction
 } from '../common/openmc-state-schema';
 
 import { deriveKineticsFromTallies } from '../common/kinetics-ifp';
-import { getMeshElementCount } from '../common/mesh-utils';
+import {
+    fromOpenMcMaskComponents,
+    plotSupportsBackground,
+    plotSupportsMask,
+    plotSupportsOverlaps,
+    validatePlotAppearance
+} from '../common/plot-appearance';
+import {
+    getMeshElementCount,
+    inferUnstructuredMeshLibrary,
+    validateRectilinearMesh,
+    validateUnstructuredMeshFilename
+} from '../common/mesh-utils';
+import { parseAngleXml, parseSpatialXml, parseTimeXml, parseUnivariateXml, validateSourceDistributions } from '../common/source-utils';
+import {
+    normalizeWeightWindowSets,
+    resolveWeightWindowGeneratorMesh,
+    sourceHasBias,
+    validateVarianceReduction,
+    VarianceReductionIssue
+} from '../common/variance-reduction';
 import { migrateProjectFile } from '../common/openmc-state-migration';
+import { buildProjectTemplate, getProjectTemplate, listProjectTemplates } from '../common/project-templates';
+import { validateDepletionAdvanced, parseDepletionBlock } from '../common/depletion-config';
 import { calculateGeometryBounds, boxOverlapsBounds, pointInBounds } from '../common/geometry-bounds';
+import { reshapeHexLatticeUniverses } from '../common/geometry-lattices';
+import { validateGeometryModel } from '../common/geometry-validation';
+import { validateRuntimeSettings } from '../common/settings-validation';
+import { getParticleFilterBins, getParticleProductionTypes, pairsFromBins, particleFilterLegacyBins } from '../common/tally-filter-utils';
+import { coerceParticleType, isBaseParticle, NEUTRON_PARTICLE, normalizeParticleType, resolveParticleType } from '../common/particle-types';
+import { validateTallyFilterSet } from '../common/tally-filter-validation';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCCADImportService } from './cad-import-service';
@@ -104,6 +145,44 @@ import { OpenMCCompatProbeService } from './openmc-compat-probe';
  * @implements {OpenMCStudioBackendService}
  * @implements {BackendApplicationContribution}
  */
+/**
+ * Read a child element text from an xml2js node.
+ * @param node - xml2js element.
+ * @param name - Child element name.
+ * @returns The child text, or undefined.
+ */
+function xmlValueFromElement(node: any, name: string): any {
+    return node?.[name];
+}
+
+/**
+ * Collapse a weight-bound array whose entries are all equal back to a scalar.
+ * @param values - Bound array from XML.
+ * @returns The shared scalar, or the array when it varies.
+ */
+function collapseUniformBound(values: number[]): number | number[] {
+    return values.length > 0 && values.every((value) => value === values[0]) ? values[0] : values;
+}
+
+/**
+ * One variance-reduction validation finding mapped for the backend.
+ * @param issue - Common validation issue.
+ * @returns Backend validation issue.
+ */
+function varianceReductionValidationIssue(issue: VarianceReductionIssue): {
+    severity: 'error' | 'warning';
+    category: 'settings';
+    message: string;
+    suggestion: string;
+} {
+    return {
+        severity: issue.severity,
+        category: 'settings',
+        message: issue.message,
+        suggestion: issue.suggestion
+    };
+}
+
 @injectable()
 export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendService, BackendApplicationContribution {
     @inject(OpenMCRunnerService)
@@ -197,6 +276,28 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
+     * Check a local file for the mesh editor's missing-file hint.
+     * @param filePath - Absolute path to check.
+     * @returns Existence, size in bytes, and a diagnostic on failure.
+     */
+    async checkFileExists(filePath: string): Promise<{ exists: boolean; size?: number; error?: string }> {
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            if (!path.isAbsolute(filePath)) {
+                return { exists: false, error: 'path is not absolute' };
+            }
+            const stat = fs.statSync(filePath);
+            if (stat.isDirectory()) {
+                return { exists: false, error: 'path is a directory' };
+            }
+            return { exists: true, size: stat.size };
+        } catch (error) {
+            return { exists: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
+    /**
      * Fill in the OpenMC version compatibility from the environment probe
      * unless the caller already specified it. Applied on every
      * frontend-driven generation (XML export, run preparation, project save).
@@ -228,6 +329,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
             const warnings: string[] = [];
             const errors: string[] = [];
+            const importedFiles: string[] = [];
+            let importedDagmcFile: string | undefined;
 
             // Use directory name as project name
             const dirName = path.basename(request.directory);
@@ -241,6 +344,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     state.materials = materialsData.materials;
                     materialsCrossSections = materialsData.crossSections;
                     warnings.push(...materialsData.warnings);
+                    importedFiles.push('materials.xml');
                     this.log(`Imported ${materialsData.materials.length} materials`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -255,7 +359,9 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 try {
                     const geometryData = await this.parseGeometryXML(geometryPath);
                     state.geometry = geometryData.geometry;
+                    importedDagmcFile = geometryData.dagmcFile;
                     warnings.push(...geometryData.warnings);
+                    importedFiles.push('geometry.xml');
                     this.log(`Imported ${geometryData.geometry.cells.length} cells, ${geometryData.geometry.surfaces.length} surfaces`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -269,17 +375,15 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             let settingsMeshes: OpenMCMesh[] = [];
             if (fs.existsSync(settingsPath)) {
                 try {
-                    const settingsData = await this.parseSettingsXML(settingsPath);
+                    const settingsData = await this.parseSettingsXML(settingsPath, request.directory);
                     state.settings = settingsData.settings;
+                    state.depletion = settingsData.depletion;
                     settingsMeshes = settingsData.meshes;
                     warnings.push(...settingsData.warnings);
-                    // Weight window generator lives on OpenMCState.varianceReduction, not settings
-                    if (settingsData.weightWindowGenerator) {
-                        state.varianceReduction = {
-                            ...(state.varianceReduction ?? {}),
-                            weightWindowGenerator: settingsData.weightWindowGenerator
-                        };
-                    }
+                    // Variance reduction (weight windows/UFS/generator) lives
+                    // on OpenMCState.varianceReduction, not settings.
+                    state.varianceReduction = settingsData.varianceReduction;
+                    importedFiles.push('settings.xml');
                     this.log(`Imported settings`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -295,14 +399,35 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 state.settings.mgxsLibrary = materialsCrossSections;
             }
 
+            // geometry.xml owns the DAGMC mesh reference; apply it after
+            // settings.xml replaces the settings object.
+            if (importedDagmcFile) {
+                state.settings.dagmcFile = importedDagmcFile;
+            }
+
+            // Nuclide-wise multi-group mode has no settings.xml flag; it is
+            // encoded by keeping materials nuclide-decomposed instead of
+            // emitting <macroscopic>. Recover the mode from the materials.
+            if (state.settings.energyMode === 'multigroup' && state.materials.length > 0) {
+                const hasMacroscopic = state.materials.some((material) => !!material.macroscopic);
+                const hasNuclides = state.materials.some((material) => !material.macroscopic && material.nuclides.length > 0);
+                if (!hasMacroscopic && hasNuclides) {
+                    state.settings.nuclideWiseMgxs = true;
+                    warnings.push(
+                        'Multi-group materials are nuclide-decomposed without macroscopic data; imported in nuclide-wise MGXS mode.'
+                    );
+                }
+            }
+
             // Import tallies.xml
             const talliesPath = path.join(request.directory, 'tallies.xml');
             if (fs.existsSync(talliesPath)) {
                 try {
-                    const talliesData = await this.parseTalliesXML(talliesPath);
+                    const talliesData = await this.parseTalliesXML(talliesPath, request.directory);
                     state.tallies = talliesData.tallies;
                     state.meshes = talliesData.meshes;
                     warnings.push(...talliesData.warnings);
+                    importedFiles.push('tallies.xml');
                     this.log(`Imported ${talliesData.tallies.length} tallies, ${talliesData.meshes.length} meshes`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -329,9 +454,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const plotsPath = path.join(request.directory, 'plots.xml');
             if (fs.existsSync(plotsPath)) {
                 try {
-                    const plotsData = await this.parsePlotsXML(plotsPath);
+                    const plotsData = await this.parsePlotsXML(plotsPath, state);
                     state.plots = plotsData.plots;
                     warnings.push(...plotsData.warnings);
+                    for (const plot of state.plots) {
+                        warnings.push(...validatePlotAppearance(plot, state).map((issue) => issue.message));
+                    }
+                    importedFiles.push('plots.xml');
                     this.log(`Imported ${plotsData.plots.length} plots`);
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -339,13 +468,14 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 }
             }
 
-            if (state.materials.length === 0 && state.geometry.cells.length === 0) {
+            if (state.materials.length === 0 && state.geometry.cells.length === 0 && !state.settings.dagmcFile) {
                 errors.push('No materials or geometry found in XML files');
                 return {
                     success: false,
                     state: undefined,
                     errors,
-                    warnings
+                    warnings,
+                    report: this.buildImportReport(state, warnings, importedFiles)
                 };
             }
 
@@ -353,7 +483,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 success: true,
                 state,
                 errors: errors.length > 0 ? errors : [],
-                warnings: warnings.length > 0 ? warnings : []
+                warnings: warnings.length > 0 ? warnings : [],
+                report: this.buildImportReport(state, warnings, importedFiles)
             };
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -365,6 +496,53 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 warnings: []
             };
         }
+    }
+
+    /**
+     * Classify import warnings into ignored constructs versus items that need
+     * attention before a run, and count the reconstructed model objects.
+     * @param state - Imported state.
+     * @param warnings - Raw parse warnings.
+     * @param files - XML files that were parsed.
+     * @returns Structured import report.
+     */
+    private buildImportReport(state: OpenMCState, warnings: string[], files: string[]): XMLImportReport {
+        const ignoredPatterns = [
+            /ignored/i,
+            /not imported/i,
+            /omitted/i,
+            /unsupported/i,
+            /not supported/i,
+            /cannot be represented/i,
+            /not applied/i,
+            /dropped/i,
+            /skipped/i
+        ];
+        const ignored: string[] = [];
+        const needsAttention: string[] = [];
+        for (const warning of warnings) {
+            if (ignoredPatterns.some((pattern) => pattern.test(warning))) {
+                ignored.push(warning);
+            } else {
+                needsAttention.push(warning);
+            }
+        }
+        return {
+            files,
+            imported: {
+                materials: state.materials.length,
+                surfaces: state.geometry.surfaces.length,
+                cells: state.geometry.cells.length,
+                universes: state.geometry.universes.length,
+                lattices: state.geometry.lattices.length,
+                tallies: state.tallies.length,
+                meshes: state.meshes.length,
+                plots: state.plots?.length ?? 0,
+                sources: state.settings.sources?.length ?? 0
+            },
+            ignored,
+            needsAttention
+        };
     }
 
     private createDefaultState(name?: string): OpenMCState {
@@ -383,8 +561,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     {
                         id: 0,
                         name: 'root',
-                        cellIds: [],
-                        isRoot: true
+                        cellIds: []
                     }
                 ],
                 lattices: [],
@@ -477,6 +654,27 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     material.ncrystalCfg = mat.$.cfg;
                 }
 
+                // Depletion attributes (openmc.Material.to_xml_element)
+                if (mat.$.depletable !== undefined) {
+                    material.isDepletable = mat.$.depletable.toString().toLowerCase() === 'true' || mat.$.depletable.toString() === '1';
+                }
+                if (mat.$.volume !== undefined) {
+                    const volume = parseFloat(mat.$.volume);
+                    if (Number.isFinite(volume) && volume > 0) {
+                        material.volume = volume;
+                    } else {
+                        warnings.push(`Material ${mat.$.id}: volume must be a positive number; got '${mat.$.volume}'`);
+                    }
+                }
+
+                // Parse isotropic-in-lab elastic scattering nuclides
+                if (mat.isotropic !== undefined) {
+                    const isotropic = Array.isArray(mat.isotropic) ? mat.isotropic : [mat.isotropic];
+                    material.isotropic = isotropic
+                        .flatMap((entry: any) => entry.toString().trim().split(/\s+/))
+                        .filter((name: string) => name.length > 0);
+                }
+
                 // Parse temperature
                 if (mat.$.temperature) {
                     material.temperature = parseFloat(mat.$.temperature);
@@ -491,7 +689,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return { materials, warnings, crossSections };
     }
 
-    private async parseGeometryXML(filePath: string): Promise<{ geometry: any; warnings: string[] }> {
+    private async parseGeometryXML(filePath: string): Promise<{ geometry: any; warnings: string[]; dagmcFile?: string }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -503,123 +701,455 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         const geometry = {
             surfaces: [] as any[],
             cells: [] as any[],
-            universes: [
-                {
-                    id: 0,
-                    name: 'root',
-                    cellIds: [] as number[],
-                    isRoot: true
-                }
-            ],
+            universes: [] as any[],
             lattices: [] as any[],
             rootUniverseId: 0
         };
 
+        // DAGMC geometry.xml carries a single <dagmc_universe>, not CSG cells.
+        // Record the referenced mesh so validation/run preparation knows the
+        // model is DAGMC-based; loading mesh metadata is the DAGMC editor's job.
+        let dagmcFile: string | undefined;
+        const dagmcUniverse = result.geometry?.dagmc_universe;
+        if (dagmcUniverse) {
+            const first = Array.isArray(dagmcUniverse) ? dagmcUniverse[0] : dagmcUniverse;
+            dagmcFile = first?.$?.filename ? String(first.$.filename) : undefined;
+            if (dagmcFile) {
+                warnings.push(
+                    `DAGMC geometry references '${dagmcFile}'; the mesh file itself is not read during XML import. Open it in the DAGMC Editor to load volume and material metadata.`
+                );
+            } else {
+                warnings.push('DAGMC geometry has no filename attribute; set the DAGMC file in the Settings tab before running');
+            }
+        }
+
         if (!result.geometry) {
             warnings.push('No geometry element found in geometry.xml');
-            return { geometry, warnings };
+            return { geometry, warnings, dagmcFile };
         }
+
+        const asArray = <T>(value: T | T[] | undefined): T[] => {
+            if (value === undefined) return [];
+            return Array.isArray(value) ? value : [value];
+        };
+        const numberList = (text: unknown): number[] =>
+            String(text ?? '')
+                .trim()
+                .split(/\s+/)
+                .filter((entry) => entry.length > 0)
+                .map((entry) => Number(entry));
+
+        const ensureUniverse = (id: number): any => {
+            if (!Number.isFinite(id)) {
+                return undefined;
+            }
+            let universe = geometry.universes.find((u: any) => u.id === id);
+            if (!universe) {
+                universe = {
+                    id,
+                    name: id === 0 ? 'root' : `Universe ${id}`,
+                    cellIds: []
+                };
+                geometry.universes.push(universe);
+            }
+            return universe;
+        };
 
         // Parse surfaces
-        if (result.geometry.surface) {
-            const surfaces = Array.isArray(result.geometry.surface) ? result.geometry.surface : [result.geometry.surface];
-
-            for (const surf of surfaces) {
-                try {
-                    const surface: any = {
-                        id: parseInt(surf.$.id),
-                        type: surf.$.type,
-                        coefficients: this.parseCoeffs(surf.$.type, surf.$.coeffs),
-                        boundary: surf.$.boundary || 'transmission'
-                    };
-                    if (surf.$.name) surface.name = surf.$.name;
-                    geometry.surfaces.push(surface);
-                } catch (err) {
-                    warnings.push(`Failed to parse surface ${surf.$.id}: ${err}`);
+        for (const surf of asArray(result.geometry.surface)) {
+            try {
+                const surface: any = {
+                    id: parseInt(surf.$.id),
+                    type: surf.$.type,
+                    coefficients: this.parseCoeffs(surf.$.type, surf.$.coeffs)
+                };
+                if (surf.$.name) surface.name = surf.$.name;
+                // OpenMC defaults an omitted boundary to transmission; leaving it
+                // unset keeps that default and keeps interior surfaces unset.
+                if (surf.$.boundary) surface.boundary = surf.$.boundary;
+                if (surf.$.albedo !== undefined) {
+                    const albedo = parseFloat(surf.$.albedo);
+                    if (Number.isFinite(albedo)) {
+                        surface.albedo = albedo;
+                        if (!(surf.$.boundary === 'reflective' || surf.$.boundary === 'periodic' || surf.$.boundary === 'white')) {
+                            warnings.push(`Surface ${surf.$.id}: albedo is only meaningful on reflective, periodic, or white boundaries`);
+                        }
+                    } else {
+                        warnings.push(`Surface ${surf.$.id}: could not parse albedo '${surf.$.albedo}'`);
+                    }
                 }
+                if (surf.$.periodic_surface_id !== undefined) {
+                    const periodicId = parseInt(surf.$.periodic_surface_id);
+                    if (Number.isFinite(periodicId)) {
+                        surface.periodicSurfaceId = periodicId;
+                        if (surf.$.boundary !== 'periodic') {
+                            warnings.push(`Surface ${surf.$.id}: periodic_surface_id is set but the boundary is not periodic`);
+                        }
+                    } else {
+                        warnings.push(`Surface ${surf.$.id}: could not parse periodic_surface_id '${surf.$.periodic_surface_id}'`);
+                    }
+                } else if (surf.$.boundary === 'periodic') {
+                    warnings.push(`Surface ${surf.$.id}: periodic boundary has no periodic_surface_id partner`);
+                }
+                geometry.surfaces.push(surface);
+            } catch (err) {
+                warnings.push(`Failed to parse surface ${surf.$.id}: ${err}`);
             }
         }
+
+        // Parse lattices before cells so a cell fill ID can be classified as a
+        // lattice or a universe (they share the fill namespace).
+        for (const lat of asArray(result.geometry.lattice)) {
+            const lattice = this.parseRectLatticeElement(lat, warnings);
+            if (lattice) {
+                geometry.lattices.push(lattice);
+            }
+        }
+        for (const lat of asArray(result.geometry.hex_lattice)) {
+            const lattice = this.parseHexLatticeElement(lat, warnings);
+            if (lattice) {
+                geometry.lattices.push(lattice);
+            }
+        }
+        const latticeIds = new Set<number>(geometry.lattices.map((lattice: any) => lattice.id));
 
         // Parse cells
-        if (result.geometry.cell) {
-            const cells = Array.isArray(result.geometry.cell) ? result.geometry.cell : [result.geometry.cell];
-
-            for (const cell of cells) {
-                try {
-                    const cellObj: any = {
-                        id: parseInt(cell.$.id),
-                        fillType: 'void'
-                    };
-                    if (cell.$.name) cellObj.name = cell.$.name;
-                    if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
-
-                    // Parse fill - check both attributes (new format) and child elements (old format)
-                    const materialAttr = cell.$.material;
-                    const fillAttr = cell.$.fill;
-                    const materialElem = cell.material;
-                    const fillElem = cell.fill;
-
-                    if (materialAttr !== undefined) {
-                        // New format: material as attribute
-                        if (materialAttr === '' || materialAttr === 'void') {
-                            cellObj.fillType = 'void';
-                        } else {
-                            cellObj.fillType = 'material';
-                            cellObj.fillId = parseInt(materialAttr);
-                        }
-                    } else if (fillAttr !== undefined) {
-                        // New format: fill as attribute (universe)
-                        cellObj.fillType = 'universe';
-                        cellObj.fillId = parseInt(fillAttr);
-                    } else if (materialElem) {
-                        // Old format: material as child element
-                        if (materialElem === '' || materialElem === 'void') {
-                            cellObj.fillType = 'void';
-                        } else {
-                            cellObj.fillType = 'material';
-                            cellObj.fillId = parseInt(materialElem);
-                        }
-                    } else if (fillElem) {
-                        // Old format: fill as child element (universe)
-                        cellObj.fillType = 'universe';
-                        cellObj.fillId = parseInt(fillElem);
+        for (const cell of asArray(result.geometry.cell)) {
+            try {
+                const cellObj: any = {
+                    id: parseInt(cell.$.id),
+                    fillType: 'void'
+                };
+                if (cell.$.name) cellObj.name = cell.$.name;
+                if (cell.$.temperature) cellObj.temperature = parseFloat(cell.$.temperature);
+                if (cell.$.volume !== undefined) {
+                    const volume = parseFloat(cell.$.volume);
+                    if (Number.isFinite(volume) && volume > 0) {
+                        cellObj.volume = volume;
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: volume must be a positive number; got '${cell.$.volume}'`);
                     }
-
-                    // Parse region - check both attribute and child element
-                    if (cell.$.region) {
-                        cellObj.regionString = cell.$.region;
-                    } else if (cell.region) {
-                        cellObj.regionString = cell.region;
-                    }
-
-                    geometry.cells.push(cellObj);
-
-                    // Get universe ID (default to 0 if not specified)
-                    const universeId = cell.$.universe ? parseInt(cell.$.universe) : 0;
-
-                    // Find or create the universe
-                    let universe = geometry.universes.find((u: any) => u.id === universeId);
-                    if (!universe) {
-                        universe = {
-                            id: universeId,
-                            name: `Universe ${universeId}`,
-                            cellIds: [],
-                            isRoot: universeId === 0
-                        };
-                        geometry.universes.push(universe);
-                    }
-
-                    // Add cell to its universe
-                    if (!universe.cellIds.includes(cellObj.id)) {
-                        universe.cellIds.push(cellObj.id);
-                    }
-                } catch (err) {
-                    warnings.push(`Failed to parse cell ${cell.$.id}: ${err}`);
                 }
+                if (cell.$.density !== undefined) {
+                    const density = parseFloat(cell.$.density);
+                    if (Number.isFinite(density)) {
+                        cellObj.density = density;
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: could not parse density '${cell.$.density}'`);
+                    }
+                }
+                if (cell.$.translation !== undefined) {
+                    const translation = numberList(cell.$.translation);
+                    if (translation.length === 3 && translation.every(Number.isFinite)) {
+                        cellObj.translation = translation;
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: translation must be three numbers; got '${cell.$.translation}'`);
+                    }
+                }
+                if (cell.$.rotation !== undefined) {
+                    const rotation = numberList(cell.$.rotation);
+                    if (rotation.length === 3 && rotation.every(Number.isFinite)) {
+                        cellObj.rotation = rotation;
+                    } else if (rotation.length === 9) {
+                        warnings.push(
+                            `Cell ${cell.$.id}: a 9-element rotation matrix cannot be represented as Tait-Bryan angles; rotation was not imported`
+                        );
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: rotation must be three angles; got '${cell.$.rotation}'`);
+                    }
+                }
+
+                // Parse fill - check both attributes (new format) and child elements (old format)
+                const materialAttr = cell.$.material;
+                const fillAttr = cell.$.fill;
+                const materialElem = cell.material;
+                const fillElem = cell.fill;
+
+                if (materialAttr !== undefined) {
+                    // New format: material as attribute
+                    if (materialAttr === '' || materialAttr === 'void') {
+                        cellObj.fillType = 'void';
+                    } else {
+                        const materialId = parseInt(materialAttr);
+                        if (Number.isFinite(materialId)) {
+                            cellObj.fillType = 'material';
+                            cellObj.fillId = materialId;
+                        } else {
+                            warnings.push(`Cell ${cell.$.id}: could not parse material ID '${materialAttr}'`);
+                        }
+                    }
+                } else if (fillAttr !== undefined) {
+                    // New format: fill as attribute (universe or lattice)
+                    const fillId = parseInt(fillAttr);
+                    if (Number.isFinite(fillId)) {
+                        cellObj.fillId = fillId;
+                        cellObj.fillType = latticeIds.has(fillId) ? 'lattice' : 'universe';
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: could not parse fill ID '${fillAttr}'`);
+                    }
+                } else if (materialElem) {
+                    // Old format: material as child element
+                    if (materialElem === '' || materialElem === 'void') {
+                        cellObj.fillType = 'void';
+                    } else {
+                        const materialId = parseInt(materialElem);
+                        if (Number.isFinite(materialId)) {
+                            cellObj.fillType = 'material';
+                            cellObj.fillId = materialId;
+                        } else {
+                            warnings.push(`Cell ${cell.$.id}: could not parse material ID '${materialElem}'`);
+                        }
+                    }
+                } else if (fillElem) {
+                    // Old format: fill as child element (universe or lattice)
+                    const fillId = parseInt(fillElem);
+                    if (Number.isFinite(fillId)) {
+                        cellObj.fillId = fillId;
+                        cellObj.fillType = latticeIds.has(fillId) ? 'lattice' : 'universe';
+                    } else {
+                        warnings.push(`Cell ${cell.$.id}: could not parse fill ID '${fillElem}'`);
+                    }
+                }
+
+                // Parse region - check both attribute and child element
+                if (cell.$.region) {
+                    cellObj.regionString = cell.$.region;
+                } else if (cell.region) {
+                    cellObj.regionString = cell.region;
+                }
+
+                geometry.cells.push(cellObj);
+
+                // Get universe ID (default to 0 if not specified)
+                const universeId = cell.$.universe ? parseInt(cell.$.universe) : 0;
+
+                // Find or create the universe
+                const universe = ensureUniverse(universeId);
+                if (!universe) {
+                    warnings.push(`Cell ${cellObj.id}: could not parse universe ID '${cell.$.universe}'`);
+                    continue;
+                }
+
+                // Add cell to its universe
+                if (!universe.cellIds.includes(cellObj.id)) {
+                    universe.cellIds.push(cellObj.id);
+                }
+            } catch (err) {
+                warnings.push(`Failed to parse cell ${cell.$.id}: ${err}`);
             }
         }
 
-        return { geometry, warnings };
+        // Lattice universes and the outer universe can exist without holding
+        // cells directly (they are usually filled by nested lattice entries).
+        // Keep them in the model so import round-trips preserve membership.
+        for (const lattice of geometry.lattices) {
+            for (const slice of lattice.universes ?? []) {
+                for (const ring of slice ?? []) {
+                    for (const universeId of ring ?? []) {
+                        ensureUniverse(universeId);
+                    }
+                }
+            }
+            if (lattice.outer !== undefined) {
+                ensureUniverse(lattice.outer);
+            }
+        }
+        ensureUniverse(0);
+
+        // Empty universes are legal in the state model but not in geometry.xml:
+        // OpenMC builds its universe map from cells, so every referenced
+        // universe needs at least one cell. Warn now instead of failing at run.
+        const universeById = new Map(geometry.universes.map((universe: any) => [universe.id, universe]));
+        for (const lattice of geometry.lattices) {
+            const referenced = new Set<number>((lattice.universes ?? []).flat(2) as number[]);
+            if (lattice.outer !== undefined) {
+                referenced.add(lattice.outer);
+            }
+            const empty = Array.from(referenced).filter((id) => (universeById.get(id)?.cellIds?.length ?? 0) === 0);
+            if (empty.length > 0) {
+                warnings.push(
+                    `Lattice ${lattice.id}: universe ${empty.map((id) => `#${id}`).join(', ')} ${
+                        empty.length === 1 ? 'has' : 'have'
+                    } no cells; add a cell or OpenMC will reject the geometry`
+                );
+            }
+        }
+
+        return { geometry, warnings, dagmcFile };
+    }
+
+    /**
+     * Parse a `<lattice>` element into the canonical `[z][y][x]` model.
+     * @param lat - xml2js element.
+     * @param warnings - Warning collector.
+     * @returns Parsed lattice, or undefined when required fields are missing.
+     */
+    private parseRectLatticeElement(lat: any, warnings: string[]): any | undefined {
+        if (!lat?.$) {
+            warnings.push('Skipping malformed <lattice> element');
+            return undefined;
+        }
+        const id = parseInt(lat.$.id);
+        if (!Number.isFinite(id)) {
+            warnings.push('Skipping <lattice> without a valid id');
+            return undefined;
+        }
+        const numberList = (text: unknown): number[] =>
+            String(text ?? '')
+                .trim()
+                .split(/\s+/)
+                .filter((entry) => entry.length > 0)
+                .map(Number);
+        const dimensions = numberList(lat.dimension).map((value) => Math.trunc(value));
+        if (dimensions.length !== 2 && dimensions.length !== 3) {
+            warnings.push(`Lattice ${id}: dimension must be two or three integers; skipped`);
+            return undefined;
+        }
+        if (!dimensions.every((value) => Number.isFinite(value) && value > 0)) {
+            warnings.push(`Lattice ${id}: dimension entries must be positive integers; skipped`);
+            return undefined;
+        }
+        const pitch = numberList(lat.pitch);
+        const lowerLeft = numberList(lat.lower_left);
+        if (pitch.length !== dimensions.length || lowerLeft.length !== dimensions.length) {
+            warnings.push(`Lattice ${id}: pitch/lower_left must match the ${dimensions.length} dimension entries; skipped`);
+            return undefined;
+        }
+        const flat = numberList(lat.universes).map((value) => Math.trunc(value));
+        const expected = dimensions.reduce((product, value) => product * value, 1);
+        if (flat.length !== expected) {
+            warnings.push(`Lattice ${id}: expected ${expected} universes but found ${flat.length}`);
+        }
+        const lattice: any = {
+            id,
+            type: 'rect',
+            lowerLeft,
+            pitch,
+            dimensions,
+            universes: this.reshapeRectUniverses(flat, dimensions as [number, number] | [number, number, number])
+        };
+        if (lat.$.name) lattice.name = lat.$.name;
+        if (lat.outer !== undefined) {
+            const outer = parseInt(lat.outer);
+            if (Number.isFinite(outer)) {
+                lattice.outer = outer;
+            } else {
+                warnings.push(`Lattice ${id}: could not parse outer universe '${lat.outer}'`);
+            }
+        }
+        return lattice;
+    }
+
+    /**
+     * Parse a `<hex_lattice>` element into the canonical `[z][ring][theta]` model.
+     * @param lat - xml2js element.
+     * @param warnings - Warning collector.
+     * @returns Parsed lattice, or undefined when required fields are missing.
+     */
+    private parseHexLatticeElement(lat: any, warnings: string[]): any | undefined {
+        if (!lat?.$) {
+            warnings.push('Skipping malformed <hex_lattice> element');
+            return undefined;
+        }
+        const id = parseInt(lat.$.id);
+        if (!Number.isFinite(id)) {
+            warnings.push('Skipping <hex_lattice> without a valid id');
+            return undefined;
+        }
+        const rings = parseInt(lat.$.n_rings);
+        if (!Number.isFinite(rings) || rings < 1) {
+            warnings.push(`Hex lattice ${id}: n_rings must be a positive integer; skipped`);
+            return undefined;
+        }
+        const orientation = lat.$.orientation === 'x' ? 'x' : 'y';
+        if (lat.$.orientation !== undefined && lat.$.orientation !== 'x' && lat.$.orientation !== 'y') {
+            warnings.push(`Hex lattice ${id}: orientation '${lat.$.orientation}' is not 'x' or 'y'; using 'y'`);
+        }
+        const numberList = (text: unknown): number[] =>
+            String(text ?? '')
+                .trim()
+                .split(/\s+/)
+                .filter((entry) => entry.length > 0)
+                .map(Number);
+        const nAxialRaw = lat.$.n_axial !== undefined ? parseInt(lat.$.n_axial) : undefined;
+        const nAxial = nAxialRaw !== undefined && Number.isFinite(nAxialRaw) && nAxialRaw > 1 ? nAxialRaw : undefined;
+        if (nAxialRaw === 1) {
+            warnings.push(`Hex lattice ${id}: n_axial="1" is treated as a 2D lattice (OpenMC C++ requires 3D center/pitch for n_axial)`);
+        }
+        const is3d = nAxial !== undefined;
+        const center = numberList(lat.center);
+        const pitch = numberList(lat.pitch);
+        if (center.length !== (is3d ? 3 : 2) || pitch.length !== (is3d ? 2 : 1)) {
+            warnings.push(
+                `Hex lattice ${id}: center/pitch must have ${is3d ? '3 center values and 2 pitches' : '2 center values and 1 pitch'}; skipped`
+            );
+            return undefined;
+        }
+        const flat = numberList(lat.universes).map((value) => Math.trunc(value));
+        const expected = (3 * rings * rings - 3 * rings + 1) * (nAxial ?? 1);
+        if (flat.length !== expected) {
+            warnings.push(`Hex lattice ${id}: expected ${expected} universes but found ${flat.length}`);
+        }
+        const lattice: any = {
+            id,
+            type: 'hex',
+            rings,
+            center,
+            pitch,
+            universes: this.reshapeHexUniverses(flat, rings, orientation, nAxial ?? 1)
+        };
+        if (orientation === 'x') {
+            lattice.orientation = 'x';
+        }
+        if (nAxial !== undefined) {
+            lattice.nAxial = nAxial;
+        }
+        if (lat.$.name) lattice.name = lat.$.name;
+        if (lat.outer !== undefined) {
+            const outer = parseInt(lat.outer);
+            if (Number.isFinite(outer)) {
+                lattice.outer = outer;
+            } else {
+                warnings.push(`Hex lattice ${id}: could not parse outer universe '${lat.outer}'`);
+            }
+        }
+        return lattice;
+    }
+
+    /**
+     * Reshape a flat `<lattice><universes>` list into `[z][y][x]`.
+     * @param flat - Universe IDs in XML order.
+     * @param dimensions - `[nx, ny]` or `[nx, ny, nz]`.
+     * @returns Nested universe array.
+     */
+    private reshapeRectUniverses(flat: number[], dimensions: [number, number] | [number, number, number]): number[][][] {
+        const [nx, ny, nz = 1] = dimensions;
+        const universes: number[][][] = [];
+        let index = 0;
+        for (let z = 0; z < nz; z++) {
+            const slice: number[][] = [];
+            for (let y = 0; y < ny; y++) {
+                const row: number[] = [];
+                for (let x = 0; x < nx; x++) {
+                    row.push(flat[index++] ?? 0);
+                }
+                slice.push(row);
+            }
+            universes.push(slice);
+        }
+        return universes;
+    }
+
+    /**
+     * Reshape a flat `<hex_lattice><universes>` list into `[z][ring][theta]`.
+     * @param flat - Universe IDs in XML order.
+     * @param rings - Number of rings including the center ring.
+     * @param orientation - Hexagon orientation.
+     * @param nAxial - Number of axial slices.
+     * @returns Nested universe array.
+     */
+    private reshapeHexUniverses(flat: number[], rings: number, orientation: 'x' | 'y', nAxial: number): number[][][] {
+        return reshapeHexLatticeUniverses(flat, rings, orientation, nAxial);
     }
 
     private parseCoeffs(surfaceType: string, coeffsStr: string): any {
@@ -693,13 +1223,25 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     private async parseSettingsXML(
-        filePath: string
-    ): Promise<{ settings: any; weightWindowGenerator?: any; meshes: OpenMCMesh[]; warnings: string[] }> {
+        filePath: string,
+        baseDirectory?: string
+    ): Promise<{
+        settings: any;
+        depletion?: OpenMCDepletion;
+        weightWindowGenerator?: any;
+        varianceReduction?: OpenMCVarianceReduction;
+        meshes: OpenMCMesh[];
+        warnings: string[];
+    }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
         const warnings: string[] = [];
         const xml = fs.readFileSync(filePath, 'utf-8');
+        const parsedDepletion = parseDepletionBlock(xml);
+        if (parsedDepletion) {
+            warnings.push(...parsedDepletion.warnings);
+        }
         const parser = new xml2js.Parser({ explicitArray: false });
         const result = await parser.parseStringPromise(xml);
 
@@ -715,7 +1257,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         if (!result.settings) {
             warnings.push('No settings element found in settings.xml');
-            return { settings, meshes: [], warnings };
+            return { settings, depletion: parsedDepletion?.depletion, meshes: [], warnings };
         }
 
         const s = result.settings;
@@ -938,8 +1480,8 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             if (rr.adjoint !== undefined) {
                 randomRay.adjoint = this.parseXmlBool(rr.adjoint);
             }
-            // ray_source: post-0.15.3 wraps <source> in <ray_source>; release
-            // 0.15.3 puts <source> directly under <random_ray> — accept both
+            // ray_source: 0.16.0+ wraps <source> in <ray_source>; 0.15.3
+            // puts <source> directly under <random_ray> — accept both
             const raySourceElem = rr.ray_source?.source ?? rr.source;
             const raySrc = Array.isArray(raySourceElem) ? raySourceElem[0] : raySourceElem;
             if (raySrc?.space?.parameters) {
@@ -990,7 +1532,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 weightWindowGenerator.energyBounds = this.parseNumberList(wwg.energy_bounds);
             }
             if (wwg.particle_type) {
-                weightWindowGenerator.particleType = wwg.particle_type.toString();
+                weightWindowGenerator.particleType = normalizeParticleType(wwg.particle_type.toString()) ?? NEUTRON_PARTICLE;
             }
             if (wwg.max_realizations !== undefined) {
                 weightWindowGenerator.maxRealizations = parseInt(wwg.max_realizations);
@@ -1010,16 +1552,156 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             parsedWeightWindowGenerator = weightWindowGenerator;
         }
 
+        const parsedVarianceReduction = this.parseVarianceReductionSettings(s, parsedWeightWindowGenerator, warnings);
+
         // Source
         if (s.source) {
             const sources = Array.isArray(s.source) ? s.source : [s.source];
 
             for (const src of sources) {
-                const source = this.parseSourceElement(src);
+                const source = this.parseSourceElement(src, warnings);
                 if (source) {
                     settings.sources.push(source);
                 }
             }
+        }
+
+        // Temperature settings (separate temperature_* elements)
+        const temperature: NonNullable<OpenMCSettings['temperature']> = {};
+        if (s.temperature_default !== undefined) {
+            temperature.default = parseFloat(s.temperature_default);
+        }
+        if (s.temperature_method) {
+            temperature.method = s.temperature_method.toString() as NonNullable<OpenMCSettings['temperature']>['method'];
+        }
+        if (s.temperature_tolerance !== undefined) {
+            temperature.tolerance = parseFloat(s.temperature_tolerance);
+        }
+        if (s.temperature_multipole !== undefined) {
+            temperature.multipole = this.parseXmlBool(s.temperature_multipole);
+        }
+        if (Object.keys(temperature).length > 0) {
+            settings.temperature = temperature;
+        }
+
+        // Cutoff block (weight, energy, and time)
+        if (s.cutoff) {
+            const cutoff: NonNullable<OpenMCSettings['cutoff']> = {};
+            if (s.cutoff.weight !== undefined) {
+                cutoff.weight = parseFloat(s.cutoff.weight);
+            }
+            if (s.cutoff.weight_avg !== undefined) {
+                cutoff.weightAvg = parseFloat(s.cutoff.weight_avg);
+            }
+            if (s.cutoff.energy_neutron !== undefined) {
+                cutoff.energyNeutron = parseFloat(s.cutoff.energy_neutron);
+            }
+            if (s.cutoff.energy_photon !== undefined) {
+                cutoff.energyPhoton = parseFloat(s.cutoff.energy_photon);
+            }
+            if (s.cutoff.time_neutron !== undefined) {
+                cutoff.time = parseFloat(s.cutoff.time_neutron);
+            }
+            if (s.cutoff.time_photon !== undefined) {
+                cutoff.timePhoton = parseFloat(s.cutoff.time_photon);
+            }
+            if (Object.keys(cutoff).length > 0) {
+                settings.cutoff = cutoff;
+            }
+        }
+
+        // Resonance elastic scattering
+        if (s.resonance_scattering) {
+            const resonance: NonNullable<OpenMCSettings['resonanceScattering']> = {};
+            const rs = s.resonance_scattering;
+            if (rs.enable !== undefined) {
+                resonance.enable = this.parseXmlBool(rs.enable);
+            }
+            if (rs.method) {
+                resonance.method = rs.method.toString() as NonNullable<OpenMCSettings['resonanceScattering']>['method'];
+            }
+            if (rs.energy_min !== undefined) {
+                resonance.energyMin = parseFloat(rs.energy_min);
+            }
+            if (rs.energy_max !== undefined) {
+                resonance.energyMax = parseFloat(rs.energy_max);
+            }
+            if (Object.keys(resonance).length > 0) {
+                settings.resonanceScattering = resonance;
+            }
+        }
+
+        // Particle trace triplet
+        if (s.trace !== undefined) {
+            const trace = this.parseNumberList(s.trace).map((n) => Math.trunc(n));
+            if (trace.length === 3) {
+                settings.trace = trace as [number, number, number];
+            } else {
+                warnings.push('settings.xml <trace> must contain exactly three integers (batch generation particle); ignored');
+            }
+        }
+
+        // Combined k-eff trigger
+        if (s.keff_trigger) {
+            const type = s.keff_trigger.type?.toString();
+            const threshold = s.keff_trigger.threshold !== undefined ? parseFloat(s.keff_trigger.threshold) : undefined;
+            if ((type === 'variance' || type === 'std_dev' || type === 'rel_err') && threshold !== undefined) {
+                settings.keffTrigger = { type, threshold };
+            } else {
+                warnings.push('settings.xml <keff_trigger> needs a valid type and threshold; ignored');
+            }
+        }
+
+        // Confidence intervals, free-gas threshold, and 0.16 surface/settings
+        if (s.confidence_intervals !== undefined) {
+            settings.confidenceIntervals = this.parseXmlBool(s.confidence_intervals);
+        }
+        if (s.free_gas_threshold !== undefined) {
+            settings.freeGasThreshold = parseFloat(s.free_gas_threshold);
+        }
+        if (s.shared_secondary_bank !== undefined) {
+            settings.sharedSecondaryBank = this.parseXmlBool(s.shared_secondary_bank);
+        }
+        if (s.surface_grazing_cutoff !== undefined) {
+            settings.surfaceGrazingCutoff = parseFloat(s.surface_grazing_cutoff);
+        }
+        if (s.surface_grazing_ratio !== undefined) {
+            settings.surfaceGrazingRatio = parseFloat(s.surface_grazing_ratio);
+        }
+
+        // Particle limits and diagnostics
+        if (s.max_particle_events !== undefined) {
+            settings.maxParticleEvents = parseInt(s.max_particle_events);
+        }
+        if (s.max_particles_in_flight !== undefined) {
+            settings.maxParticlesInFlight = parseInt(s.max_particles_in_flight);
+        }
+        if (s.max_secondaries !== undefined) {
+            settings.maxSecondaries = parseInt(s.max_secondaries);
+        }
+        if (s.max_history_splits !== undefined) {
+            settings.maxHistorySplits = parseInt(s.max_history_splits);
+        }
+        if (s.max_write_lost_particles !== undefined) {
+            settings.maxWriteLostParticles = parseInt(s.max_write_lost_particles);
+        }
+        if (s.no_reduce !== undefined) {
+            settings.noReduce = this.parseXmlBool(s.no_reduce);
+        }
+        if (s.stride !== undefined) {
+            settings.stride = parseInt(s.stride);
+        }
+        if (s.plot_seed !== undefined) {
+            settings.plotSeed = parseInt(s.plot_seed);
+        }
+        if (s.properties_file !== undefined) {
+            settings.propertiesFile = s.properties_file.toString();
+        }
+        if (s.verbosity !== undefined) {
+            settings.verbosity = parseInt(s.verbosity);
+        }
+        if (s.material_cell_offsets !== undefined) {
+            settings.materialCellOffsets = this.parseXmlBool(s.material_cell_offsets);
         }
 
         // Advanced scalar settings (element names match settings.py _create_*_subelement)
@@ -1096,24 +1778,141 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         // (settings.py _create_source_subelement); parse them so the caller
         // can merge them into state.meshes
         const sourceMeshes: OpenMCMesh[] = [];
-        const referencedMeshIds = new Set(
-            settings.sources.filter((src: any) => src.type === 'mesh' && src.meshId !== undefined).map((src: any) => src.meshId)
-        );
+        const referencedMeshIds = new Set<number>();
+        for (const source of settings.sources as any[]) {
+            if (source.type === 'mesh' && source.meshId !== undefined) {
+                referencedMeshIds.add(source.meshId);
+            }
+            if (
+                (source.type ?? 'independent') === 'independent' &&
+                source.spatial?.type === 'mesh' &&
+                source.spatial.meshId !== undefined
+            ) {
+                referencedMeshIds.add(source.spatial.meshId);
+            }
+        }
+        for (const set of parsedVarianceReduction?.weightWindows ?? []) {
+            if (set.meshId !== undefined) {
+                referencedMeshIds.add(set.meshId);
+            }
+        }
+        const generatorMeshId = resolveWeightWindowGeneratorMesh(parsedVarianceReduction);
+        if (generatorMeshId !== undefined) {
+            referencedMeshIds.add(generatorMeshId);
+        }
+        if (parsedVarianceReduction?.ufs?.enabled && parsedVarianceReduction.ufs.meshId !== undefined) {
+            referencedMeshIds.add(parsedVarianceReduction.ufs.meshId);
+        }
         if (referencedMeshIds.size > 0) {
             const meshElems = Array.isArray(s.mesh) ? s.mesh : s.mesh ? [s.mesh] : [];
             for (const meshElem of meshElems) {
                 if (referencedMeshIds.has(parseInt(meshElem.$?.id))) {
-                    sourceMeshes.push(this.parseMeshElement(meshElem));
+                    sourceMeshes.push(this.parseMeshElement(meshElem, baseDirectory));
                 }
             }
             for (const id of referencedMeshIds) {
                 if (!sourceMeshes.some((m) => m.id === id)) {
-                    warnings.push(`Mesh source references mesh ${id} but no <mesh> element with that ID was found in settings.xml`);
+                    warnings.push(`settings.xml references mesh ${id} but no <mesh> element with that ID was found`);
                 }
             }
         }
 
-        return { settings, weightWindowGenerator: parsedWeightWindowGenerator, meshes: sourceMeshes, warnings };
+        return {
+            settings,
+            depletion: parsedDepletion?.depletion,
+            weightWindowGenerator: parsedWeightWindowGenerator,
+            varianceReduction: parsedVarianceReduction,
+            meshes: sourceMeshes,
+            warnings
+        };
+    }
+
+    /**
+     * Parse variance-reduction elements from settings.xml. OpenMC writes one
+     * `<weight_windows id="...">` block per set, plus `<weight_windows_on>`,
+     * `<weight_windows_file>`, `<weight_window_checkpoints>`, and `<ufs_mesh>`.
+     * @param s - Parsed `<settings>` element.
+     * @param weightWindowGenerator - Parsed generator side channel.
+     * @param warnings - Import warning sink.
+     * @returns Variance-reduction state, or undefined when nothing is set.
+     */
+    private parseVarianceReductionSettings(s: any, weightWindowGenerator: any, warnings: string[]): OpenMCVarianceReduction | undefined {
+        const varianceReduction: OpenMCVarianceReduction = {};
+        const wwElems = Array.isArray(s.weight_windows) ? s.weight_windows : s.weight_windows ? [s.weight_windows] : [];
+        const sets = wwElems
+            .map((element: any): any => {
+                const meshId = parseInt(String(xmlValueFromElement(element, 'mesh') ?? ''));
+                const lowerRaw = xmlValueFromElement(element, 'lower_ww_bounds');
+                const upperRaw = xmlValueFromElement(element, 'upper_ww_bounds');
+                const energyRaw = xmlValueFromElement(element, 'energy_bounds');
+                const lowerBound = lowerRaw !== undefined ? this.parseNumberList(lowerRaw) : [];
+                const upperBound = upperRaw !== undefined ? this.parseNumberList(upperRaw) : [];
+                const energyBounds = energyRaw !== undefined ? this.parseNumberList(energyRaw) : [];
+                const set: any = {
+                    id: parseInt(String(element?.$?.id ?? '')) || undefined,
+                    meshId: Number.isFinite(meshId) ? meshId : undefined,
+                    lowerBound: lowerBound.length > 0 ? collapseUniformBound(lowerBound) : 0.5,
+                    particleType:
+                        normalizeParticleType(String(xmlValueFromElement(element, 'particle_type') ?? 'neutron')) ?? NEUTRON_PARTICLE
+                };
+                if (upperBound.length > 0) {
+                    set.upperBound = collapseUniformBound(upperBound);
+                }
+                if (energyBounds.length > 0) {
+                    set.energyBounds = energyBounds;
+                }
+                const survivalRatio = parseFloat(String(xmlValueFromElement(element, 'survival_ratio') ?? ''));
+                if (Number.isFinite(survivalRatio) && Math.abs(survivalRatio - 3) > 1e-12) {
+                    set.survivalWeight = survivalRatio;
+                }
+                const maxSplit = parseInt(String(xmlValueFromElement(element, 'max_split') ?? ''));
+                if (Number.isFinite(maxSplit) && maxSplit !== 10) {
+                    set.maxSplit = maxSplit;
+                }
+                const weightCutoff = parseFloat(String(xmlValueFromElement(element, 'weight_cutoff') ?? ''));
+                if (Number.isFinite(weightCutoff) && weightCutoff !== 1e-38) {
+                    set.weightCutoff = weightCutoff;
+                }
+                return set;
+            })
+            .filter((set: any) => set.meshId !== undefined);
+        const normalizedSets = normalizeWeightWindowSets(sets);
+        if (normalizedSets) {
+            varianceReduction.weightWindows = normalizedSets;
+        } else if (wwElems.length > 0) {
+            warnings.push('Weight-window blocks were found but none had a valid mesh reference');
+        }
+
+        const file = xmlValueFromElement(s, 'weight_windows_file');
+        if (file !== undefined && file !== null && String(file).length > 0) {
+            varianceReduction.weightWindowsFile = String(file);
+        }
+        const on = xmlValueFromElement(s, 'weight_windows_on');
+        if (on !== undefined && on !== null) {
+            varianceReduction.weightWindowsOn = this.parseXmlBool(on);
+        }
+        const checkpoints = s.weight_window_checkpoints;
+        if (checkpoints) {
+            const parsed: { collision?: boolean; surface?: boolean } = {};
+            if (checkpoints.collision !== undefined) {
+                parsed.collision = this.parseXmlBool(checkpoints.collision);
+            }
+            if (checkpoints.surface !== undefined) {
+                parsed.surface = this.parseXmlBool(checkpoints.surface);
+            }
+            if (parsed.collision !== undefined || parsed.surface !== undefined) {
+                varianceReduction.weightWindowCheckpoints = parsed;
+            }
+        }
+        if (weightWindowGenerator) {
+            varianceReduction.weightWindowGenerator = weightWindowGenerator;
+        }
+        const ufsMesh = xmlValueFromElement(s, 'ufs_mesh');
+        if (ufsMesh !== undefined && ufsMesh !== null && String(ufsMesh).length > 0) {
+            const meshId = parseInt(String(ufsMesh));
+            varianceReduction.ufs = { enabled: true, meshId: Number.isFinite(meshId) ? meshId : undefined };
+        }
+        return Object.keys(varianceReduction).length > 0 ? varianceReduction : undefined;
     }
 
     /**
@@ -1140,7 +1939,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      * Parse a <source> element (independent, file, or compiled) into schema form.
      * Attribute/element names match openmc/source.py.
      */
-    private parseSourceElement(src: any): any {
+    private parseSourceElement(src: any, warnings: string[] = []): any {
         const attrs = src.$ || {};
         const sourceType = attrs.type || 'independent';
 
@@ -1171,7 +1970,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             source.sources = [];
             const subElems = Array.isArray(src.source) ? src.source : src.source ? [src.source] : [];
             for (const subElem of subElems) {
-                const sub = this.parseSourceElement(subElem);
+                const sub = this.parseSourceElement(subElem, warnings);
                 if (sub) {
                     source.sources.push(sub);
                 }
@@ -1202,79 +2001,55 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const rOverA = src.r_over_a ? this.parseNumberList(src.r_over_a) : [];
             const emission = src.emission_density ? this.parseNumberList(src.emission_density) : [];
             source.profile = rOverA.map((r, i) => ({ r, s: emission[i] ?? 0 }));
-            source.energy = this.parseSourceEnergy(src.energy);
-            // Optional time distribution (delta/uniform/discrete)
+            source.energy = this.parseSourceEnergy(src.energy, warnings);
             if (src.time) {
-                const timeElem = Array.isArray(src.time) ? src.time[0] : src.time;
-                const timeType = timeElem.$?.type || 'discrete';
-                const timeParams = timeElem.parameters ? this.parseNumberList(timeElem.parameters) : [];
-                if (timeType === 'uniform' && timeParams.length >= 2) {
-                    source.time = { type: 'uniform', params: { min: timeParams[0], max: timeParams[1] } };
-                } else if (timeType === 'discrete' && timeParams.length >= 1) {
-                    if (timeParams.length === 2 && timeParams[1] === 1) {
-                        source.time = { type: 'delta', params: { time: timeParams[0] } };
-                    } else {
-                        const times: number[] = [];
-                        const probabilities: number[] = [];
-                        for (let i = 0; i + 1 < timeParams.length; i += 2) {
-                            times.push(timeParams[i]);
-                            probabilities.push(timeParams[i + 1]);
-                        }
-                        source.time = { type: 'discrete', params: { times, probabilities } };
-                    }
+                const time = parseTimeXml(Array.isArray(src.time) ? src.time[0] : src.time);
+                if (time) {
+                    source.time = time;
+                } else {
+                    warnings.push('Tokamak source has an unsupported time distribution; it was not imported');
                 }
             }
         } else {
             // Independent source (type attribute absent means 'independent')
             if (attrs.particle) {
-                source.particle = attrs.particle;
-            }
-
-            // Parse spatial distribution
-            source.spatial = { type: 'point', origin: [0, 0, 0] };
-            if (src.space) {
-                const spaceType = src.space.$.type || 'point';
-
-                if (spaceType === 'spherical') {
-                    // Our generator writes spherical as origin attr + r/cos_theta/phi children
-                    const origin = src.space.$.origin ? this.parseNumberList(src.space.$.origin) : [0, 0, 0];
-                    const rParams = src.space.r?.$?.parameters ? this.parseNumberList(src.space.r.$.parameters) : [0, 1];
-                    source.spatial = {
-                        type: 'sphere',
-                        center: origin.slice(0, 3),
-                        radius: rParams.length >= 2 ? rParams[1] : 1
-                    };
-                } else if (spaceType === 'cylindrical') {
-                    // Our generator writes cylindrical as origin attr + r/phi/z children
-                    const origin = src.space.$.origin ? this.parseNumberList(src.space.$.origin) : [0, 0, 0];
-                    const rParams = src.space.r?.$?.parameters ? this.parseNumberList(src.space.r.$.parameters) : [0, 1];
-                    const zParams = src.space.z?.$?.parameters ? this.parseNumberList(src.space.z.$.parameters) : [-0.5, 0.5];
-                    source.spatial = {
-                        type: 'cylinder',
-                        center: origin.slice(0, 3),
-                        radius: rParams.length >= 2 ? rParams[1] : 1,
-                        height: zParams.length >= 2 ? zParams[1] - zParams[0] : 1,
-                        axis: 'z'
-                    };
-                } else if (src.space.parameters) {
-                    const params = this.parseNumberList(src.space.parameters);
-
-                    if ((spaceType === 'box' || spaceType === 'cartesian') && params.length >= 6) {
-                        source.spatial = { type: 'box', lowerLeft: params.slice(0, 3), upperRight: params.slice(3, 6) };
-                    } else if (spaceType === 'point' && params.length >= 3) {
-                        source.spatial = { type: 'point', origin: params.slice(0, 3) };
-                    }
+                const resolved = resolveParticleType(String(attrs.particle));
+                if (resolved.ok) {
+                    source.particle = resolved.particle;
+                } else {
+                    source.particle = NEUTRON_PARTICLE;
+                    warnings.push(
+                        `Source particle '${String(attrs.particle)}' is not a recognized OpenMC particle; the source was imported with neutron instead`
+                    );
                 }
             }
 
-            // Parse energy distribution
-            source.energy = this.parseSourceEnergy(src.energy);
+            const spatial = parseSpatialXml(src.space, warnings);
+            if (spatial) {
+                source.spatial = spatial;
+            } else {
+                if (src.space) {
+                    warnings.push('Source spatial distribution could not be imported; using a point at the origin');
+                }
+                source.spatial = { type: 'point', origin: [0, 0, 0] };
+            }
 
-            // Parse angle distribution
+            source.energy = this.parseSourceEnergy(src.energy, warnings);
+
             if (src.angle) {
-                source.angle = {
-                    type: src.angle.$.type || 'isotropic'
-                };
+                const angle = parseAngleXml(src.angle, warnings);
+                if (angle) {
+                    source.angle = angle;
+                }
+            }
+
+            if (src.time) {
+                const time = parseTimeXml(src.time);
+                if (time) {
+                    source.time = time;
+                } else {
+                    warnings.push('Source time distribution could not be imported');
+                }
             }
         }
 
@@ -1309,51 +2084,23 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
-     * Parse an <energy> element into schema form (discrete/uniform/maxwell/watt).
+     * Parse an `<energy>` element into the shared univariate model.
      * When several elements are present (e.g. per-radius tokamak energy lists),
      * the first one is used. Defaults to a 1 MeV discrete line when absent.
      * @param energyElem - The parsed XML energy element (or array of them).
+     * @param warnings - Import warning sink.
      * @returns The energy distribution in schema form.
      */
-    private parseSourceEnergy(energyElem: any): any {
+    private parseSourceEnergy(energyElem: any, warnings: string[] = []): any {
         const elem = Array.isArray(energyElem) ? energyElem[0] : energyElem;
         if (!elem) {
             return { type: 'discrete', energies: [1e6] };
         }
-        const energyType = elem.$?.type || 'discrete';
-        const params = elem.parameters ? this.parseNumberList(elem.parameters) : [];
-
-        if (energyType === 'discrete') {
-            // Our generator writes interleaved energy/probability pairs
-            const energies: number[] = [];
-            const probabilities: number[] = [];
-            for (let i = 0; i + 1 < params.length; i += 2) {
-                energies.push(params[i]);
-                probabilities.push(params[i + 1]);
-            }
-            return energies.length > 0
-                ? { type: 'discrete', energies, probabilities }
-                : { type: 'discrete', energies: params.length > 0 ? params : [1e6] };
+        const energy = parseUnivariateXml(elem);
+        if (energy) {
+            return energy;
         }
-        if (energyType === 'uniform' && params.length >= 2) {
-            return { type: 'uniform', min: params[0], max: params[1] };
-        }
-        if (energyType === 'maxwell' && params.length >= 1) {
-            return { type: 'maxwell', temperature: params[0] };
-        }
-        if (energyType === 'watt' && params.length >= 2) {
-            return { type: 'watt', a: params[0], b: params[1] };
-        }
-        if (energyType === 'normal' && params.length >= 2) {
-            // Muir serializes as 'normal' in this OpenMC version (muir() → Normal)
-            return { type: 'normal', mean: params[0], stdDev: params[1] };
-        }
-        if (energyType === 'muir' && params.length >= 3) {
-            // Legacy files where Muir had its own class: parameters are
-            // (e0, m_rat, kt) — convert to the normal form it now is
-            const [e0, mRat, kt] = params;
-            return { type: 'normal', mean: e0, stdDev: Math.sqrt((2 * e0 * kt) / mRat) };
-        }
+        warnings.push(`Unsupported energy distribution type "${elem.$?.type ?? 'unknown'}"; using a 1 MeV discrete line`);
         return { type: 'discrete', energies: [1e6] };
     }
 
@@ -1364,7 +2111,10 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      * @param filePath - Path to tallies.xml
      * @returns Parsed tallies, meshes, and warnings
      */
-    private async parseTalliesXML(filePath: string): Promise<{ tallies: OpenMCTally[]; meshes: OpenMCMesh[]; warnings: string[] }> {
+    private async parseTalliesXML(
+        filePath: string,
+        baseDirectory?: string
+    ): Promise<{ tallies: OpenMCTally[]; meshes: OpenMCMesh[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -1386,7 +2136,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         // Meshes
         const meshElems = Array.isArray(t.mesh) ? t.mesh : t.mesh ? [t.mesh] : [];
         for (const meshElem of meshElems) {
-            meshes.push(this.parseMeshElement(meshElem));
+            meshes.push(this.parseMeshElement(meshElem, baseDirectory));
         }
 
         // Filter definitions (top-level, referenced by ID from tallies)
@@ -1395,7 +2145,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         for (const filterElem of filterElems) {
             const id = parseInt(filterElem.$?.id);
             if (!isNaN(id)) {
-                filterDefs.set(id, this.parseFilterElement(filterElem));
+                filterDefs.set(id, this.parseFilterElement(filterElem, warnings));
             }
         }
 
@@ -1445,6 +2195,11 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             // multiply_density attribute (written when false)
             if (tallyElem.$?.multiply_density !== undefined) {
                 tally.multiplyDensity = this.parseXmlBool(tallyElem.$.multiply_density);
+            }
+
+            // Higher-moment accumulation (openmc.Tally.to_xml_element)
+            if (tallyElem.higher_moments !== undefined) {
+                tally.higherMoments = this.parseXmlBool(tallyElem.higher_moments);
             }
 
             // Nuclides: real OpenMC writes a single space-joined <nuclides>
@@ -1499,16 +2254,52 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
-     * Parse a <mesh> element from tallies.xml.
+     * Parse a <mesh> element from tallies.xml/settings.xml.
+     *
+     * @param meshElem - Parsed XML element.
+     * @param baseDirectory - Directory containing the XML file; relative
+     * unstructured mesh filenames resolve against it.
      */
-    private parseMeshElement(meshElem: any): OpenMCMesh {
+    private parseMeshElement(meshElem: any, baseDirectory?: string): OpenMCMesh {
         const id = parseInt(meshElem.$?.id) || 0;
         const type = meshElem.$?.type || 'regular';
+        const name = meshElem.$?.name || undefined;
+
+        if (type === 'rectilinear') {
+            return {
+                type: 'rectilinear',
+                id,
+                name,
+                xGrid: meshElem.x_grid ? this.parseNumberList(meshElem.x_grid) : [],
+                yGrid: meshElem.y_grid ? this.parseNumberList(meshElem.y_grid) : [],
+                zGrid: meshElem.z_grid ? this.parseNumberList(meshElem.z_grid) : []
+            };
+        }
+
+        if (type === 'unstructured') {
+            const rawFilename = meshElem.filename ? meshElem.filename.toString().trim() : '';
+            const filename =
+                rawFilename && baseDirectory && !path.isAbsolute(rawFilename) ? path.resolve(baseDirectory, rawFilename) : rawFilename;
+            const explicitLibrary = meshElem.$?.library === 'libmesh' ? 'libmesh' : meshElem.$?.library === 'moab' ? 'moab' : undefined;
+            const library = explicitLibrary ?? inferUnstructuredMeshLibrary(filename) ?? 'moab';
+            const lengthMultiplier = meshElem.$?.length_multiplier !== undefined ? parseFloat(meshElem.$.length_multiplier) : undefined;
+            const options = meshElem.$?.options ? meshElem.$.options.toString() : undefined;
+            return {
+                type: 'unstructured',
+                id,
+                name,
+                filename,
+                library,
+                lengthMultiplier,
+                options
+            };
+        }
 
         if (type === 'cylindrical') {
             return {
                 type: 'cylindrical',
                 id,
+                name,
                 origin: meshElem.origin ? (this.parseNumberList(meshElem.origin) as [number, number, number]) : undefined,
                 axis: meshElem.axis ? (this.parseNumberList(meshElem.axis) as [number, number, number]) : undefined,
                 rGrid: meshElem.r_grid ? this.parseNumberList(meshElem.r_grid) : [],
@@ -1521,6 +2312,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             return {
                 type: 'spherical',
                 id,
+                name,
                 origin: meshElem.origin ? (this.parseNumberList(meshElem.origin) as [number, number, number]) : undefined,
                 rGrid: meshElem.r_grid ? this.parseNumberList(meshElem.r_grid) : [],
                 thetaGrid: meshElem.theta_grid ? this.parseNumberList(meshElem.theta_grid) : [],
@@ -1531,6 +2323,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         return {
             type: 'regular',
             id,
+            name,
             lowerLeft: meshElem.lower_left ? (this.parseNumberList(meshElem.lower_left) as [number, number, number]) : [0, 0, 0],
             upperRight: meshElem.upper_right ? (this.parseNumberList(meshElem.upper_right) as [number, number, number]) : [0, 0, 0],
             dimension: meshElem.dimension
@@ -1541,17 +2334,134 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
     /**
      * Parse a <filter> element from tallies.xml into schema form.
+     *
+     * @param filterElem - Parsed XML element.
+     * @param warnings - Optional warning sink for unsupported rotation matrices.
      */
-    private parseFilterElement(filterElem: any): OpenMCTallyFilter {
+    private parseFilterElement(filterElem: any, warnings?: string[]): OpenMCTallyFilter {
         const type = filterElem.$?.type || 'cell';
         const filter: OpenMCTallyFilter = { type, bins: [] };
 
         switch (type) {
             case 'mesh':
-            case 'meshsurface': {
+            case 'meshsurface':
+            case 'meshborn': {
                 const meshIds = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
                 filter.bins = meshIds;
                 filter.meshId = meshIds[0];
+                if (filterElem.$?.translation) {
+                    const translation = this.parseNumberList(filterElem.$.translation);
+                    if (translation.length === 3) {
+                        filter.meshTranslation = translation as [number, number, number];
+                    } else {
+                        warnings?.push(
+                            `Mesh filter ${filterElem.$?.id ?? ''} has a translation with ${translation.length} values (expected 3); ignored`
+                        );
+                    }
+                }
+                if (filterElem.$?.rotation) {
+                    const rotation = this.parseNumberList(filterElem.$.rotation);
+                    if (rotation.length === 3) {
+                        filter.meshRotation = rotation as [number, number, number];
+                    } else if (rotation.length === 9) {
+                        warnings?.push(
+                            `Mesh filter ${filterElem.$?.id ?? ''} uses a 3×3 rotation matrix; only intrinsic Euler angles (phi theta psi) are editable and the matrix was ignored`
+                        );
+                    } else {
+                        warnings?.push(
+                            `Mesh filter ${filterElem.$?.id ?? ''} has a rotation with ${rotation.length} values (expected 3); ignored`
+                        );
+                    }
+                }
+                break;
+            }
+
+            case 'meshmaterial': {
+                const meshId = parseInt(filterElem.$?.mesh ?? '', 10);
+                filter.meshId = Number.isFinite(meshId) ? meshId : undefined;
+                if (filter.meshId === undefined) {
+                    warnings?.push(
+                        `Mesh-material filter ${filterElem.$?.id ?? ''} has no mesh attribute; select a mesh in the filter editor`
+                    );
+                }
+                const flat = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
+                if (flat.length % 2 !== 0) {
+                    warnings?.push(
+                        `Mesh-material filter ${filterElem.$?.id ?? ''} has an odd number of bins (${flat.length}); the last value was left unpaired`
+                    );
+                }
+                filter.bins = flat;
+                filter.pairs = pairsFromBins(flat);
+                if (filterElem.$?.translation) {
+                    const translation = this.parseNumberList(filterElem.$.translation);
+                    if (translation.length === 3) {
+                        filter.meshTranslation = translation as [number, number, number];
+                    } else {
+                        warnings?.push(
+                            `Mesh-material filter ${filterElem.$?.id ?? ''} has a translation with ${translation.length} values (expected 3); ignored`
+                        );
+                    }
+                }
+                break;
+            }
+
+            case 'cellinstance': {
+                const flat = filterElem.bins ? this.parseNumberList(filterElem.bins).map((n) => Math.trunc(n)) : [];
+                if (flat.length % 2 !== 0) {
+                    warnings?.push(
+                        `Cell-instance filter ${filterElem.$?.id ?? ''} has an odd number of bins (${flat.length}); the last value was left unpaired`
+                    );
+                }
+                filter.bins = flat;
+                filter.pairs = pairsFromBins(flat);
+                break;
+            }
+
+            case 'parentnuclide':
+                filter.nuclideBins = filterElem.bins
+                    ? filterElem.bins
+                          .toString()
+                          .trim()
+                          .split(/\s+/)
+                          .filter((name: string) => name.length > 0)
+                    : [];
+                filter.bins = [];
+                break;
+
+            case 'reaction':
+                filter.reactionBins = filterElem.bins
+                    ? filterElem.bins
+                          .toString()
+                          .trim()
+                          .split(/\s+/)
+                          .filter((name: string) => name.length > 0)
+                    : [];
+                filter.bins = [];
+                break;
+
+            case 'particleproduction': {
+                const tokens = filterElem.particles
+                    ? filterElem.particles
+                          .toString()
+                          .trim()
+                          .split(/\s+/)
+                          .filter((particle: string) => particle.length > 0)
+                    : [];
+                filter.particleTypes = tokens.flatMap((token: string) => {
+                    const resolved = resolveParticleType(token);
+                    if (resolved.ok) {
+                        return [resolved.particle!];
+                    }
+                    warnings?.push(
+                        `Particle-production filter ${filterElem.$?.id ?? ''}: '${token}' is not a recognized OpenMC particle; that bin was omitted`
+                    );
+                    return [];
+                });
+                filter.productionEnergyBins = filterElem.energies ? this.parseNumberList(filterElem.energies) : [];
+                filter.bins = [];
+                if ((filter.particleTypes ?? []).length === 0) {
+                    warnings?.push(`Particle-production filter ${filterElem.$?.id ?? ''} has no usable <particles> values`);
+                }
                 break;
             }
 
@@ -1586,16 +2496,30 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 }
                 break;
 
-            case 'particle':
-                // Real OpenMC writes particle names; map back to numeric bins (1=neutron, 2=photon)
-                filter.bins = filterElem.bins
+            case 'particle': {
+                // OpenMC writes canonical particle names. Accept names, GNDS
+                // nuclides, and pdg:<number> tokens; invalid bins are reported.
+                const tokens = filterElem.bins
                     ? filterElem.bins
                           .toString()
                           .trim()
                           .split(/\s+/)
-                          .map((token: string) => (token === 'photon' ? 2 : token === 'neutron' ? 1 : parseInt(token) || 1))
+                          .filter((token: string) => token.length > 0)
                     : [];
+                const particles = tokens.flatMap((token: string) => {
+                    const resolved = resolveParticleType(token);
+                    if (resolved.ok) {
+                        return [resolved.particle!];
+                    }
+                    warnings?.push(
+                        `Particle filter ${filterElem.$?.id ?? ''}: '${token}' is not a recognized OpenMC particle; that bin was omitted`
+                    );
+                    return [];
+                });
+                filter.particleBins = particles;
+                filter.bins = particleFilterLegacyBins(particles);
                 break;
+            }
 
             default:
                 filter.bins = filterElem.bins ? this.parseNumberList(filterElem.bins) : [];
@@ -1609,9 +2533,10 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      * Handles slice, voxel, solid_raytrace, and wireframe_raytrace plots
      * (element names per openmc/plots.py to_xml_element methods).
      * @param filePath - Path to plots.xml
+     * @param state - Imported geometry/materials, used to invert mask components
      * @returns Parsed plots and warnings
      */
-    private async parsePlotsXML(filePath: string): Promise<{ plots: OpenMCPlotConfig[]; warnings: string[] }> {
+    private async parsePlotsXML(filePath: string, state: OpenMCState): Promise<{ plots: OpenMCPlotConfig[]; warnings: string[] }> {
         const fs = await import('fs');
         const xml2js = await import('xml2js');
 
@@ -1628,16 +2553,30 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         const plotElems = Array.isArray(result.plots.plot) ? result.plots.plot : result.plots.plot ? [result.plots.plot] : [];
         for (const plotElem of plotElems) {
-            plots.push(this.parsePlotElement(plotElem, plots.length + 1));
+            plots.push(this.parsePlotElement(plotElem, plots.length + 1, state, warnings));
         }
 
         return { plots, warnings };
     }
 
     /**
+     * Parse an RGB triple from a plots.xml color element or attribute.
+     */
+    private parsePlotRgb(value: any): [number, number, number] | undefined {
+        if (value === undefined || value === null || value === '') {
+            return undefined;
+        }
+        const values = this.parseNumberList(value);
+        if (values.length !== 3 || values.some((component) => !Number.isFinite(component))) {
+            return undefined;
+        }
+        return values.map((component) => Math.trunc(component)) as [number, number, number];
+    }
+
+    /**
      * Parse a single <plot> element from plots.xml.
      */
-    private parsePlotElement(plotElem: any, fallbackId: number): OpenMCPlotConfig {
+    private parsePlotElement(plotElem: any, fallbackId: number, state: OpenMCState, warnings: string[]): OpenMCPlotConfig {
         const attrs = plotElem.$ || {};
         const xmlType = attrs.type || 'slice';
         const type: OpenMCPlotConfig['type'] =
@@ -1653,6 +2592,76 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         if (attrs.name) {
             plot.name = attrs.name;
+        }
+
+        // Appearance fields: background/mask apply to slice and ray-traced
+        // plots; overlap highlighting is slice-only (openmc/plots.py, src/plot.cpp).
+        const hasBackground = plotElem.background !== undefined;
+        const hasMask = plotElem.mask !== undefined;
+        if (!plotSupportsBackground(type) && (hasBackground || hasMask)) {
+            warnings.push(`Plot ${plot.id}: background/mask elements are not applied to ${type} plots and were ignored`);
+        } else {
+            if (hasBackground) {
+                const background = this.parsePlotRgb(plotElem.background);
+                if (background) {
+                    plot.background = background;
+                } else {
+                    warnings.push(`Plot ${plot.id}: background color must be three RGB integers; ignored`);
+                }
+            }
+            if (hasMask && plotSupportsMask(type)) {
+                const maskElem = plotElem.mask;
+                const maskAttrs = maskElem?.$ ?? {};
+                const componentsRaw = maskAttrs.components ?? maskElem?.components;
+                const hidden = componentsRaw !== undefined ? this.parseNumberList(componentsRaw).map((n) => Math.trunc(n)) : [];
+                if (hidden.length === 0) {
+                    warnings.push(`Plot ${plot.id}: mask has no components; ignored`);
+                } else {
+                    // OpenMC paints listed components with the mask background;
+                    // the schema stores the visible complement.
+                    const selection = fromOpenMcMaskComponents(hidden, state, plot.colorBy);
+                    if (selection.missing.length > 0) {
+                        warnings.push(`Plot ${plot.id}: mask components not in the current geometry: ${selection.missing.join(', ')}`);
+                    }
+                    if (selection.visible.length === 0) {
+                        warnings.push(`Plot ${plot.id}: mask hides every domain; imported without a mask`);
+                    } else {
+                        plot.mask = { components: selection.visible };
+                        const backgroundRaw = maskAttrs.background ?? maskElem?.background;
+                        if (backgroundRaw !== undefined) {
+                            const maskBackground = this.parsePlotRgb(backgroundRaw);
+                            if (maskBackground) {
+                                plot.mask.background = maskBackground;
+                            } else {
+                                warnings.push(`Plot ${plot.id}: mask background must be three RGB integers; ignored`);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const hasShowOverlaps = plotElem.show_overlaps !== undefined;
+        const hasOverlapColor = plotElem.overlap_color !== undefined;
+        if (plotSupportsOverlaps(type)) {
+            const showOverlapsValue = plotElem.show_overlaps;
+            const showOverlaps =
+                showOverlapsValue === true || showOverlapsValue === 'true' || showOverlapsValue === '1' || showOverlapsValue === 1;
+            if (showOverlaps) {
+                plot.showOverlaps = true;
+                if (hasOverlapColor) {
+                    const overlapColor = this.parsePlotRgb(plotElem.overlap_color);
+                    if (overlapColor) {
+                        plot.overlapColor = overlapColor;
+                    } else {
+                        warnings.push(`Plot ${plot.id}: overlap color must be three RGB integers; ignored`);
+                    }
+                }
+            } else if (hasOverlapColor) {
+                warnings.push(`Plot ${plot.id}: overlap_color requires show_overlaps; ignored`);
+            }
+        } else if (hasShowOverlaps || hasOverlapColor) {
+            warnings.push(`Plot ${plot.id}: overlap highlighting applies only to slice plots and was ignored`);
         }
 
         const pixels = plotElem.pixels ? this.parseNumberList(plotElem.pixels).map((n) => Math.trunc(n)) : [];
@@ -1732,7 +2741,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async validateXML(directory: string): Promise<XMLValidationResult> {
         this.log(`Validating XML in ${directory}`);
-        // TODO: Implement XML validation in Phase 1
+        // TODO: Implement XML validation.
         return {
             valid: true,
             errors: [],
@@ -1860,6 +2869,42 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
     }
 
     /**
+     * Validate a shutdown-dose configuration (state + filesystem).
+     */
+    async validateShutdownDose(request: ShutdownDoseValidationRequest): Promise<ShutdownDoseValidationResult> {
+        return this.runnerService.validateShutdownDose(request);
+    }
+
+    /**
+     * Launch an R2S or D1S shutdown-dose driver.
+     */
+    async startShutdownDose(request: StartShutdownDoseRequest): Promise<ShutdownDoseStartResponse> {
+        this.log(`Starting shutdown-dose ${request.config.method.toUpperCase()} run in ${request.workingDirectory}`);
+        return this.runnerService.startShutdownDose(request);
+    }
+
+    /**
+     * Cancel a running shutdown-dose driver.
+     */
+    async cancelShutdownDose(processId: string): Promise<boolean> {
+        return this.runnerService.cancelShutdownDose(processId);
+    }
+
+    /**
+     * Read a driver summary JSON to resume the results page.
+     */
+    async readShutdownDoseSummary(request: ReadShutdownDoseSummaryRequest): Promise<ReadShutdownDoseSummaryResult> {
+        return this.runnerService.readShutdownDoseSummary(request);
+    }
+
+    /**
+     * Read OpenMC's shipped ICRP dose-response coefficients.
+     */
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.runnerService.getDoseCoefficients(request);
+    }
+
+    /**
      * Generate a fine-grained MGXS library (openmc.mgxs.Library mode).
      * @param request - Library generation configuration
      * @returns The generated library path
@@ -1901,7 +2946,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     /**
      * Validate a tokamak source against openmc.TokamakSource's own rules
-     * (source.py setters + _validate, versionadded 0.15.4).
+     * (source.py setters + _validate, versionadded 0.16.0).
      * @param source - The tokamak source to validate.
      * @param issues - Issue list to append to.
      */
@@ -1958,11 +3003,84 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         }
     }
 
+    /**
+     * Whether any configured source, tally filter, or weight window uses a
+     * particle beyond the 0.15.3 set, so validation needs the PDG probe.
+     * @param state - State being validated.
+     */
+    private usesGeneralizedParticles(state: OpenMCState): boolean {
+        const particleValues: unknown[] = [];
+        const collectSource = (source: OpenMCState['settings']['sources'][number]): void => {
+            if ((source as { particle?: unknown }).particle) {
+                particleValues.push((source as { particle?: unknown }).particle);
+            }
+            if (source.type === 'mesh') {
+                for (const sub of source.sources ?? []) {
+                    collectSource(sub);
+                }
+            }
+        };
+        for (const source of state.settings.sources ?? []) {
+            collectSource(source);
+        }
+        for (const tally of state.tallies ?? []) {
+            for (const filter of tally.filters ?? []) {
+                if (filter.type === 'particle') {
+                    particleValues.push(...getParticleFilterBins(filter));
+                } else if (filter.type === 'particleproduction') {
+                    particleValues.push(...getParticleProductionTypes(filter));
+                }
+            }
+        }
+        for (const set of state.varianceReduction?.weightWindows ?? []) {
+            particleValues.push(set.particleType);
+        }
+        particleValues.push(state.varianceReduction?.weightWindowGenerator?.particleType);
+        return particleValues.some((value) => {
+            const particle = coerceParticleType(value);
+            return particle !== undefined && !isBaseParticle(particle);
+        });
+    }
+
     async validateState(request: ValidationRequest): Promise<ValidationResult> {
         this.log('Validating simulation state');
 
         const issues: ValidationResult['issues'] = [];
         const { geometry, materials, settings, meshes, tallies } = request.state;
+
+        // Runtime/advanced settings: threads, MPI, triggers, physics, limits,
+        // diagnostics. 0.16-only fields are gated with the probed compat.
+        const sourceBiasConfigured = (settings.sources ?? []).some((source) => sourceHasBias(source));
+        const needsCompat =
+            sourceBiasConfigured ||
+            settings.sharedSecondaryBank !== undefined ||
+            settings.surfaceGrazingCutoff !== undefined ||
+            settings.surfaceGrazingRatio !== undefined ||
+            this.usesGeneralizedParticles(request.state);
+        let runtimeCompat: OpenMCCompat | undefined;
+        if (needsCompat) {
+            try {
+                runtimeCompat = await this.compatProbe.getOpenMCCompat();
+            } catch {
+                runtimeCompat = undefined;
+            }
+        }
+        for (const finding of validateRuntimeSettings(settings, runtimeCompat)) {
+            issues.push({
+                severity: finding.severity,
+                category: 'settings',
+                message: finding.message,
+                suggestion: finding.suggestion
+            });
+        }
+        if (sourceBiasConfigured && runtimeCompat?.sourceBias === false) {
+            issues.push({
+                severity: 'error',
+                category: 'settings',
+                message: 'Source-distribution bias requires OpenMC 0.16.0 or newer',
+                suggestion: 'Remove the bias, or select an environment whose OpenMC build accepts distribution bias'
+            });
+        }
 
         // Random ray (multi-group) restrictions — random ray only exists as
         // multi-group in this OpenMC generation. Ground truth: the C++ error
@@ -1992,6 +3110,29 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     category: 'tallies',
                     message: `Scores not supported in random ray mode: ${invalidScores.join('; ')}`,
                     suggestion: 'Random ray supports only flux, total, fission, nu-fission, kappa-fission, and event scores'
+                });
+            }
+
+            // Ground truth: docs/source/usersguide/random_ray.rst "Supported
+            // Filters": cell, cell instance, distribcell, energy, material,
+            // mesh, universe. cellinstance is explicitly supported.
+            const RANDOM_RAY_FILTERS = new Set(['cell', 'cellinstance', 'distribcell', 'energy', 'material', 'mesh', 'universe']);
+            const invalidFilters: string[] = [];
+            for (const tally of tallies ?? []) {
+                const bad = (tally.filters ?? []).filter((filter) => !RANDOM_RAY_FILTERS.has(filter.type));
+                if (bad.length > 0) {
+                    invalidFilters.push(
+                        `tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}: ${bad.map((filter) => filter.type).join(', ')}`
+                    );
+                }
+            }
+            if (invalidFilters.length > 0) {
+                issues.push({
+                    severity: 'error',
+                    category: 'tallies',
+                    message: `Filters not supported in random ray mode: ${invalidFilters.join('; ')}`,
+                    suggestion:
+                        'Random ray supports cell, cell instance, distribcell, energy, material, mesh, and universe filters; remove the others or switch to continuous-energy mode'
                 });
             }
         }
@@ -2073,6 +3214,15 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 if (!regionStr && cell.region && typeof cell.region === 'string') {
                     regionStr = cell.region;
                 }
+                if (cell.volume !== undefined && !(cell.volume > 0)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'geometry',
+                        message: `Cell ${cell.id}: volume must be a positive number`,
+                        suggestion: 'Enter the cell volume in cm³ or remove the override'
+                    });
+                }
+
                 if (!regionStr) continue;
 
                 // Extract surface references from region
@@ -2122,6 +3272,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
         }
 
+        // Lattice/transform/periodic model checks. OpenMC derives the root
+        // universe from fill usage and resolves fill IDs against separate
+        // universe/lattice maps, so structural errors must be caught here.
+        if (!settings.dagmcFile) {
+            issues.push(...validateGeometryModel(geometry));
+        }
+
         // Check for source in fixed source mode
         if (settings.run.mode === 'fixed source') {
             if (!settings.sources || settings.sources.length === 0) {
@@ -2136,9 +3293,23 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
         // Mesh sources: valid mesh reference and exactly one sub-source per
         // mesh element (openmc/source.py MeshSource sources setter)
-        for (const source of settings.sources ?? []) {
+        const sourceEntries = settings.sources ?? [];
+        for (let sourceIndex = 0; sourceIndex < sourceEntries.length; sourceIndex++) {
+            const source = sourceEntries[sourceIndex];
             if (source.type === 'tokamak') {
                 this.validateTokamakSource(source, issues);
+                continue;
+            }
+            if ((source.type ?? 'independent') === 'independent') {
+                const label = source.id ?? `source ${sourceIndex + 1}`;
+                for (const issue of validateSourceDistributions(source as OpenMCIndependentSource, meshes, runtimeCompat)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: `${label}: ${issue.message}`,
+                        suggestion: issue.suggestion
+                    });
+                }
                 continue;
             }
             if (source.type !== 'mesh') {
@@ -2180,6 +3351,95 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     category: 'settings',
                     message: `Mesh source requires exactly ${elementCount} sub-sources (one per mesh element), got ${subCount}`,
                     suggestion: 'Use the Fill button in the source editor to replicate a sub-source across all elements'
+                });
+            }
+            (source.sources ?? []).forEach((sub, subIndex) => {
+                for (const issue of validateSourceDistributions(sub, meshes, runtimeCompat)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'settings',
+                        message: `${source.id ?? 'Mesh source'} element ${subIndex + 1}: ${issue.message}`,
+                        suggestion: issue.suggestion
+                    });
+                }
+            });
+        }
+
+        // Mesh definitions: structured grids must be usable by OpenMC and
+        // unstructured files must match the selected library.
+        const fs = await import('fs');
+        for (const mesh of meshes ?? []) {
+            const label = mesh.name ? `Mesh ${mesh.id} (${mesh.name})` : `Mesh ${mesh.id}`;
+            if (mesh.type === 'rectilinear') {
+                for (const issue of validateRectilinearMesh(mesh)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `${label} ${issue.axis}-grid is invalid: ${issue.message}`,
+                        suggestion: `Fix the ${issue.axis.toUpperCase()} grid in the Tally Configurator — rectilinear grids need at least two strictly increasing boundaries`
+                    });
+                }
+            } else if (mesh.type === 'unstructured') {
+                if (mesh.lengthMultiplier !== undefined && (!Number.isFinite(mesh.lengthMultiplier) || mesh.lengthMultiplier <= 0)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `${label} length multiplier must be greater than 0`,
+                        suggestion: 'Set a positive length multiplier (default 1 applies no scaling)'
+                    });
+                }
+                const filenameError = validateUnstructuredMeshFilename(mesh.filename, mesh.library);
+                if (filenameError) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'tallies',
+                        message: `${label}: ${filenameError}`,
+                        suggestion: 'Choose a mesh file whose extension matches the selected MOAB/libMesh library'
+                    });
+                } else if (!path.isAbsolute(mesh.filename)) {
+                    issues.push({
+                        severity: 'warning',
+                        category: 'tallies',
+                        message: `${label} uses a project-relative mesh file (${mesh.filename}) that cannot be verified before generation`,
+                        suggestion: 'Save the project (paths resolve on load) or choose the file again to store an absolute path'
+                    });
+                } else {
+                    try {
+                        if (!fs.existsSync(mesh.filename)) {
+                            issues.push({
+                                severity: 'error',
+                                category: 'tallies',
+                                message: `${label} file does not exist: ${mesh.filename}`,
+                                suggestion: 'Choose an existing mesh file in the Tally Configurator or copy it back to that path'
+                            });
+                        }
+                    } catch {
+                        issues.push({
+                            severity: 'warning',
+                            category: 'tallies',
+                            message: `${label} file could not be checked: ${mesh.filename}`,
+                            suggestion: 'Verify the file exists and is readable before running'
+                        });
+                    }
+                }
+            }
+        }
+
+        // Filter references and bin shapes: mesh filters need an existing
+        // mesh, structured pair filters need valid pairs, reaction/weight/
+        // collision/mu bins need valid ranges, and mu-surface needs its
+        // surface + current companions.
+        for (const tally of tallies ?? []) {
+            const tallyLabel = `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}`;
+            for (const issue of validateTallyFilterSet(
+                { filters: tally.filters ?? [], scores: tally.scores ?? [] },
+                { cells: geometry.cells, materials, meshes, compat: runtimeCompat }
+            )) {
+                issues.push({
+                    severity: issue.severity,
+                    category: 'tallies',
+                    message: `${tallyLabel}: ${issue.message}`,
+                    suggestion: issue.fix
                 });
             }
         }
@@ -2411,6 +3671,20 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             });
         }
 
+        // Weight windows, checkpoints, the weight-window generator, and UFS.
+        for (const finding of validateVarianceReduction(request.state.varianceReduction, meshes, settings.run.mode)) {
+            issues.push(varianceReductionValidationIssue(finding));
+        }
+        const weightWindowsFile = request.state.varianceReduction?.weightWindowsFile;
+        if (weightWindowsFile && path.isAbsolute(weightWindowsFile) && !fs.existsSync(weightWindowsFile)) {
+            issues.push({
+                severity: 'error',
+                category: 'settings',
+                message: `Weight-window file does not exist: ${weightWindowsFile}`,
+                suggestion: 'Pick the generated weight_windows.h5 file or run the generator first'
+            });
+        }
+
         // Source/geometry overlap check: warn when independent sources are placed
         // outside the verifiable geometry bounds. This catches point sources in void
         // and source boxes that do not overlap the model.
@@ -2481,6 +3755,20 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                         });
                     }
                 }
+            }
+        }
+
+        // Plot appearance: missing mask domains and controls OpenMC ignores
+        // for the selected plot type are configuration warnings.
+        for (const plot of request.state.plots ?? []) {
+            for (const issue of validatePlotAppearance(plot, request.state)) {
+                issues.push({
+                    severity: 'warning',
+                    category: 'settings',
+                    message: issue.message,
+                    suggestion: issue.suggestion,
+                    path: `plots.${plot.id}.${issue.field}`
+                });
             }
         }
 
@@ -2627,6 +3915,29 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     suggestion: 'Add at least one time step in the Depletion tab under Operational Timeline'
                 });
             }
+
+            // Advanced run controls: substeps, reactivity search, external
+            // feed/removal rates, and continuation. Pure rules live in the
+            // shared module so the tab and backend cannot diverge.
+            for (const issue of validateDepletionAdvanced(request.state)) {
+                issues.push({
+                    severity: issue.severity,
+                    category: 'depletion',
+                    message: issue.message,
+                    suggestion: issue.suggestion
+                });
+            }
+            if (depletion.continueFromResults) {
+                const fs = await import('fs');
+                if (!fs.existsSync(depletion.continueFromResults)) {
+                    issues.push({
+                        severity: 'error',
+                        category: 'depletion',
+                        message: `Previous depletion results file not found: ${depletion.continueFromResults}`,
+                        suggestion: 'Select the depletion_results.h5 produced by the earlier run, or clear continuation.'
+                    });
+                }
+            }
         }
 
         return {
@@ -2647,7 +3958,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async checkOverlaps(request: OverlapCheckRequest): Promise<OverlapCheckResult> {
         this.log('Checking for geometry overlaps');
-        // TODO: Implement overlap checking in Phase 2
+        // TODO: Implement overlap checking.
         return {
             complete: true,
             overlaps: [],
@@ -2664,7 +3975,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
      */
     async validateRegion(region: string, surfaces: any[]): Promise<{ valid: boolean; error?: string }> {
         this.log(`Validating region expression: ${region}`);
-        // TODO: Implement region validation in Phase 2
+        // TODO: Implement region validation.
         return { valid: true };
     }
 
@@ -2707,8 +4018,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                         {
                             id: 0,
                             name: 'root',
-                            cellIds: [],
-                            isRoot: true
+                            cellIds: []
                         }
                     ],
                     lattices: [],
@@ -2764,10 +4074,13 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             const path = await import('path');
             const content = fs.readFileSync(projectPath, 'utf-8');
             const parsed: OpenMCProjectFile = JSON.parse(content);
-            const { project, migratedFrom } = migrateProjectFile(parsed);
+            const { project, migratedFrom, warnings: migrationWarnings } = migrateProjectFile(parsed);
 
             if (migratedFrom) {
                 this.log(`Migrated project from schema ${migratedFrom} to ${OPENMC_STATE_SCHEMA_VERSION}`);
+            }
+            for (const warning of migrationWarnings ?? []) {
+                this.log(`Project normalization: ${warning}`);
             }
 
             // Resolve project-relative paths back to absolute paths.
@@ -2787,10 +4100,17 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     project.state.settings.randomRay.mgxsLibraryPath
                 );
             }
+            // Unstructured mesh files are stored project-relative when possible.
+            for (const mesh of project.state.meshes ?? []) {
+                if (mesh.type === 'unstructured' && mesh.filename && !path.isAbsolute(mesh.filename)) {
+                    mesh.filename = path.resolve(projectDir, mesh.filename);
+                }
+            }
 
             return {
                 success: true,
-                project
+                project,
+                warnings: migrationWarnings
             };
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -2845,6 +4165,17 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     // ignore
                 }
             }
+            for (const mesh of stateToSave.meshes ?? []) {
+                if (mesh.type === 'unstructured' && mesh.filename && path.isAbsolute(mesh.filename)) {
+                    try {
+                        if (fs.existsSync(mesh.filename)) {
+                            mesh.filename = path.relative(projectDir, mesh.filename);
+                        }
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
 
             const projectFile: OpenMCProjectFile = {
                 version: OPENMC_STATE_SCHEMA_VERSION,
@@ -2885,64 +4216,39 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
 
     /**
      * Get available project templates.
-     * @returns List of templates with metadata
+     * @returns List of templates with metadata and their default state
      */
     async getTemplates(): Promise<TemplatesResponse> {
         this.log('Getting available templates');
-
-        return {
-            templates: [
-                {
-                    id: 'pin-cell',
-                    name: 'Pin Cell',
-                    description: 'Basic fuel pin cell with cladding and moderator',
-                    icon: 'fa fa-circle',
-                    defaultState: {}
-                },
-                {
-                    id: 'fuel-assembly',
-                    name: 'Fuel Assembly',
-                    description: '17x17 PWR fuel assembly with guide tubes',
-                    icon: 'fa fa-th',
-                    defaultState: {}
-                },
-                {
-                    id: 'full-core',
-                    name: 'Full Core',
-                    description: 'Full reactor core with multiple assemblies',
-                    icon: 'fa fa-dot-circle-o',
-                    defaultState: {}
-                },
-                {
-                    id: 'shielding',
-                    name: 'Shielding',
-                    description: 'Shielding and criticality safety model',
-                    icon: 'fa fa-shield',
-                    defaultState: {}
-                },
-                {
-                    id: 'blank',
-                    name: 'Blank Project',
-                    description: 'Start from scratch',
-                    icon: 'fa fa-file-o',
-                    defaultState: {}
-                }
-            ]
-        };
+        return { templates: listProjectTemplates() };
     }
 
     /**
-     * Apply a template to create or modify state.
+     * Apply a template to create a new state.
      * @param request - Template application request
-     * @returns Result with modified state
+     * @returns Result with the fully built state
      */
     async applyTemplate(request: ApplyTemplateRequest): Promise<{ success: boolean; state?: OpenMCState; error?: string }> {
         this.log(`Applying template: ${request.templateId}`);
-        // TODO: Implement template application with specific configurations
-        return {
-            success: false,
-            error: 'Template application not yet implemented'
-        };
+        try {
+            if (!getProjectTemplate(request.templateId)) {
+                return { success: false, error: `Unknown project template '${request.templateId}'` };
+            }
+            const parameters = { ...(request.parameters ?? {}) };
+            const state = buildProjectTemplate(request.templateId, parameters);
+            if (typeof parameters.projectName === 'string' && parameters.projectName.trim().length > 0) {
+                state.metadata.name = parameters.projectName.trim();
+            }
+            if (request.baseState) {
+                state.metadata.name = state.metadata.name || request.baseState.metadata.name;
+                state.metadata.author = request.baseState.metadata.author;
+                state.metadata.created = request.baseState.metadata.created;
+            }
+            return { success: true, state };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { success: false, error: message };
+        }
     }
 
     // ============================================================================
@@ -3061,6 +4367,18 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
         bounds?: { min: [number, number, number]; max: [number, number, number] };
     }> {
         return this.cadService.previewCAD(filePath);
+    }
+
+    /**
+     * Import a DAGMC model produced by nuke-cad into the current OpenMC project.
+     * @param request - Import request with h5m path and optional manifest path
+     * @returns Import result with DAGMC info and material names
+     */
+    async importNukeCAD(
+        request: import('../common/openmc-studio-protocol').NukeCADImportRequest
+    ): Promise<import('../common/openmc-studio-protocol').NukeCADImportResult> {
+        this.log(`Importing nuke-cad model from ${request.h5mPath}`);
+        return this.cadService.importNukeCAD(request);
     }
 
     // ============================================================================
@@ -3305,7 +4623,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             lowerBound: number | number[];
             upperBound?: number | number[];
             energyBounds?: number[];
-            particleType?: 'neutron' | 'photon';
+            particleType?: import('../common/particle-types').OpenMCParticleType;
         };
         error?: string;
     }> {
@@ -3321,7 +4639,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                     meshId: 1,
                     lowerBound: 0.5,
                     upperBound: 1.0,
-                    particleType: 'neutron' as const
+                    particleType: NEUTRON_PARTICLE
                 }
             };
         } catch (error) {
@@ -3364,7 +4682,7 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
             }
 
             lines.push('');
-            lines.push('PARTICLE TYPE: ' + (request.weightWindows.particleType || 'neutron'));
+            lines.push('PARTICLE TYPE: ' + (coerceParticleType(request.weightWindows.particleType)?.name ?? 'neutron'));
             lines.push('');
             lines.push('LOWER BOUNDS:');
 
@@ -3517,6 +4835,87 @@ export class OpenMCStudioBackendServiceImpl implements OpenMCStudioBackendServic
                 fileSizeMB,
                 error: `Failed to read statepoint: ${msg}`
             };
+        }
+    }
+
+    /**
+     * Evaluate persisted derived tallies against one statepoint.
+     *
+     * Derived tallies are analysis-only: they are never written to
+     * `tallies.xml` or the OpenMC Python model. The evaluator lives in
+     * `python/derive_tallies.py` and shares the statepoint reader's JSON-stdout
+     * contract.
+     */
+    async evaluateDerivedTallies(request: {
+        statepointPath: string;
+        derivedTallies: import('../common/openmc-studio-protocol').EvaluateDerivedTalliesRequest['derivedTallies'];
+    }): Promise<import('../common/openmc-studio-protocol').EvaluateDerivedTalliesResult> {
+        const empty = {
+            derivedTallies: [],
+            errors: []
+        };
+        if (request.derivedTallies.length === 0) {
+            return { success: true, statepoint: request.statepointPath, ...empty };
+        }
+
+        const fs = await import('fs');
+        const path = await import('path');
+        const os = await import('os');
+        const { execSync } = await import('child_process');
+
+        let temporaryDirectory: string | undefined;
+        try {
+            if (!fs.existsSync(request.statepointPath)) {
+                return { success: false, error: `File not found: ${request.statepointPath}`, ...empty };
+            }
+            const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'derive_tallies.py' });
+            if (!scriptPath) {
+                return { success: false, error: 'Derived-tally evaluator script not found', ...empty };
+            }
+            const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+            const pythonCommand = pythonInfo.command || 'python';
+
+            temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nuke-derived-tallies-'));
+            const definitionsPath = path.join(temporaryDirectory, 'derived-tallies.json');
+            fs.writeFileSync(definitionsPath, JSON.stringify(request.derivedTallies), 'utf-8');
+            this.log(`Evaluating ${request.derivedTallies.length} derived tallies against ${request.statepointPath}`);
+
+            let output: string;
+            try {
+                output = execSync(
+                    `"${pythonCommand}" "${scriptPath}" --statepoint "${request.statepointPath}" --definitions-file "${definitionsPath}" --json`,
+                    { encoding: 'utf-8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+            } catch (execError: any) {
+                const stdout = execError.stdout ? execError.stdout.toString() : '';
+                if (stdout) {
+                    try {
+                        return { ...JSON.parse(stdout), statepoint: request.statepointPath };
+                    } catch {}
+                }
+                const stderr = execError.stderr ? execError.stderr.toString() : '';
+                return { success: false, error: `Derived-tally evaluation failed: ${stderr || execError.message}`, ...empty };
+            }
+
+            const result = JSON.parse(output);
+            return {
+                success: result.success !== false,
+                statepoint: result.statepoint ?? request.statepointPath,
+                derivedTallies: result.derivedTallies ?? [],
+                errors: result.errors ?? [],
+                error: result.error,
+                traceback: result.traceback
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.error(`Failed to evaluate derived tallies: ${message}`);
+            return { success: false, error: `Failed to evaluate derived tallies: ${message}`, ...empty };
+        } finally {
+            if (temporaryDirectory) {
+                try {
+                    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+                } catch {}
+            }
         }
     }
 

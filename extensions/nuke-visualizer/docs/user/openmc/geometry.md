@@ -64,9 +64,29 @@ Click **"View 3D"** on any universe or cell to launch the 3D viewer.
 
 ### What You See
 
-- A voxel or surface-based rendering of the geometry.
-- Cells colored by material (or by cell ID if no materials are defined).
-- Navigation: rotate, pan, zoom with mouse.
+- A surface-based rendering of the geometry (one box per cell).
+- Cells colored by material from a theme-aware palette (vivid on dark
+  themes, deepened on light ones), with matching edge lines.
+- Navigation: rotate, pan, zoom with mouse; orientation cube and
+  ISO/top/front/right bar over the canvas.
+
+### CSG Outline
+
+Opening a geometry view also reveals the **CSG Outline** sidebar:
+per-cell visibility checkboxes with hover isolate buttons, a material
+tree, a **Void** switch for unfilled cells, **Show all** reset, and a
+search filter. Row clicks sync with canvas selection both ways. Display
+settings (clip, opacity, background) live in Viewer Settings. Tally
+overlay tabs bind the same panel for their CSG underlay (visibility
+plus row-click ghost highlight; selection sync is panel→canvas only).
+
+Hiding is exact: per-cell checkboxes, material toggles, and the Void
+switch all remove the box from the canvas through one shared rule. The
+void material row reads hidden while the Void switch is off (matching
+the DAGMC Graveyard row). Note cells render as nested bounding boxes, so hiding an outer cell (e.g.
+moderator) reveals the cells inside rather than empty space. Right-click
+the canvas for Fit / Screenshot / Clip plus Hide / Isolate selected cell
+and Show all.
 
 ### Highlighting
 
@@ -78,9 +98,10 @@ In the tree, click the **highlight icon** next to a cell:
 
 ### From Material Explorer
 
-In the [Material Explorer](materials.md), click **"Highlight Cells"** next to a material:
+In the [Material Explorer](materials.md), open a material's **Cell Usage** list
+and click the crosshair button on a cell row:
 
-- All cells using that material are highlighted in the 3D view.
+- The 3D view opens with that cell selected.
 
 ---
 
@@ -96,29 +117,29 @@ Detect overlapping cells — a common source of simulation errors.
 
 ### Settings
 
-| Parameter         | Default | Description               |
-| ----------------- | ------- | ------------------------- |
-| **Sample Points** | 100,000 | Random points to test     |
-| **Tolerance**     | 1e-6 cm | Numerical tolerance       |
-| **Bounding Box**  | Auto    | Limit check to a region   |
-| **Parallel**      | On      | Use multi-core processing |
+| Parameter                   | Default | Description                           |
+| --------------------------- | ------- | ------------------------------------- |
+| **Sample Points**           | 100,000 | Random points to test (10K–1M slider) |
+| **Tolerance**               | 1e-6 cm | Numerical tolerance                   |
+| **Use parallel processing** | Off     | Use multi-core processing             |
 
 ### Results
 
-- A list of overlaps appears in a panel:
+- A list of overlaps appears in the checker panel:
   - Coordinates of the overlap
-  - Cell IDs involved
-  - Cell names (if available)
-- Click an overlap to **jump to that location** in the 3D view.
-- Export results to CSV or JSON.
+  - Cell IDs involved (cell names are included in the JSON export)
+- Select a row to highlight it in the list; use its **3D** button to open the
+  first involved cell selected in the native geometry viewer.
+- **Export** downloads the results as JSON.
 
 ### Overlap Visualization
 
 If overlaps are found:
 
-1. Click **"Visualize Overlaps"**.
-2. The 3D viewer opens with **red spheres** marking overlap locations.
-3. Overlapping cells are highlighted in red.
+1. Click **"View 3D"** in the results header.
+2. The native geometry viewer opens. The overlap list remains the location
+   reference; the individual **3D** buttons open a specific overlap's first
+   involved cell selected.
 
 > **Performance note:** Overlap checks on large geometries can take minutes. The progress bar shows sample count and percentage.
 
@@ -127,5 +148,8 @@ If overlaps are found:
 ## Tips
 
 - **Complex lattices:** Large lattice arrays (e.g., 17×17 fuel assemblies) are shown as a 2D grid in the tree. Expand to see individual universe positions.
-- **CSG expressions:** The region expression (e.g., `(-1 2 -3):4`) is shown in the cell detail panel. Click **"Tokenize"** to see a readable breakdown of surface operations.
-- **3D viewer sync:** The 3D viewer and tree are linked. Selecting a cell in the tree highlights it in 3D, and vice versa.
+- **CSG expressions:** The region expression (e.g., `(-1 2 -3):4`) is shown in
+  the cell detail panel alongside its surface list.
+- **3D viewer sync:** Selecting a cell in the tree forwards the selection to
+  every open native geometry viewer. The tree's highlight button opens the
+  viewer with that cell selected.

@@ -54,8 +54,8 @@
 │                        PYTHON LAYER │                                        │
 │                                     │                                        │
 │   ┌─────────────────────────────────┴────────────────────────────────────┐   │
-│   │  statepoint_reader.py  │  run_depletion.py  │  cad_helpers/          │   │
-│   │  ────────────────────  │  ───────────────── │  ───────────────────── │   │
+│   │  statepoint_reader.py  │  run_depletion.py  │  cad_conversion/       │   │
+│   │  ────────────────────  │  ───────────────── │  cad_importer.py       │   │
 │   │  • read statepoint     │  • burnup calc     │  • STEP/IGES import    │   │
 │   │  • compare tallies     │  • chain evolution │  • faceting            │   │
 │   │  • k-eff convergence   │  • power history   │  • CSG conversion      │   │
@@ -97,8 +97,8 @@ TypeScript interfaces shared by both frontend and backend. These define the RPC 
 
 **Key files:**
 
-- `openmc-studio-protocol.ts` — RPC contract + domain request/response types (~1200 lines)
-- `openmc-state-schema.ts` — `OpenMCState` and all sub-types (~1150 lines)
+- `openmc-studio-protocol.ts` — RPC contract + domain request/response types
+- `openmc-state-schema.ts` — `OpenMCState` and all sub-types
 
 ### 3. Backend Layer (`src/node/`)
 
@@ -158,4 +158,4 @@ Python scripts that perform scientific computing operations that are impractical
 | **State-as-JSON schema**                | `OpenMCState` is plain JSON — serializable, diffable, and directly mappable to OpenMC XML. Enables save-to-file (`.nuke-openmc`) and easy migration via schema versioning.                                                  |
 | **Orchestrator + specialized services** | `OpenMCStudioBackendServiceImpl` is the sole RPC handler. It delegates to `OpenMCRunnerService`, `XMLGenerationService`, etc. This keeps RPC wiring in one place while allowing domain logic to evolve independently.       |
 | **Blocking vs non-blocking runs**       | `runSimulation()` blocks until completion (good for short runs); `startSimulation()` returns immediately with a `processId` (good for long runs with progress streaming). Both are available so UI can choose the right UX. |
-| **Python as subprocess (not server)**   | Unlike nuke-visualizer's Trame servers, openmc-studio spawns short-lived Python scripts or OpenMC processes directly. This avoids port management overhead for batch compute workloads.                                     |
+| **Python as subprocess (not server)**   | Like nuke-visualizer's headless converters, openmc-studio spawns short-lived Python scripts or OpenMC processes directly. This avoids port management overhead for batch compute workloads.                                 |

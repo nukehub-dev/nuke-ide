@@ -35,6 +35,8 @@ import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { OpenMCService, TallyVisualizationOptions } from '../openmc-service';
 import { OpenMCTallyTreeWidget, TallySelection } from '../widgets/statepoint/openmc-tally-tree';
 import { OpenMCStatepointViewerWidget, StatepointTallySelection } from '../widgets/statepoint/statepoint-viewer';
+import { OpenMCTallySeriesWidget } from '../widgets/statepoint/tally-series-widget';
+import { seriesCandidatePaths } from '../widgets/statepoint/tally-series-model';
 import { PlotlyService } from '../../../plotly/plotly-service';
 import { PlotlyUtils } from '../../../plotly/plotly-utils';
 import { PlotlyFigure } from '../../../../common/base-visualizer-protocol';
@@ -325,10 +327,52 @@ export class OpenMCStatepointContribution {
                     action: 'spatial'
                 };
                 await this.handleTallySelection(tallySelection);
+            } else if (selection.action === 'series') {
+                await this.openTallySeries(selection, currentStatepointUri);
             }
         } catch (error) {
             console.error('[OpenMC] Error handling tally selection:', error);
             this.messageService.error(`Failed to visualize tally: ${error}`);
+        }
+    }
+
+    /**
+     * Plot one tally score across every sibling statepoint of the open file.
+     * Opens (or reuses) the tally-series widget and hands it the file list; no
+     * mesh is preloaded — the widget converts to 3D only on an explicit action.
+     */
+    protected async openTallySeries(selection: StatepointTallySelection, statepointUri: URI): Promise<void> {
+        try {
+            const stat = await this.fileService.resolve(statepointUri.parent);
+            const siblings = (stat.children ?? [])
+                .filter((child) => child.isFile)
+                .map((child) => ({ name: child.name, path: child.resource.path.fsPath() }));
+            const files = seriesCandidatePaths(statepointUri.path.fsPath(), siblings);
+            if (files.length === 0) {
+                this.messageService.error('No statepoint files found for the tally series');
+                return;
+            }
+
+            const id = `${OpenMCTallySeriesWidget.ID}:${statepointUri.parent.toString()}:${selection.tallyId}:${selection.score ?? 'default'}`;
+            const widget = await this.widgetManager.getOrCreateWidget<OpenMCTallySeriesWidget>(OpenMCTallySeriesWidget.ID, { id } as any);
+            widget.setRequest({
+                files,
+                options: {
+                    tallyId: selection.tallyId,
+                    score: selection.score,
+                    nuclide: selection.nuclide,
+                    statistic: 'total'
+                },
+                title: `Tally ${selection.tallyId} series`
+            });
+
+            if (!widget.isAttached) {
+                await this.shell.addWidget(widget, { area: 'main' });
+            }
+            await this.shell.activateWidget(widget.id);
+        } catch (error) {
+            console.error('[OpenMC] Error opening tally series:', error);
+            this.messageService.error(`Failed to open tally series: ${error}`);
         }
     }
 

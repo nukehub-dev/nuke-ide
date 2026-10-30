@@ -3,7 +3,13 @@
 pymoab, pydagmc, vtk, and gmsh are not installed in this environment, so
 the conversion paths are exercised with recording fakes injected into
 sys.modules (or monkeypatched module functions), mirroring the pattern in
-test_command_error_paths.py.
+test_command_error_paths.py. Installing a fake also flips the module's
+``HAS_*`` dependency probe on; forcing a probe off exercises the
+missing-dependency :class:`DagmcError` / :class:`StepError` paths.
+
+All converter failures surface as ``dagmc_lib.DagmcError`` /
+``step_lib.StepError`` (never raw ImportError/FileNotFoundError/
+ValueError); conversion results are unchanged.
 """
 
 import sys
@@ -74,6 +80,8 @@ def _install_fake_pymoab(monkeypatch, triangles=(11, 22, 33)):
     monkeypatch.setitem(sys.modules, "pymoab", pymoab_mod)
     monkeypatch.setitem(sys.modules, "pymoab.core", core_mod)
     monkeypatch.setitem(sys.modules, "pymoab.types", types_mod)
+    # The fake provides the dependency the HAS_PYMOAB probe stands for.
+    monkeypatch.setattr(dagmc_lib, "HAS_PYMOAB", True)
     return core_holder
 
 
@@ -121,6 +129,7 @@ def _install_fake_pydagmc(monkeypatch, model):
     monkeypatch.setitem(sys.modules, "pydagmc", pydagmc_mod)
     # convert_* also do `from pymoab import types`.
     _install_fake_pymoab(monkeypatch)
+    monkeypatch.setattr(dagmc_lib, "HAS_PYDAGMC", True)
     return model
 
 
@@ -165,6 +174,8 @@ def _install_fake_vtk(monkeypatch, **overrides):
     monkeypatch.setitem(sys.modules, "vtk", vtk_mod)
     monkeypatch.setitem(sys.modules, "vtk.util", util_mod)
     monkeypatch.setitem(sys.modules, "vtk.util.numpy_support", numpy_support_mod)
+    # The fake provides the dependency the HAS_VTK probe stands for.
+    monkeypatch.setattr(dagmc_lib, "HAS_VTK", True)
     return vtk_mod, numpy_support_mod
 
 
@@ -342,15 +353,15 @@ def test_volume_to_grid_numpy_empty_volume_returns_none(monkeypatch):
 
 
 def test_convert_h5m_to_vtk_missing_pymoab(h5m_file, monkeypatch):
-    """Without pymoab the import failure surfaces as ImportError."""
+    """Without pymoab the loader failure surfaces as DagmcError."""
     monkeypatch.setitem(sys.modules, "pymoab", None)
-    with pytest.raises(ImportError):
+    with pytest.raises(dagmc_lib.DagmcError, match="pymoab"):
         dagmc_lib.convert_h5m_to_vtk(str(h5m_file))
 
 
 def test_convert_h5m_to_vtk_missing_file(monkeypatch):
     _install_fake_pymoab(monkeypatch)
-    with pytest.raises(FileNotFoundError, match="DAGMC file not found"):
+    with pytest.raises(dagmc_lib.DagmcError, match="DAGMC file not found"):
         dagmc_lib.convert_h5m_to_vtk("/no/such/model.h5m")
 
 
@@ -382,19 +393,19 @@ def test_convert_h5m_to_vtk_output_dir_and_count(h5m_file, tmp_path, monkeypatch
 
 
 def test_convert_h5m_volume_missing_file():
-    with pytest.raises(FileNotFoundError, match="DAGMC file not found"):
+    with pytest.raises(dagmc_lib.DagmcError, match="DAGMC file not found"):
         dagmc_lib.convert_h5m_volume_to_vtk("/no/such/model.h5m", 1)
 
 
 def test_convert_h5m_volume_missing_pydagmc(h5m_file, monkeypatch):
     monkeypatch.setitem(sys.modules, "pydagmc", None)
-    with pytest.raises(ImportError, match="pydagmc not available"):
+    with pytest.raises(dagmc_lib.DagmcError, match="pydagmc not available"):
         dagmc_lib.convert_h5m_volume_to_vtk(str(h5m_file), 1)
 
 
 def test_convert_h5m_volume_unknown_volume(h5m_file, monkeypatch):
     _install_fake_pydagmc(monkeypatch, _FakeDagmcModel())
-    with pytest.raises(ValueError, match="Volume 99 not found"):
+    with pytest.raises(dagmc_lib.DagmcError, match="Volume 99 not found"):
         dagmc_lib.convert_h5m_volume_to_vtk(str(h5m_file), 99)
 
 
@@ -403,7 +414,7 @@ def test_convert_h5m_volume_without_triangles(h5m_file, monkeypatch):
     _install_fake_pydagmc(monkeypatch, model)
     monkeypatch.setattr(dagmc_lib, "_volume_to_grid_numpy", lambda *a: None)
 
-    with pytest.raises(ValueError, match="has no triangles"):
+    with pytest.raises(dagmc_lib.DagmcError, match="has no triangles"):
         dagmc_lib.convert_h5m_volume_to_vtk(str(h5m_file), 7)
 
 
@@ -475,14 +486,14 @@ def _install_multiblock_vtk(monkeypatch):
 
 def test_convert_h5m_to_multiblock_missing_file(monkeypatch):
     _install_fake_vtk(monkeypatch)
-    with pytest.raises(FileNotFoundError, match="DAGMC file not found"):
+    with pytest.raises(dagmc_lib.DagmcError, match="DAGMC file not found"):
         dagmc_lib.convert_h5m_to_multiblock_vtk("/no/such/model.h5m")
 
 
 def test_convert_h5m_to_multiblock_missing_pydagmc(h5m_file, monkeypatch):
     _install_fake_vtk(monkeypatch)
     monkeypatch.setitem(sys.modules, "pydagmc", None)
-    with pytest.raises(ImportError, match="pydagmc not available"):
+    with pytest.raises(dagmc_lib.DagmcError, match="pydagmc not available"):
         dagmc_lib.convert_h5m_to_multiblock_vtk(str(h5m_file))
 
 
@@ -560,13 +571,13 @@ def test_convert_h5m_to_multiblock_default_output_dir(h5m_file, tmp_path, monkey
 
 
 def test_get_dagmc_model_info_missing_file():
-    with pytest.raises(FileNotFoundError, match="DAGMC file not found"):
+    with pytest.raises(dagmc_lib.DagmcError, match="DAGMC file not found"):
         dagmc_lib.get_dagmc_model_info("/no/such/model.h5m")
 
 
 def test_get_dagmc_model_info_missing_pydagmc(h5m_file, monkeypatch):
     monkeypatch.setitem(sys.modules, "pydagmc", None)
-    with pytest.raises(ImportError, match="pydagmc not available"):
+    with pytest.raises(dagmc_lib.DagmcError, match="pydagmc not available"):
         dagmc_lib.get_dagmc_model_info(str(h5m_file))
 
 
@@ -592,6 +603,16 @@ def test_get_dagmc_model_info_full(h5m_file, monkeypatch):
     assert info["volumes"][1]["numSurfaces"] == 1
     # The volume with a broken bounding_box reports None.
     assert info["volumes"][2]["boundingBox"] is None
+
+    # Block-toggle meta: names/selectors follow the multiblock convention
+    # and each volume lists the groups it belongs to.
+    assert [v["name"] for v in info["volumes"]] == ["Volume_1", "Volume_2", "Volume_3"]
+    assert [v["selector"] for v in info["volumes"]] == [
+        "/Root/Volume_1",
+        "/Root/Volume_2",
+        "/Root/Volume_3",
+    ]
+    assert [v["groups"] for v in info["volumes"]] == [["core"], ["core"], []]
 
     assert info["materials"] == {
         "UO2": {"volumeCount": 1, "volumeIds": [2]},
@@ -761,7 +782,7 @@ def _filter_mesh(points, cell_types, offsets, connectivity):
 
 def test_filter_graveyard_missing_file(monkeypatch):
     _install_fake_vtk(monkeypatch)
-    with pytest.raises(FileNotFoundError, match="VTK file not found"):
+    with pytest.raises(dagmc_lib.DagmcError, match="VTK file not found"):
         dagmc_lib.filter_graveyard("/no/such/mesh.vtk")
 
 
@@ -929,18 +950,20 @@ def _install_fake_gmsh(
         ),
     )
     monkeypatch.setitem(sys.modules, "gmsh", gmsh_mod)
+    # The fake provides the dependency the HAS_GMSH probe stands for.
+    monkeypatch.setattr(step_lib, "HAS_GMSH", True)
     return gmsh_mod, calls
 
 
 def test_convert_step_missing_gmsh(step_file, monkeypatch):
     monkeypatch.setitem(sys.modules, "gmsh", None)
-    with pytest.raises(ImportError, match="gmsh is required"):
+    with pytest.raises(step_lib.StepError, match="gmsh is required"):
         step_lib.convert_step_to_vtk(str(step_file))
 
 
 def test_convert_step_missing_file(monkeypatch):
     _install_fake_gmsh(monkeypatch)
-    with pytest.raises(FileNotFoundError, match="CAD file not found"):
+    with pytest.raises(step_lib.StepError, match="CAD file not found"):
         step_lib.convert_step_to_vtk("/no/such/part.step")
 
 
@@ -1074,3 +1097,269 @@ def test_step_cached_no_cache_returns_conversion_path(step_file, tmp_path, monke
     result = step_lib.convert_step_to_vtk_cached(str(step_file), use_cache=False)
     assert result["vtk_path"] == "/tmp/out.vtk"
     assert result["from_cache"] is False
+
+
+# ---------------------------------------------------------------------------
+# Input validation (no heavy dependency required — validated first)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_path", ["", None])
+def test_dagmc_converters_reject_empty_paths(bad_path):
+    """Empty/None .h5m paths fail with a clear DagmcError, not a TypeError."""
+    with pytest.raises(dagmc_lib.DagmcError, match="invalid DAGMC file path"):
+        dagmc_lib.convert_h5m_to_vtk(bad_path)
+    with pytest.raises(dagmc_lib.DagmcError, match="invalid DAGMC file path"):
+        dagmc_lib.convert_h5m_volume_to_vtk(bad_path, 1)
+    with pytest.raises(dagmc_lib.DagmcError, match="invalid DAGMC file path"):
+        dagmc_lib.convert_h5m_to_multiblock_vtk(bad_path)
+    with pytest.raises(dagmc_lib.DagmcError, match="invalid DAGMC file path"):
+        dagmc_lib.get_dagmc_model_info(bad_path)
+    with pytest.raises(dagmc_lib.DagmcError, match="invalid DAGMC file path"):
+        dagmc_lib.convert_h5m_to_vtk_cached(bad_path)
+
+
+@pytest.mark.parametrize("bad_path", ["", None])
+def test_filter_graveyard_rejects_empty_path(bad_path):
+    with pytest.raises(dagmc_lib.DagmcError, match="invalid VTK file path"):
+        dagmc_lib.filter_graveyard(bad_path)
+
+
+@pytest.mark.parametrize("bad_path", ["", None])
+def test_step_converters_reject_empty_paths(bad_path):
+    with pytest.raises(step_lib.StepError, match="invalid CAD file path"):
+        step_lib.convert_step_to_vtk(bad_path)
+    with pytest.raises(step_lib.StepError, match="invalid CAD file path"):
+        step_lib.convert_step_to_vtk_cached(bad_path)
+
+
+def test_convert_cached_missing_file():
+    with pytest.raises(dagmc_lib.DagmcError, match="DAGMC file not found"):
+        dagmc_lib.convert_h5m_to_vtk_cached("/no/such/model.h5m")
+
+
+def test_step_cached_missing_file():
+    with pytest.raises(step_lib.StepError, match="CAD file not found"):
+        step_lib.convert_step_to_vtk_cached("/no/such/part.step")
+
+
+# ---------------------------------------------------------------------------
+# Missing-vtk error paths (dependency probe forced off)
+# ---------------------------------------------------------------------------
+
+
+def test_dagmc_converters_report_missing_vtk(h5m_file, tmp_path, monkeypatch):
+    """With the vtk probe forced off, vtk-backed converters fail cleanly."""
+    monkeypatch.setattr(dagmc_lib, "HAS_VTK", False)
+    vtk_file = tmp_path / "mesh.vtk"
+    vtk_file.write_text("vtk data")
+    model = _FakeDagmcModel(volumes=[_FakeVolume(1, material="steel")])
+    _install_fake_pydagmc(monkeypatch, model)
+
+    with pytest.raises(dagmc_lib.DagmcError, match="vtk not installed"):
+        dagmc_lib.convert_h5m_volume_to_vtk(str(h5m_file), 1)
+    with pytest.raises(dagmc_lib.DagmcError, match="vtk not installed"):
+        dagmc_lib.convert_h5m_to_multiblock_vtk(str(h5m_file), output_dir=str(tmp_path))
+    with pytest.raises(dagmc_lib.DagmcError, match="vtk not installed"):
+        dagmc_lib.filter_graveyard(str(vtk_file))
+
+
+def test_step_cached_reports_missing_gmsh(step_file, monkeypatch):
+    monkeypatch.setitem(sys.modules, "gmsh", None)
+    with pytest.raises(step_lib.StepError, match="gmsh is required"):
+        step_lib.convert_step_to_vtk_cached(str(step_file), use_cache=False)
+
+
+# ---------------------------------------------------------------------------
+# Volume-id and filter-limit validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_id", [0, -3, "abc", 2.5, True, None])
+def test_convert_h5m_volume_invalid_volume_id(h5m_file, bad_id):
+    """Non-positive/non-integer volume ids are rejected before any dep load."""
+    with pytest.raises(dagmc_lib.DagmcError, match="positive integer"):
+        dagmc_lib.convert_h5m_volume_to_vtk(str(h5m_file), bad_id)
+
+
+def test_convert_h5m_volume_accepts_integral_string_id(h5m_file, tmp_path, monkeypatch):
+    """An integral string id coerces to int (argparse passes ints already)."""
+    model = _FakeDagmcModel(volumes=[_FakeVolume(7, material="steel")])
+    _install_fake_pydagmc(monkeypatch, model)
+    monkeypatch.setattr(dagmc_lib, "_volume_to_grid_numpy", lambda *a: (SimpleNamespace(), 1, 1))
+    _install_fake_vtk(monkeypatch)
+
+    out = dagmc_lib.convert_h5m_volume_to_vtk(
+        str(h5m_file), "7", output_path=str(tmp_path / "vol.vtu")
+    )
+    assert out == str(tmp_path / "vol.vtu")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"max_cell_area": 0},
+        {"max_cell_area": -1.0},
+        {"max_cell_area": "big"},
+        {"max_edge_length": 0},
+        {"max_edge_length": -5},
+        {"max_edge_length": True},
+    ],
+)
+def test_filter_graveyard_invalid_thresholds(tmp_path, kwargs):
+    """Non-positive/non-numeric filter limits are rejected (None derives)."""
+    vtk_file = tmp_path / "mesh.vtk"
+    vtk_file.write_text("vtk data")
+    with pytest.raises(dagmc_lib.DagmcError, match="must be a positive number"):
+        dagmc_lib.filter_graveyard(str(vtk_file), **kwargs)
+
+
+def test_filter_graveyard_keeps_unknown_cell_types(tmp_path, monkeypatch):
+    """Cells that are neither triangles nor lines are always kept."""
+    vtk_file = tmp_path / "mixed.vtk"
+    vtk_file.write_text("vtk data")
+    # One small triangle plus one quad (type 9): nothing filtered -> copy.
+    points = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [5, 5, 5], [6, 5, 5], [6, 6, 5], [5, 6, 5]]
+    mesh = _filter_mesh(points, [5, 9], [0, 3, 7], [0, 1, 2, 3, 4, 5, 6])
+    _install_filter_vtk(monkeypatch, mesh)
+
+    out = dagmc_lib.filter_graveyard(str(vtk_file), output_path=str(tmp_path / "out.vtk"))
+    assert Path(out).read_text() == "vtk data"
+
+
+# ---------------------------------------------------------------------------
+# Model-info block-toggle meta shape
+# ---------------------------------------------------------------------------
+
+
+def test_get_dagmc_model_info_block_toggle_meta(h5m_file, monkeypatch):
+    """The model info carries everything a client block toggle needs:
+    per-volume ids/names/selectors/materials/groups plus per-name
+    material/group volume-id lists."""
+    fuel = _FakeVolume(2, material="UO2", num_triangles=10)
+    clad = _FakeVolume(1, material="Zircaloy", num_triangles=4)
+    model = _FakeDagmcModel(
+        volumes=[fuel, clad],
+        groups=[_FakeGroup("core", [fuel]), _FakeGroup("assembly", [fuel, clad])],
+        surfaces=[],
+    )
+    _install_fake_pydagmc(monkeypatch, model)
+
+    info = dagmc_lib.get_dagmc_model_info(str(h5m_file))
+
+    by_id = {v["id"]: v for v in info["volumes"]}
+    assert by_id[2]["name"] == "Volume_2"
+    assert by_id[2]["selector"] == "/Root/Volume_2"
+    assert by_id[2]["material"] == "UO2"
+    assert by_id[2]["groups"] == ["core", "assembly"]
+    assert by_id[1]["groups"] == ["assembly"]
+    # Selectors are unique and match the multiblock block naming.
+    assert len({v["selector"] for v in info["volumes"]}) == 2
+
+    assert info["materials"]["UO2"]["volumeIds"] == [2]
+    assert info["materials"]["Zircaloy"]["volumeIds"] == [1]
+    assert info["groups"]["core"]["volumeIds"] == [2]
+    assert info["groups"]["assembly"]["volumeIds"] == [2, 1]
+
+
+# ---------------------------------------------------------------------------
+# STEP mesh-size validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_size", [0, -2.5, "coarse", None, True])
+def test_convert_step_invalid_mesh_size(step_file, bad_size):
+    with pytest.raises(step_lib.StepError, match="mesh_size_max must be a positive number"):
+        step_lib.convert_step_to_vtk(str(step_file), mesh_size_max=bad_size)
+
+
+@pytest.mark.parametrize("bad_size", [0, -1.0, "coarse"])
+def test_step_cached_invalid_mesh_size_fails_fast(step_file, tmp_path, monkeypatch, bad_size):
+    """The cached variant validates the mesh size before any cache lookup."""
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("conversion must not run for an invalid mesh size")
+
+    monkeypatch.setattr(step_lib, "convert_step_to_vtk", _boom)
+    with pytest.raises(step_lib.StepError, match="mesh_size_max must be a positive number"):
+        step_lib.convert_step_to_vtk_cached(
+            str(step_file), cache_dir=str(tmp_path), mesh_size_max=bad_size
+        )
+
+
+def _selected_ids(vtk_mod):
+    """Cell ids passed to the fake extract-selection pipeline."""
+    for writer in vtk_mod._writers:
+        for call in writer.calls:
+            if call[0] == "SetInputData" and call[1] == "filtered-mesh":
+                return True
+    return False
+
+
+def test_filter_graveyard_derived_limits_drop_graveyard_box(tmp_path, monkeypatch):
+    """Default (None) limits derive from the mesh bbox: a graveyard-sized box
+    dies while real facets survive — the mm-scale tokamak regression."""
+    vtk_file = tmp_path / "model.vtk"
+    vtk_file.write_text("vtk data")
+    # 20 unit triangles near the origin + one 2000-unit graveyard box face.
+    points = []
+    for i in range(20):
+        x = float(i * 2)
+        points += [[x, 0, 0], [x + 1, 0, 0], [x, 1, 0]]
+    points += [[0, 0, 0], [2000, 0, 0], [2000, 2000, 0]]
+    cell_types = [5] * 21
+    offsets = list(range(0, 63, 3)) + [63]
+    connectivity = list(range(63))
+    mesh = _filter_mesh(points, cell_types, offsets, connectivity)
+    vtk_mod, _ = _install_filter_vtk(monkeypatch, mesh)
+
+    out = dagmc_lib.filter_graveyard(str(vtk_file), output_path=str(tmp_path / "kept.vtk"))
+
+    assert _selected_ids(vtk_mod)  # extract path ran (something was dropped)
+    writer = vtk_mod._writers[-1]
+    assert ("SetFileName", out) in writer.calls
+
+
+def test_filter_graveyard_single_box_falls_back_to_keep_all(tmp_path, monkeypatch):
+    """A lone box (faces ARE the geometry) must survive derivation via the
+    bounding-box-face fallback instead of rendering empty."""
+    vtk_file = tmp_path / "box.vtk"
+    vtk_file.write_text("vtk data")
+    # Unit cube shell: 8 corners, 12 triangles.
+    corners = [
+        [0, 0, 0],
+        [1, 0, 0],
+        [1, 1, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+        [1, 0, 1],
+        [1, 1, 1],
+        [0, 1, 1],
+    ]
+    quads = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (0, 3, 7, 4), (1, 2, 6, 5)]
+    connectivity = []
+    offsets = [0]
+    for quad in quads:
+        for tri in [(quad[0], quad[1], quad[2]), (quad[0], quad[2], quad[3])]:
+            connectivity += list(tri)
+            offsets.append(offsets[-1] + 3)
+    mesh = _filter_mesh(corners, [5] * 12, offsets, connectivity)
+    _install_filter_vtk(monkeypatch, mesh)
+
+    out = dagmc_lib.filter_graveyard(str(vtk_file), output_path=str(tmp_path / "out.vtk"))
+    assert Path(out).read_text() == "vtk data"
+
+
+def test_cache_key_includes_filter_version(tmp_path):
+    """FILTER_VERSION invalidates filtered caches across derivation changes."""
+    h5m_file = tmp_path / "model.h5m"
+    h5m_file.write_bytes(b"fake-h5m")
+    path, _ = dagmc_lib.get_cache_path(str(h5m_file), str(tmp_path), filtered=True)
+    assert dagmc_lib.FILTER_VERSION >= 2
+    import hashlib
+
+    stat = h5m_file.stat()
+    legacy = hashlib.md5(
+        f"{h5m_file.name}:{stat.st_size}:{stat.st_mtime}:filtered".encode()
+    ).hexdigest()[:12]
+    assert legacy not in Path(path).name  # versioned key must differ from the v1 key

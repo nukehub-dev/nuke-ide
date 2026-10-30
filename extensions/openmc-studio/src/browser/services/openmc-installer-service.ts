@@ -107,16 +107,17 @@ export class OpenMCInstallerService {
         {
             id: 'dagmc',
             label: 'DAGMC Tools',
-            description: 'CAD-based geometry support (moab, pydagmc, ocp) — conda only',
-            packages: ['moab', 'pydagmc', 'ocp'],
-            useConda: true,
-            channels: ['conda-forge']
+            description: 'CAD-based geometry support (moab + commit-pinned pydagmc) — pip with the shimwell wheel index',
+            packages: ['moab', 'git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8'],
+            extraIndexUrl: OPENMC_EXTRA_INDEX_URL
         },
         {
-            id: 'openmc-plotter',
-            label: 'OpenMC Plotter',
-            description: 'Interactive visualization tool for OpenMC',
-            packages: ['openmc-plotter']
+            id: 'cad-ocp',
+            label: 'OpenCASCADE (OCP)',
+            description: 'OCP CAD kernel bindings — conda only (pip cadquery-ocp clobbers conda OCCT builds)',
+            packages: ['ocp'],
+            useConda: true,
+            channels: ['conda-forge']
         },
         {
             id: 'visualization',

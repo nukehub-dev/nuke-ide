@@ -15,6 +15,7 @@ nuke-ide/
 │   ├── nuke-core/         # Python env management, health checks, status bar
 │   ├── nuke-visualizer/   # 3D/2D visualization framework
 │   ├── openmc-studio/     # No-code OpenMC simulation workspace
+│   ├── nuke-cad/          # Parametric CAD / meshing / FEM
 │   ├── nuke-essentials/   # Common UI components and commands
 │   ├── nuke-sysmon/       # System monitoring
 │   ├── nuke-fileinfo/     # File properties/metadata viewer
@@ -41,10 +42,10 @@ NukeIDE is built on [Eclipse Theia](https://theia-ide.org/), an extensible frame
 Each extension in `extensions/` is a self-contained Theia package with:
 
 - `package.json` — Theia contribution metadata and npm scripts
-- `src/browser/` or `src/frontend/` — Frontend contributions (React widgets, commands, menus)
-- `src/node/` or `src/backend/` — Backend contributions (services, RPC handlers, file operations)
+- `src/browser/` — Frontend contributions (React widgets, commands, menus)
+- `src/node/` — Backend contributions (services, RPC handlers, file operations)
 - `src/common/` — Shared protocols and interfaces
-- `docs/` — Extension-specific documentation (merged into this site)
+- `docs/` — Extension-specific documentation, served in the IDE
 
 Extensions communicate via **JSON-RPC** over WebSocket. The frontend uses **inversify** for dependency injection.
 
@@ -53,12 +54,12 @@ Extensions communicate via **JSON-RPC** over WebSocket. The frontend uses **inve
 Many extensions rely on Python backends:
 
 1. **Nuke Core** manages Python environments (conda, venv, poetry, etc.).
-2. Extensions spawn Python processes via RPC to perform heavy computation (OpenMC runs, VTK rendering, mesh processing).
+2. Extensions spawn Python processes via RPC to perform heavy computation (OpenMC runs, VTK file conversion, mesh processing); the frontend renders VTK output natively with three.js.
 3. Output is streamed back to the IDE and displayed in terminals or custom widgets.
 
 ## Documentation Architecture
 
-NukeIDE's documentation is read **inside the IDE** by the native docs widget (`extensions/nuke-docs`, opened via Help → NukeIDE Documentation):
+NukeIDE's documentation is read **inside the IDE** by the native docs widget (`extensions/nuke-docs`, opened via Help → Documentation):
 
 - **Product docs** live in `docs/` (installation, architecture, getting started).
 - **Extension docs** live inside each extension's `docs/` folder (`README.md` landing page, `user/`, `dev/`).

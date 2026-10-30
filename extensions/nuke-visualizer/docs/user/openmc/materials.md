@@ -22,26 +22,27 @@ Click `materials.xml` in the Explorer.
 
 ## Material List
 
-The left panel shows all materials as cards:
+The left panel shows one row per material:
 
-| Field           | Description                                        |
-| --------------- | -------------------------------------------------- |
-| **ID**          | Material identifier                                |
-| **Name**        | Material name (from XML)                           |
-| **Density**     | Value and unit (g/cm³, kg/m³, atom/b-cm, or `sum`) |
-| **Depletable?** | Whether the material is marked for burnup          |
-| **Temperature** | Optional temperature in Kelvin                     |
-| **Volume**      | Optional volume in cm³                             |
-| **Nuclides**    | Count of constituent nuclides                      |
-| **S(α,β)**      | Count of thermal scattering assignments            |
+- **ID** — material identifier
+- **Name** — name from the XML (with a `D` badge when depletable)
+- **Density** — value and unit (`g/cm3`, `kg/m3`, `atom/b-cm`, or `sum`)
+- **Nuclides** — count of constituent nuclides
+- **S(α,β)** — count of thermal scattering assignments
 
-Click a material card to expand it and see the full composition.
+Sort the list by ID, name, or density with the column headers. Select a row to
+show its details on the right:
+
+- density, optional temperature, optional volume, and nuclide count
+- thermal scattering assignments
+- cells that reference the material
+- a nuclide composition bar chart and the full nuclide table
 
 ---
 
 ## Composition Table
 
-When expanded, each material shows a table of nuclides:
+When selected, each material shows a table of nuclides:
 
 | Column       | Description                        |
 | ------------ | ---------------------------------- |
@@ -51,7 +52,8 @@ When expanded, each material shows a table of nuclides:
 
 ### Thermal Scattering
 
-If the material has S(α,β) data (e.g., `c_H_in_H2O`), it is listed below the nuclide table with the assigned fraction.
+If the material has S(α,β) data (e.g., `c_H_in_H2O`), it is listed above the
+nuclide table with the assigned fraction.
 
 ---
 
@@ -60,14 +62,16 @@ If the material has S(α,β) data (e.g., `c_H_in_H2O`), it is listed below the n
 Use the search bar at the top to filter materials:
 
 - By **name** (e.g., "fuel", "coolant")
+- By **ID**
 - By **nuclide** (e.g., "U235" — shows all materials containing U235)
-- By **density range**
+
+Use the sortable list headers to order materials by ID, name, or density.
 
 ---
 
 ## Cell Linkage
 
-Click **"Show Cell Usage"** on any material to see which cells in the geometry reference it.
+The details panel lists the cells in the geometry that reference the selected material.
 
 Requirements:
 
@@ -81,64 +85,66 @@ The linkage panel shows:
 | **Cell Name** | Name from geometry.xml             |
 | **Universe**  | Which universe the cell belongs to |
 
-Click a cell to **highlight it in the 3D Geometry Viewer**.
+Click the crosshair button on a cell row to open the **3D Geometry Viewer** with
+that cell selected.
 
 ---
 
 ## Material Mixer
 
-Create a new material by mixing existing ones.
+Create a new material by homogenizing existing ones.
 
 ### How to Open
 
-Click **"Mix Materials"** in the Material Explorer toolbar.
+Click **"Mix Materials"** in the Material Explorer toolbar. The **Material
+Homogenizer** panel opens.
 
 ### Steps
 
-1. **Select materials** from the list (check the boxes).
-2. **Set fractions** for each material:
-   - Atomic % (`ao`)
-   - Weight % (`wo`)
-   - Volume % (`vo`)
-3. **Name** the new material.
-4. **Optional:** Assign an ID.
-5. Click **"Calculate"**.
+1. **Add source materials:** click materials in the left list; each added
+   material appears with a fraction field.
+2. **Choose the fraction type:** Atom % (`ao`), Weight % (`wo`), or Volume %
+   (`vo`).
+3. **Set fractions** for each material. Atom and weight fractions must total
+   `1.0000`; volume fractions may total less, with the remainder treated as void.
+4. **Set the output name and material ID.**
+5. Click **"Generate Mixture"**.
 
 ### Result
 
-- The mixed composition is shown in a preview table.
-- The resulting density is computed.
-- Click **"Add to materials.xml"** to append the new material definition to your file.
+- A **Generated Material** card shows the computed density, nuclide count,
+  depletable flag, and the generated XML.
+- The density is computed by the mixer and displayed; there is no overall
+  density input.
+- Click **"Save to File"** to append the new material definition to
+  `materials.xml`.
 - Or click **"Copy XML"** to paste the `<material>` snippet manually.
 
 ### Use Cases
 
 - **Blending enrichments:** Mix 3% and 5% enriched UO₂ to get 4%.
 - **Coolant chemistry:** Mix borated water at different ppm levels.
-- ** clad mixtures:** Combine Zircaloy alloys.
+- **Clad mixtures:** Combine Zircaloy alloys.
 
 ---
 
 ## Editing Materials
 
-The Material Explorer is **read-only by default** for safety. To edit:
-
-1. Make changes in the mixer.
-2. Copy the generated XML.
-3. Paste it into `materials.xml` in the editor.
-
-Future versions may support direct in-place editing.
+The Material Explorer is **read-only**; it does not edit existing material
+definitions. The mixer can append a new material directly with **Save to File**,
+or you can copy its generated XML and paste it into `materials.xml` in the
+editor for manual changes.
 
 ---
 
 ## Export
 
-Click **"Export CSV"** to download all material compositions as a spreadsheet-friendly file.
+Click **"Export CSV"** in the Material Explorer toolbar to download the materials currently shown (the search filter and sort order apply). The file has one row per nuclide or S(α,β) entry, with the material ID, name, density, temperature, volume, and depletable flag repeated on each row. Materials without a composition produce a single row.
 
 ---
 
 ## Tips
 
-- **Depletable materials** are marked with a flame icon. These are the materials tracked by the depletion solver.
+- **Depletable materials** are marked with a `D` badge. These are the materials tracked by the depletion solver.
 - **Missing materials:** If a cell references a material ID that doesn't exist in `materials.xml`, a warning icon appears in the Cell Linkage panel.
 - **Density = sum:** If a material uses `density units="sum"`, the explorer shows the computed atom density for each nuclide.

@@ -18,15 +18,18 @@ Best for: Understanding spatial distribution of results in 3D.
 ### How to Open
 
 1. Load a statepoint.
-2. In the **Tallies** list, click a tally that has a **mesh filter**.
-3. Click **"View 3D"**.
+2. In the **Tallies** tab, find a tally that has a **mesh filter**.
+3. Click its **3D** button (tooltip: **View tally in 3D visualization**).
 
 Or use the menu: `Tools → Visualizer → OpenMC → Tally → Visualize Tally`
 
 ### What You See
 
-- An interactive 3D volume rendered with ParaView/Trame.
+- An interactive 3D volume rendered natively in the IDE.
 - The mesh cells are colored by tally value using a selectable colormap.
+- Uncertainty companions: every converted mesh also carries `<score>-std` and
+  `<score>-rel-err` cell arrays. Pick either in **Color by** to inspect
+  convergence; void (exact-zero) cells stay zero rather than NaN.
 - Controls for opacity, representation, and clipping work the same as the [Base Visualizer](../base-visualizer.md).
 
 ### Options
@@ -37,6 +40,42 @@ Before visualizing, you can select:
 - **Nuclide** — Which nuclide (e.g., `total`, `U235`)
 
 > If the tally has only one score/nuclide, it is selected automatically.
+
+---
+
+## Uncertainty (Mean + Relative Error)
+
+Best for: judging where a tally is converged, not only where it is hot.
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer.
+2. In the **Viewer Settings** sidebar, set **Color by** to the
+   `Cell: <score>-mean` array.
+3. Open the **Uncertainty** section and turn on its switch.
+
+The section only appears when the active cell array carries a companion:
+`<score>-mean` pairs with `<score>-std` or `<score>-rel-err`; any other
+array needs an explicit `<name>-rel-err` sibling. A bare `<name>-std`
+without a mean pair is not enough, so unrelated arrays are never guessed.
+
+### What You See
+
+- The mean still drives the color. The relative statistical error
+  (`std / |mean|`) fades each surface and voxel block toward the
+  **Mask color**, so poorly converged cells read as flat gray while
+  reliable cells keep their colormap color.
+- **Channel** — Opacity, Desaturate, or Noise. Surfaces and voxel blocks
+  carry per-vertex/instance RGB only, so Opacity and Noise are rendered as
+  the same desaturation blend (there is no per-vertex alpha or dither
+  texture).
+- **Max rel. error** — cells at or above the threshold take the mask
+  color; lower values expose more of the uncertainty. Void bins keep
+  relative error 0, so exact-zero cells stay reliable instead of masked.
+- **Mask color** — the color painted on cells at or above the threshold.
+- Editing the channel, threshold, or mask color repaints instantly — no
+  reload. The smooth volume raycast and the Slice preview stay mean-only;
+  switch to voxel boxes to see bivariate shading in the volume.
 
 ---
 
@@ -60,6 +99,11 @@ Best for: Seeing tally results directly on your CAD/DAGMC geometry.
 
 Best for: Inspecting a specific cross-section of your geometry.
 
+The slice renders as a smooth shaded surface (per-point values
+interpolate across a triangulated grid), so Shaded/Wireframe/Points/Edges
+all apply. Wide grids decimate by whole grid steps (capped) to stay
+interactive with complete coverage; points stay full-resolution.
+
 **Options:**
 
 - **Plane** — X, Y, or Z cross-section
@@ -71,10 +115,56 @@ Best for: Inspecting a specific cross-section of your geometry.
 
 Best for: Full spatial context of tally results on the complete geometry.
 
+With a DAGMC (`.h5m`) geometry, every volume surface is painted with the
+mesh tally — Pixelated samples each triangle centroid (nearest mesh
+cell, clamped at the mesh bounds, flat per-triangle color), while Smooth
+Interpolation trilinearly interpolates at the surface vertices (blended
+between mesh cells) — and opened in the native DAGMC viewer — volume,
+material, and group isolation, instant color-by on the tally array, clip
+planes, and the color legend all keep working. The tally mesh itself also
+loads as voxel blocks inside the same scene (Viewer Settings → Tally
+volume), so clipping reveals the hot interior instead of hollow shells.
+The **Smooth volume** switch renders the same mesh as a trilinear
+raycast volume instead of per-cell boxes (same colors, exact-zero cells
+stay invisible, clip planes cut it identically) — turn Tally volume off
+entirely to judge the surface drape alone. In Points shading mode the
+volume renders as colored points over non-empty cell centers (void stays
+empty), since surface-only point clouds cannot show the interior. Tally
+objects draw after the ghosted shells so the interior stays readable
+under transparency instead of drowning in it. X-Ray ghosts the geometry but
+keeps tally colors (boxes and smooth volume) at full strength so the
+hot interior stays readable; to inspect it without any transparency,
+isolate volumes in the DAGMC Outline or cut a clip plane instead.
+Void (exact-zero) cells collapse away rather than fogging the geometry;
+lowering Opacity ghosts the rest with interiors kept visible. Any other
+geometry opens the full mesh itself as voxel blocks, which the per-axis
+clip planes cut through for interior exploration — with the ghosted CSG
+cells underlaid for context (solid fills plus edge-only void shells, so
+the big bounding boxes can't wash out the tally; theme-aware,
+clip-cut with the tally; the header chip reads `mesh + N CSG`).
+Right-click the canvas for a CSG Underlay toggle, and the CSG Outline
+binds the overlay tab too: per-cell/material visibility, the Void
+switch, show-all, and row-click highlight of the ghost (selection sync
+is panel→canvas only — the tally canvas has no CSG picking).
+
 **Options:**
 
-- **Graveyard Filtering** — Hide large graveyard surfaces (DAGMC only)
 - **Rendering Style** — Smooth interpolation or pixelated (blocky) mesh cells
+
+On true 3D tally meshes the Viewer Settings sidebar gains the DAGMC
+drape's **Tally volume** rows: a visibility master switch (hide the
+voxels to inspect the CSG underlay alone) and **Smooth volume**, which
+renders the same mesh as a trilinear raycast volume instead of
+per-cell boxes (same colors, exact-zero cells stay invisible, clip
+planes cut it identically). While smooth draws, the CSG ghosts
+auto-dim to faint context so stacked shells cannot veil the
+projection; they return to full strength on boxes. Solid Color mode
+and non-cell arrays fall back to boxes. Slices and source clouds keep
+boxes only.
+
+The graveyard termination volume always converts with the rest and stays
+hidden by default; re-show it anytime with the DAGMC Outline's Graveyard
+switch.
 
 ### What You See
 
@@ -95,26 +185,21 @@ Best for: Validating that your source distribution covers the tally regions you 
 ### How to Open
 
 1. Load a statepoint that contains a **source bank**.
-2. In the **Tallies** list, click a tally that has a **mesh filter**.
-3. Click **"+ Source"** (or **"Overlay with Source"** in the Tally Tree).
+2. In the **Tallies** tab, click the source-overlay button on a mesh tally
+   (tooltip: **Overlay tally on geometry with source particles**).
+3. Or expand the tally in the **Tally Tree** and click **+ Source**.
 
-Or use the menu: `Tools → Visualizer → OpenMC → Tally → Overlay Tally on Geometry with Source`
+This overlay action lives on the tally, not in the `Tally` menu.
 
 ### What You See
 
-- Your DAGMC or CSG geometry rendered in 3D, colored by the tally value.
-- Source particles from the statepoint overlaid as points on top of the geometry.
-- Source particles are colored by **energy** (default) or **weight**.
-
-### Controls
-
-In addition to the standard geometry overlay controls, the sidebar includes a **Source Particles** section:
-
-| Control             | Description                                             |
-| ------------------- | ------------------------------------------------------- |
-| **Point Size**      | Size of source particle points                          |
-| **Source Opacity**  | Transparency of source particles                        |
-| **Source Color By** | Color particles by `energy`, `weight`, or `Solid Color` |
+On a DAGMC (`.h5m`) geometry: the draped tally overlay, plus source
+particles from the statepoint overlaid as points throughout the scene.
+Source particles are colored by **energy** (weight fallback) through the
+current colormap with their own data range, and follow the shared Point
+size / Opacity sliders and clip planes. On any other geometry the tally
+mesh itself opens as voxel blocks with the same source layer (tab title
+gains `+ Source`; without a source bank the tally opens alone).
 
 > If the statepoint has no source bank, the visualization falls back to a standard geometry overlay.
 
@@ -127,9 +212,9 @@ Best for: Seeing how tally values vary with neutron energy.
 ### How to Open
 
 1. Load a statepoint with a tally that has an **energy filter**.
-2. In the Tallies list, click **"Spectrum"**.
+2. In the Tallies tab, click the spectrum button on the tally card.
 
-Or open the **Tally Tree** sidebar, right-click a tally → **Energy Spectrum**.
+Or open the **Tally Tree** sidebar, expand the tally, and click **Spectrum**.
 
 ### What You See
 
@@ -141,8 +226,8 @@ Or open the **Tally Tree** sidebar, right-click a tally → **Energy Spectrum**.
 
 ### Multi-Score / Multi-Nuclide
 
-- **"Plot All Scores"** — Overlays every score for the selected nuclide on one chart.
-- **"Plot All Nuclides"** — Overlays every nuclide for the selected score.
+- The **Plot All Scores** button next to **Spectrum** overlays every score for the selected nuclide on one chart.
+- The **Plot All Nuclides** button overlays every nuclide for the selected score.
 
 ---
 
@@ -153,12 +238,137 @@ Best for: 1D line plots of tally value along X, Y, or Z.
 ### How to Open
 
 1. Load a statepoint with a **mesh tally**.
-2. In the Tallies list, click **"Spatial"**.
+2. In the Tallies tab, click the spatial button on the tally card (or **Spatial** in the Tally Tree).
 
 ### What You See
 
 - A line chart with position (cm) on the X-axis and tally value on the Y-axis.
 - By default, the Z-axis is plotted. The axis can be changed in the plot widget.
+
+---
+
+## Line Probe
+
+Best for: Flux profiles along an arbitrary segment (e.g. across a fuel pin, through a shield wall).
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer (the **3D** button).
+2. Click **"Line probe"** in the viewer header.
+
+### What You See
+
+- A probe builder panel below the 3D view: statepoint path, tally id,
+  score/nuclide, a start/end point pair in cm, the sample count, and a
+  **Smooth** switch. Only one tool panel is open at a time (probe and
+  contour share the bottom strip), and each panel has a close button.
+- Statepoint, tally, score, and nuclide arrive pre-filled from the open tab,
+  so a run usually needs no typing. Endpoints default to the dataset's X
+  axis through its center, with **X/Y/Z span** shortcuts for the other axes.
+  Canvas picking stays in the measure tool.
+- **Smooth** (default) trilinearly interpolates between mesh cells; turning
+  it off samples nearest cells, showing the actual blocky mesh values (the
+  same convention as the overlay Rendering Style).
+- Running the probe samples the tally along the segment and renders the
+  series (distance / position / value) in a table; **Export CSV** downloads
+  the full series.
+
+### Requirements
+
+- The statepoint must contain the probed tally with a regular mesh filter
+  (cylindrical meshes are rejected with a clear error, like the other
+  tally exports).
+- Missing dependencies (`h5py` for reading, `vtk` for the optional
+  `.vtp` probe-path polyline) surface as panel errors naming the package.
+
+---
+
+## Contour
+
+Best for: Flux iso-surfaces (e.g. the surface where the flux equals a
+shielding limit, nested shells around a hot spot).
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer (the **3D** button).
+2. Click **"Contour"** in the viewer header.
+
+### What You See
+
+- A contour builder panel below the 3D view: statepoint path, tally id,
+  score/nuclide, up to 8 **Iso values** in tally units (separated by spaces
+  or commas — every value becomes a surface in one call), and a **Smooth**
+  switch. Source fields arrive pre-filled from the open tab; only one tool
+  panel is open at a time.
+- **Smooth** (default) interpolates surface vertices along mesh edges;
+  turning it off snaps vertices to edge midpoints, showing the blocky mesh
+  cells (the same convention as the overlay Rendering Style).
+- Running the contour opens the surfaces as a sibling tab next to the tally
+  mesh, colored by the tally array with one iso value per vertex. The
+  sibling is a full tally tab: Viewer Settings warp and threshold keep
+  working on it with no extra steps.
+
+### Requirements
+
+- The statepoint must contain the contoured tally with a regular mesh
+  filter of at least 2 cells per axis (cylindrical meshes are rejected with
+  a clear error, like the other tally exports).
+- Iso values that all miss the data range fail with an error naming the
+  range; values that hit still extract when mixed with misses.
+- Missing dependencies (`h5py` for reading, `vtk` for the `.vtp` write)
+  surface as panel errors naming the package.
+
+---
+
+## Linked Cameras
+
+Best for: Comparing two views of one file side by side from the same angle.
+
+### How to Use
+
+1. Open the same file in two viewer tabs.
+2. In each tab's bottom nav bar, click the **link** icon (**Link cameras**).
+3. Orbit either view — same-file linked views follow its direction and camera
+   distance, while each view keeps its own orbit target.
+
+### What Syncs (and What Doesn't)
+
+- Only the camera pose follows: direction and distance are applied through each
+  view's orbit handle; each view keeps its own target. In a **Comparison
+  Workspace**, panes apply direction only and keep their own framing distance.
+- Display settings never sync: warp, threshold, glyphs, color-by, clip, and
+  shading stay per-view, so linked tabs can show different fields of the same
+  data from one camera.
+- Identity is the file path: views of different files never link, even with
+  the toggle on. The toggle is per-view and defaults to off.
+- Tally mesh, slice, overlay, source, and contour tabs are keyed by their
+  source statepoint (or source) file, so tabs derived from one file link
+  with each other — and never with tabs from another file.
+
+---
+
+## Threshold
+
+Best for: Hiding low-flux (or out-of-range) cells to expose the hot region
+of a mesh tally.
+
+### How to Open
+
+1. Open a mesh tally in the native 3D tally viewer (the **3D** button).
+2. In the Viewer Settings sidebar, find the **Threshold** row beside Range
+   and flip the switch, then narrow the min/max window.
+
+### What You See
+
+- Cells whose active color-by value falls outside the window disappear
+  (voxel boxes collapse, mesh triangles fold away); the rest keep their
+  colors. The status line reports the coverage (e.g. `threshold 8,412 of 10,000 shown`).
+- The window tests the active array, including a transient derived field
+  from the Calculator, and follows color-by switches (a custom window
+  resets to the new data range so a stale window cannot blank the scene).
+- Non-finite values (NaN from divide-by-zero fields) stay visible, matching
+  the colormap's NaN-color rule. The smooth raycast volume ignores the
+  window — switch back to voxel boxes to see it apply.
 
 ---
 
@@ -169,19 +379,22 @@ Best for: Inspecting mesh tally slice-by-slice.
 ### How to Open
 
 1. Load a statepoint with a **mesh tally**.
-2. In the Tallies list, click **"Heatmap"**.
+2. In the Tallies tab, click the heatmap button on the tally card (or **Heatmap** in the Tally Tree).
 
 ### What You See
 
 - A 2D color heatmap of a single slice through the mesh.
 - Controls:
-  - **Plane:** XY / XZ / YZ
-  - **Slice Index:** Step through slices with arrow buttons
-  - **Score / Nuclide selectors**
+  - **Plane:** XY (Z slice) / XZ (Y slice) / YZ (X slice)
+  - **Slice:** slider with position readout (`n / total`)
+  - **Colormap** and **Log Scale**
+  - **Difference View** with a reference slice (after **Load All**)
 
 ### Animation
 
-Click **"Play"** to animate through all slices automatically. Useful for presentations or quick scans of the full mesh.
+Click **Load All**, then **Play** to animate through all slices automatically;
+**Stop** stops playback and the speed selector sets the interval. Useful for
+presentations or quick scans of the full mesh.
 
 ---
 
@@ -204,12 +417,15 @@ Or: `Tools → Visualizer → OpenMC → Tally → Visualize Source Distribution
 
 ## Summary Table
 
-| Visualization       | Requires                               | Best For                                    |
-| ------------------- | -------------------------------------- | ------------------------------------------- |
-| 3D Mesh Tally       | Mesh filter                            | Full 3D spatial understanding               |
-| Overlay on Geometry | Geometry + mesh filter                 | CAD-integrated results (slice or full 3D)   |
-| Energy Spectrum     | Energy filter                          | Spectral analysis, flux shapes              |
-| Spatial Plot        | Mesh filter                            | 1D profiles along an axis                   |
-| 2D Heatmap          | Mesh filter                            | Slice-by-slice inspection                   |
-| Source Distribution | `source.h5` or statepoint with source  | Source convergence checks                   |
-| Overlay + Source    | Geometry + statepoint with source bank | Correlating source birth with tally regions |
+| Visualization       | Requires                                | Best For                                    |
+| ------------------- | --------------------------------------- | ------------------------------------------- |
+| 3D Mesh Tally       | Mesh filter                             | Full 3D spatial understanding               |
+| Uncertainty         | Mesh filter with std/rel-err companions | Convergence-aware mean coloring             |
+| Overlay on Geometry | Geometry + mesh filter                  | CAD-integrated results (slice or full 3D)   |
+| Energy Spectrum     | Energy filter                           | Spectral analysis, flux shapes              |
+| Spatial Plot        | Mesh filter                             | 1D profiles along an axis                   |
+| Line Probe          | Mesh filter                             | Flux profiles along an arbitrary segment    |
+| Contour             | Mesh filter                             | Flux iso-surfaces in a sibling tab          |
+| 2D Heatmap          | Mesh filter                             | Slice-by-slice inspection                   |
+| Source Distribution | `source.h5` or statepoint with source   | Source convergence checks                   |
+| Overlay + Source    | Geometry + statepoint with source bank  | Correlating source birth with tally regions |

@@ -1,0 +1,86 @@
+/* ============================================================================
+   NukeIDE Dialog (modal shell)
+   ============================================================================ */
+
+.nuke-dialog-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--nuke-space-4);
+    box-sizing: border-box;
+    background: color-mix(in srgb, var(--theia-editor-background), transparent 45%);
+    pointer-events: auto;
+}
+
+.nuke-dialog-backdrop.non-modal {
+    background: transparent;
+    pointer-events: none;
+}
+
+.nuke-dialog-backdrop.non-modal .nuke-dialog {
+    pointer-events: auto;
+}
+
+.nuke-dialog {
+    display: flex;
+    flex-direction: column;
+    min-width: 240px;
+    max-width: 480px;
+    max-height: 100%;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: var(--nuke-radius-lg);
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    box-shadow: var(--nuke-shadow-xl);
+    box-sizing: border-box;
+}
+
+/* Draggable variant: a dragged offset arrives via inline style (top/left),
+   anchored to the backdrop so the offsetParent clamp keeps it in view. */
+.nuke-dialog.nuke-dialog-dragged {
+    position: absolute;
+}
+
+.nuke-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--nuke-space-2);
+    padding: var(--nuke-space-3) var(--nuke-space-4);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.nuke-dialog-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-dialog-close {
+    flex-shrink: 0;
+    padding: 2px 6px;
+}
+
+.nuke-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--nuke-space-3);
+    padding: var(--nuke-space-4);
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.nuke-dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--nuke-space-2);
+    padding: var(--nuke-space-3) var(--nuke-space-4);
+    border-top: 1px solid var(--theia-panel-border);
+}

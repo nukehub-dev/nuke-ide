@@ -30,7 +30,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 
 import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
@@ -158,7 +158,7 @@ export class MgxsGeneratorWidget extends ReactWidget {
         this.title.label = MgxsGeneratorWidget.LABEL;
         this.title.caption = MgxsGeneratorWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-library';
+        this.title.iconClass = 'codicon codicon-openmc-mgxs';
 
         this.stateManager.onStateChange(() => this.update());
         this.stateManager.onStateReload(() => this.update());
@@ -337,35 +337,33 @@ export class MgxsGeneratorWidget extends ReactWidget {
                     {!nuclideWise && (
                         <div className="form-group">
                             <label>Generation Method</label>
-                            <select
+                            <NukeSelect
                                 value={this.method}
-                                onChange={(e) => {
-                                    this.method = e.target.value as typeof this.method;
+                                options={[
+                                    { value: 'material_wise', label: 'Material Wise (highest fidelity)' },
+                                    { value: 'stochastic_slab', label: 'Stochastic Slab' },
+                                    { value: 'infinite_medium', label: 'Infinite Medium' }
+                                ]}
+                                onChange={(value: string) => {
+                                    this.method = value as typeof this.method;
                                     this.update();
                                 }}
-                            >
-                                <option value="material_wise">Material Wise (highest fidelity)</option>
-                                <option value="stochastic_slab">Stochastic Slab</option>
-                                <option value="infinite_medium">Infinite Medium</option>
-                            </select>
+                                ariaLabel="Generation method"
+                            />
                             <span className="form-hint">Material Wise runs a continuous-energy solve of the actual geometry</span>
                         </div>
                     )}
                     <div className="form-group">
                         <label>Energy Group Structure</label>
-                        <select
+                        <NukeSelect
                             value={this.groups}
-                            onChange={(e) => {
-                                this.groups = e.target.value;
+                            options={[...GROUP_STRUCTURES.map((g) => ({ value: g, label: g }))]}
+                            onChange={(value: string) => {
+                                this.groups = value;
                                 this.update();
                             }}
-                        >
-                            {GROUP_STRUCTURES.map((g) => (
-                                <option key={g} value={g}>
-                                    {g}
-                                </option>
-                            ))}
-                        </select>
+                            ariaLabel="Energy group structure"
+                        />
                     </div>
                 </div>
                 <div className="form-row">
@@ -383,16 +381,18 @@ export class MgxsGeneratorWidget extends ReactWidget {
                     </div>
                     <div className="form-group">
                         <label>Transport Correction</label>
-                        <select
+                        <NukeSelect
                             value={this.correction}
-                            onChange={(e) => {
-                                this.correction = e.target.value as 'none' | 'P0';
+                            options={[
+                                { value: 'none', label: 'None (default)' },
+                                { value: 'P0', label: 'P0' }
+                            ]}
+                            onChange={(value: string) => {
+                                this.correction = value as 'none' | 'P0';
                                 this.update();
                             }}
-                        >
-                            <option value="none">None (default)</option>
-                            <option value="P0">P0</option>
-                        </select>
+                            ariaLabel="Transport correction"
+                        />
                     </div>
                     <div className="form-group">
                         <label>Temperatures (K, optional)</label>
@@ -446,19 +446,15 @@ export class MgxsGeneratorWidget extends ReactWidget {
                 <div className="form-row">
                     <div className="form-group">
                         <label>Energy Group Structure</label>
-                        <select
+                        <NukeSelect
                             value={this.groups}
-                            onChange={(e) => {
-                                this.groups = e.target.value;
+                            options={[...GROUP_STRUCTURES.map((g) => ({ value: g, label: g }))]}
+                            onChange={(value: string) => {
+                                this.groups = value;
                                 this.update();
                             }}
-                        >
-                            {GROUP_STRUCTURES.map((g) => (
-                                <option key={g} value={g}>
-                                    {g}
-                                </option>
-                            ))}
-                        </select>
+                            ariaLabel="Energy group structure"
+                        />
                     </div>
                     <div className="form-group">
                         <label>Particles</label>
@@ -474,33 +470,37 @@ export class MgxsGeneratorWidget extends ReactWidget {
                     </div>
                     <div className="form-group">
                         <label>Transport Correction</label>
-                        <select
+                        <NukeSelect
                             value={this.correction}
-                            onChange={(e) => {
-                                this.correction = e.target.value as 'none' | 'P0';
+                            options={[
+                                { value: 'none', label: 'None (default)' },
+                                { value: 'P0', label: 'P0' }
+                            ]}
+                            onChange={(value: string) => {
+                                this.correction = value as 'none' | 'P0';
                                 this.update();
                             }}
-                        >
-                            <option value="none">None (default)</option>
-                            <option value="P0">P0</option>
-                        </select>
+                            ariaLabel="Transport correction"
+                        />
                     </div>
                 </div>
                 <div className="form-row">
                     <div className="form-group">
                         <label>Domain Type</label>
-                        <select
+                        <NukeSelect
                             value={this.domainType}
-                            onChange={(e) => {
-                                this.domainType = e.target.value as typeof this.domainType;
+                            options={[
+                                { value: 'material', label: 'Material' },
+                                { value: 'cell', label: 'Cell' },
+                                { value: 'universe', label: 'Universe' }
+                            ]}
+                            onChange={(value: string) => {
+                                this.domainType = value as typeof this.domainType;
                                 this.domainIds = new Set();
                                 this.update();
                             }}
-                        >
-                            <option value="material">Material</option>
-                            <option value="cell">Cell</option>
-                            <option value="universe">Universe</option>
-                        </select>
+                            ariaLabel="Domain type"
+                        />
                     </div>
                     <div className="form-group">
                         <label>Domains (none checked = all)</label>
@@ -542,18 +542,20 @@ export class MgxsGeneratorWidget extends ReactWidget {
                     </div>
                     <div className="form-group">
                         <label>Estimator</label>
-                        <select
+                        <NukeSelect
                             value={this.estimator}
-                            onChange={(e) => {
-                                this.estimator = e.target.value as typeof this.estimator;
+                            options={[
+                                { value: '', label: 'Default (per XS type)' },
+                                { value: 'analog', label: 'Analog' },
+                                { value: 'tracklength', label: 'Tracklength' },
+                                { value: 'collision', label: 'Collision' }
+                            ]}
+                            onChange={(value: string) => {
+                                this.estimator = value as typeof this.estimator;
                                 this.update();
                             }}
-                        >
-                            <option value="">Default (per XS type)</option>
-                            <option value="analog">Analog</option>
-                            <option value="tracklength">Tracklength</option>
-                            <option value="collision">Collision</option>
-                        </select>
+                            ariaLabel="Estimator"
+                        />
                     </div>
                     <div className="form-group checkbox stacked">
                         <label aria-hidden="true">&nbsp;</label>
@@ -676,7 +678,7 @@ export class MgxsGeneratorWidget extends ReactWidget {
                 <div className="openmc-header">
                     <div className="header-info">
                         <h2>
-                            <i className="codicon codicon-library"></i>
+                            <i className="codicon codicon-openmc-mgxs"></i>
                             MGXS Generator
                         </h2>
                         <p className="header-description">Multi-group cross section library from continuous-energy solves</p>

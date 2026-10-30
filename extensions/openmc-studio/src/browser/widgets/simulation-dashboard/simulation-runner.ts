@@ -29,7 +29,6 @@
  * Simulation Runner
  *
  * Frontend service for running OpenMC simulations and monitoring progress.
- * This is a placeholder for Phase 1 implementation.
  *
  * @module openmc-studio/browser
  */

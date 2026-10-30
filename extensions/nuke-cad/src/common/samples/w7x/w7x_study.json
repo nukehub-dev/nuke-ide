@@ -1,0 +1,87 @@
+{
+  "source": {
+    "fileName": "scaled_w7x_stellarator.step",
+    "license": "MIT",
+    "sourceHash": "384d025207b7d6ccc00bef364611526ef0c3093b091f6f4005fb8586ae4f34e3",
+    "sourceSize": 48795157,
+    "sourceUnit": "m"
+  },
+  "reports": [
+    {
+      "moduleCount": 4,
+      "valid": false,
+      "pitchDeg": 90,
+      "moduleSpanDeg": 65.34020296405286,
+      "uncoveredSectorDeg": 24.659797035947136,
+      "moduleOverlapDeg": 0,
+      "coilCoilOverlaps": [],
+      "coilShellOverlaps": [
+        {
+          "coil": "coil_01_m1",
+          "shell": "plasma",
+          "volumeM3": 0.07262425261451198
+        },
+        {
+          "coil": "coil_01_m1",
+          "shell": "gap",
+          "volumeM3": 0.045737274243147635
+        },
+        {
+          "coil": "coil_01_m1",
+          "shell": "firstwall",
+          "volumeM3": 0.020429452553315554
+        },
+        {
+          "coil": "coil_01_m1",
+          "shell": "blanket",
+          "volumeM3": 0.46259413190110726
+        },
+        {
+          "coil": "coil_01_m1",
+          "shell": "vessel",
+          "volumeM3": 0.022858035443290542
+        }
+      ],
+      "summary": "Four modules at 90° pitch leave a 24.66° uncovered sector; coil_01_m1 intersects all five shells, so the layout is not a physically valid W7-X."
+    },
+    {
+      "moduleCount": 5,
+      "valid": true,
+      "pitchDeg": 72,
+      "moduleSpanDeg": 65.34020296405286,
+      "uncoveredSectorDeg": 6.659797035947136,
+      "moduleOverlapDeg": 0,
+      "minCoilClearanceM": 0.10280660700859308,
+      "coilCoilOverlaps": [],
+      "coilShellOverlaps": [],
+      "summary": "Valid five-module W7-X: 72° pitch, 50 coils, a 6.66° module gap, and 0.103 m minimum adjacent coil clearance."
+    },
+    {
+      "moduleCount": 6,
+      "valid": false,
+      "pitchDeg": 60,
+      "moduleSpanDeg": 65.34020296405286,
+      "uncoveredSectorDeg": 0,
+      "moduleOverlapDeg": 5.340202964052864,
+      "coilCoilOverlaps": [
+        {
+          "a": "coil_01_m1",
+          "b": "coil_08_m0",
+          "volumeM3": 0.07275555101930298
+        },
+        {
+          "a": "coil_01_m1",
+          "b": "coil_09_m0",
+          "volumeM3": 0.019840057797974403
+        },
+        {
+          "a": "coil_01_m1",
+          "b": "coil_07_m0",
+          "volumeM3": 0.0028936399505570176
+        }
+      ],
+      "coilShellOverlaps": [],
+      "summary": "Six modules at 60° pitch overlap by 5.34°; coil_01_m1 intersects three module-0 coils, so the layout is not a physically valid W7-X."
+    }
+  ]
+}

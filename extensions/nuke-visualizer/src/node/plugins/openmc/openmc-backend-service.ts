@@ -26,17 +26,14 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { RawProcessFactory, RawProcess, RawProcessOptions } from '@theia/process/lib/node/raw-process';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as net from 'net';
-import * as os from 'os';
+import { RawProcessFactory, RawProcess } from '@theia/process/lib/node/raw-process';
 
 import {
     OpenMCBackendService,
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
-    OpenMCVisualizationResult,
+    OpenMCTallySeries,
+    OpenMCTallySeriesOptions,
     XSGroupStructuresResponse,
     PythonConfig,
     VisualizerClient,
@@ -51,9 +48,15 @@ import {
     OpenMCCollisionVtkOptions,
     OpenMCWeightWindowsData,
     OpenMCVtkConversionResult,
+    OpenMCGeometryMeshResult,
     OpenMCKineticsResult,
     OpenMCVtkFileInfo,
     OpenMCParticleRestart,
+    DepletionDoseQuantity,
+    OpenMCDepletionContactDoseResult,
+    OpenMCDepletionDecaySpectrumResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
     NuclearDataLibraryRequest,
     NuclearDataLibraryResult,
     NuclideDetailRequest,
@@ -67,7 +70,14 @@ import {
     EndfEvaluationsRequest,
     EndfEvaluationsResult,
     EndfDetailRequest,
-    EndfDetailResult
+    EndfDetailResult,
+    OpenMCTallyMeshVtkOptions,
+    OpenMCSourceVtkOptions,
+    OpenMCOverlayVtkOptions,
+    OpenMCOverlayGeometryVtkOptions,
+    OpenMCTallyLineProbeOptions,
+    OpenMCTallyLineProbeResult,
+    OpenMCTallyContourOptions
 } from '../../../common/openmc-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
 import { PythonCommandHelper } from '../../services/python-command-helper';
@@ -80,10 +90,25 @@ interface OpenMCProcess {
 }
 
 /**
+ * Render a pip install hint for a requirement entry, honoring its structured
+ * spec fields (`extraIndexUrl`, `pipSpec`, `pipArgs`).
+ */
+function pipInstallHint(name: string): string {
+    const def = OPENMC_REQUIREMENTS.find((r) => r.name === name);
+    const args = [...(def?.pipArgs ?? [])];
+    if (def?.extraIndexUrl) {
+        args.push('--extra-index-url', def.extraIndexUrl);
+    }
+    args.push(def?.pipSpec ?? name);
+    return `pip install ${args.join(' ')}`;
+}
+
+/**
  * Node.js backend implementation of the OpenMC visualization RPC service.
  *
- * Spawns Python processes running `server.py` for 3D tally/geometry
- * visualization, and delegates data queries to specialized sub-services:
+ * Runs headless `server.py` conversion/info commands and delegates data
+ * queries to specialized sub-services (no visualization servers are spawned;
+ * all viewers render natively in the frontend):
  * - {@link OpenMCStatepointService} — statepoint and tally data
  * - {@link OpenMCGeometryService} — geometry hierarchy and materials
  * - {@link OpenMCXSService} — cross-section plotting
@@ -96,7 +121,6 @@ interface OpenMCProcess {
 export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     private processes: Map<number, OpenMCProcess> = new Map();
     private reservedPorts: Set<number> = new Set();
-    private client: VisualizerClient | undefined;
 
     @inject(RawProcessFactory)
     protected readonly rawProcessFactory: RawProcessFactory;
@@ -122,13 +146,15 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
     @inject(OpenMCOutputService)
     protected readonly outputService: OpenMCOutputService;
 
-    setClient(client: VisualizerClient): void {
-        this.client = client;
+    setClient(_client: VisualizerClient): void {
+        // No log streaming is wired through the client on this service; the
+        // parameter only satisfies the shared RPC interface.
     }
 
     /**
-     * Check whether a port belongs to a trame server started by this service.
-     * Used by the visualizer reverse proxy to restrict forwarding to known servers.
+     * Check whether a port belongs to a visualization server started by this
+     * service. No servers are spawned anymore (all viewers render natively),
+     * so this always reports false; it stays so the RPC surface is stable.
      */
     isVisualizerPort(port: number): boolean {
         return this.processes.has(port);
@@ -152,382 +178,8 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.statepointService.listTallies(statepointPath);
     }
 
-    async visualizeMeshTally(
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        nuclide?: string
-    ): Promise<OpenMCVisualizationResult> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [scriptPath, 'openmc.visualize-mesh', statepointPath, tallyId.toString(), '--port', port.toString()];
-
-            if (score) {
-                args.push('--score', score);
-            }
-
-            if (nuclide) {
-                args.push('--nuclide', nuclide);
-            }
-
-            const process = this.startPythonProcess(pythonCommand, args, port);
-
-            // Wait for server to be ready
-            await this.waitForServer(port, process);
-
-            // Get tally info
-            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`,
-                tallyInfo
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        }
-    }
-
-    async visualizeSource(sourcePath: string): Promise<OpenMCVisualizationResult> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [scriptPath, 'openmc.visualize-source', sourcePath, '--port', port.toString()];
-
-            const process = this.startPythonProcess(pythonCommand, args, port);
-
-            await this.waitForServer(port, process);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        }
-    }
-
-    async visualizeTallyOnGeometry(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        filterGraveyard: boolean = true,
-        pixelated: boolean = true
-    ): Promise<OpenMCVisualizationResult> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [
-                scriptPath,
-                'openmc.visualize-overlay',
-                statepointPath,
-                tallyId.toString(),
-                '--mode',
-                'full',
-                '--port',
-                port.toString()
-            ];
-
-            if (geometryPath) {
-                args.push('--geometry', geometryPath);
-            }
-
-            if (score) {
-                args.push('--score', score);
-            }
-
-            if (filterGraveyard) {
-                args.push('--filter-graveyard');
-            }
-
-            if (pixelated) {
-                args.push('--pixelated');
-            }
-
-            // Create a custom process to capture stdout for warnings
-            const processOptions: RawProcessOptions = {
-                command: pythonCommand,
-                args
-            };
-            const process = this.rawProcessFactory(processOptions);
-
-            // Capture stdout to look for structured warnings and send immediately via RPC
-            process.outputStream.on('data', (data: Buffer) => {
-                const msg = data.toString();
-                console.log(`[OpenMC ${port}] ${msg.trim()}`);
-
-                // Check for warning in real-time and send to client immediately
-                const lines = msg.split('\n');
-                for (const line of lines) {
-                    if (line.startsWith('NUKE_IDE_WARNING:')) {
-                        try {
-                            const jsonStr = line.substring('NUKE_IDE_WARNING:'.length);
-                            const parsed = JSON.parse(jsonStr);
-                            if (parsed.type === 'spatial_warning' && parsed.message) {
-                                console.log(`[OpenMC Backend] Sending spatial warning to client via RPC`);
-                                this.client?.warn(parsed.message);
-                            }
-                        } catch (e) {
-                            // Ignore parse errors
-                        }
-                    }
-                }
-            });
-
-            process.errorStream.on('data', (data: Buffer) => {
-                console.error(`[OpenMC ${port}] ERROR: ${data.toString().trim()}`);
-            });
-
-            process.onExit((event: { code?: number; signal?: string }) => {
-                console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-                this.processes.delete(port);
-                this.reservedPorts.delete(port);
-            });
-
-            this.processes.set(port, { process, port, filePath: geometryPath });
-
-            // Use longer timeout for large DAGMC files (120 seconds)
-            await this.waitForServer(port, process, 120000);
-
-            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`,
-                tallyInfo
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        }
-    }
-
-    async visualizeTallySlice(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        options: any,
-        score?: string,
-        nuclide?: string
-    ): Promise<OpenMCVisualizationResult> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [
-                scriptPath,
-                'openmc.visualize-overlay',
-                statepointPath,
-                tallyId.toString(),
-                '--mode',
-                'slice',
-                '--plane',
-                options.plane || 'z',
-                '--port',
-                port.toString()
-            ];
-
-            if (geometryPath) {
-                args.push('--geometry', geometryPath);
-            }
-
-            if (score) {
-                args.push('--score', score);
-            }
-
-            if (nuclide) {
-                args.push('--nuclide', nuclide);
-            }
-
-            if (options.position !== undefined) {
-                args.push('--position', options.position.toString());
-            }
-
-            if (options.resolution) {
-                args.push('--resolution', options.resolution.toString());
-            }
-
-            if (options.pixelated) {
-                args.push('--pixelated');
-            }
-
-            if (options.showGeometry !== false) {
-                args.push('--show-geometry');
-            }
-
-            if (options.filterGraveyard) {
-                args.push('--filter-graveyard');
-            }
-
-            const processOptions: RawProcessOptions = {
-                command: pythonCommand,
-                args
-            };
-            const process = this.rawProcessFactory(processOptions);
-
-            process.outputStream.on('data', (data: Buffer) => {
-                const msg = data.toString();
-                console.log(`[OpenMC ${port}] ${msg.trim()}`);
-            });
-
-            process.errorStream.on('data', (data: Buffer) => {
-                console.error(`[OpenMC ${port}] ERROR: ${data.toString().trim()}`);
-            });
-
-            process.onExit((event: { code?: number; signal?: string }) => {
-                console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-                this.processes.delete(port);
-                this.reservedPorts.delete(port);
-            });
-
-            this.processes.set(port, { process, port, filePath: statepointPath });
-
-            await this.waitForServer(port, process, 120000);
-
-            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`,
-                tallyInfo
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        }
-    }
-
-    async visualizeTallyAndSourceOnGeometry(
-        geometryPath: string,
-        statepointPath: string,
-        tallyId: number,
-        score?: string,
-        filterGraveyard: boolean = true
-    ): Promise<OpenMCVisualizationResult> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [
-                scriptPath,
-                'openmc.visualize-overlay',
-                statepointPath,
-                tallyId.toString(),
-                '--geometry',
-                geometryPath,
-                '--mode',
-                'full',
-                '--with-source',
-                '--port',
-                port.toString()
-            ];
-
-            if (score) {
-                args.push('--score', score);
-            }
-
-            if (filterGraveyard) {
-                args.push('--filter-graveyard');
-            }
-
-            const processOptions: RawProcessOptions = {
-                command: pythonCommand,
-                args
-            };
-            const process = this.rawProcessFactory(processOptions);
-
-            process.outputStream.on('data', (data: Buffer) => {
-                const msg = data.toString();
-                console.log(`[OpenMC ${port}] ${msg.trim()}`);
-                const lines = msg.split('\n');
-                for (const line of lines) {
-                    if (line.startsWith('NUKE_IDE_WARNING:')) {
-                        try {
-                            const jsonStr = line.substring('NUKE_IDE_WARNING:'.length);
-                            const parsed = JSON.parse(jsonStr);
-                            if (parsed.type === 'spatial_warning' && parsed.message) {
-                                console.log(`[OpenMC Backend] Sending spatial warning to client via RPC`);
-                                this.client?.warn(parsed.message);
-                            }
-                        } catch (e) {
-                            // Ignore parse errors
-                        }
-                    }
-                }
-            });
-
-            process.errorStream.on('data', (data: Buffer) => {
-                console.error(`[OpenMC ${port}] ERROR: ${data.toString().trim()}`);
-            });
-
-            process.onExit((event: { code?: number; signal?: string }) => {
-                console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-                this.processes.delete(port);
-                this.reservedPorts.delete(port);
-            });
-
-            this.processes.set(port, { process, port, filePath: geometryPath });
-
-            await this.waitForServer(port, process, 120000);
-
-            const tallyInfo = await this.getTallyInfo(statepointPath, tallyId);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`,
-                tallyInfo
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        }
+    async getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries> {
+        return this.statepointService.getTallySeries(files, options);
     }
 
     async getEnergySpectrum(statepointPath: string, tallyId: number, scoreIndex: number = 0, nuclideIndex: number = 0): Promise<any> {
@@ -583,7 +235,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             if (!check.available) {
                 return {
                     available: false,
-                    message: `Missing packages: ${check.missing.join(', ')}. Run: pip install ${check.missing.join(' ')}`,
+                    message: `Missing packages: ${check.missing.join(', ')}. Run: ${check.missing.map(pipInstallHint).join(' and ')}`,
                     warning: python.warning
                 };
             }
@@ -624,7 +276,7 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
             if (!check.available) {
                 return {
                     available: false,
-                    message: `OpenMC Python module not installed. Run: pip install openmc`,
+                    message: `OpenMC Python module not installed. Run: ${pipInstallHint('openmc')}`,
                     warning: python.warning
                 };
             }
@@ -668,83 +320,35 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.depletionService.getDepletionData(filePath, materialIndex, nuclides, includeActivity);
     }
 
+    async getDepletionContactDose(
+        filePath: string,
+        materialIndex: number,
+        doseQuantity: DepletionDoseQuantity,
+        buildUp: number,
+        byNuclide: boolean
+    ): Promise<OpenMCDepletionContactDoseResult> {
+        return this.depletionService.getContactDose(filePath, materialIndex, doseQuantity, buildUp, byNuclide);
+    }
+
+    async getDepletionDecaySpectrum(
+        filePath: string,
+        materialIndex: number,
+        timeIndex: number
+    ): Promise<OpenMCDepletionDecaySpectrumResult> {
+        return this.depletionService.getDecaySpectrum(filePath, materialIndex, timeIndex);
+    }
+
     // === Geometry Hierarchy Viewer ===
 
     async getGeometryHierarchy(filePath: string): Promise<any> {
         return this.geometryService.getGeometryHierarchy(filePath);
     }
 
-    async visualizeGeometry(
-        filePath: string,
-        highlightCellIds?: number[],
-        overlaps?: any[]
-    ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        let overlapsPath: string | undefined;
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [scriptPath, 'openmc.visualize-geometry', filePath, '--port', port.toString()];
-
-            if (highlightCellIds && highlightCellIds.length > 0) {
-                args.push('--highlight', highlightCellIds.join(','));
-            }
-
-            if (overlaps && overlaps.length > 0) {
-                // Limit overlaps for performance
-                const MAX_OVERLAPS = 1000;
-                const limitedOverlaps = overlaps.length > MAX_OVERLAPS ? overlaps.slice(0, MAX_OVERLAPS) : overlaps;
-                if (overlaps.length > MAX_OVERLAPS) {
-                    console.log(`[OpenMC] Limiting overlaps from ${overlaps.length} to ${MAX_OVERLAPS} for performance`);
-                }
-
-                const tempDir = os.tmpdir();
-                overlapsPath = path.join(tempDir, `overlaps_${Date.now()}.json`);
-                const overlapData = {
-                    geometryPath: filePath,
-                    overlaps: limitedOverlaps.map((o) => ({
-                        coordinates: o.coordinates,
-                        cellIds: o.cellIds
-                    }))
-                };
-                fs.writeFileSync(overlapsPath, JSON.stringify(overlapData));
-                args.push('--overlaps', overlapsPath);
-            }
-
-            const process = this.startPythonProcess(pythonCommand, args, port);
-
-            // Wait for server to be ready (longer timeout when overlaps present)
-            const serverTimeout = overlaps && overlaps.length > 0 ? 60000 : 30000;
-            await this.waitForServer(port, process, serverTimeout);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        } finally {
-            // Cleanup temp file
-            if (overlapsPath && fs.existsSync(overlapsPath)) {
-                try {
-                    fs.unlinkSync(overlapsPath);
-                } catch (e) {
-                    // Ignore cleanup errors
-                }
-            }
-        }
-    }
-
     // === Material Explorer ===
+
+    async extractGeometryMesh(filePath: string, segments?: number): Promise<OpenMCGeometryMeshResult> {
+        return this.geometryService.extractGeometryMesh(filePath, segments);
+    }
 
     async getMaterials(filePath: string): Promise<any> {
         return this.geometryService.getMaterials(filePath);
@@ -768,6 +372,13 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.statepointService.getStatepointFullInfo(statepointPath);
     }
 
+    async getDerivedTallies(
+        statepointPath: string,
+        definitions: import('../../../common/openmc-protocol').OpenMCDerivedTallyDefinition[]
+    ): Promise<import('../../../common/openmc-protocol').OpenMCDerivedTallyEvaluation> {
+        return this.statepointService.getDerivedTallies(statepointPath, definitions);
+    }
+
     async getKGenerationData(statepointPath: string): Promise<any> {
         return this.statepointService.getKGenerationData(statepointPath);
     }
@@ -778,35 +389,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getEnergyDistribution(statepointPath: string, nBins?: number): Promise<any> {
         return this.statepointService.getEnergyDistribution(statepointPath, nBins);
-    }
-
-    async visualizeStatepointSource(statepointPath: string): Promise<any> {
-        const port = await this.findFreePort(8090);
-        this.reservedPorts.add(port);
-
-        try {
-            const pythonInfo = await this.pythonHelper.detectPython();
-            const pythonCommand = pythonInfo.command;
-            const scriptPath = this.pythonHelper.findScript('server.py');
-
-            const args: string[] = [scriptPath, 'openmc.visualize-statepoint-source', statepointPath, '--port', port.toString()];
-
-            const process = this.startPythonProcess(pythonCommand, args, port);
-
-            await this.waitForServer(port, process);
-
-            return {
-                success: true,
-                port,
-                url: `http://127.0.0.1:${port}`
-            };
-        } catch (error) {
-            this.reservedPorts.delete(port);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        }
     }
 
     async getGeometryBounds(geometryPath: string): Promise<{ x: [number, number]; y: [number, number]; z: [number, number] } | null> {
@@ -834,90 +416,6 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
 
     async getOverlapVisualization(geometryPath: string, overlaps: any[]): Promise<any> {
         return this.geometryService.getOverlapVisualization(geometryPath, overlaps);
-    }
-
-    private async getTallyInfo(statepointPath: string, tallyId: number): Promise<OpenMCTallyInfo> {
-        const tallies = await this.listTallies(statepointPath);
-        const tally = tallies.find((t) => t.id === tallyId);
-        if (!tally) {
-            throw new Error(`Tally ${tallyId} not found`);
-        }
-        return tally;
-    }
-
-    private startPythonProcess(command: string, args: string[], port: number): RawProcess {
-        const processOptions: RawProcessOptions = {
-            command,
-            args
-        };
-
-        const process = this.rawProcessFactory(processOptions);
-
-        process.outputStream.on('data', (data: Buffer) => {
-            console.log(`[OpenMC ${port}] ${data.toString().trim()}`);
-        });
-
-        process.errorStream.on('data', (data: Buffer) => {
-            const message = data.toString().trim();
-            console.error(`[OpenMC ${port}] ERROR: ${message}`);
-        });
-
-        process.onExit((event: { code?: number; signal?: string }) => {
-            console.log(`[OpenMC ${port}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-            this.processes.delete(port);
-            this.reservedPorts.delete(port);
-        });
-
-        this.processes.set(port, { process, port, filePath: args[2] || '' });
-
-        return process;
-    }
-
-    private async waitForServer(
-        port: number,
-        process: RawProcess,
-        timeoutMs: number = 30000,
-        stderrOutput?: { data: string }
-    ): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                cleanup();
-                reject(new Error(`Server startup timeout on port ${port}`));
-            }, timeoutMs);
-
-            const portCheckInterval = setInterval(() => {
-                const socket = new net.Socket();
-                socket.on('error', () => socket.destroy());
-                socket.on('connect', () => {
-                    socket.destroy();
-                    cleanup();
-                    resolve();
-                });
-                socket.connect(port, '127.0.0.1');
-            }, 1000);
-
-            const exitListener = (event: { code?: number; signal?: string }) => {
-                cleanup();
-                let errorMsg = `Process exited with code ${event.code} before server started`;
-                // Include stderr output if available
-                if (stderrOutput?.data) {
-                    // Extract the last error line from stderr
-                    const lines = stderrOutput.data.split('\n').filter((l) => l.trim());
-                    const errorLine = lines.find((l) => l.includes('Error:') || l.includes('Traceback'));
-                    if (errorLine) {
-                        errorMsg += `: ${errorLine}`;
-                    }
-                }
-                reject(new Error(errorMsg));
-            };
-            const exitDisposable = process.onExit(exitListener);
-
-            const cleanup = () => {
-                clearTimeout(timeout);
-                clearInterval(portCheckInterval);
-                exitDisposable.dispose();
-            };
-        });
     }
 
     // === Output File Viewers (tracks / collision track / weight windows) ===
@@ -978,6 +476,10 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.outputService.getNuclideDetail(request);
     }
 
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.outputService.getDoseCoefficients(request);
+    }
+
     async getNCrystalMaterials(request: NCrystalMaterialsRequest): Promise<NCrystalMaterialsResult> {
         return this.outputService.getNCrystalMaterials(request);
     }
@@ -998,31 +500,31 @@ export class OpenMCBackendServiceImpl implements OpenMCBackendService {
         return this.outputService.getEndfDetail(request);
     }
 
-    private async findFreePort(startPort: number): Promise<number> {
-        for (let port = startPort; port < startPort + 1000; port++) {
-            if (this.reservedPorts.has(port)) {
-                continue;
-            }
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    const server = net.createServer();
-                    server.once('error', (err: any) => {
-                        if (err.code === 'EADDRINUSE') {
-                            reject();
-                        } else {
-                            reject(err);
-                        }
-                    });
-                    server.once('listening', () => {
-                        server.close(() => resolve());
-                    });
-                    server.listen(port);
-                });
-                return port;
-            } catch {
-                continue;
-            }
-        }
-        throw new Error(`No free port found in range ${startPort}-${startPort + 1000}`);
+    async convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertTallyMeshToVtk(statepointPath, options);
+    }
+
+    async convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertSourceToVtk(filePath, options);
+    }
+
+    async convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertOverlayToVtk(statepointPath, options);
+    }
+
+    async convertOverlayGeometryToVtk(
+        statepointPath: string,
+        h5mPath: string,
+        options?: OpenMCOverlayGeometryVtkOptions
+    ): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertOverlayGeometryToVtk(statepointPath, h5mPath, options);
+    }
+
+    async getTallyLineProbe(statepointPath: string, options: OpenMCTallyLineProbeOptions): Promise<OpenMCTallyLineProbeResult> {
+        return this.outputService.getTallyLineProbe(statepointPath, options);
+    }
+
+    async convertTallyContourToVtk(statepointPath: string, options: OpenMCTallyContourOptions): Promise<OpenMCVtkConversionResult> {
+        return this.outputService.convertTallyContourToVtk(statepointPath, options);
     }
 }

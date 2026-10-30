@@ -1,0 +1,318 @@
+// *****************************************************************************
+// Copyright (C) 2024 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+import { describe, expect, it } from 'vitest';
+import { attributeBodyToFeature, buildViewportContextMenu, type FeatureBodyRef } from './viewport-context-menu';
+
+const feature = (id: string, body: string, suppressed = false): FeatureBodyRef => ({ id, body, suppressed });
+
+describe('attributeBodyToFeature', () => {
+    it('resolves to the latest non-suppressed feature writing the body', () => {
+        const features = [feature('pad-1', 'body-a'), feature('fillet-1', 'body-a'), feature('pad-2', 'body-b')];
+        expect(attributeBodyToFeature('body-a', features)).toBe('fillet-1');
+        expect(attributeBodyToFeature('body-b', features)).toBe('pad-2');
+    });
+
+    it('skips suppressed features', () => {
+        const features = [feature('pad-1', 'body-a'), feature('fillet-1', 'body-a', true)];
+        expect(attributeBodyToFeature('body-a', features)).toBe('pad-1');
+    });
+
+    it('returns undefined without a body id (script/STEP models)', () => {
+        expect(attributeBodyToFeature(undefined, [feature('pad-1', 'body-a')])).toBeUndefined();
+    });
+
+    it('returns undefined when no feature writes the body', () => {
+        expect(attributeBodyToFeature('body-x', [feature('pad-1', 'body-a')])).toBeUndefined();
+        expect(attributeBodyToFeature('body-a', undefined)).toBeUndefined();
+    });
+});
+
+describe('buildViewportContextMenu', () => {
+    const labels = (items: ReturnType<typeof buildViewportContextMenu>): string[] => items.map((item) => item.label);
+
+    it('offers Edit Feature, Find in Feature Tree, the three measure tools, Fit to Solid, Hide and Isolate on a solid', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        expect(items[0].disabled).toBeUndefined();
+        expect(items[0].reason).toBeUndefined();
+        expect(items[0].action).toEqual({ kind: 'editFeature', featureId: 'pad-1' });
+        expect(items[1].separatorAbove).toBe(true);
+        expect(items[1].action).toEqual({ kind: 'revealFeature', featureId: 'pad-1' });
+        expect(items[2].separatorAbove).toBe(true);
+        expect(items[2].action).toEqual({ kind: 'measure', tool: 'distance' });
+        expect(items[3].action).toEqual({ kind: 'measure', tool: 'angle' });
+        expect(items[4].action).toEqual({ kind: 'measure', tool: 'radius' });
+        expect(items[5].hint).toBe('F');
+        expect(items[5].action).toEqual({ kind: 'fitSolid', solidId: 3 });
+        expect(items[6].separatorAbove).toBe(true);
+        expect(items[6].disabled).toBeUndefined();
+        expect(items[6].action).toEqual({ kind: 'hideSolid', solidId: 3 });
+        expect(items[7].disabled).toBeUndefined();
+        expect(items[7].action).toEqual({ kind: 'isolateSolid', solidId: 3 });
+    });
+
+    it('offers Select Other… only when more than one face is under the pointer, with the Alt+click hint', () => {
+        const none = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
+        expect(labels(none)).not.toContain('Select Other…');
+
+        const single = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            selectOtherCount: 1
+        });
+        expect(labels(single)).not.toContain('Select Other…');
+
+        const multiple = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1', bodyId: 'body-a' },
+            explodeFactor: 0,
+            selectOtherCount: 3
+        });
+        expect(labels(multiple)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Select Other…',
+            'Appearance…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        const selectOther = multiple[2];
+        expect(selectOther.icon).toBe('codicon-layers');
+        expect(selectOther.hint).toBe('Alt+click');
+        expect(selectOther.separatorAbove).toBeUndefined();
+        expect(selectOther.action).toEqual({ kind: 'selectOther' });
+        // After Find in Feature Tree and before Measure.
+        expect(labels(multiple).indexOf('Select Other…')).toBe(labels(multiple).indexOf('Find in Feature Tree') + 1);
+        expect(labels(multiple).indexOf('Select Other…')).toBeLessThan(labels(multiple).indexOf('Measure Distance'));
+    });
+
+    it('offers Select Other… after Edit Feature on solids without feature attribution', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3 }, explodeFactor: 0, selectOtherCount: 2 });
+        expect(labels(items)[0]).toBe('Edit Feature…');
+        expect(labels(items)[1]).toBe('Select Other…');
+        expect(labels(items)).not.toContain('Find in Feature Tree');
+    });
+
+    it('offers Appearance… for a body, after Find in Feature Tree and before Measure', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1', bodyId: 'body-a' },
+            explodeFactor: 0
+        });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Appearance…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        expect(items[2].icon).toBe('codicon-symbol-color');
+        expect(items[2].separatorAbove).toBeUndefined();
+        expect(items[2].action).toEqual({ kind: 'appearance', bodyId: 'body-a' });
+        // Measure starts its own group after the feature/body group.
+        expect(items[3].separatorAbove).toBe(true);
+    });
+
+    it('offers Appearance… directly after Edit Feature when no feature is attributed', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3, bodyId: 'body-a' }, explodeFactor: 0 });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Appearance…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        expect(items[1].action).toEqual({ kind: 'appearance', bodyId: 'body-a' });
+    });
+
+    it('omits Appearance… when the hit carries no body id (script/STEP models)', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
+        expect(labels(items)).not.toContain('Appearance…');
+    });
+
+    it('disables Edit Feature when attribution fails instead of guessing, and omits Find in Feature Tree', () => {
+        const items = buildViewportContextMenu({ solid: { solidId: 3 }, explodeFactor: 0 });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+        expect(items[0].disabled).toBe(true);
+        expect(items[0].reason).toBe('No feature writes this body.');
+        expect(items[0].action).toEqual({ kind: 'noop' });
+    });
+
+    it('adds Hide/Isolate Selected bulk items when the hit solid belongs to a multi-selection', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            selectedIds: [3, 7, 9]
+        });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid',
+            'Hide Selected (3)',
+            'Isolate Selected (3)'
+        ]);
+        expect(items[8].separatorAbove).toBe(true);
+        expect(items[8].action).toEqual({ kind: 'hideSolids', solidIds: [3, 7, 9] });
+        expect(items[9].action).toEqual({ kind: 'isolateSolids', solidIds: [3, 7, 9] });
+    });
+
+    it('omits bulk items when the hit solid is outside the multi-selection', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            selectedIds: [7, 9]
+        });
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid'
+        ]);
+    });
+
+    it('hints only real bindings: F for Fit to Solid and Esc for Clear Selection', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            hasSelection: true
+        });
+        const byLabel = (label: string) => items.find((item) => item.label === label);
+        expect(byLabel('Fit to Solid')?.hint).toBe('F');
+        expect(byLabel('Clear Selection')?.hint).toBe('Esc');
+        for (const label of [
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Hide Solid',
+            'Isolate Solid'
+        ]) {
+            expect(byLabel(label)?.hint).toBeUndefined();
+        }
+    });
+
+    it('adds Clear Selection last, only when the viewport has a selection', () => {
+        const without = buildViewportContextMenu({ solid: { solidId: 3, featureId: 'pad-1' }, explodeFactor: 0 });
+        expect(labels(without)).not.toContain('Clear Selection');
+
+        const withSelection = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            hasSelection: true
+        });
+        const clear = withSelection[withSelection.length - 1];
+        expect(clear.label).toBe('Clear Selection');
+        expect(clear.hint).toBe('Esc');
+        expect(clear.separatorAbove).toBe(true);
+        expect(clear.action).toEqual({ kind: 'clearSelection' });
+    });
+
+    it('offers Fit All, Reset Explode, Show All Solids, and the section toggle on empty space', () => {
+        const items = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
+        expect(labels(items)).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
+        expect(items[0].disabled).toBeUndefined();
+        // F fits the selected solid when one exists, so Fit All carries no hint.
+        expect(items[0].hint).toBeUndefined();
+        expect(items[1].disabled).toBe(true);
+
+        const exploded = buildViewportContextMenu({ solid: undefined, explodeFactor: 0.5 });
+        expect(exploded[1].disabled).toBeUndefined();
+        expect(exploded[1].action).toEqual({ kind: 'resetExplode' });
+    });
+
+    it('prepends Clear Selection on empty space only when the viewport has a selection', () => {
+        const without = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
+        expect(labels(without)).not.toContain('Clear Selection');
+
+        const withSelection = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, hasSelection: true });
+        expect(labels(withSelection)).toEqual(['Clear Selection', 'Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
+        expect(withSelection[0].hint).toBe('Esc');
+        expect(withSelection[0].action).toEqual({ kind: 'clearSelection' });
+        expect(withSelection[1].hint).toBeUndefined();
+    });
+
+    it('disables Show All Solids when nothing is hidden', () => {
+        const byDefault = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
+        expect(byDefault[2].disabled).toBe(true);
+        expect(byDefault[2].action).toEqual({ kind: 'showAll' });
+
+        const explicitZero = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, hiddenCount: 0 });
+        expect(explicitZero[2].disabled).toBe(true);
+
+        const someHidden = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, hiddenCount: 2 });
+        expect(someHidden[2].disabled).toBeUndefined();
+        expect(someHidden[2].action).toEqual({ kind: 'showAll' });
+    });
+
+    it('flips the section toggle label with sectionActive', () => {
+        const inactive = buildViewportContextMenu({ solid: undefined, explodeFactor: 0 });
+        expect(inactive[3].label).toBe('Show Section View');
+        expect(inactive[3].disabled).toBeUndefined();
+        expect(inactive[3].action).toEqual({ kind: 'toggleSection' });
+
+        const active = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, sectionActive: true });
+        expect(active[3].label).toBe('Hide Section View');
+        expect(active[3].action).toEqual({ kind: 'toggleSection' });
+    });
+});

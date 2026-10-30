@@ -54,6 +54,7 @@ import {
     OpenMCSurface,
     OpenMCCell,
     OpenMCTally,
+    OpenMCDerivedTally,
     OpenMCMesh,
     OpenMCSettings,
     OpenMCUniverse,
@@ -62,11 +63,24 @@ import {
     OpenMCOptimizationRun,
     OpenMCPlotConfig,
     OptimizationResult,
+    OpenMCReactivityControl,
+    OpenMCExternalSourceRate,
+    OpenMCShutdownDoseConfig,
     OPENMC_STATE_SCHEMA_VERSION
 } from '../common/openmc-state-schema';
 
 import { StateChangeEvent, ValidationResult, OpenMCStudioBackendService } from '../common/openmc-studio-protocol';
 import { computeOutputWatcherExcludes } from '../common/output-watcher-excludes';
+import { LatticePosition } from '../common/geometry-editor';
+import {
+    applyCellTransform,
+    applyLatticePosition,
+    CellTransform,
+    GeometryStateError,
+    pairPeriodicSurfaces,
+    removeLatticeById,
+    upsertLattice
+} from '../common/geometry-state';
 
 /**
  * Create a default empty {@link OpenMCState} with sensible initial values.
@@ -92,8 +106,7 @@ export function createDefaultState(): OpenMCState {
                 {
                     id: 0,
                     name: 'root',
-                    cellIds: [],
-                    isRoot: true
+                    cellIds: []
                 }
             ],
             lattices: [],
@@ -356,6 +369,34 @@ export class OpenMCStateManager {
     }
 
     /**
+     * Pair a periodic surface with its opposite plane, maintaining the
+     * reciprocal link OpenMC requires.
+     *
+     * Both surfaces are set to the `periodic` boundary. A previous partner is
+     * unlinked, and passing `undefined` clears the pair on both sides.
+     *
+     * @param surfaceId - Surface to pair.
+     * @param partnerId - Opposite plane, or undefined to clear the pair.
+     * @throws Error when the surface/partner does not exist or pairs with itself.
+     */
+    setSurfacePeriodicPair(surfaceId: number, partnerId?: number): void {
+        try {
+            this._state.geometry.surfaces = pairPeriodicSurfaces(this._state.geometry.surfaces, surfaceId, partnerId);
+        } catch (error) {
+            if (error instanceof GeometryStateError) {
+                throw new Error(error.message);
+            }
+            throw error;
+        }
+        this.markDirty();
+        this._onStateChange.fire({
+            path: `geometry.surfaces.${surfaceId}`,
+            type: 'update',
+            value: this._state.geometry.surfaces.find((surface) => surface.id === surfaceId)
+        });
+    }
+
+    /**
      * Add a cell to the geometry.
      *
      * @param cell - The {@link OpenMCCell} to add.
@@ -390,6 +431,22 @@ export class OpenMCStateManager {
                 value: this._state.geometry.cells[index],
                 oldValue
             });
+        }
+    }
+
+    /**
+     * Replace a cell's rotation and translation in one state change.
+     *
+     * Passing `undefined` removes the corresponding transform, so the action
+     * mirrors the "clear transform" control without clearing region or fill.
+     *
+     * @param id - The ID of the cell to update.
+     * @param transform - Rotation (degrees) and/or translation (cm).
+     */
+    setCellTransform(id: number, transform: CellTransform): void {
+        const cell = this._state.geometry.cells.find((candidate) => candidate.id === id);
+        if (cell) {
+            this.updateCell(id, applyCellTransform(cell, transform));
         }
     }
 
@@ -493,6 +550,75 @@ export class OpenMCStateManager {
     }
 
     /**
+     * Add a derived tally (analysis-only; never a simulation input).
+     *
+     * @param derivedTally - The {@link OpenMCDerivedTally} to add.
+     */
+    addDerivedTally(derivedTally: OpenMCDerivedTally): void {
+        if (!this._state.derivedTallies) {
+            this._state.derivedTallies = [];
+        }
+        this._state.derivedTallies.push(derivedTally);
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: `derivedTallies.${derivedTally.id}`,
+            type: 'add',
+            value: derivedTally
+        });
+    }
+
+    /**
+     * Update an existing derived tally.
+     *
+     * @param id - The ID of the derived tally to update.
+     * @param updates - Partial derived-tally object with the new values.
+     */
+    updateDerivedTally(id: number, updates: Partial<OpenMCDerivedTally>): void {
+        const derivedTallies = this._state.derivedTallies;
+        if (!derivedTallies) {
+            return;
+        }
+        const index = derivedTallies.findIndex((entry) => entry.id === id);
+        if (index >= 0) {
+            const oldValue = derivedTallies[index];
+            derivedTallies[index] = { ...oldValue, ...updates };
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `derivedTallies.${id}`,
+                type: 'update',
+                value: derivedTallies[index],
+                oldValue
+            });
+        }
+    }
+
+    /**
+     * Remove a derived tally by ID.
+     *
+     * @param id - The ID of the derived tally to remove.
+     */
+    removeDerivedTally(id: number): void {
+        const derivedTallies = this._state.derivedTallies;
+        if (!derivedTallies) {
+            return;
+        }
+        const index = derivedTallies.findIndex((entry) => entry.id === id);
+        if (index >= 0) {
+            const oldValue = derivedTallies[index];
+            derivedTallies.splice(index, 1);
+            this.markDirty();
+
+            this._onStateChange.fire({
+                path: `derivedTallies.${id}`,
+                type: 'delete',
+                oldValue
+            });
+        }
+    }
+
+    /**
      * Add a mesh to the simulation.
      *
      * @param mesh - The {@link OpenMCMesh} to add.
@@ -564,6 +690,105 @@ export class OpenMCStateManager {
             type: 'update',
             value: this._state.depletion
         });
+    }
+
+    /**
+     * Update the shutdown-dose (R2S / D1S) driver configuration.
+     *
+     * The configuration is project state only: it is never written to
+     * settings.xml, and the Python driver consumes it at run time.
+     *
+     * @param updates - Partial shutdown-dose configuration.
+     */
+    updateShutdownDose(updates: Partial<OpenMCShutdownDoseConfig>): void {
+        const current: OpenMCShutdownDoseConfig = this._state.shutdownDose ?? {
+            method: 'r2s',
+            timesteps: [1, 1],
+            timestepUnits: 'd',
+            sourceRates: [1.0e12, 0]
+        };
+        this._state.shutdownDose = { ...current, ...updates };
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: 'shutdown-dose',
+            type: 'update',
+            value: this._state.shutdownDose
+        });
+    }
+
+    /**
+     * Clear the shutdown-dose configuration.
+     */
+    clearShutdownDose(): void {
+        if (!this._state.shutdownDose) {
+            return;
+        }
+        const oldValue = this._state.shutdownDose;
+        this._state.shutdownDose = undefined;
+        this.markDirty();
+
+        this._onStateChange.fire({
+            path: 'shutdown-dose',
+            type: 'delete',
+            oldValue
+        });
+    }
+
+    /**
+     * Update the reactivity-control (keff search) configuration.
+     *
+     * Creates a default control object when none exists so the first toggle
+     * from the UI always produces a complete, editable configuration.
+     *
+     * @param updates - Partial reactivity-control settings.
+     */
+    updateReactivityControl(updates: Partial<OpenMCReactivityControl>): void {
+        const current: OpenMCReactivityControl = this._state.depletion?.reactivityControl ?? {
+            enabled: true,
+            parameter: 'cell-translation',
+            cellId: this._state.geometry.cells[0]?.id ?? 1,
+            axis: 'z',
+            materialId: this._state.materials[0]?.id ?? 1,
+            nuclide: this._state.materials[0]?.nuclides[0]?.name ?? 'U235',
+            x0: 0,
+            x1: 1,
+            bracket: [-10, 10],
+            targetKeff: 1.0,
+            kTol: 1e-4,
+            sigmaFinal: 3e-4,
+            maxIterations: 50,
+            onFailure: 'fail'
+        };
+        this.updateDepletion({ reactivityControl: { ...current, ...updates } });
+    }
+
+    /**
+     * Add an external feed/removal rate row.
+     * @param rate - New external source rate.
+     */
+    addExternalSourceRate(rate: OpenMCExternalSourceRate): void {
+        const rates = [...(this._state.depletion?.externalSourceRates ?? []), rate];
+        this.updateDepletion({ externalSourceRates: rates });
+    }
+
+    /**
+     * Update one external feed/removal rate row.
+     * @param index - Row index.
+     * @param updates - Partial row updates.
+     */
+    updateExternalSourceRate(index: number, updates: Partial<OpenMCExternalSourceRate>): void {
+        const rates = (this._state.depletion?.externalSourceRates ?? []).map((rate, i) => (i === index ? { ...rate, ...updates } : rate));
+        this.updateDepletion({ externalSourceRates: rates });
+    }
+
+    /**
+     * Remove one external feed/removal rate row.
+     * @param index - Row index.
+     */
+    removeExternalSourceRate(index: number): void {
+        const rates = (this._state.depletion?.externalSourceRates ?? []).filter((_, i) => i !== index);
+        this.updateDepletion({ externalSourceRates: rates.length > 0 ? rates : undefined });
     }
 
     /**
@@ -765,7 +990,7 @@ export class OpenMCStateManager {
      * @param lattice - The {@link OpenMCLattice} to add.
      */
     addLattice(lattice: OpenMCLattice): void {
-        this._state.geometry.lattices.push(lattice);
+        this._state.geometry.lattices = upsertLattice(this._state.geometry.lattices, lattice);
         this.markDirty();
 
         this._onStateChange.fire({
@@ -782,16 +1007,16 @@ export class OpenMCStateManager {
      * @param updates - Partial lattice object with the new values.
      */
     updateLattice(id: number, updates: Partial<OpenMCLattice>): void {
-        const index = this._state.geometry.lattices.findIndex((l) => l.id === id);
-        if (index >= 0) {
-            const oldValue = this._state.geometry.lattices[index];
-            this._state.geometry.lattices[index] = { ...oldValue, ...updates } as OpenMCLattice;
+        const oldValue = this._state.geometry.lattices.find((lattice) => lattice.id === id);
+        if (oldValue) {
+            const next = { ...oldValue, ...updates } as OpenMCLattice;
+            this._state.geometry.lattices = upsertLattice(this._state.geometry.lattices, next);
             this.markDirty();
 
             this._onStateChange.fire({
                 path: `geometry.lattices.${id}`,
                 type: 'update',
-                value: this._state.geometry.lattices[index],
+                value: next,
                 oldValue
             });
         }
@@ -803,10 +1028,9 @@ export class OpenMCStateManager {
      * @param id - The ID of the lattice to remove.
      */
     removeLattice(id: number): void {
-        const index = this._state.geometry.lattices.findIndex((l) => l.id === id);
-        if (index >= 0) {
-            const oldValue = this._state.geometry.lattices[index];
-            this._state.geometry.lattices.splice(index, 1);
+        const oldValue = this._state.geometry.lattices.find((lattice) => lattice.id === id);
+        if (oldValue) {
+            this._state.geometry.lattices = removeLatticeById(this._state.geometry.lattices, id);
             this.markDirty();
 
             this._onStateChange.fire({
@@ -815,6 +1039,39 @@ export class OpenMCStateManager {
                 oldValue
             });
         }
+    }
+
+    /**
+     * Assign one universe position in a lattice.
+     *
+     * @param latticeId - Lattice to update.
+     * @param position - Rect `{z,y,x}` or hex `{z,ring,theta}` slot.
+     * @param universeId - Universe ID to place at the slot.
+     * @throws Error when the lattice does not exist.
+     */
+    setLatticeUniverse(latticeId: number, position: LatticePosition, universeId: number): void {
+        const lattice = this._state.geometry.lattices.find((candidate) => candidate.id === latticeId);
+        if (!lattice) {
+            throw new Error(`Lattice ${latticeId} not found`);
+        }
+        this.updateLattice(latticeId, {
+            universes: applyLatticePosition(lattice, position, universeId).universes
+        });
+    }
+
+    /**
+     * Replace a lattice's complete universe array (bulk fill/clear actions).
+     *
+     * @param latticeId - Lattice to update.
+     * @param universes - New `[z][y][x]` or `[z][ring][theta]` array.
+     * @throws Error when the lattice does not exist.
+     */
+    setLatticeUniverses(latticeId: number, universes: number[][][]): void {
+        const lattice = this._state.geometry.lattices.find((candidate) => candidate.id === latticeId);
+        if (!lattice) {
+            throw new Error(`Lattice ${latticeId} not found`);
+        }
+        this.updateLattice(latticeId, { universes });
     }
 
     // ============================================================================
@@ -971,7 +1228,9 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for universes.
      */
     getNextUniverseId(): number {
-        const ids = this._state.geometry.universes.map((u) => u.id);
+        // Universe and lattice IDs share OpenMC's fill namespace; keep them
+        // disjoint so a fill can never resolve to the wrong entity.
+        const ids = [...this._state.geometry.universes, ...this._state.geometry.lattices].map((entity) => entity.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -981,7 +1240,7 @@ export class OpenMCStateManager {
      * @returns The smallest unused positive integer ID for lattices.
      */
     getNextLatticeId(): number {
-        const ids = this._state.geometry.lattices.map((l) => l.id);
+        const ids = [...this._state.geometry.lattices, ...this._state.geometry.universes].map((entity) => entity.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
@@ -992,6 +1251,16 @@ export class OpenMCStateManager {
      */
     getNextTallyId(): number {
         const ids = this._state.tallies.map((t) => t.id);
+        return ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    }
+
+    /**
+     * Get the next available derived-tally ID.
+     *
+     * @returns The smallest unused positive integer ID for derived tallies.
+     */
+    getNextDerivedTallyId(): number {
+        const ids = (this._state.derivedTallies ?? []).map((entry) => entry.id);
         return ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 

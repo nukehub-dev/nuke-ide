@@ -39,3 +39,4 @@ export * from './dagmc-editor/dagmc-editor-widget';
 export * from './tally-configurator/tally-configurator-widget';
 export * from './simulation-comparison/comparison-widget';
 export * from './optimization/optimization-widget';
+export * from './shutdown-dose/shutdown-dose-widget';

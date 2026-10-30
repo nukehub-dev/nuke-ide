@@ -27,6 +27,7 @@
 
 import * as React from 'react';
 import * as Plotly from 'plotly.js-dist-min';
+import { PlotlyTheme, PlotlyThemeColors, resolvePlotlyThemeColors, usePlotlyTheme } from './plotly-theme';
 
 const PLOTLY_NOTIFIER_CSS = `
     .plotly-notifier { display: none !important; }
@@ -35,13 +36,45 @@ const PLOTLY_NOTIFIER_CSS = `
     [class*="notifier"] { display: none !important; }
 `;
 
+const DEFAULT_FONT_FAMILY = 'var(--theia-ui-font-family), Segoe UI, Tahoma, Geneva, Verdana, sans-serif';
+
 export interface PlotlyComponentProps {
     data: Partial<Plotly.Data>[];
     layout?: Partial<Plotly.Layout>;
     config?: Partial<Plotly.Config>;
-    theme?: 'dark' | 'light';
+    /** Force a theme instead of following Theia's body theme class. */
+    theme?: PlotlyTheme;
     style?: React.CSSProperties;
     className?: string;
+}
+
+/**
+ * Merge the caller's axis options with the active theme's colors. Every
+ * non-color option (type, ranges, domains, titles, tick settings, ...) is
+ * preserved; only the primary-axis colors are theme-owned.
+ */
+function themedAxis(caller: Partial<Plotly.Axis> | undefined, colors: PlotlyThemeColors): Partial<Plotly.Axis> {
+    const merged: Partial<Plotly.Axis> = {
+        type: 'linear',
+        exponentformat: 'e',
+        showgrid: true,
+        ...(caller ?? {})
+    };
+    const callerTitle = merged.title as Partial<Plotly.DataTitle> | string | undefined;
+    const title: Partial<Plotly.DataTitle> = typeof callerTitle === 'string' ? { text: callerTitle } : { ...(callerTitle ?? {}) };
+    return {
+        ...merged,
+        color: colors.panelBorder,
+        gridcolor: colors.panelBorder,
+        zerolinecolor: colors.panelBorder,
+        linecolor: colors.panelBorder,
+        tickcolor: colors.panelBorder,
+        tickfont: { ...(merged.tickfont ?? {}), color: colors.descriptionForeground },
+        title: {
+            ...title,
+            font: { ...(title.font ?? {}), color: colors.foreground }
+        }
+    };
 }
 
 /**
@@ -49,7 +82,17 @@ export interface PlotlyComponentProps {
  * This ensures compatibility with Theia's Lumino layout system.
  */
 export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
-    const { data, layout, config, theme = 'dark', style, className } = props;
+    const { data, layout, config, theme, style, className } = props;
+    const detectedTheme = usePlotlyTheme();
+    const activeTheme = theme ?? detectedTheme;
+    const colors = resolvePlotlyThemeColors(activeTheme);
+    const colorSignature = [
+        colors.foreground,
+        colors.descriptionForeground,
+        colors.panelBorder,
+        colors.editorBackground,
+        colors.editorWidgetBackground
+    ].join('|');
     const plotRef = React.useRef<HTMLDivElement>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -71,49 +114,63 @@ export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
         };
     }, []);
 
-    const getAxisDefaults = (type: any = 'linear'): Partial<Plotly.Axis> => ({
-        type,
-        exponentformat: 'e',
-        showgrid: true,
-        gridcolor: theme === 'dark' ? '#3c3c3c' : '#eeeeee',
-        zerolinecolor: theme === 'dark' ? '#4c4c4c' : '#dddddd',
-        linecolor: theme === 'dark' ? '#555555' : '#cccccc',
-        tickcolor: theme === 'dark' ? '#555555' : '#cccccc',
-        tickfont: { color: theme === 'dark' ? '#9e9e9e' : '#666666' },
-        title: {
-            font: { color: theme === 'dark' ? '#d4d4d4' : '#333333' }
-        }
-    });
-
     const defaultLayout: Partial<Plotly.Layout> = {
         autosize: true,
-        template: (theme === 'dark' ? 'plotly_dark' : 'plotly_white') as any,
+        template: (activeTheme === 'dark' ? 'plotly_dark' : 'plotly_white') as any,
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
         font: {
-            color: theme === 'dark' ? '#d4d4d4' : '#333333',
-            family: 'var(--theia-ui-font-family), Segoe UI, Tahoma, Geneva, Verdana, sans-serif'
+            color: colors.foreground,
+            family: DEFAULT_FONT_FAMILY
         },
         margin: { t: 40, r: 40, b: 60, l: 80 },
         showlegend: true,
         legend: {
-            font: { color: theme === 'dark' ? '#d4d4d4' : '#333333' },
-            bgcolor: theme === 'dark' ? 'rgba(30,30,30,0.8)' : 'rgba(255,255,255,0.8)',
-            bordercolor: theme === 'dark' ? '#3c3c3c' : '#dddddd',
+            font: { color: colors.foreground },
+            bgcolor: colors.editorWidgetBackground,
+            bordercolor: colors.panelBorder,
             borderwidth: 1,
             x: 0.02,
             y: 0.98
         },
-        xaxis: getAxisDefaults(layout?.xaxis?.type),
-        yaxis: getAxisDefaults(layout?.yaxis?.type)
+        xaxis: themedAxis(undefined, colors),
+        yaxis: themedAxis(undefined, colors),
+        modebar: {
+            bgcolor: 'transparent',
+            color: colors.descriptionForeground,
+            activecolor: colors.foreground
+        }
     };
 
-    const combinedLayout = {
+    const combinedLayout: Partial<Plotly.Layout> = {
         ...defaultLayout,
         ...layout,
-        xaxis: { ...defaultLayout.xaxis, ...layout?.xaxis },
-        yaxis: { ...defaultLayout.yaxis, ...layout?.yaxis },
-        template: (theme === 'dark' ? 'plotly_dark' : 'plotly_white') as any
+        template: (activeTheme === 'dark' ? 'plotly_dark' : 'plotly_white') as any,
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        font: {
+            ...(defaultLayout.font ?? {}),
+            ...(layout?.font ?? {}),
+            color: colors.foreground
+        },
+        legend: {
+            ...(defaultLayout.legend ?? {}),
+            ...(layout?.legend ?? {}),
+            font: {
+                ...(layout?.legend?.font ?? {}),
+                color: colors.foreground
+            },
+            bgcolor: colors.editorWidgetBackground,
+            bordercolor: colors.panelBorder
+        },
+        modebar: {
+            ...(layout?.modebar ?? {}),
+            bgcolor: 'transparent',
+            color: colors.descriptionForeground,
+            activecolor: colors.foreground
+        },
+        xaxis: themedAxis(layout?.xaxis, colors),
+        yaxis: themedAxis(layout?.yaxis, colors)
     };
 
     const combinedConfig: Partial<Plotly.Config> = {
@@ -159,7 +216,7 @@ export const PlotlyComponent: React.FC<PlotlyComponentProps> = (props) => {
                 window.removeEventListener('resize', onResize);
             };
         }
-    }, [data, layout, theme, config]);
+    }, [data, layout, config, activeTheme, colorSignature]);
 
     return (
         <div

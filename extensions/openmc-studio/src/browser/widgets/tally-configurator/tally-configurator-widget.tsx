@@ -28,13 +28,21 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser';
+import URI from '@theia/core/lib/common/uri';
+import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { OpenMCStateManager } from '../../openmc-state-manager';
-import { NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
+import { OpenMCStudioService } from '../../openmc-studio-service';
+import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTally, OpenMCMesh } from '../../../common/openmc-state-schema';
+import { OpenMCCompat } from '../../../common/openmc-studio-protocol';
+import { DAGMC_PACKAGES } from '../../../common/packages';
+import { inferUnstructuredMeshLibrary } from '../../../common/mesh-utils';
 import { MeshPanel } from './components/mesh-panel';
-import { MeshEditor } from './components/mesh-editor';
+import { MeshEditor, MeshFileInfo } from './components/mesh-editor';
 import { TallyList } from './components/tally-list';
 import { TallyEditor } from './components/tally-editor';
+import { DerivedTallyPanel } from './components/derived-tally-panel';
 
 /**
  * Internal state for the tally configurator widget.
@@ -44,8 +52,8 @@ interface TallyConfiguratorState {
     selectedTallyId?: number;
     /** ID of the currently selected mesh */
     selectedMeshId?: number;
-    /** Active tab: tallies or meshes */
-    activeTab: 'tallies' | 'meshes';
+    /** Active tab: simulation tallies, meshes, or analysis-only derived tallies */
+    activeTab: 'tallies' | 'meshes' | 'derived';
     /** Tally currently being edited (if any) */
     editingTally?: OpenMCTally;
     /** Mesh currently being edited (if any) */
@@ -71,14 +79,40 @@ export class TallyConfiguratorWidget extends ReactWidget {
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
 
+    @inject(OpenMCStudioService)
+    protected readonly studioService: OpenMCStudioService;
+
     @inject(NukeCoreStatusBarVisibility)
     protected readonly statusBarVisibility!: NukeCoreStatusBarVisibilityService;
+
+    @inject(NukeCoreService)
+    protected readonly nukeCore: NukeCoreService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
 
     protected state: TallyConfiguratorState = {
         activeTab: 'tallies'
     };
 
     private visibilityHandle?: { dispose: () => void };
+
+    /** Filesystem status cache for unstructured mesh files (keyed by mesh ID). */
+    private readonly meshFileInfo = new Map<number, MeshFileInfo>();
+    /** Inputs used for the cached status, to detect filename changes. */
+    private readonly meshFileKeys = new Map<number, string>();
+    /** Pending debounced file checks, keyed by mesh ID. */
+    private readonly meshFileTimers = new Map<number, ReturnType<typeof setTimeout>>();
+    /** Probed capabilities for 0.16-only filters and mesh-filter rotation. */
+    private compat?: OpenMCCompat;
+    /** Avoid re-requesting the compatibility probe on every render. */
+    private compatRequested = false;
+    /** MOAB package availability in the configured Python environment. */
+    private moabAvailable?: boolean;
+    /** Whether the MOAB package check is running. */
+    private moabChecking = false;
+    /** Avoid re-running the MOAB check on every render. */
+    private moabRequested = false;
 
     /**
      * Initialize widget id, title, and subscribe to state changes.
@@ -89,9 +123,17 @@ export class TallyConfiguratorWidget extends ReactWidget {
         this.title.label = TallyConfiguratorWidget.LABEL;
         this.title.caption = TallyConfiguratorWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-graph-line';
+        this.title.iconClass = 'codicon codicon-openmc-tally';
 
         this.toDispose.push(this.stateManager.onStateChange(() => this.update()));
+        this.toDispose.push({
+            dispose: () => {
+                for (const timer of this.meshFileTimers.values()) {
+                    clearTimeout(timer);
+                }
+                this.meshFileTimers.clear();
+            }
+        });
         this.update();
     }
 
@@ -124,7 +166,9 @@ export class TallyConfiguratorWidget extends ReactWidget {
                 {this.renderHeader()}
                 {this.renderTabs()}
                 <div className="tally-configurator-content">
-                    {this.state.activeTab === 'tallies' ? this.renderTalliesTab() : this.renderMeshesTab()}
+                    {this.state.activeTab === 'tallies' && this.renderTalliesTab()}
+                    {this.state.activeTab === 'meshes' && this.renderMeshesTab()}
+                    {this.state.activeTab === 'derived' && this.renderDerivedTab()}
                 </div>
             </div>
         );
@@ -138,13 +182,14 @@ export class TallyConfiguratorWidget extends ReactWidget {
         const state = this.stateManager.getState();
         const tallies = state.tallies || [];
         const meshes = state.meshes || [];
+        const derivedTallies = state.derivedTallies || [];
         const totalFilters = tallies.reduce((sum, tally) => sum + tally.filters.length, 0);
 
         return (
             <div className="tally-configurator-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-graph-line"></i>
+                        <i className="codicon codicon-openmc-tally"></i>
                         Tally & Mesh Configurator
                     </h2>
                     <p className="header-description">
@@ -164,6 +209,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
                         <span className="stat-value">{totalFilters}</span>
                         <span className="stat-label">Filters</span>
                     </div>
+                    <div className="stat-item">
+                        <span className="stat-value">{derivedTallies.length}</span>
+                        <span className="stat-label">Derived</span>
+                    </div>
                 </div>
             </div>
         );
@@ -175,21 +224,24 @@ export class TallyConfiguratorWidget extends ReactWidget {
      */
     private renderTabs(): React.ReactNode {
         const tabs = [
-            { id: 'tallies', label: 'Tallies', icon: 'codicon-graph-line' },
-            { id: 'meshes', label: 'Meshes', icon: 'codicon-table' }
+            { id: 'tallies', label: 'Tallies', icon: 'codicon-openmc-tally' },
+            { id: 'meshes', label: 'Meshes', icon: 'codicon-openmc-grid' },
+            { id: 'derived', label: 'Derived Tallies', icon: 'codicon-openmc-derived' }
         ];
 
         return (
             <div className="tally-configurator-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.state.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => this.setState({ activeTab: tab.id as 'tallies' | 'meshes' })}
-                    >
-                        <i className={`codicon ${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.state.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => this.setState({ activeTab: tab.id as 'tallies' | 'meshes' | 'derived' })}
+                        >
+                            <i className={`codicon ${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -204,6 +256,14 @@ export class TallyConfiguratorWidget extends ReactWidget {
         const tallies = state.tallies || [];
         const meshes = state.meshes || [];
         const selectedTally = tallies.find((t) => t.id === this.state.selectedTallyId);
+        const needsCompat = tallies.some((tally) =>
+            tally.filters.some((filter) =>
+                ['mesh', 'meshsurface', 'meshborn', 'meshmaterial', 'reaction', 'particleproduction'].includes(filter.type)
+            )
+        );
+        if (needsCompat && !this.compatRequested) {
+            this.ensureCompat();
+        }
 
         return (
             <div className="tallies-tab-container">
@@ -234,8 +294,13 @@ export class TallyConfiguratorWidget extends ReactWidget {
                             tally={selectedTally}
                             meshes={meshes}
                             materials={state.materials}
+                            cells={state.geometry.cells}
                             triggerBatchInterval={this.stateManager.getState().settings.triggers?.batchInterval}
                             multiGroup={state.settings.energyMode === 'multigroup'}
+                            meshRotationSupported={this.compat?.meshFilterRotation}
+                            reactionFilterSupported={this.compat?.reactionFilter}
+                            particleProductionFilterSupported={this.compat?.particleProductionFilter}
+                            compat={this.compat}
                             onUpdate={(updates) => this.stateManager.updateTally(selectedTally.id, updates)}
                         />
                     ) : (
@@ -255,6 +320,10 @@ export class TallyConfiguratorWidget extends ReactWidget {
         const selectedMesh = meshes.find((m) => m.id === this.state.selectedMeshId);
         const dagmcInfo = this.stateManager.getState().settings.dagmcInfo;
 
+        if (selectedMesh?.type === 'unstructured') {
+            this.ensureMeshFileInfo(selectedMesh);
+        }
+
         return (
             <div className="meshes-tab-container">
                 <div className="left-panel">
@@ -271,6 +340,12 @@ export class TallyConfiguratorWidget extends ReactWidget {
                         <MeshEditor
                             mesh={selectedMesh}
                             dagmcBoundingBox={dagmcInfo?.boundingBox}
+                            fileInfo={this.meshFileInfo.get(selectedMesh.id)}
+                            onBrowseFile={selectedMesh.type === 'unstructured' ? () => this.browseMeshFile(selectedMesh) : undefined}
+                            onCheckFile={selectedMesh.type === 'unstructured' ? () => this.recheckMeshFile(selectedMesh) : undefined}
+                            moabAvailable={this.moabAvailable}
+                            moabChecking={this.moabChecking}
+                            onCheckDependency={() => this.checkMoabDependency()}
                             onUpdate={(updates) => this.stateManager.updateMesh(selectedMesh.id, updates)}
                         />
                     ) : (
@@ -279,6 +354,226 @@ export class TallyConfiguratorWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    /**
+     * Render the analysis-only derived tallies tab.
+     * @returns Derived tallies React node.
+     */
+    protected renderDerivedTab(): React.ReactNode {
+        const state = this.stateManager.getState();
+        return (
+            <DerivedTallyPanel
+                derivedTallies={state.derivedTallies ?? []}
+                tallies={state.tallies}
+                meshes={state.meshes}
+                onAdd={(derivedTally) => this.stateManager.addDerivedTally(derivedTally)}
+                onUpdate={(id, updates) => this.stateManager.updateDerivedTally(id, updates)}
+                onDelete={(id) => this.stateManager.removeDerivedTally(id)}
+            />
+        );
+    }
+
+    /**
+     * Fetch the probed capabilities lazily, only when a filter that depends on
+     * them is on screen. Probing runs Python environment detection on the
+     * backend, so doing it at widget startup would stall unrelated file checks.
+     */
+    private ensureCompat(): void {
+        this.compatRequested = true;
+        void this.studioService.getOpenMCCompat().then((compat) => {
+            this.compat = compat;
+            this.update();
+        });
+    }
+
+    /**
+     * Open the file picker for an unstructured mesh, store the path, and infer
+     * the library from the extension.
+     *
+     * @param mesh - Unstructured mesh being edited.
+     */
+    protected async browseMeshFile(mesh: OpenMCMesh): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Select Unstructured Mesh File',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'Unstructured Meshes': ['h5m', 'h5', 'vtk', 'e', 'exo', 'ex2'],
+                'MOAB (HDF5 / VTK)': ['h5m', 'h5', 'vtk'],
+                'Exodus (libMesh)': ['e', 'exo', 'ex2'],
+                'All Files': ['*']
+            }
+        };
+        const uri = await this.fileDialogService.showOpenDialog(props);
+        if (!uri) {
+            return;
+        }
+        const filename = uri.path.toString();
+        const inferred = inferUnstructuredMeshLibrary(filename);
+        this.invalidateMeshFileInfo(mesh.id);
+        this.stateManager.updateMesh(mesh.id, inferred ? { filename, library: inferred } : { filename });
+        if (mesh.type === 'unstructured') {
+            this.ensureMeshFileInfo({ ...mesh, filename, library: inferred ?? mesh.library });
+        }
+    }
+
+    /**
+     * Re-check the configured mesh file after the user changed it on disk.
+     *
+     * @param mesh - Unstructured mesh being edited.
+     */
+    protected recheckMeshFile(mesh: OpenMCMesh): void {
+        this.invalidateMeshFileInfo(mesh.id);
+        if (mesh.type === 'unstructured') {
+            this.ensureMeshFileInfo(mesh);
+        }
+    }
+
+    /**
+     * Drop the cached filesystem status for a mesh.
+     *
+     * @param meshId - Mesh ID.
+     */
+    private invalidateMeshFileInfo(meshId: number): void {
+        this.meshFileInfo.delete(meshId);
+        this.meshFileKeys.delete(meshId);
+        const timer = this.meshFileTimers.get(meshId);
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            this.meshFileTimers.delete(meshId);
+        }
+    }
+
+    /**
+     * Start a filesystem check for an unstructured mesh when the filename
+     * changed, then re-render with the result.
+     *
+     * @param mesh - Unstructured mesh.
+     */
+    private ensureMeshFileInfo(mesh: OpenMCMesh): void {
+        if (mesh.type !== 'unstructured') {
+            return;
+        }
+        const key = `${mesh.id}:${mesh.filename}:${this.stateManager.projectPath ?? ''}`;
+        if (this.meshFileKeys.get(mesh.id) === key) {
+            return;
+        }
+        this.meshFileKeys.set(mesh.id, key);
+        this.meshFileInfo.set(mesh.id, { status: 'checking' });
+        const pending = this.meshFileTimers.get(mesh.id);
+        if (pending !== undefined) {
+            clearTimeout(pending);
+        }
+        // Debounce so typing a path does not queue a backend stat per keystroke.
+        this.meshFileTimers.set(
+            mesh.id,
+            setTimeout(() => {
+                this.meshFileTimers.delete(mesh.id);
+                void this.checkMeshFile(mesh.id, mesh.filename, key);
+            }, 400)
+        );
+    }
+
+    /**
+     * Resolve and stat an unstructured mesh file.
+     *
+     * @param meshId - Mesh ID.
+     * @param filename - Configured filename.
+     * @param key - Cache key captured before the async check.
+     */
+    private async checkMeshFile(meshId: number, filename: string, key: string): Promise<void> {
+        let info: MeshFileInfo;
+        if (!filename.trim()) {
+            info = { status: 'unknown' };
+        } else {
+            const absolute = this.isAbsoluteFilePath(filename);
+            const projectPath = this.stateManager.projectPath;
+            if (!absolute && !projectPath) {
+                info = { status: 'relative', checkedPath: filename };
+            } else {
+                const resolved = absolute ? filename : new URI(projectPath!).parent.resolve(filename).path.toString();
+                // Stat on the backend: Theia's browser FileService can stall for
+                // paths outside the workspace, and the editor must never sit on
+                // "Checking file…" forever.
+                const result = await this.withMeshCheckTimeout(this.studioService.getBackendService().checkFileExists(resolved), 60000);
+                if (result === undefined) {
+                    info = { status: 'unknown', checkedPath: resolved, error: 'the file check did not respond' };
+                } else if (result.exists) {
+                    info = { status: 'exists', size: result.size, checkedPath: resolved };
+                } else {
+                    info = { status: 'missing', checkedPath: resolved, error: result.error };
+                }
+            }
+        }
+        // Only apply when the mesh/filename/project has not changed meanwhile.
+        if (this.meshFileKeys.get(meshId) === key) {
+            this.meshFileInfo.set(meshId, info);
+            this.update();
+        }
+    }
+
+    /**
+     * Bound a filesystem check so a stalled provider cannot hang the editor.
+     *
+     * @param promise - Filesystem operation.
+     * @param timeoutMs - Maximum wait in milliseconds.
+     * @returns The operation result, or `undefined` on timeout.
+     */
+    private async withMeshCheckTimeout<T>(promise: Promise<T>, timeoutMs = 5000): Promise<T | undefined> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<undefined>((resolve) => {
+            timer = setTimeout(() => resolve(undefined), timeoutMs);
+        });
+        try {
+            return await Promise.race([promise, timeout]);
+        } finally {
+            if (timer !== undefined) {
+                clearTimeout(timer);
+            }
+        }
+    }
+
+    /**
+     * Test whether a path is absolute (POSIX, Windows drive, or UNC).
+     *
+     * @param filename - Path to inspect.
+     */
+    private isAbsoluteFilePath(filename: string): boolean {
+        return filename.startsWith('/') || filename.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(filename);
+    }
+
+    /**
+     * Check the MOAB Python package on demand; drives the unstructured
+     * dependency hint without blocking the initial mesh-file check.
+     */
+    private checkMoabDependency(): void {
+        if (this.moabRequested) {
+            return;
+        }
+        this.moabRequested = true;
+        this.moabChecking = true;
+        this.update();
+        const moabPackage = DAGMC_PACKAGES.find((pkg) => pkg.name === 'moab');
+        if (!moabPackage) {
+            this.moabChecking = false;
+            this.update();
+            return;
+        }
+        void this.nukeCore
+            .healthCheck([moabPackage])
+            .then((result) => {
+                const check = result.checks.find((item) => item.name === `Package: ${moabPackage.name}`);
+                this.moabAvailable = check ? check.passed : undefined;
+                this.moabChecking = false;
+                this.update();
+            })
+            .catch(() => {
+                this.moabAvailable = undefined;
+                this.moabChecking = false;
+                this.update();
+            });
     }
 
     /**

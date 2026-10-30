@@ -43,7 +43,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, useTooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
@@ -53,8 +53,11 @@ import {
     StatepointTally,
     StatisticalTests,
     KeffConvergenceAnalysis,
-    DepletionResults
+    DepletionResults,
+    EvaluateDerivedTalliesResult
 } from '../../../common/openmc-studio-protocol';
+import { aggregateDerivedBins, formatDerivedExpression } from '../../../common/derived-tallies';
+import { OpenMCStateManager } from '../../openmc-state-manager';
 
 // Import Plotly component from nuke-visualizer
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
@@ -69,6 +72,8 @@ interface StatepointInfoExtended extends StatepointInfo {
     loading?: boolean;
     /** Whether the file was successfully loaded. */
     loaded?: boolean;
+    /** Analysis-only derived-tally results evaluated for this statepoint. */
+    derived?: EvaluateDerivedTalliesResult;
 }
 
 /**
@@ -106,7 +111,7 @@ const KeffChartBar: React.FC<{
 };
 
 /** Active tab in the simulation comparison widget. */
-type ComparisonTab = 'overview' | 'keff' | 'tallies' | 'statistics' | 'convergence' | 'burnup';
+type ComparisonTab = 'overview' | 'keff' | 'tallies' | 'derived' | 'statistics' | 'convergence' | 'burnup';
 
 /**
  * Widget for comparing k-effective values and tally results across multiple
@@ -140,6 +145,9 @@ export class SimulationComparisonWidget extends ReactWidget {
     @inject(FileService)
     protected readonly fileService!: FileService;
 
+    @inject(OpenMCStateManager)
+    protected readonly stateManager!: OpenMCStateManager;
+
     private statepoints: StatepointInfoExtended[] = [];
     private activeTab: ComparisonTab = 'overview';
     private selectedTallyId?: number;
@@ -166,7 +174,8 @@ export class SimulationComparisonWidget extends ReactWidget {
         this.title.label = SimulationComparisonWidget.LABEL;
         this.title.caption = SimulationComparisonWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-git-compare';
+        this.title.iconClass = 'codicon codicon-openmc-compare';
+        this.toDispose.push(this.stateManager.onStateChange(() => this.update()));
         this.update();
     }
 
@@ -208,7 +217,7 @@ export class SimulationComparisonWidget extends ReactWidget {
             <div className="comparison-header">
                 <div className="header-info">
                     <h2>
-                        <i className="codicon codicon-git-compare"></i>
+                        <i className="codicon codicon-openmc-compare"></i>
                         Simulation Comparison
                     </h2>
                     <p className="header-description">{description}</p>
@@ -259,37 +268,43 @@ export class SimulationComparisonWidget extends ReactWidget {
         const hasEigenvalue = this.statepoints.some((s) => s.loaded && s.kEff);
         const hasDepletion = this.depletionResults.size > 0;
 
-        const tabs: { id: ComparisonTab; label: string; icon: string }[] = [{ id: 'overview', label: 'Overview', icon: 'preview' }];
+        const tabs: { id: ComparisonTab; label: string; icon: string }[] = [{ id: 'overview', label: 'Overview', icon: 'openmc-compare' }];
 
         if (hasEigenvalue) {
-            tabs.push({ id: 'keff', label: 'k-effective', icon: 'symbol-numeric' });
+            tabs.push({ id: 'keff', label: 'k-effective', icon: 'openmc-atom' });
         }
 
-        tabs.push({ id: 'tallies', label: 'Tallies', icon: 'graph' });
+        tabs.push({ id: 'tallies', label: 'Tallies', icon: 'openmc-tally' });
+
+        if (this.hasDerivedTallies()) {
+            tabs.push({ id: 'derived', label: 'Derived', icon: 'openmc-derived' });
+        }
 
         if (hasEigenvalue) {
             tabs.push({ id: 'statistics', label: 'Statistics', icon: 'pie-chart' });
-            tabs.push({ id: 'convergence', label: 'Convergence', icon: 'history' });
+            tabs.push({ id: 'convergence', label: 'Convergence', icon: 'openmc-plot' });
         }
 
         if (hasDepletion) {
-            tabs.push({ id: 'burnup', label: 'Burnup', icon: 'flame' });
+            tabs.push({ id: 'burnup', label: 'Burnup', icon: 'openmc-depletion' });
         }
 
         return (
             <div className="comparison-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.activeTab = tab.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon codicon-${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => {
+                                this.activeTab = tab.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon codicon-${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -317,7 +332,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                 <div className="comparison-content empty-dashboard">
                     <div className="welcome-section">
                         <div className="welcome-icon">
-                            <i className="codicon codicon-git-compare"></i>
+                            <i className="codicon codicon-openmc-compare"></i>
                         </div>
                         <h3>Simulation Comparison & Analysis</h3>
                         <p>Select your simulation output files to begin side-by-side comparison and statistical analysis.</p>
@@ -326,7 +341,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                     <div className="get-started-grid">
                         <div className="start-card" onClick={() => this.openAddDialog()}>
                             <div className="card-icon statepoint">
-                                <i className="codicon codicon-database"></i>
+                                <i className="codicon codicon-openmc-statepoint"></i>
                             </div>
                             <div className="card-content">
                                 <h4>Statepoint Files</h4>
@@ -339,7 +354,7 @@ export class SimulationComparisonWidget extends ReactWidget {
 
                         <div className="start-card" onClick={() => this.openAddDepletionDialog()}>
                             <div className="card-icon depletion">
-                                <i className="codicon codicon-flame"></i>
+                                <i className="codicon codicon-openmc-depletion"></i>
                             </div>
                             <div className="card-content">
                                 <h4>Depletion Results</h4>
@@ -366,6 +381,7 @@ export class SimulationComparisonWidget extends ReactWidget {
                 {this.activeTab === 'overview' && this.renderOverviewTab()}
                 {this.activeTab === 'keff' && this.renderKeffTab()}
                 {this.activeTab === 'tallies' && this.renderTalliesTab()}
+                {this.activeTab === 'derived' && this.renderDerivedTab()}
                 {this.activeTab === 'statistics' && this.renderStatisticsTab()}
                 {this.activeTab === 'convergence' && this.renderConvergenceTab()}
                 {this.activeTab === 'burnup' && this.renderBurnupTab()}
@@ -758,6 +774,109 @@ export class SimulationComparisonWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    /** True when the open project defines derived tallies. */
+    private hasDerivedTallies(): boolean {
+        return (this.stateManager.getState().derivedTallies ?? []).length > 0;
+    }
+
+    /**
+     * Render analysis-only derived tallies across loaded statepoints. Results
+     * are matched by definition ID, then by name, so renamed runs still align.
+     */
+    private renderDerivedTab(): React.ReactNode {
+        const definitions = this.stateManager.getState().derivedTallies ?? [];
+        const loaded = this.statepoints.filter((statepoint) => statepoint.loaded && !statepoint.error);
+        if (definitions.length === 0) {
+            return (
+                <div className="tab-content empty">
+                    <i className="codicon codicon-openmc-derived"></i>
+                    <h3>No Derived Tallies</h3>
+                    <p className="hint">Create analysis-only derived tallies in the Tally Configurator's Derived Tallies tab.</p>
+                </div>
+            );
+        }
+        return (
+            <div className="tab-content derived-comparison-tab">
+                <div className="derived-comparison-caveat">
+                    <i className="codicon codicon-info"></i>
+                    Uncertainty assumes independent tallies. Derived results are post-processing only and never enter simulation XML or
+                    Python.
+                </div>
+                {definitions.map((definition) => {
+                    const rows = loaded.map((statepoint) => {
+                        const result =
+                            statepoint.derived?.derivedTallies.find((entry) => entry.id === definition.id) ??
+                            statepoint.derived?.derivedTallies.find((entry) => entry.name === definition.name);
+                        const error = statepoint.derived?.errors.find(
+                            (entry) => entry.id === definition.id || entry.name === definition.name
+                        );
+                        return {
+                            statepoint,
+                            result,
+                            error: error?.error ?? (statepoint.derived?.error || undefined)
+                        };
+                    });
+                    return (
+                        <div className="derived-comparison-card" key={definition.id}>
+                            <div className="derived-comparison-card-header">
+                                <span className="derived-comparison-badge">DERIVED</span>
+                                <strong>{definition.name}</strong>
+                                {definition.unit && <span className="derived-comparison-unit">[{definition.unit}]</span>}
+                            </div>
+                            <code className="derived-comparison-formula">{formatDerivedExpression(definition.expression)}</code>
+                            <div className="derived-comparison-table-scroll">
+                                <table className="comparison-table derived">
+                                    <thead>
+                                        <tr>
+                                            <th>Statepoint</th>
+                                            <th>Bins</th>
+                                            <th>Mean / Sum</th>
+                                            <th>Std. dev.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows.map(({ statepoint, result, error }) => {
+                                            const aggregate = result ? aggregateDerivedBins(result.mean, result.stdDev) : undefined;
+                                            return (
+                                                <tr key={statepoint.localId}>
+                                                    <td>{statepoint.fileName}</td>
+                                                    <td>{result ? result.totalBins : '—'}</td>
+                                                    <td>{aggregate ? this.formatComparisonNumber(aggregate.value) : '—'}</td>
+                                                    <td>{aggregate ? this.formatComparisonNumber(aggregate.stdDev) : '—'}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {rows.some(({ error }) => error) && (
+                                <ul className="derived-comparison-errors">
+                                    {rows
+                                        .filter(({ error }) => error)
+                                        .map(({ statepoint, error }) => (
+                                            <li key={statepoint.localId}>
+                                                <i className="codicon codicon-warning"></i> {statepoint.fileName}: {error}
+                                            </li>
+                                        ))}
+                                </ul>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    private formatComparisonNumber(value: number): string {
+        if (!Number.isFinite(value)) {
+            return '—';
+        }
+        if (value === 0) {
+            return '0';
+        }
+        return Math.abs(value) >= 1e-3 && Math.abs(value) < 1e6 ? String(Number(value.toPrecision(6))) : value.toExponential(3);
     }
 
     /**
@@ -1402,17 +1521,18 @@ export class SimulationComparisonWidget extends ReactWidget {
                             >
                                 <i className="codicon codicon-graph-line"></i> Nuclides
                             </button>
-                            <button
-                                className={`theia-button secondary small ${this.burnupPlotType === 'keff' ? 'active' : ''}`}
-                                onClick={() => {
-                                    this.burnupPlotType = 'keff';
-                                    this.update();
-                                }}
-                                disabled={!data.keff}
-                                title={!data.keff ? 'No k-effective data available' : ''}
-                            >
-                                <i className="codicon codicon-pulse"></i> k-effective
-                            </button>
+                            <Tooltip content={!data.keff ? 'No k-effective data available' : 'Plot k-effective'} position="top">
+                                <button
+                                    className={`theia-button secondary small ${this.burnupPlotType === 'keff' ? 'active' : ''}`}
+                                    onClick={() => {
+                                        this.burnupPlotType = 'keff';
+                                        this.update();
+                                    }}
+                                    disabled={!data.keff}
+                                >
+                                    <i className="codicon codicon-pulse"></i> k-effective
+                                </button>
+                            </Tooltip>
                         </div>
                     </div>
 
@@ -1473,19 +1593,15 @@ export class SimulationComparisonWidget extends ReactWidget {
                 {this.burnupPlotType === 'concentration' && (
                     <div className="material-selector-bar">
                         <label>Material:</label>
-                        <select
-                            value={this.selectedMaterialId}
-                            onChange={(e) => {
-                                this.selectedMaterialId = e.target.value;
+                        <NukeSelect
+                            value={this.selectedMaterialId ?? ''}
+                            options={[...materialList.map(([id, mat]) => ({ value: id, label: `${mat.name} (ID: ${id})` }))]}
+                            onChange={(value: string) => {
+                                this.selectedMaterialId = value;
                                 this.update();
                             }}
-                        >
-                            {materialList.map(([id, mat]) => (
-                                <option key={id} value={id}>
-                                    {mat.name} (ID: {id})
-                                </option>
-                            ))}
-                        </select>
+                            ariaLabel="Material"
+                        />
                         <div className="nuclide-quick-select">
                             <span>Quick Select:</span>
                             <button
@@ -1896,6 +2012,10 @@ export class SimulationComparisonWidget extends ReactWidget {
 
             this.update();
 
+            if (result.success) {
+                await this.loadDerivedResults(statepoint);
+            }
+
             // If we have multiple loaded statepoints, fetch statistical comparison
             const loadedCount = this.statepoints.filter((s) => s.loaded).length;
             if (loadedCount >= 2) {
@@ -1907,6 +2027,28 @@ export class SimulationComparisonWidget extends ReactWidget {
             statepoint.error = error instanceof Error ? error.message : 'Failed to load statepoint';
             this.update();
         }
+    }
+
+    /** Evaluate the project's derived tallies for one loaded statepoint. */
+    private async loadDerivedResults(statepoint: StatepointInfoExtended): Promise<void> {
+        const derivedTallies = this.stateManager.getState().derivedTallies ?? [];
+        if (derivedTallies.length === 0) {
+            return;
+        }
+        try {
+            statepoint.derived = await this.backendService.evaluateDerivedTallies({
+                statepointPath: statepoint.filePath,
+                derivedTallies
+            });
+        } catch (error) {
+            statepoint.derived = {
+                success: false,
+                derivedTallies: [],
+                errors: [],
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+        this.update();
     }
 
     /**
@@ -1983,6 +2125,21 @@ export class SimulationComparisonWidget extends ReactWidget {
                 lines.push('');
             }
         });
+
+        // Derived tallies (analysis-only)
+        if (this.hasDerivedTallies()) {
+            lines.push('Derived Tallies (analysis-only; uncertainty assumes independent tallies)');
+            lines.push('File,Derived ID,Name,Bins,Mean / Sum,Std Dev');
+            this.statepoints.forEach((sp) => {
+                sp.derived?.derivedTallies.forEach((result) => {
+                    const aggregate = aggregateDerivedBins(result.mean, result.stdDev);
+                    lines.push(
+                        `${sp.fileName},${result.id},"${result.name.replace(/"/g, '""')}",${result.totalBins},${aggregate.value},${aggregate.stdDev}`
+                    );
+                });
+            });
+            lines.push('');
+        }
 
         // Depletion results
         if (this.depletionResults.size > 0) {

@@ -26,8 +26,9 @@
 // *****************************************************************************
 
 import * as React from 'react';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { OpenMCTally, OpenMCMaterial, OpenMCMesh, OpenMCTallyScore } from '../../../../common/openmc-state-schema';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { OpenMCCell, OpenMCTally, OpenMCMaterial, OpenMCMesh, OpenMCTallyScore } from '../../../../common/openmc-state-schema';
+import type { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
 import { ScoreSelector } from './score-selector';
 import { FilterBuilder } from './filter-builder';
 import { NuclideSelector } from './nuclide-selector';
@@ -42,12 +43,22 @@ interface TallyEditorProps {
     tally: OpenMCTally;
     /** Available meshes for mesh filter selection */
     meshes: OpenMCMesh[];
-    /** Available materials for derivative domain selection */
+    /** Available materials for derivative and mesh-material selection */
     materials: OpenMCMaterial[];
+    /** Available cells for the cell-instance picker */
+    cells?: OpenMCCell[];
     /** Run-level trigger evaluation interval in batches (settings.triggers.batchInterval) */
     triggerBatchInterval?: number;
     /** Multi-group (random ray) mode — forwarded to the score selector hint */
     multiGroup?: boolean;
+    /** Whether the configured OpenMC supports mesh-filter rotation (0.16+) */
+    meshRotationSupported?: boolean;
+    /** Whether the configured OpenMC supports reaction filters (0.16+) */
+    reactionFilterSupported?: boolean;
+    /** Whether the configured OpenMC supports particle-production filters (0.16+) */
+    particleProductionFilterSupported?: boolean;
+    /** Probed compatibility descriptor for particle selectors. */
+    compat?: OpenMCCompat;
     /** Callback when tally properties change */
     onUpdate: (updates: Partial<OpenMCTally>) => void;
 }
@@ -63,7 +74,19 @@ interface TallyEditorProps {
  * @see {@link FilterBuilder}
  * @see {@link NuclideSelector}
  */
-export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materials, triggerBatchInterval, multiGroup, onUpdate }) => {
+export const TallyEditor: React.FC<TallyEditorProps> = ({
+    tally,
+    meshes,
+    materials,
+    cells,
+    triggerBatchInterval,
+    multiGroup,
+    meshRotationSupported,
+    reactionFilterSupported,
+    particleProductionFilterSupported,
+    compat,
+    onUpdate
+}) => {
     const hasMeshFilter = tally.filters.some((f) => f.type === 'mesh');
     const isTrackLength = tally.estimator === 'tracklength';
     const showTrackLengthWarning = isTrackLength && !hasMeshFilter;
@@ -107,11 +130,16 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materia
                         <Tooltip content="Method for estimating particle contributions to tallies" position="top">
                             <label>Estimator</label>
                         </Tooltip>
-                        <select value={tally.estimator || 'tracklength'} onChange={(e) => onUpdate({ estimator: e.target.value as any })}>
-                            <option value="tracklength">Tracklength (default)</option>
-                            <option value="analog">Analog</option>
-                            <option value="collision">Collision</option>
-                        </select>
+                        <NukeSelect
+                            value={tally.estimator || 'tracklength'}
+                            options={[
+                                { value: 'tracklength', label: 'Tracklength (default)' },
+                                { value: 'analog', label: 'Analog' },
+                                { value: 'collision', label: 'Collision' }
+                            ]}
+                            onChange={(value: string) => onUpdate({ estimator: value as any })}
+                            ariaLabel="Estimator"
+                        />
                         <p className="form-hint">Determines how scores are calculated</p>
                         {showTrackLengthWarning && (
                             <p className="validation-warning">
@@ -127,6 +155,42 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materia
                                 collision or analog estimator.
                             </p>
                         )}
+                    </div>
+                    <div className="form-group tally-output-options">
+                        <label className="score-checkbox-label">
+                            <input
+                                type="checkbox"
+                                checked={tally.multiplyDensity !== false}
+                                onChange={(e) => onUpdate({ multiplyDensity: e.target.checked })}
+                            />
+                            <Tooltip
+                                content="Multiply scores by the local atom density (OpenMC default). Disable for scores already normalized per atom or per unit mass."
+                                position="top"
+                            >
+                                <span>Multiply by density</span>
+                            </Tooltip>
+                        </label>
+                        <p className="form-hint">
+                            Disable when a score is defined per unit mass or already density-normalized; the generated tally writes
+                            multiply_density="false".
+                        </p>
+                        <label className="score-checkbox-label">
+                            <input
+                                type="checkbox"
+                                checked={!!tally.higherMoments}
+                                onChange={(e) => onUpdate({ higherMoments: e.target.checked })}
+                            />
+                            <Tooltip
+                                content="Accumulate third and fourth central moments for this tally in the statepoint (higher_moments in tallies.xml)."
+                                position="top"
+                            >
+                                <span>Accumulate higher moments</span>
+                            </Tooltip>
+                        </label>
+                        <p className="form-hint">
+                            Writes &lt;higher_moments&gt; to tallies.xml. Sparse storage and per-batch statistics are Python/statepoint
+                            analysis options, not simulation input, so they have no editor control.
+                        </p>
                     </div>
                 </div>
 
@@ -147,7 +211,19 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({ tally, meshes, materia
                         Filters
                     </h4>
                     <p className="section-description">Limit tally scoring to specific regions, energies, or cells.</p>
-                    <FilterBuilder filters={tally.filters} meshes={meshes} onUpdate={(filters) => onUpdate({ filters })} />
+                    <FilterBuilder
+                        filters={tally.filters}
+                        meshes={meshes}
+                        cells={cells}
+                        materials={materials}
+                        scores={tally.scores}
+                        meshRotationSupported={meshRotationSupported}
+                        reactionFilterSupported={reactionFilterSupported}
+                        particleProductionFilterSupported={particleProductionFilterSupported}
+                        generalizedParticlesSupported={compat?.generalizedParticles}
+                        compat={compat}
+                        onUpdate={(filters) => onUpdate({ filters })}
+                    />
                 </div>
 
                 <div className="editor-section">

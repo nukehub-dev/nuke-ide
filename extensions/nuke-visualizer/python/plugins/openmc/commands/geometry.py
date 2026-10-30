@@ -4,7 +4,6 @@ Geometry analysis and visualization commands.
 
 import json
 import os
-import sys
 
 from nuke_viz.plugin import arg, command
 
@@ -44,36 +43,6 @@ def _resolve_geometry_path(file_path: str) -> str:
     return file_path
 
 
-@command("openmc.visualize-geometry", help="Visualize OpenMC geometry")
-@arg("file", help="Path to geometry.xml or summary.h5")
-@arg("--port", type=int, help="Server port")
-@arg("--highlight", help="Cell ID(s) to highlight (comma-separated)")
-@arg("--overlaps", help="Path to JSON file with overlap markers")
-def cmd_visualize_geometry(args):
-    """Visualize OpenMC geometry in 3D."""
-    try:
-        import os
-
-        from plugins.openmc.lib.geometry_viz import visualize_geometry
-
-        path = _resolve_geometry_path(args.file)
-        if os.path.isdir(path):
-            path = os.path.join(path, "geometry.xml")
-
-        highlight_ids = None
-        if args.highlight:
-            # Handle both single int and comma-separated string
-            if isinstance(args.highlight, str):
-                highlight_ids = [int(x.strip()) for x in args.highlight.split(",")]
-            else:
-                highlight_ids = [int(args.highlight)]
-
-        return visualize_geometry(path, args.port, highlight_ids, args.overlaps)
-    except Exception as e:
-        print(json.dumps({"error": str(e)}))
-        return 1
-
-
 @command("openmc.check-overlaps", help="Check for geometry overlaps")
 @arg("geometry", help="Path to geometry.xml or Python model")
 @arg("--samples", type=int, default=100000, help="Number of sample points")
@@ -104,9 +73,6 @@ def cmd_check_overlaps(args):
         print(json.dumps(result))
         return 0 if result.get("error") is None else 1
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"overlaps": [], "totalOverlaps": 0, "error": str(e)}))
         return 1
 
@@ -133,9 +99,6 @@ def cmd_overlap_viz(args):
         print(json.dumps(result))
         return 0 if result.get("error") is None else 1
     except Exception as e:
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"markers": [], "overlappingCellIds": [], "error": str(e)}))
         return 1
 
@@ -154,8 +117,88 @@ def cmd_geometry_bounds(args):
         print(json.dumps(bounds))
         return 0
     except Exception as e:
-        import traceback
+        print(json.dumps({"error": str(e)}))
+        return 1
 
-        traceback.print_exc(file=sys.stderr)
+
+@command("openmc.geometry-mesh", help="Extract CSG geometry as three.js-ready mesh JSON")
+@arg("--file", required=True, help="Path to geometry.xml or summary.h5")
+@arg("--out", help="Write mesh JSON to this file (otherwise printed on stdout)")
+@arg("--segments", type=int, default=16, help="Tessellation segments per curved surface (3-64)")
+def cmd_geometry_mesh(args):
+    """Extract OpenMC CSG geometry as mesh JSON without starting a server."""
+    try:
+        segments = args.segments
+        if isinstance(segments, bool):
+            print(json.dumps({"error": "segments must be an integer"}))
+            return 1
+        try:
+            segments = int(segments)
+        except (TypeError, ValueError):
+            print(json.dumps({"error": f"segments must be an integer, got {args.segments!r}"}))
+            return 1
+        if segments < 3 or segments > 64:
+            print(json.dumps({"error": f"segments must be between 3 and 64, got {segments}"}))
+            return 1
+
+        from plugins.openmc.lib.geometry_viz import extract_csg_mesh, write_geometry_mesh_json
+
+        path = _resolve_geometry_path(args.file)
+        if os.path.isdir(path):
+            path = os.path.join(path, "geometry.xml")
+
+        mesh = extract_csg_mesh(path, segments=segments)
+        if args.out:
+            mesh_path = write_geometry_mesh_json(mesh, args.out)
+            print(
+                json.dumps(
+                    {
+                        "meshPath": mesh_path,
+                        "sourceFile": mesh["sourceFile"],
+                        "stats": mesh["stats"],
+                    }
+                )
+            )
+        else:
+            print(json.dumps(mesh))
+        return 0
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+        return 1
+
+
+@command("openmc.geometry-slice-vtk", help="Write a static CSG section slice as .vtp (no server)")
+@arg("--file", required=True, help="Path to geometry.xml or summary.h5")
+@arg("--plane", choices=["x", "y", "z"], default="z", help="Slice plane")
+@arg("--position", type=float, help="Slice position in cm (default: bounds center)")
+@arg("--out", help="Output .vtp path (default: temp file)")
+def cmd_geometry_slice_vtk(args):
+    """Write a static geometry section slice as a plain VTK file."""
+    try:
+        from plugins.openmc.lib.geometry_viz import extract_csg_mesh
+        from plugins.openmc.lib.slice_viz import extract_geometry_section, write_section_vtp
+
+        path = _resolve_geometry_path(args.file)
+        if os.path.isdir(path):
+            path = os.path.join(path, "geometry.xml")
+
+        mesh = extract_csg_mesh(path)
+        cells = [{"cellId": cell["id"], "bounds": cell["bbox"]} for cell in mesh["cells"]]
+        section = extract_geometry_section(cells, plane=args.plane, position=args.position)
+        vtk_path = write_section_vtp(section, args.out)
+        print(
+            json.dumps(
+                {
+                    "vtkPath": vtk_path,
+                    "sourceFile": mesh["sourceFile"],
+                    "plane": section["plane"],
+                    "position": section["position"],
+                    "nCells": section["nCells"],
+                    "nSections": section["nSections"],
+                }
+            )
+        )
+        return 0
+    except Exception as e:
         print(json.dumps({"error": str(e)}))
         return 1

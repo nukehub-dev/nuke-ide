@@ -1,0 +1,411 @@
+/* Feature tree panel. Mirrors the outline panel chrome. */
+
+.cad-feature-tree-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+}
+
+.cad-feature-tree-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.cad-feature-tree-header .header-info h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--theia-foreground);
+}
+
+.cad-feature-tree-header .header-info h2 i {
+    color: var(--theia-focusBorder);
+}
+
+.cad-feature-tree-header .header-description {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    word-break: break-all;
+}
+
+.cad-feature-tree-content {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+}
+
+.cad-feature-tree-panel .category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.cad-feature-tree-panel .category-header i {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.cad-feature-tree-panel .category-header:hover {
+    color: var(--theia-foreground);
+}
+
+.cad-feature-tree-panel .category-header .count-badge {
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.feature-tree-section {
+    margin-bottom: 16px;
+}
+
+.feature-tree-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.feature-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.feature-tree-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.feature-tree-row.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+    border-color: var(--theia-focusBorder);
+}
+
+.feature-tree-row.datum {
+    cursor: default;
+    opacity: 0.85;
+}
+
+.feature-tree-icon {
+    color: var(--theia-focusBorder);
+    font-size: 14px;
+}
+
+.feature-tree-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.feature-tree-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-descriptionForeground);
+    opacity: 0.5;
+}
+
+.feature-tree-row.status-built .feature-tree-status {
+    background: var(--theia-terminal-ansiGreen);
+    opacity: 1;
+}
+
+.feature-tree-row.status-failed .feature-tree-status {
+    background: var(--theia-editorError-foreground);
+    opacity: 1;
+}
+
+.feature-tree-row.status-stale .feature-tree-status {
+    background: var(--theia-editorWarning-foreground);
+    opacity: 1;
+}
+
+.feature-tree-action {
+    padding: 2px 4px;
+    min-width: 0;
+    margin-left: 0;
+    opacity: 0;
+}
+
+.feature-tree-row:hover .feature-tree-action {
+    opacity: 1;
+}
+
+.feature-tree-action.suppressed {
+    opacity: 1;
+}
+
+.feature-tree-ref-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.feature-tree-ref-badge.ambiguous {
+    color: var(--theia-editorWarning-foreground);
+    background: var(--theia-inputValidation-warningBackground, rgba(204, 147, 0, 0.15));
+}
+
+.feature-tree-ref-badge.unmatched {
+    color: var(--theia-editorError-foreground);
+    background: var(--theia-inputValidation-errorBackground, rgba(244, 135, 113, 0.15));
+}
+
+.feature-tree-ref-badge:hover {
+    cursor: pointer;
+    opacity: 0.85;
+}
+
+.feature-tree-rename-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 2px 4px;
+    font-size: 13px;
+}
+
+.cad-feature-tree-repair-popover {
+    z-index: 1000;
+    min-width: 280px;
+    max-width: 420px;
+    max-height: 400px;
+    overflow: auto;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    padding: 8px;
+}
+
+.cad-feature-tree-repair-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.cad-feature-tree-repair-group {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.cad-feature-tree-repair-group:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.cad-feature-tree-repair-path {
+    font-family: var(--theia-ui-font-family);
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 4px;
+}
+
+.cad-feature-tree-repair-current {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 6px;
+}
+
+.cad-feature-tree-repair-candidates {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cad-feature-tree-repair-candidate {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-start;
+    text-align: left;
+    padding: 4px 6px;
+}
+
+.cad-feature-tree-repair-candidate-id {
+    font-family: var(--theia-ui-font-family);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cad-feature-tree-repair-candidate-score {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-feature-tree-repair-candidate-summary {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    width: 100%;
+}
+
+.cad-feature-tree-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-feature-tree-empty > i {
+    width: 32px;
+    height: 32px;
+    -webkit-mask-size: 32px 32px;
+    mask-size: 32px 32px;
+    opacity: 0.3;
+}
+
+.cad-feature-tree-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.cad-feature-tree-empty .empty-hint {
+    font-size: 12px;
+}
+
+.category-header-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.feature-tree-section-action {
+    padding: 2px 4px;
+    min-width: 0;
+    margin-left: 4px;
+    opacity: 0.7;
+}
+
+.feature-tree-section-action:hover {
+    opacity: 1;
+}
+
+.feature-tree-kind-chip {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    white-space: nowrap;
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+}
+
+.cad-curve-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 360px;
+}
+
+.cad-curve-dialog-error {
+    color: var(--theia-editorError-foreground);
+    background: var(--theia-inputValidation-errorBackground, rgba(244, 135, 113, 0.15));
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.cad-curve-dialog-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+}
+
+.cad-curve-dialog-row.stacked {
+    flex: 1;
+}
+
+.cad-curve-dialog-row input,
+.cad-curve-dialog-row textarea {
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 4px 6px;
+    font-size: 13px;
+}
+
+.cad-curve-dialog-row input:focus,
+.cad-curve-dialog-row textarea:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.cad-curve-dialog-textarea {
+    font-family: var(--theia-ui-font-family);
+    resize: vertical;
+}
+
+.cad-curve-dialog-row-group {
+    display: flex;
+    gap: 12px;
+}
+
+.cad-curve-dialog-row-group .cad-curve-dialog-row {
+    flex: 1;
+}
+
+.cad-curve-dialog-load {
+    align-self: flex-start;
+}
+
+/* Imported-body source chip: basename of the document-relative source file. */
+.feature-tree-import-source {
+    flex: 0 1 auto;
+    max-width: 160px;
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

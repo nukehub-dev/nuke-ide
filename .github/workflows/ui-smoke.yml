@@ -51,6 +51,31 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile --ignore-scripts
 
+      - name: Compile extensions
+        # --ignore-scripts skips the lerna prepare build, so extensions must
+        # be compiled explicitly: webpack resolves sibling packages via
+        # <extension>/lib/... (same reason as ci.yml's Compile steps). Without
+        # this the bundle fails with `Can't resolve 'nuke-*/lib/...'`.
+        run: npx lerna run build
+
+      - name: Rebuild native modules
+        # Scriptless installs skip native builds; webpack fails resolving
+        # keytar.node / cpufeatures.node / drivelist.node without them
+        # (same pitfall as build.yml's Rebuild step, which covers the
+        # Electron bundle — the browser bundle needs them too).
+        run: |
+          for mod in cpu-features keytar drivelist; do
+            if [ -d "node_modules/$mod" ]; then
+              (cd "node_modules/$mod" && npm run install --silent)
+            fi
+          done
+          # @theia/ffmpeg has no install script — yarn/npm compile its
+          # binding.gyp via the implicit node-gyp install, which scriptless
+          # caches lack. `theia build`'s checkFfmpeg loads ffmpeg.node.
+          if [ -d "node_modules/@theia/ffmpeg" ]; then
+            (cd node_modules/@theia/ffmpeg && npx node-gyp rebuild)
+          fi
+
       - name: Build the browser app
         run: yarn build:browser
 
@@ -62,7 +87,7 @@ jobs:
 
       - name: Upload test results on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-test-results
           path: test-results/

@@ -32,19 +32,19 @@
  * No DI/DOM dependencies — unit-testable in node.
  */
 
-/** Known Python dependencies the output viewers rely on, matched from backend error text */
+/** Known Python dependencies the native viewers rely on, matched from backend error text */
 const DEPENDENCY_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
     [/vtk/i, 'vtk'],
     [/h5py/i, 'h5py'],
-    [/trame/i, 'trame'],
-    [/paraview/i, 'paraview'],
+    [/netcdf4/i, 'netCDF4'],
+    [/meshio/i, 'meshio'],
     [/openmc/i, 'openmc']
 ];
 
 /**
  * Extract missing Python dependencies from a backend error message, or
  * undefined when the error is not dependency-related. Matches the messages
- * the python commands raise ("vtk not installed", "No module named 'trame'",
+ * the python commands raise ("vtk not installed", "No module named 'h5py'",
  * "Required dependencies not installed: ...") and the node-side environment
  * detection failure ("Failed to detect Python environment with ...").
  */

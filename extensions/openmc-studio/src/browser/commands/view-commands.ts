@@ -45,7 +45,9 @@ import { OptimizationWidget } from '../widgets/optimization/optimization-widget'
 import { VolumeCalcWidget } from '../widgets/volume-calc/volume-calc-widget';
 import { NativePlottingWidget } from '../widgets/native-plotting/native-plotting-widget';
 import { MgxsGeneratorWidget } from '../widgets/mgxs-generator/mgxs-generator-widget';
+import { ShutdownDoseWidget } from '../widgets/shutdown-dose/shutdown-dose-widget';
 import { OpenMCPythonExporter } from '../script-generator/python-exporter';
+import { OpenMCStudioService } from '../openmc-studio-service';
 
 export namespace OpenMCViewCommands {
     /** Command category for all view-opening commands. */
@@ -134,6 +136,13 @@ export namespace OpenMCViewCommands {
         category: CATEGORY,
         label: 'MGXS Generator'
     };
+
+    /** Open the shutdown-dose (R2S / D1S) wizard. */
+    export const OPEN_SHUTDOWN_DOSE: Command = {
+        id: 'openmc.openShutdownDose',
+        category: CATEGORY,
+        label: 'Shutdown Dose'
+    };
 }
 
 /**
@@ -154,6 +163,9 @@ export class ViewCommands {
 
     @inject(OpenMCPythonExporter)
     protected readonly pythonExporter: OpenMCPythonExporter;
+
+    @inject(OpenMCStudioService)
+    protected readonly studioService: OpenMCStudioService;
 
     /**
      * Register view commands with the command registry.
@@ -185,7 +197,13 @@ export class ViewCommands {
         });
 
         registry.registerCommand(OpenMCViewCommands.OPEN_SCRIPT_GENERATOR, {
-            execute: () => this.pythonExporter.exportToPython()
+            execute: async () => {
+                const compat = await this.studioService.getOpenMCCompat();
+                return this.pythonExporter.exportToPython({
+                    compat,
+                    meshFilterRotationSupported: compat.meshFilterRotation
+                });
+            }
         });
 
         registry.registerCommand(OpenMCViewCommands.OPEN_SIMULATION_COMPARISON, {
@@ -206,6 +224,10 @@ export class ViewCommands {
 
         registry.registerCommand(OpenMCViewCommands.OPEN_MGXS_GENERATOR, {
             execute: () => this.openWidget(MgxsGeneratorWidget.ID)
+        });
+
+        registry.registerCommand(OpenMCViewCommands.OPEN_SHUTDOWN_DOSE, {
+            execute: () => this.openWidget(ShutdownDoseWidget.ID)
         });
     }
 

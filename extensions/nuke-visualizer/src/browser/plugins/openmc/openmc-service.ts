@@ -34,6 +34,8 @@ import {
     OpenMCBackendService,
     OpenMCStatepointInfo,
     OpenMCTallyInfo,
+    OpenMCTallySeries,
+    OpenMCTallySeriesOptions,
     XSPlotRequest,
     XSPlotData,
     XSGroupStructuresResponse,
@@ -41,6 +43,13 @@ import {
     OpenMCHeatmapPlane,
     OpenMCSliceOptions,
     OpenMCKineticsResult,
+    OpenMCDerivedTallyDefinition,
+    OpenMCDerivedTallyEvaluation,
+    DepletionDoseQuantity,
+    OpenMCDepletionContactDoseResult,
+    OpenMCDepletionDecaySpectrumResult,
+    DoseCoefficientsRequest,
+    DoseCoefficientsResult,
     OPENMC_REQUIREMENTS
 } from '../../../common/openmc-protocol';
 import { VisualizerWidget } from '../../visualizer-widget';
@@ -50,8 +59,15 @@ import { VisualizerPreferences } from '../../visualizer-preferences';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
 import { HealthCheckFramework } from '../../services/health-check-framework';
-import { OpenMCWidgetFactory } from './services/openmc-widget-factory';
 import { OpenMCFileDiscoveryService } from './services/openmc-file-discovery';
+import { GeometryNativeViewerWidget } from './widgets/geometry-native/geometry-native-viewer-widget';
+import { TallyNativeViewerWidget } from './widgets/tally-native/tally-native-viewer-widget';
+import { TallyOverlayKind, csgUnderlayCells } from './widgets/tally-native/tally-overlay-model';
+import { DagmcViewerWidget } from './widgets/dagmc/dagmc-viewer-widget';
+import { DagmcOutlineWidget } from '../../dagmc-outline/dagmc-outline-widget';
+import { VisualizerBackendService } from '../../../common/base-visualizer-protocol';
+import { parseNativeVtkXml, readVtkText } from './widgets/native-vtk/native-vtk-data';
+import { parseGeometryNativeModel } from './widgets/geometry-native/geometry-native-model';
 
 export interface OpenMCFileSet {
     /** Geometry file (DAGMC .h5m or VTK) */
@@ -73,10 +89,12 @@ export interface TallyVisualizationOptions {
     normalize?: boolean;
     /** Color map to use */
     colorMap?: string;
-    /** Whether to filter out graveyard surfaces (default: true) */
+    /** Exclude the graveyard block from conversion when true (default false: always converted, toggled post-load in the DAGMC Outline) */
     filterGraveyard?: boolean;
     /** Whether to use pixelated (blocky) rendering (default: true) */
     pixelated?: boolean;
+    /** Shared color range for a series step (applied as a custom range after the tally loads) */
+    range?: readonly [number, number];
 }
 
 @injectable()
@@ -96,14 +114,14 @@ export class OpenMCService {
     @inject(OpenMCBackendService)
     protected readonly openmcBackend: OpenMCBackendService;
 
+    @inject(VisualizerBackendService)
+    protected readonly visualizerBackend: VisualizerBackendService;
+
     @inject(VisualizerPreferences)
     protected readonly preferences: VisualizerPreferences;
 
     @inject(NukeCoreService)
     protected readonly nukeCoreService: NukeCoreService;
-
-    @inject(OpenMCWidgetFactory)
-    protected readonly widgetFactory: OpenMCWidgetFactory;
 
     @inject(OpenMCFileDiscoveryService)
     protected readonly fileDiscovery: OpenMCFileDiscoveryService;
@@ -281,6 +299,30 @@ export class OpenMCService {
     }
 
     /**
+     * Read one tally/score across multiple statepoints (`openmc.tally-series`).
+     */
+    async getTallySeries(files: string[], options: OpenMCTallySeriesOptions): Promise<OpenMCTallySeries> {
+        return this.openmcBackend.getTallySeries(files, options);
+    }
+
+    /**
+     * Evaluate persisted derived tallies against one statepoint.
+     * Returns `{ error }` instead of throwing so the viewer can render the
+     * failure inline next to the derived-tally list.
+     */
+    async getDerivedTallies(
+        statepointUri: URI,
+        definitions: OpenMCDerivedTallyDefinition[]
+    ): Promise<{ data?: OpenMCDerivedTallyEvaluation; error?: string }> {
+        try {
+            const data = await this.openmcBackend.getDerivedTallies(statepointUri.path.toString(), definitions);
+            return { data };
+        } catch (error) {
+            return { error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
+    /**
      * Get the currently loaded tallies.
      */
     getCurrentTallies(): OpenMCTallyInfo[] {
@@ -303,6 +345,88 @@ export class OpenMCService {
     }
 
     /**
+     * Create a tally tab instantly with a loading status, before any
+     * conversion or file read runs, so the tab appears immediately instead
+     * of popping in only once the backend finishes. Mirrors the DAGMC
+     * instant-open (`beginPendingLoad`) pattern.
+     */
+    protected async createPendingTallyWidget(label: string, statusMessage: string): Promise<TallyNativeViewerWidget> {
+        const widget = await this.widgetManager.getOrCreateWidget<TallyNativeViewerWidget>(TallyNativeViewerWidget.ID, {
+            id: `${TallyNativeViewerWidget.ID}:${Date.now()}`
+        } as any);
+        widget.beginPendingLoad(label, statusMessage);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'main' });
+        }
+        await this.shell.activateWidget(widget.id);
+        return widget;
+    }
+
+    /**
+     * Load a converted tally/source/overlay VTK file into an already-opened
+     * pending tally tab: `FileService.read` → native XML probe →
+     * `setTallyText(kind)`. Conversion failure lands in the tab's error
+     * panel instead of a toast-only dead end. The tab's probe/contour source
+     * fields are seeded from the known context (never overwriting typing).
+     */
+    protected async loadTallyIntoWidget(
+        widget: TallyNativeViewerWidget,
+        vtkPath: string,
+        kind: TallyOverlayKind,
+        label: string,
+        linkKey?: string,
+        toolContext?: { statepointPath?: string; tallyId?: number; score?: string; nuclide?: string }
+    ): Promise<TallyNativeViewerWidget> {
+        try {
+            const text = await readVtkText(this.fileService, new URI(vtkPath));
+            // Probe the native XML reader first: non-XML datasets throw here and
+            // take the trame fallback in the caller — the parser stays XML-only.
+            await parseNativeVtkXml(text);
+            await widget.setTallyText(text, kind);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            widget.failPendingLoad(message);
+            throw error;
+        }
+        widget.title.label = label;
+        widget.title.caption = label;
+        if (toolContext) {
+            widget.seedToolContext(toolContext);
+        }
+        // Camera-link identity: converted text loads carry no file, so key
+        // every tally tab by its source file — mesh/contour/probe tabs of one
+        // statepoint link, other files never do.
+        if (linkKey !== undefined) {
+            widget.setCameraLinkKey(linkKey);
+        }
+        // Every tally tab can spawn contour siblings: the callback routes
+        // through this same funnel, so contour tabs inherit the native-base
+        // warp/threshold funnels with no extra wiring.
+        widget.setContourOpener(async (contourPath: string, contourLabel: string) => {
+            await this.openTallyNativeWidget(contourPath, 'overlay', contourLabel);
+        });
+        return widget;
+    }
+
+    /**
+     * Open a converted tally/source/overlay VTK file in the native tally
+     * viewer. The tab opens instantly with a loading status; the converted
+     * file is read and parsed afterwards. Throws on any failure (already
+     * surfaced in-tab); callers surface the error instead of starting
+     * a server.
+     */
+    protected async openTallyNativeWidget(
+        vtkPath: string,
+        kind: TallyOverlayKind,
+        label: string,
+        linkKey?: string,
+        toolContext?: { statepointPath?: string; tallyId?: number; score?: string; nuclide?: string }
+    ): Promise<TallyNativeViewerWidget> {
+        const widget = await this.createPendingTallyWidget(label, 'Loading tally dataset…');
+        return this.loadTallyIntoWidget(widget, vtkPath, kind, label, linkKey, toolContext);
+    }
+
+    /**
      * Stop all running OpenMC Python servers.
      */
     async stopAllServers(): Promise<void> {
@@ -320,7 +444,10 @@ export class OpenMCService {
     /**
      * Visualize a mesh tally from a statepoint file.
      */
-    async visualizeMeshTally(statepointUri: URI, options: TallyVisualizationOptions): Promise<VisualizerWidget | null> {
+    async visualizeMeshTally(
+        statepointUri: URI,
+        options: TallyVisualizationOptions
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -343,40 +470,42 @@ export class OpenMCService {
                 label += ` (${options.score})`;
             }
 
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                statepointUri,
-                label,
-                deterministicId,
-                'Starting mesh tally visualization...'
-            );
-
+            // Native-only: convert to .vti and render without a server; the
+            // tab opens instantly with a loading status while the
+            // conversion runs. Any conversion/parse failure lands in the
+            // tab's error panel instead of starting a server.
             const statepointPath = statepointUri.path.toString();
-            const result = await this.openmcBackend.visualizeMeshTally(statepointPath, options.tallyId, options.score, options.nuclide);
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading visualization');
-            }
-
-            // Update label with tally name if available
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `OpenMC Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
+            const pendingWidget = await this.createPendingTallyWidget(label, 'Converting tally mesh…');
+            try {
+                const conversion = await this.openmcBackend.convertTallyMeshToVtk(statepointPath, {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide
+                });
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Tally conversion failed');
                 }
+                const nativeWidget = await this.loadTallyIntoWidget(pendingWidget, conversion.vtkPath, 'mesh', label, statepointPath, {
+                    statepointPath,
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide
+                });
+                if (options.range) {
+                    nativeWidget.applyProps({ rangeMode: 'custom', customRange: [options.range[0], options.range[1]] });
+                }
+                const tallyInfo = this.currentTallies.find((t) => t.id === options.tallyId);
+                if (tallyInfo) {
+                    this._onTallyVisualized.fire(tallyInfo);
+                }
+                this.messageService.info(`Loaded mesh tally ${options.tallyId} natively`);
+                return nativeWidget;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
+                this.messageService.error(`Failed to visualize mesh tally: ${message}`);
+                return pendingWidget;
             }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            this.messageService.info(`Loaded mesh tally visualization on port ${result.port}`);
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize mesh tally: ${msg}`);
@@ -408,36 +537,38 @@ export class OpenMCService {
     /**
      * Visualize source distribution from source.h5 file.
      */
-    async visualizeSource(sourceUri: URI): Promise<VisualizerWidget | null> {
+    async visualizeSource(sourceUri: URI): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
-            // Create unique suffix for source visualization
-            const uniqueSuffix = `source:${Date.now()}`;
-
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                sourceUri,
-                'OpenMC Source Distribution',
-                uniqueSuffix,
-                'Loading source distribution...'
-            );
-
-            const sourcePath = sourceUri.path.toString();
-            const result = await this.openmcBackend.visualizeSource(sourcePath);
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading source');
+            // Native-only: convert to .vtp points and render without a
+            // server; the tab opens instantly with a loading status while
+            // the conversion runs. Any conversion/parse failure lands in
+            // the tab's error panel instead of starting a server.
+            const pendingWidget = await this.createPendingTallyWidget('OpenMC Source Distribution', 'Converting source…');
+            try {
+                const conversion = await this.openmcBackend.convertSourceToVtk(sourceUri.path.toString(), {});
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Source conversion failed');
+                }
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
+                    conversion.vtkPath,
+                    'source',
+                    'OpenMC Source Distribution',
+                    sourceUri.path.toString()
+                );
+                this.messageService.info('Loaded source distribution natively');
+                return nativeWidget;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
+                this.messageService.error(`Failed to visualize source: ${message}`);
+                return pendingWidget;
             }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            this.messageService.info('Loaded source distribution');
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize source: ${msg}`);
@@ -446,78 +577,210 @@ export class OpenMCService {
     }
 
     /**
-     * Overlay tally results on geometry.
+     * Overlay tally results on geometry: with a DAGMC `.h5m` geometry the
+     * tally mesh is draped onto the geometry volumes (multiblock `.vtm`
+     * painted per-triangle) and opened in the native DAGMC viewer with
+     * volume isolation and instant color-by on the tally array; any other
+     * geometry opens the full tally mesh itself (.vti voxel blocks,
+     * clip-explorable) with the ghosted CSG cells underlaid for context.
      */
     async visualizeTallyOnGeometry(
         geometryUri: URI,
         statepointUri: URI,
         options: TallyVisualizationOptions
-    ): Promise<VisualizerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | DagmcViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
-            // Create unique suffix for overlay visualization
-            const uniqueSuffix = `overlay:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
-
             let label = `Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
             }
             label += ' on Geometry';
 
-            // Create widget immediately with loading state - use geometry as the main file
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                geometryUri, // Use geometry as main file for the widget
-                label,
-                uniqueSuffix,
-                `Loading tally ${options.tallyId} on geometry...`
-            );
-
-            const geometryPath = geometryUri.path.toString();
-            const statepointPath = statepointUri.path.toString();
-
-            const result = await this.openmcBackend.visualizeTallyOnGeometry(
-                geometryPath,
-                statepointPath,
-                options.tallyId,
-                options.score,
-                options.filterGraveyard !== false, // default to true
-                options.pixelated !== false // default to true
-            );
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading overlay');
+            if (geometryUri.path.toString().toLowerCase().endsWith('.h5m')) {
+                return await this.visualizeTallyDrapedOnDagmc(geometryUri, statepointUri, options, label);
             }
 
-            // Update label with tally name if available
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
+            // Without a DAGMC geometry there is nothing to drape onto: open
+            // the full mesh itself (.vti voxel blocks, clip-explorable)
+            // instead of a cell-center cloud. The tab opens instantly with
+            // a loading status while the conversion runs; conversion/parse
+            // failure lands in the tab's error panel instead of starting a
+            // server.
+            const pendingWidget = await this.createPendingTallyWidget(label, 'Converting tally overlay…');
+            try {
+                const conversion = await this.openmcBackend.convertTallyMeshToVtk(statepointUri.path.toString(), {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide
+                });
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Overlay conversion failed');
                 }
-                widget.title.label += ' on Geometry';
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
+                    conversion.vtkPath,
+                    'mesh',
+                    label,
+                    statepointUri.path.toString(),
+                    {
+                        statepointPath: statepointUri.path.toString(),
+                        tallyId: options.tallyId,
+                        score: options.score,
+                        nuclide: options.nuclide
+                    }
+                );
+                await this.attachCsgUnderlay(nativeWidget, geometryUri);
+                return nativeWidget;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
+                this.messageService.error(`Failed to overlay tally: ${message}`);
+                return pendingWidget;
             }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            // Note: Spatial warning (if any) was already shown immediately via RPC
-            // The warning appears as soon as Python outputs it, not at the end
-            this.messageService.info('Loaded tally overlay on geometry');
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally: ${msg}`);
             return null;
+        }
+    }
+
+    /**
+     * Ghost the CSG cells under an overlay tally (non-DAGMC path): extract
+     * the geometry mesh and hand the cells to the tally widget's underlay.
+     * Best-effort — extraction failure leaves the tally up with a message
+     * naming the cause instead of failing the overlay.
+     */
+    protected async attachCsgUnderlay(widget: TallyNativeViewerWidget, geometryUri: URI): Promise<void> {
+        try {
+            const mesh = await this.openmcBackend.extractGeometryMesh(geometryUri.path.toString());
+            if (!mesh.success || !mesh.meshPath) {
+                throw new Error(mesh.error || 'Mesh extraction failed');
+            }
+            const text = await readVtkText(this.fileService, new URI(mesh.meshPath));
+            const model = parseGeometryNativeModel(JSON.parse(text));
+            const underlaid = csgUnderlayCells(model.cells);
+            widget.setGeometryUnderlayCells(underlaid);
+            this.messageService.info(`Loaded tally mesh on geometry natively (${underlaid.length} CSG cells underlaid)`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn('[OpenMCService] CSG underlay unavailable:', message);
+            this.messageService.info(`Loaded tally mesh on geometry natively (geometry underlay unavailable: ${message})`);
+        }
+    }
+
+    /**
+     * True 3D tally-on-DAGMC drape: convert the mesh tally onto the `.h5m`
+     * volumes and open the painted manifest in the native DAGMC viewer
+     * (volume/material/group toggles via `dagmc.info`, tally color-by by
+     * default). The outline sidebar reveals without stealing focus.
+     */
+    protected async visualizeTallyDrapedOnDagmc(
+        geometryUri: URI,
+        statepointUri: URI,
+        options: TallyVisualizationOptions,
+        label: string
+    ): Promise<DagmcViewerWidget | null> {
+        let widget: DagmcViewerWidget | undefined;
+        try {
+            const h5mPath = geometryUri.path.toString();
+            const smooth = options.pixelated === false;
+            // The drape tab opens instantly with a loading status while the
+            // overlay conversion runs (same instant-open as `.h5m` file opens).
+            widget = await this.widgetManager.getOrCreateWidget<DagmcViewerWidget>(DagmcViewerWidget.ID, {
+                id: `${DagmcViewerWidget.ID}:drape:${Date.now()}`
+            });
+            widget.beginPendingLoad(label, `Converting tally overlay…`, h5mPath);
+            if (!widget.isAttached) {
+                this.shell.addWidget(widget, { area: 'main' });
+            }
+            await this.shell.activateWidget(widget.id);
+            const conversion = await this.openmcBackend.convertOverlayGeometryToVtk(statepointUri.path.toString(), h5mPath, {
+                tallyId: options.tallyId,
+                score: options.score,
+                nuclide: options.nuclide,
+                // Graveyard always converts (Outline toggles it post-load);
+                // only an explicit filter opt-out excludes it.
+                includeGraveyard: options.filterGraveyard !== true,
+                smooth
+            });
+            if (!conversion.success || !conversion.vtkPath) {
+                throw new Error(conversion.error || 'Overlay conversion failed');
+            }
+            widget.h5mSourcePath = h5mPath;
+            await widget.setVtmFile(new URI(conversion.vtkPath));
+            try {
+                widget.setModelInfo(await this.visualizerBackend.getDagmcInfo(h5mPath));
+            } catch (error) {
+                console.warn(
+                    `[openmc-service] dagmc.info failed for ${h5mPath} — volume toggles unavailable:`,
+                    error instanceof Error ? error.message : error
+                );
+            }
+            // Tally mesh interior (hollow shells clip to empty space without
+            // it); a mesh failure only drops the volume, never the drape.
+            try {
+                const meshConversion = await this.openmcBackend.convertTallyMeshToVtk(statepointUri.path.toString(), {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide
+                });
+                if (meshConversion.success && meshConversion.vtkPath) {
+                    await widget.setTallyVolumeFile(new URI(meshConversion.vtkPath));
+                }
+            } catch (error) {
+                console.warn(
+                    '[openmc-service] tally mesh volume failed — drape surfaces only:',
+                    error instanceof Error ? error.message : error
+                );
+            }
+            if (conversion.arrayName) {
+                // Smooth drapes store the tally as point data (GPU-blended
+                // vertices); pixelated drapes store it as cell data (flat
+                // per-triangle). Prefer the backend-reported association,
+                // falling back to the requested rendering style.
+                const association = conversion.arrayAssociation ?? (options.pixelated === false ? 'point' : 'cell');
+                const candidates =
+                    association === 'point'
+                        ? [`Point: ${conversion.arrayName}`, `Cell: ${conversion.arrayName}`]
+                        : [`Cell: ${conversion.arrayName}`, `Point: ${conversion.arrayName}`];
+                const available = widget.colorByOptions().map((option) => option.value);
+                const colorBy = candidates.find((candidate) => available.some((option) => option === candidate));
+                if (colorBy) {
+                    widget.applyProps({ colorBy });
+                } else {
+                    // Never silent: a missing option means the backend sent
+                    // an array the viewer cannot see (stale backend build is
+                    // the usual cause — it lacks the hoisted arrayName).
+                    console.warn(
+                        `[openmc-service] drape array '${conversion.arrayName}' not in color-by options ` +
+                            `(${widget
+                                .colorByOptions()
+                                .map((option) => option.value)
+                                .join(', ')})`
+                    );
+                }
+            } else {
+                console.warn('[openmc-service] drape conversion returned no arrayName — check the backend build');
+            }
+            widget.title.label = label;
+            const outline = await this.widgetManager.getOrCreateWidget(DagmcOutlineWidget.ID);
+            if (!outline.isAttached) {
+                await this.shell.addWidget(outline, { area: 'right' });
+            }
+            await this.shell.revealWidget(outline.id);
+            await this.shell.activateWidget(widget.id);
+            this.messageService.info('Loaded tally overlay on DAGMC geometry natively');
+            return widget;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            widget?.failPendingLoad(`Overlay conversion failed: ${message}`);
+            this.messageService.error(`Failed to overlay tally: ${message}`);
+            return widget ?? null;
         }
     }
 
@@ -529,66 +792,105 @@ export class OpenMCService {
         statepointUri: URI,
         options: TallyVisualizationOptions,
         sliceOptions: OpenMCSliceOptions
-    ): Promise<VisualizerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
-            const uniqueSuffix = `slice:${options.tallyId}:${sliceOptions.plane}:${Date.now()}`;
-
             let label = `Tally ${options.tallyId}`;
             if (options.score) {
                 label += ` (${options.score})`;
             }
             label += ` Slice (${sliceOptions.plane.toUpperCase()})`;
 
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                statepointUri,
-                label,
-                uniqueSuffix,
-                `Loading tally ${options.tallyId} slice...`
-            );
-
-            const geometryPath = geometryUri.path.toString();
-            const statepointPath = statepointUri.path.toString();
-
-            const result = await this.openmcBackend.visualizeTallySlice(
-                geometryPath,
-                statepointPath,
-                options.tallyId,
-                sliceOptions,
-                options.score,
-                options.nuclide
-            );
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading slice visualization');
-            }
-
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
+            // Native-only: static slice cloud without a server; the tab
+            // opens instantly with a loading status while the conversion
+            // runs. Any conversion/parse failure lands in the tab's error
+            // panel instead of starting a server.
+            const pendingWidget = await this.createPendingTallyWidget(label, 'Converting tally slice…');
+            try {
+                const conversion = await this.openmcBackend.convertOverlayToVtk(statepointUri.path.toString(), {
+                    tallyId: options.tallyId,
+                    score: options.score,
+                    nuclide: options.nuclide,
+                    mode: 'slice',
+                    plane: sliceOptions.plane,
+                    position: sliceOptions.position,
+                    resolution: sliceOptions.resolution,
+                    pixelated: sliceOptions.pixelated
+                });
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Slice conversion failed');
                 }
-                widget.title.label += ` Slice`;
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
+                    conversion.vtkPath,
+                    'slice',
+                    label,
+                    statepointUri.path.toString(),
+                    {
+                        statepointPath: statepointUri.path.toString(),
+                        tallyId: options.tallyId,
+                        score: options.score,
+                        nuclide: options.nuclide
+                    }
+                );
+                this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane natively`);
+                return nativeWidget;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
+                this.messageService.error(`Failed to overlay tally slice: ${message}`);
+                return pendingWidget;
             }
-
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            this.messageService.info(`Loaded tally slice on ${sliceOptions.plane.toUpperCase()} plane`);
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to overlay tally slice: ${msg}`);
             return null;
+        }
+    }
+
+    /**
+     * Extract iso-surfaces from a mesh tally and open them as a sibling tab
+     * next to the tally mesh: convert through `openmc.tally-contour`, then
+     * route through the shared `openTallyNativeWidget` funnel (kind
+     * `overlay`), so warp/threshold keep working on the contour through the
+     * inherited native-base funnels. Conversion/parse failure surfaces an
+     * error naming the cause instead of starting a server.
+     */
+    async visualizeTallyContour(
+        statepointPath: string,
+        options: { tallyId: number; score?: string; nuclide?: string; isoValues: number[]; smooth?: boolean }
+    ): Promise<TallyNativeViewerWidget | null> {
+        const label = `Tally ${options.tallyId} contour (${options.isoValues.join(', ')})`;
+        const pendingWidget = await this.createPendingTallyWidget(label, 'Extracting contour surfaces…');
+        try {
+            const conversion = await this.openmcBackend.convertTallyContourToVtk(statepointPath, {
+                tallyId: options.tallyId,
+                score: options.score,
+                nuclide: options.nuclide,
+                isoValues: options.isoValues,
+                smooth: options.smooth
+            });
+            if (!conversion.success || !conversion.vtkPath) {
+                throw new Error(conversion.error || 'Contour conversion failed');
+            }
+            const nativeWidget = await this.loadTallyIntoWidget(pendingWidget, conversion.vtkPath, 'overlay', label, statepointPath);
+            nativeWidget.setProbeContext({
+                statepointPath,
+                tallyId: options.tallyId,
+                score: options.score,
+                nuclide: options.nuclide
+            });
+            this.messageService.info(`Loaded tally contour (${options.isoValues.length} iso values) natively`);
+            return nativeWidget;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            pendingWidget.failPendingLoad(message);
+            this.messageService.error(`Failed to extract tally contour: ${message}`);
+            return pendingWidget;
         }
     }
 
@@ -607,7 +909,9 @@ export class OpenMCService {
     }
 
     /**
-     * Prompt user for overlay visualization options (mode, slice options, graveyard, pixelated).
+     * Prompt user for overlay visualization options (mode, slice options, pixelated).
+     * The graveyard block is always converted and toggled post-load in the
+     * DAGMC Outline (hidden by default), so no graveyard prompt is needed.
      * Returns the selected options or undefined if cancelled.
      */
     async promptOverlayOptions(
@@ -616,7 +920,7 @@ export class OpenMCService {
     ): Promise<
         | {
               mode: 'slice' | 'full';
-              options: Pick<TallyVisualizationOptions, 'filterGraveyard' | 'pixelated'>;
+              options: Pick<TallyVisualizationOptions, 'pixelated'>;
               sliceOptions?: OpenMCSliceOptions;
           }
         | undefined
@@ -694,7 +998,7 @@ export class OpenMCService {
             const pixelChoice = await this.quickInput.showQuickPick(
                 [
                     { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
-                    { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+                    { value: 'pixelated', label: '$(symbol-array) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
                 ],
                 {
                     title: 'Rendering Style',
@@ -716,28 +1020,12 @@ export class OpenMCService {
             };
         }
 
-        // 3. Full 3D mode
-        const isH5m = geometryUri.path.toString().endsWith('.h5m');
-        let filterGraveyard = false;
-        if (isH5m) {
-            const filterChoice = await this.quickInput.showQuickPick(
-                [
-                    { value: 'filter', label: '$(eye-closed) Filter Graveyard', description: 'Hide large graveyard surfaces' },
-                    { value: 'nofilter', label: '$(eye) Show Full Geometry', description: 'Include all surfaces' }
-                ],
-                {
-                    title: 'Graveyard Surface Filtering',
-                    placeholder: 'Select visualization mode'
-                }
-            );
-            if (!filterChoice) return undefined;
-            filterGraveyard = filterChoice.value === 'filter';
-        }
-
+        // 3. Full 3D mode: the graveyard block always converts (Outline
+        // toggles it post-load), so only the rendering style is asked here.
         const pixelChoice = await this.quickInput.showQuickPick(
             [
                 { value: 'smooth', label: '$(color-mode) Smooth Interpolation', description: 'Interpolated values between mesh cells' },
-                { value: 'pixelated', label: '$(symbol-block) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
+                { value: 'pixelated', label: '$(symbol-array) Pixelated (Blocky)', description: 'Show actual mesh cell values' }
             ],
             {
                 title: 'Rendering Style',
@@ -749,7 +1037,6 @@ export class OpenMCService {
         return {
             mode,
             options: {
-                filterGraveyard,
                 pixelated: pixelChoice.value === 'pixelated'
             } as TallyVisualizationOptions
         };
@@ -762,60 +1049,36 @@ export class OpenMCService {
         geometryUri: URI,
         statepointUri: URI,
         options: TallyVisualizationOptions
-    ): Promise<VisualizerWidget | null> {
+    ): Promise<VisualizerWidget | TallyNativeViewerWidget | DagmcViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
-            const uniqueSuffix = `overlay-source:${options.tallyId}:${options.score || 'default'}:${Date.now()}`;
-
-            let label = `Tally ${options.tallyId}`;
-            if (options.score) {
-                label += ` (${options.score})`;
+            // Route through the standard overlay (DAGMC drape for `.h5m`
+            // geometries, mesh voxels otherwise), then layer the statepoint
+            // source bank over it. Without a source bank the overlay alone
+            // opens, matching the documented fallback.
+            const widget = await this.visualizeTallyOnGeometry(geometryUri, statepointUri, options);
+            if (!widget) {
+                return null;
             }
-            label += ' + Source';
-
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                geometryUri,
-                label,
-                uniqueSuffix,
-                `Loading tally ${options.tallyId} with source particles...`
-            );
-
-            const geometryPath = geometryUri.path.toString();
-            const statepointPath = statepointUri.path.toString();
-
-            const result = await this.openmcBackend.visualizeTallyAndSourceOnGeometry(
-                geometryPath,
-                statepointPath,
-                options.tallyId,
-                options.score,
-                options.filterGraveyard !== false
-            );
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading overlay with source');
-            }
-
-            const tallyName = result.tallyInfo?.name;
-            const defaultName = `Tally ${options.tallyId}`;
-            if (tallyName && tallyName !== defaultName && !tallyName.match(/^Tally\s+\d+$/i)) {
-                widget.title.label = `Tally ${options.tallyId}: ${tallyName}`;
-                if (options.score) {
-                    widget.title.label += ` (${options.score})`;
+            if (widget instanceof DagmcViewerWidget || widget instanceof TallyNativeViewerWidget) {
+                try {
+                    const conversion = await this.openmcBackend.convertSourceToVtk(statepointUri.path.toString(), {});
+                    if (!conversion.success || !conversion.vtkPath) {
+                        throw new Error(conversion.error || 'Source conversion failed');
+                    }
+                    await widget.setSourceFile(new URI(conversion.vtkPath));
+                    this.messageService.info('Loaded tally overlay with source particles natively');
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    console.warn(`[openmc-service] source overlay skipped: ${message}`);
+                    this.messageService.info('Loaded tally overlay natively (no source bank found)');
                 }
                 widget.title.label += ' + Source';
             }
-
-            completeLoading(result.port, result.url);
-
-            if (result.tallyInfo) {
-                this._onTallyVisualized.fire(result.tallyInfo);
-            }
-
-            this.messageService.info('Loaded tally overlay with source particles');
             return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -1166,6 +1429,33 @@ export class OpenMCService {
     }
 
     /**
+     * Photon contact dose rate for one activated material (OpenMC CDR model).
+     */
+    async getDepletionContactDose(
+        fileUri: URI,
+        materialIndex: number,
+        doseQuantity: DepletionDoseQuantity,
+        buildUp: number,
+        byNuclide: boolean
+    ): Promise<OpenMCDepletionContactDoseResult> {
+        return this.openmcBackend.getDepletionContactDose(fileUri.path.toString(), materialIndex, doseQuantity, buildUp, byNuclide);
+    }
+
+    /**
+     * Decay-photon spectrum for one material at one depletion time index.
+     */
+    async getDepletionDecaySpectrum(fileUri: URI, materialIndex: number, timeIndex: number): Promise<OpenMCDepletionDecaySpectrumResult> {
+        return this.openmcBackend.getDepletionDecaySpectrum(fileUri.path.toString(), materialIndex, timeIndex);
+    }
+
+    /**
+     * Read the shipped ICRP dose-coefficient table (nuclear data reference).
+     */
+    async getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult> {
+        return this.openmcBackend.getDoseCoefficients(request);
+    }
+
+    /**
      * Check if a file is a depletion results file.
      */
     isDepletionFile(fileName: string): boolean {
@@ -1188,25 +1478,13 @@ export class OpenMCService {
     }
 
     /**
-     * Visualize geometry in 3D.
+     * Open geometry in the native geometry viewer (no server): extract the
+     * CSG mesh headlessly, then load it into `GeometryNativeViewerWidget`.
+     * The first highlighted cell (if any) is selected; overlap spheres have
+     * no native equivalent — the marker list stays in the overlap widget
+     * that opened this view.
      */
-    async visualizeGeometry(
-        fileUri: URI,
-        highlightCellIds?: number[],
-        overlaps?: any[]
-    ): Promise<{ success: boolean; port?: number; url?: string; error?: string }> {
-        try {
-            return await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
-        } catch (error) {
-            this.messageService.error(`Failed to visualize geometry: ${error}`);
-            return { success: false, error: String(error) };
-        }
-    }
-
-    /**
-     * Open geometry in a new Visualizer widget (for Material Explorer cell linkage).
-     */
-    async openGeometryViewer(fileUri: URI, highlightCellIds?: number[], overlaps?: any[]): Promise<VisualizerWidget | null> {
+    async openGeometryViewer(fileUri: URI, highlightCellIds?: number[], overlaps?: any[]): Promise<GeometryNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
@@ -1215,18 +1493,6 @@ export class OpenMCService {
         try {
             const hasOverlaps = overlaps && overlaps.length > 0;
             const hasHighlights = highlightCellIds && highlightCellIds.length > 0;
-
-            // Overlaps are limited to 1000 for performance on backend
-            const MAX_OVERLAPS = 1000;
-            const overlapDisplayCount = hasOverlaps ? Math.min(overlaps.length, MAX_OVERLAPS) : 0;
-
-            // Create unique suffix for geometry visualization
-            let uniqueSuffix = `geometry:${Date.now()}`;
-            if (hasOverlaps) {
-                uniqueSuffix = `geometry:overlaps:${Date.now()}`;
-            } else if (hasHighlights) {
-                uniqueSuffix = `geometry:highlight:${highlightCellIds.join('_')}:${Date.now()}`;
-            }
 
             let label = 'OpenMC Geometry';
             if (hasOverlaps) {
@@ -1238,33 +1504,30 @@ export class OpenMCService {
                         : `OpenMC Geometry (${highlightCellIds.length} cells)`;
             }
 
-            const loadingMessage = hasOverlaps
-                ? overlaps.length > MAX_OVERLAPS
-                    ? `Loading geometry with ${overlapDisplayCount} of ${overlaps.length} overlap markers...`
-                    : `Loading geometry with ${overlaps.length} overlap markers...`
-                : hasHighlights
-                  ? `Loading geometry and highlighting ${highlightCellIds.length} cell(s)...`
-                  : 'Loading geometry...';
-
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                fileUri,
-                label,
-                uniqueSuffix,
-                loadingMessage
-            );
-
-            const result = await this.openmcBackend.visualizeGeometry(fileUri.path.toString(), highlightCellIds, overlaps);
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading geometry');
+            const mesh = await this.openmcBackend.extractGeometryMesh(fileUri.path.toString());
+            if (!mesh.success || !mesh.meshPath) {
+                throw new Error(mesh.error || 'Mesh extraction failed');
             }
 
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
+            const widget = await this.widgetManager.getOrCreateWidget<GeometryNativeViewerWidget>(GeometryNativeViewerWidget.ID, {
+                id: `${GeometryNativeViewerWidget.ID}:${fileUri.toString()}`
+            } as any);
+            if (!widget.isAttached) {
+                await this.shell.addWidget(widget, { area: 'main' });
+            }
+            await this.shell.activateWidget(widget.id);
+            await widget.setModelFile(new URI(mesh.meshPath));
+            if (hasHighlights) {
+                widget.selectCell(highlightCellIds[0]);
+            }
+            widget.title.label = label;
 
             this.messageService.info(
-                hasHighlights ? `Loaded geometry with ${highlightCellIds!.length} cell(s) highlighted` : 'Loaded geometry visualization'
+                hasOverlaps
+                    ? 'Loaded geometry natively (markers stay in the overlap list; first overlapping cell selected)'
+                    : hasHighlights
+                      ? `Loaded geometry with cell ${highlightCellIds![0]} highlighted`
+                      : 'Loaded geometry visualization'
             );
             return widget;
         } catch (error) {
@@ -1374,35 +1637,39 @@ export class OpenMCService {
     /**
      * Visualize source distribution from statepoint file.
      */
-    async visualizeStatepointSource(statepointUri: URI): Promise<VisualizerWidget | null> {
+    async visualizeStatepointSource(statepointUri: URI): Promise<VisualizerWidget | TallyNativeViewerWidget | null> {
         const available = await this.checkAvailability();
         if (!available) {
             return null;
         }
 
         try {
-            // Create unique suffix for source visualization
-            const uniqueSuffix = `statepoint-source:${Date.now()}`;
-
-            // Create widget immediately with loading state
-            const { widget, completeLoading } = await this.widgetFactory.createVisualizerWidgetLoading(
-                statepointUri,
-                'OpenMC Source (from Statepoint)',
-                uniqueSuffix,
-                'Loading source distribution from statepoint...'
-            );
-
-            const result = await this.openmcBackend.visualizeStatepointSource(statepointUri.path.toString());
-
-            if (!result.success || !result.port || !result.url) {
-                throw new Error(result.error || 'Unknown error loading source');
+            // Native-only: convert the statepoint source bank to .vtp points
+            // and render without a server; the tab opens instantly with a
+            // loading status while the conversion runs. Any
+            // conversion/parse failure lands in the tab's error panel
+            // instead of starting a server.
+            const pendingWidget = await this.createPendingTallyWidget('OpenMC Source (from Statepoint)', 'Converting source…');
+            try {
+                const conversion = await this.openmcBackend.convertSourceToVtk(statepointUri.path.toString(), {});
+                if (!conversion.success || !conversion.vtkPath) {
+                    throw new Error(conversion.error || 'Source conversion failed');
+                }
+                const nativeWidget = await this.loadTallyIntoWidget(
+                    pendingWidget,
+                    conversion.vtkPath,
+                    'source',
+                    'OpenMC Source (from Statepoint)',
+                    statepointUri.path.toString()
+                );
+                this.messageService.info('Loaded source distribution from statepoint natively');
+                return nativeWidget;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                pendingWidget.failPendingLoad(message);
+                this.messageService.error(`Failed to visualize source: ${message}`);
+                return pendingWidget;
             }
-
-            // Complete loading by setting server URL
-            completeLoading(result.port, result.url);
-
-            this.messageService.info('Loaded source distribution from statepoint');
-            return widget;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.messageService.error(`Failed to visualize source: ${msg}`);

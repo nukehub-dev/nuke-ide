@@ -39,11 +39,16 @@ import { XMLGenerationService } from './xml-generation-service';
 import { OpenMCStudioBackendServiceImpl } from './openmc-studio-backend-service';
 import { OpenMCRunnerService } from './openmc-runner-service';
 import { OpenMCState, OpenMCSettings } from '../common/openmc-state-schema';
+import { NEUTRON_PARTICLE, PHOTON_PARTICLE } from '../common/particle-types';
+import { DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { OPENMC_SCORES } from '../common/scores-catalog';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
 
+/** OpenMC 0.16 compatibility for tests that exercise source-distribution bias. */
+const BIAS_COMPAT = { ...DEFAULT_OPENMC_COMPAT, sourceBias: true };
+
 /**
- * Build a state exercising every settings.xml field added in Phase 5 W1.
+ * Build a state exercising every settings.xml field.
  * @returns The test state.
  */
 function buildTestState(): OpenMCState {
@@ -58,7 +63,7 @@ function buildTestState(): OpenMCState {
         geometry: {
             surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
             cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-            universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+            universes: [{ id: 0, name: 'root', cellIds: [1] }],
             lattices: [],
             rootUniverseId: 0
         },
@@ -83,7 +88,7 @@ function buildTestState(): OpenMCState {
                 {
                     spatial: { type: 'point', origin: [1, 2, 3] },
                     energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.5, 0.5] },
-                    particle: 'neutron',
+                    particle: NEUTRON_PARTICLE,
                     strength: 2.5,
                     constraints: {
                         domainType: 'cell',
@@ -97,7 +102,7 @@ function buildTestState(): OpenMCState {
                 {
                     spatial: { type: 'sphere', center: [0, 0, 0], radius: 5 },
                     energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                    particle: 'neutron',
+                    particle: NEUTRON_PARTICLE,
                     strength: 1.0
                 },
                 {
@@ -189,7 +194,7 @@ function buildTalliesTestState(): OpenMCState {
                 { type: 'polar', bins: [0, 3.14159] },
                 { type: 'azimuthal', bins: [0, 6.28318530718] },
                 { type: 'time', bins: [0, 0.1] },
-                { type: 'particle', bins: [1, 2] },
+                { type: 'particle', bins: [1, 2], particleBins: [NEUTRON_PARTICLE, PHOTON_PARTICLE] },
                 { type: 'delayedgroup', bins: [1, 2, 3] },
                 { type: 'mesh', bins: [1], meshId: 1 },
                 { type: 'meshsurface', bins: [2], meshId: 2 }
@@ -220,6 +225,14 @@ function buildTalliesTestState(): OpenMCState {
  */
 function buildPlotsTestState(): OpenMCState {
     const state = buildTestState();
+    state.materials.push({
+        id: 2,
+        name: 'Clad',
+        density: 6.5,
+        densityUnit: 'g/cm3',
+        nuclides: [{ name: 'Zr', fraction: 1.0, fractionType: 'ao' }],
+        thermalScattering: []
+    });
     state.plots = [
         {
             id: 1,
@@ -231,7 +244,11 @@ function buildPlotsTestState(): OpenMCState {
             height: 30,
             pixels: [400, 300],
             colorBy: 'material',
-            meshlines: true
+            meshlines: true,
+            background: [10, 20, 30],
+            mask: { components: [1], background: [200, 210, 220] },
+            showOverlaps: true,
+            overlapColor: [255, 0, 0]
         },
         {
             id: 2,
@@ -257,7 +274,9 @@ function buildPlotsTestState(): OpenMCState {
             orthographicWidth: 25,
             lightPosition: [5, 5, 5],
             diffuseFraction: 0.3,
-            opaqueIds: [1, 2]
+            opaqueIds: [1, 2],
+            background: [40, 50, 60],
+            mask: { components: [1] }
         },
         {
             id: 4,
@@ -406,6 +425,387 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.tallies).toEqual(state.tallies);
     });
 
+    it('round-trips material-from, cell-instance, parent-nuclide, mesh, reaction, particle-production, mu-surface, collision, and weight filters', async () => {
+        const state = buildTestState();
+        state.meshes = [{ type: 'regular', id: 1, lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5], dimension: [2, 2, 2] }];
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Additional filters',
+                scores: ['flux'],
+                nuclides: ['total'],
+                multiplyDensity: false,
+                higherMoments: true,
+                filters: [
+                    { type: 'materialfrom', bins: [1] },
+                    {
+                        type: 'cellinstance',
+                        bins: [1, 0, 1, 1],
+                        pairs: [
+                            { first: 1, second: 0 },
+                            { first: 1, second: 1 }
+                        ]
+                    },
+                    { type: 'parentnuclide', bins: [], nuclideBins: ['U235', 'Pu239'] },
+                    { type: 'meshborn', bins: [1], meshId: 1, meshTranslation: [1, 2, 3] },
+                    {
+                        type: 'meshmaterial',
+                        bins: [0, 1, 1, 1],
+                        pairs: [
+                            { first: 0, second: 1 },
+                            { first: 1, second: 1 }
+                        ],
+                        meshId: 1,
+                        meshTranslation: [4, 5, 6]
+                    },
+                    { type: 'collision', bins: [1, 2] },
+                    { type: 'reaction', bins: [], reactionBins: ['(n,gamma)', '(n,fission)'] },
+                    {
+                        type: 'particleproduction',
+                        bins: [],
+                        particleTypes: [PHOTON_PARTICLE, NEUTRON_PARTICLE],
+                        productionEnergyBins: [0, 1e5, 2e7]
+                    },
+                    { type: 'musurface', bins: [-1, 0, 1] },
+                    { type: 'weight', bins: [0, 0.5, 1, 2] }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, reactionFilter: true, particleProductionFilter: true }
+        });
+        expect(result.success).toBe(true);
+
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('type="materialfrom"');
+        expect(xml).toContain('type="cellinstance"');
+        expect(xml).toContain('<bins>1 0 1 1</bins>');
+        expect(xml).toContain('type="parentnuclide"');
+        expect(xml).toContain('<bins>U235 Pu239</bins>');
+        expect(xml).toContain('type="meshborn" translation="1 2 3"');
+        expect(xml).toContain('type="meshmaterial" mesh="1" translation="4 5 6"');
+        expect(xml).toContain('<bins>0 1 1 1</bins>');
+        expect(xml).toContain('type="collision"');
+        expect(xml).toContain('type="reaction"');
+        expect(xml).toContain('<bins>(n,gamma) (n,fission)</bins>');
+        expect(xml).toContain('type="particleproduction"');
+        expect(xml).toContain('<particles>photon neutron</particles>');
+        expect(xml).toContain('<energies>0 100000 20000000</energies>');
+        expect(xml).toContain('type="musurface"');
+        expect(xml).toContain('type="weight"');
+        expect(xml).toContain('<higher_moments>true</higher_moments>');
+        expect(xml).toContain('multiply_density="false"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.tallies).toEqual(state.tallies);
+    });
+
+    it('omits 0.16-only reaction and particle-production filters with a warning on release environments', async () => {
+        const state = buildTestState();
+        state.tallies = [
+            {
+                id: 1,
+                name: '0.16 filters',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [
+                    { type: 'reaction', bins: [], reactionBins: ['(n,gamma)'] },
+                    { type: 'particleproduction', bins: [], particleTypes: [PHOTON_PARTICLE], productionEnergyBins: [0, 2e7] },
+                    { type: 'cell', bins: [1] }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false }
+        });
+        expect(result.success).toBe(true);
+
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).not.toContain('type="reaction"');
+        expect(xml).not.toContain('type="particleproduction"');
+        expect(xml).toContain('type="cell"');
+        expect(result.warnings?.some((warning) => warning.includes('Reaction filters require OpenMC 0.16'))).toBe(true);
+        expect(result.warnings?.some((warning) => warning.includes('Particle-production filters require OpenMC 0.16'))).toBe(true);
+    });
+
+    it('imports hand-written cell-instance, mesh-material, and particle-production filters', async () => {
+        const importDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-filter-import-'));
+        fs.writeFileSync(
+            path.join(importDir, 'materials.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<materials>',
+                '  <material id="1" name="Fuel">',
+                '    <density value="10" units="g/cm3"/>',
+                '    <nuclide name="U235" ao="1"/>',
+                '  </material>',
+                '</materials>'
+            ].join('\n')
+        );
+        fs.writeFileSync(
+            path.join(importDir, 'geometry.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<geometry>',
+                '  <surface coeffs="0 0 0 10" id="1" type="sphere"/>',
+                '  <cell id="1" material="1" region="-1"/>',
+                '</geometry>'
+            ].join('\n')
+        );
+        fs.writeFileSync(
+            path.join(importDir, 'tallies.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<tallies>',
+                '  <mesh id="9" type="regular">',
+                '    <lower_left>-1 -1 -1</lower_left>',
+                '    <upper_right>1 1 1</upper_right>',
+                '    <dimension>2 2 1</dimension>',
+                '  </mesh>',
+                '  <filter id="1" type="cellinstance">',
+                '    <bins>1 0 2 1</bins>',
+                '  </filter>',
+                '  <filter id="2" type="meshmaterial" mesh="9" translation="1 2 3">',
+                '    <bins>0 1 1 2</bins>',
+                '  </filter>',
+                '  <filter id="3" type="particleproduction">',
+                '    <particles>photon neutron</particles>',
+                '    <energies>0 1e5 2e7</energies>',
+                '  </filter>',
+                '  <filter id="4" type="reaction">',
+                '    <bins>(n,gamma) (n,2n)</bins>',
+                '  </filter>',
+                '  <tally id="1">',
+                '    <filters>1 2 3 4</filters>',
+                '    <scores>flux</scores>',
+                '  </tally>',
+                '</tallies>'
+            ].join('\n')
+        );
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: importDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.tallies[0].filters).toEqual([
+            {
+                type: 'cellinstance',
+                bins: [1, 0, 2, 1],
+                pairs: [
+                    { first: 1, second: 0 },
+                    { first: 2, second: 1 }
+                ]
+            },
+            {
+                type: 'meshmaterial',
+                bins: [0, 1, 1, 2],
+                pairs: [
+                    { first: 0, second: 1 },
+                    { first: 1, second: 2 }
+                ],
+                meshId: 9,
+                meshTranslation: [1, 2, 3]
+            },
+            {
+                type: 'particleproduction',
+                bins: [],
+                particleTypes: [PHOTON_PARTICLE, NEUTRON_PARTICLE],
+                productionEnergyBins: [0, 100000, 20000000]
+            },
+            { type: 'reaction', bins: [], reactionBins: ['(n,gamma)', '(n,2n)'] }
+        ]);
+
+        fs.rmSync(importDir, { recursive: true, force: true });
+    });
+
+    it('round-trips rectilinear/unstructured meshes and mesh-filter transforms', async () => {
+        const meshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-authoring-'));
+        const meshFile = path.join(meshDir, 'core.h5m');
+        fs.writeFileSync(meshFile, 'unstructured mesh placeholder');
+
+        const state = buildTalliesTestState();
+        state.meshes.push({
+            type: 'rectilinear',
+            id: 4,
+            name: 'Axial grid',
+            xGrid: [-1, 0, 1],
+            yGrid: [-1, 0, 1],
+            zGrid: [-5, 0, 5, 10]
+        });
+        state.meshes.push({
+            type: 'unstructured',
+            id: 5,
+            name: 'Core mesh',
+            filename: meshFile,
+            library: 'moab',
+            lengthMultiplier: 2.5,
+            options: 'MAX_DEPTH=20;PLANE_SET=2;'
+        });
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Transformed rectilinear flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [
+                    {
+                        type: 'mesh',
+                        bins: [4],
+                        meshId: 4,
+                        meshTranslation: [1, 2, 3],
+                        meshRotation: [10, 20, 30]
+                    }
+                ]
+            },
+            {
+                id: 2,
+                name: 'Unstructured flux',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [5], meshId: 5 }]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: meshDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
+            randomRayCompat: {
+                raySourceFormat: 'wrapper',
+                adjointSource: true,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: true
+            }
+        });
+        expect(result.success).toBe(true);
+
+        const xml = fs.readFileSync(path.join(meshDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<mesh id="4" type="rectilinear" name="Axial grid">');
+        expect(xml).toContain('<x_grid>-1 0 1</x_grid>');
+        expect(xml).toContain('<y_grid>-1 0 1</y_grid>');
+        expect(xml).toContain('<z_grid>-5 0 5 10</z_grid>');
+        expect(xml).toContain('<mesh id="5" type="unstructured" name="Core mesh" library="moab"');
+        expect(xml).toContain('options="MAX_DEPTH=20;PLANE_SET=2;"');
+        expect(xml).toContain('length_multiplier="2.5"');
+        // Absolute paths become run-directory-relative so decks stay portable.
+        expect(xml).toContain('<filename>core.h5m</filename>');
+        expect(xml).toContain('type="mesh" translation="1 2 3" rotation="10 20 30"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: meshDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.meshes).toEqual(state.meshes);
+        expect(imported.state!.tallies).toEqual(state.tallies);
+
+        fs.rmSync(meshDir, { recursive: true, force: true });
+    });
+
+    it('omits mesh-filter rotation with a warning on environments without the capability', async () => {
+        const state = buildTalliesTestState();
+        state.tallies = [
+            {
+                id: 1,
+                name: 'Translated mesh',
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [{ type: 'mesh', bins: [1], meshId: 1, meshTranslation: [1, 2, 3], meshRotation: [10, 20, 30] }]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: true, plots: false },
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: false,
+                s2SampleMethod: false,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: false
+            }
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('type="mesh" translation="1 2 3"');
+        expect(xml).not.toContain('rotation="10 20 30"');
+        expect(result.warnings?.some((warning) => warning.includes('rotation') && warning.includes('0.16'))).toBe(true);
+    });
+
+    it('resolves relative unstructured mesh filenames against the XML directory on import', async () => {
+        const importDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-import-'));
+        fs.mkdirSync(path.join(importDir, 'meshes'));
+        fs.writeFileSync(
+            path.join(importDir, 'materials.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<materials>',
+                '  <material id="1" name="Water">',
+                '    <density value="1.0" units="g/cm3"/>',
+                '    <nuclide name="H1" ao="2.0"/>',
+                '  </material>',
+                '</materials>'
+            ].join('\n')
+        );
+        fs.writeFileSync(
+            path.join(importDir, 'tallies.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<tallies>',
+                '  <mesh id="9" type="unstructured" name="Remote core" library="libmesh" length_multiplier="3" options="MAX_DEPTH=10;">',
+                '    <filename>meshes/core.exo</filename>',
+                '  </mesh>',
+                '  <filter id="1" type="mesh" translation="4 5 6" rotation="7 8 9">',
+                '    <bins>9</bins>',
+                '  </filter>',
+                '  <tally id="1">',
+                '    <filters>1</filters>',
+                '    <scores>flux</scores>',
+                '  </tally>',
+                '</tallies>'
+            ].join('\n')
+        );
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: importDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.meshes).toEqual([
+            {
+                type: 'unstructured',
+                id: 9,
+                name: 'Remote core',
+                filename: path.join(importDir, 'meshes', 'core.exo'),
+                library: 'libmesh',
+                lengthMultiplier: 3,
+                options: 'MAX_DEPTH=10;'
+            }
+        ]);
+        expect(imported.state!.tallies[0].filters[0].meshTranslation).toEqual([4, 5, 6]);
+        expect(imported.state!.tallies[0].filters[0].meshRotation).toEqual([7, 8, 9]);
+
+        fs.rmSync(importDir, { recursive: true, force: true });
+    });
+
     it('round-trips a MeshSource with per-element sub-sources (mesh lives in settings.xml)', async () => {
         // Fresh directory: this suite shares tempDir and tallies.xml is only
         // written when tallies exist — avoid stale files from earlier tests
@@ -416,7 +816,7 @@ describe('settings.xml round-trip', () => {
             geometry: {
                 surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
                 cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                universes: [{ id: 0, name: 'root', cellIds: [1] }],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -441,25 +841,25 @@ describe('settings.xml round-trip', () => {
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'discrete', energies: [1e6], probabilities: [1] },
-                                particle: 'neutron',
+                                particle: NEUTRON_PARTICLE,
                                 strength: 1.0
                             },
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'uniform', min: 1e5, max: 2e7 },
-                                particle: 'neutron',
+                                particle: NEUTRON_PARTICLE,
                                 strength: 1.5
                             },
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'maxwell', temperature: 293.6 },
-                                particle: 'photon',
+                                particle: PHOTON_PARTICLE,
                                 strength: 2.0
                             },
                             {
                                 spatial: { type: 'point', origin: [0, 0, 0] },
                                 energy: { type: 'watt', a: 0.988e6, b: 2.249e-6 },
-                                particle: 'neutron',
+                                particle: NEUTRON_PARTICLE,
                                 strength: 1.0
                             }
                         ]
@@ -507,7 +907,7 @@ describe('settings.xml round-trip', () => {
             geometry: {
                 surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
                 cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                universes: [{ id: 0, name: 'root', cellIds: [1] }],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -643,7 +1043,7 @@ describe('settings.xml round-trip', () => {
             {
                 spatial: { type: 'point', origin: [0, 0, 0] },
                 energy: { type: 'muir', e0: 14.08e6, m_rat: 5.0, kt: 20000 },
-                particle: 'neutron',
+                particle: NEUTRON_PARTICLE,
                 strength: 1.0
             }
         ];
@@ -658,8 +1058,7 @@ describe('settings.xml round-trip', () => {
         // muir() returns a Normal in this OpenMC version: std = sqrt(2*e0*kt/m_rat)
         const expectedStd = Math.sqrt((2 * 14.08e6 * 20000) / 5.0);
         const settingsXml = fs.readFileSync(path.join(muirDir, 'settings.xml'), 'utf-8');
-        expect(settingsXml).toContain('<energy type="normal">');
-        expect(settingsXml).toContain(`<parameters>${14.08e6} ${expectedStd}</parameters>`);
+        expect(settingsXml).toContain(`<energy type="normal" parameters="${14.08e6} ${expectedStd}"/>`);
         expect(settingsXml).not.toContain('type="muir"');
 
         const backend = new OpenMCStudioBackendServiceImpl();
@@ -731,14 +1130,14 @@ describe('settings.xml round-trip', () => {
                 { r: 1, s: 0 }
             ],
             energy: { type: 'uniform' as const, min: 13e6, max: 15e6 },
-            time: { type: 'delta' as const, params: { time: 1e-6 } }
+            time: { type: 'delta' as const, time: 1e-6 }
         };
         const state: OpenMCState = {
             metadata: { version: '1.1.0', name: 'Tokamak Source Test', created: now, modified: now },
             geometry: {
                 surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 1000 }, boundary: 'vacuum' }],
                 cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-                universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+                universes: [{ id: 0, name: 'root', cellIds: [1] }],
                 lattices: [],
                 rootUniverseId: 0
             },
@@ -765,8 +1164,18 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: tokamakDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
-            // TokamakSource is gated on 0.15.4+ — mark the env as supporting it
-            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: true, s2SampleMethod: true }
+            // TokamakSource is gated on 0.16.0+ — mark the env as supporting it
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: true
+            }
         });
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
@@ -818,7 +1227,17 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: tokamakDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
-            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: true, s2SampleMethod: true }
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: true
+            }
         });
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
@@ -857,7 +1276,7 @@ describe('settings.xml round-trip', () => {
 
         const settingsXml = fs.readFileSync(path.join(tokamakDir, 'settings.xml'), 'utf-8');
         expect(settingsXml).not.toContain('type="tokamak"');
-        expect(result.warnings?.some((w) => w.includes('Tokamak source requires OpenMC >= 0.15.4'))).toBe(true);
+        expect(result.warnings?.some((w) => w.includes('Tokamak source requires OpenMC >= 0.16.0'))).toBe(true);
 
         fs.rmSync(tokamakDir, { recursive: true, force: true });
     });
@@ -890,7 +1309,17 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: s2Dir,
             files: { materials: false, geometry: false, settings: true, tallies: false, plots: false },
-            randomRayCompat: { raySourceFormat: 'direct', adjointSource: false, tokamakSource: false, s2SampleMethod: true }
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: false,
+                s2SampleMethod: true,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: true
+            }
         });
         settingsXml = fs.readFileSync(path.join(s2Dir, 'settings.xml'), 'utf-8');
         expect(settingsXml).toContain('<sample_method>s2</sample_method>');
@@ -1038,7 +1467,9 @@ describe('settings.xml round-trip', () => {
         const state = buildTestState();
         state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-5, -5, -5], upperRight: [5, 5, 5], dimension: [2, 2, 2] }];
         state.varianceReduction = {
-            weightWindows: { meshId: 5, lowerBound: 0.5, upperBound: 1, particleType: 'neutron', energyBounds: [0, 1e4, 2e7] }
+            weightWindows: [
+                { id: 1, meshId: 5, lowerBound: 0.5, upperBound: 1, particleType: NEUTRON_PARTICLE, energyBounds: [0, 1e4, 2e7] }
+            ]
         };
         state.tallies = [{ id: 1, name: 'mesh-flux', scores: ['flux'], nuclides: [], filters: [{ type: 'mesh', bins: [5], meshId: 5 }] }];
 
@@ -1128,6 +1559,163 @@ describe('settings.xml round-trip', () => {
         fs.rmSync(advancedDir, { recursive: true, force: true });
     });
 
+    it('round-trips runtime, convergence, physics, limit, and diagnostics settings', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-runtime-'));
+        const state = buildTestState();
+        state.materials[0].isotropic = ['H1', 'O16'];
+        state.settings.photonTransport = false;
+        Object.assign(state.settings, {
+            threads: 4,
+            mpi: { enabled: true, processes: 2, hosts: ['node1', 'node2'] },
+            trace: [2, 1, 7],
+            keffTrigger: { type: 'rel_err', threshold: 0.001 },
+            confidenceIntervals: true,
+            temperature: { default: 600, method: 'interpolation', tolerance: 15, multipole: true },
+            cutoff: { energyNeutron: 1e-3, energyPhoton: 1000, time: 1e-4, timePhoton: 1e-3, weight: 0.25, weightAvg: 1 },
+            resonanceScattering: { enable: true, method: 'dbrc', energyMin: 0.01, energyMax: 1000 },
+            freeGasThreshold: 400,
+            sharedSecondaryBank: true,
+            surfaceGrazingCutoff: 0.001,
+            surfaceGrazingRatio: 0.5,
+            maxParticleEvents: 1000000,
+            maxParticlesInFlight: 100000,
+            maxSecondaries: 10000,
+            maxHistorySplits: 10000000,
+            maxWriteLostParticles: 5,
+            noReduce: true,
+            stride: 152917,
+            plotSeed: 3,
+            propertiesFile: '/tmp/properties.h5',
+            verbosity: 7,
+            materialCellOffsets: false
+        } satisfies Partial<OpenMCSettings>);
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: runtimeDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: {
+                raySourceFormat: 'direct',
+                adjointSource: false,
+                tokamakSource: false,
+                s2SampleMethod: false,
+                depletionSubsteps: false,
+                depletionKeffSearch: false,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                sharedSecondaryBank: true,
+                surfaceGrazing: true
+            }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(runtimeDir, 'settings.xml'), 'utf-8');
+        const materialsXml = fs.readFileSync(path.join(runtimeDir, 'materials.xml'), 'utf-8');
+        // Temperature fields are separate top-level elements (settings.py
+        // _create_temperature_subelements), not children of temperature_default.
+        expect(settingsXml).toContain('<temperature_default>600</temperature_default>');
+        expect(settingsXml).toContain('<temperature_method>interpolation</temperature_method>');
+        expect(settingsXml).toContain('<temperature_tolerance>15</temperature_tolerance>');
+        expect(settingsXml).toContain('<temperature_multipole>true</temperature_multipole>');
+        expect(settingsXml).not.toContain('<temperature_default>\n');
+        expect(settingsXml).toContain('<energy_neutron>0.001</energy_neutron>');
+        expect(settingsXml).toContain('<energy_photon>1000</energy_photon>');
+        expect(settingsXml).toContain('<time_neutron>0.0001</time_neutron>');
+        expect(settingsXml).toContain('<time_photon>0.001</time_photon>');
+        expect(settingsXml).toContain('<resonance_scattering>');
+        expect(settingsXml).toContain('<method>dbrc</method>');
+        expect(settingsXml).toContain('<energy_min>0.01</energy_min>');
+        expect(settingsXml).toContain('<energy_max>1000</energy_max>');
+        expect(settingsXml).toContain('<trace>2 1 7</trace>');
+        expect(settingsXml).toContain('<keff_trigger>');
+        expect(settingsXml).toContain('<type>rel_err</type>');
+        expect(settingsXml).toContain('<threshold>0.001</threshold>');
+        expect(settingsXml).toContain('<confidence_intervals>true</confidence_intervals>');
+        expect(settingsXml).toContain('<free_gas_threshold>400</free_gas_threshold>');
+        expect(settingsXml).toContain('<shared_secondary_bank>true</shared_secondary_bank>');
+        expect(settingsXml).toContain('<surface_grazing_cutoff>0.001</surface_grazing_cutoff>');
+        expect(settingsXml).toContain('<surface_grazing_ratio>0.5</surface_grazing_ratio>');
+        expect(settingsXml).toContain('<max_particle_events>1000000</max_particle_events>');
+        expect(settingsXml).toContain('<max_particles_in_flight>100000</max_particles_in_flight>');
+        expect(settingsXml).toContain('<max_secondaries>10000</max_secondaries>');
+        expect(settingsXml).toContain('<max_history_splits>10000000</max_history_splits>');
+        expect(settingsXml).toContain('<max_write_lost_particles>5</max_write_lost_particles>');
+        expect(settingsXml).toContain('<no_reduce>true</no_reduce>');
+        expect(settingsXml).toContain('<stride>152917</stride>');
+        expect(settingsXml).toContain('<plot_seed>3</plot_seed>');
+        expect(settingsXml).toContain('<properties_file>/tmp/properties.h5</properties_file>');
+        expect(settingsXml).toContain('<verbosity>7</verbosity>');
+        expect(settingsXml).toContain('<material_cell_offsets>false</material_cell_offsets>');
+        // Runtime launch controls are not settings.xml content
+        expect(settingsXml).not.toContain('<threads>');
+        expect(settingsXml).not.toContain('<mpi');
+        expect(materialsXml).toContain('<isotropic>H1 O16</isotropic>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: runtimeDir });
+        expect(imported.success).toBe(true);
+        const importedSettings = imported.state!.settings;
+        expect(importedSettings.threads).toBeUndefined();
+        expect(importedSettings.mpi).toBeUndefined();
+        expect(importedSettings.trace).toEqual([2, 1, 7]);
+        expect(importedSettings.keffTrigger).toEqual({ type: 'rel_err', threshold: 0.001 });
+        expect(importedSettings.confidenceIntervals).toBe(true);
+        expect(importedSettings.temperature).toEqual({ default: 600, method: 'interpolation', tolerance: 15, multipole: true });
+        expect(importedSettings.cutoff).toEqual({
+            energyNeutron: 0.001,
+            energyPhoton: 1000,
+            time: 0.0001,
+            timePhoton: 0.001,
+            weight: 0.25,
+            weightAvg: 1
+        });
+        expect(importedSettings.resonanceScattering).toEqual({ enable: true, method: 'dbrc', energyMin: 0.01, energyMax: 1000 });
+        expect(importedSettings.freeGasThreshold).toBe(400);
+        expect(importedSettings.sharedSecondaryBank).toBe(true);
+        expect(importedSettings.surfaceGrazingCutoff).toBe(0.001);
+        expect(importedSettings.surfaceGrazingRatio).toBe(0.5);
+        expect(importedSettings.maxParticleEvents).toBe(1000000);
+        expect(importedSettings.maxParticlesInFlight).toBe(100000);
+        expect(importedSettings.maxSecondaries).toBe(10000);
+        expect(importedSettings.maxHistorySplits).toBe(10000000);
+        expect(importedSettings.maxWriteLostParticles).toBe(5);
+        expect(importedSettings.noReduce).toBe(true);
+        expect(importedSettings.stride).toBe(152917);
+        expect(importedSettings.plotSeed).toBe(3);
+        expect(importedSettings.propertiesFile).toBe('/tmp/properties.h5');
+        expect(importedSettings.verbosity).toBe(7);
+        expect(importedSettings.materialCellOffsets).toBe(false);
+        expect(imported.state!.materials[0].isotropic).toEqual(['H1', 'O16']);
+
+        fs.rmSync(runtimeDir, { recursive: true, force: true });
+    });
+
+    it('omits 0.16-only runtime settings with a warning on the release profile', async () => {
+        const gatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-runtime-gated-'));
+        const state = buildTestState();
+        Object.assign(state.settings, {
+            sharedSecondaryBank: true,
+            surfaceGrazingCutoff: 0.001,
+            surfaceGrazingRatio: 0.5
+        } satisfies Partial<OpenMCSettings>);
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: gatedDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const settingsXml = fs.readFileSync(path.join(gatedDir, 'settings.xml'), 'utf-8');
+        expect(settingsXml).not.toContain('<shared_secondary_bank>');
+        expect(settingsXml).not.toContain('<surface_grazing_cutoff>');
+        expect(settingsXml).not.toContain('<surface_grazing_ratio>');
+        expect(result.warnings?.some((warning) => warning.includes('shared_secondary_bank'))).toBe(true);
+        expect(result.warnings?.some((warning) => warning.includes('Surface grazing'))).toBe(true);
+
+        fs.rmSync(gatedDir, { recursive: true, force: true });
+    });
+
     it('omits advanced scalar settings when unset (backward compatible output)', async () => {
         const plainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-advanced-off-'));
         const state = buildTestState();
@@ -1155,7 +1743,26 @@ describe('settings.xml round-trip', () => {
             'max_order',
             'write_initial_source',
             'uniform_source_sampling',
-            'tabular_legendre'
+            'tabular_legendre',
+            'trace',
+            'keff_trigger',
+            'confidence_intervals',
+            'free_gas_threshold',
+            'shared_secondary_bank',
+            'surface_grazing_cutoff',
+            'surface_grazing_ratio',
+            'max_particle_events',
+            'max_particles_in_flight',
+            'max_secondaries',
+            'max_history_splits',
+            'max_write_lost_particles',
+            'no_reduce',
+            'stride',
+            'plot_seed',
+            'properties_file',
+            'verbosity',
+            'material_cell_offsets',
+            'resonance_scattering'
         ]) {
             expect(settingsXml).not.toContain(`<${element}>`);
         }
@@ -1177,6 +1784,10 @@ describe('settings.xml round-trip', () => {
         expect(xml).toContain('type="slice"');
         expect(xml).toContain('<width>20 30</width>');
         expect(xml).toContain('<meshlines meshtype="tally"/>');
+        expect(xml).toContain('<background>10 20 30</background>');
+        expect(xml).toContain('<mask components="2" background="200 210 220"/>');
+        expect(xml).toContain('<show_overlaps>true</show_overlaps>');
+        expect(xml).toContain('<overlap_color>255 0 0</overlap_color>');
         // Voxel with center origin + 3-value width
         expect(xml).toContain('type="voxel"');
         expect(xml).toContain('<origin>0 0 0</origin>');
@@ -1190,6 +1801,8 @@ describe('settings.xml round-trip', () => {
         expect(xml).toContain('<light_position>5 5 5</light_position>');
         expect(xml).toContain('<diffuse_fraction>0.3</diffuse_fraction>');
         expect(xml).toContain('<opaque_ids>1 2</opaque_ids>');
+        expect(xml).toContain('<background>40 50 60</background>');
+        expect(xml).toContain('<mask components="2"/>');
         expect(xml).toContain('type="wireframe_raytrace"');
         expect(xml).toContain('<wireframe_thickness>2</wireframe_thickness>');
         expect(xml).toContain('<wireframe_color>255 0 0</wireframe_color>');
@@ -1200,6 +1813,102 @@ describe('settings.xml round-trip', () => {
 
         expect(imported.success).toBe(true);
         expect(imported.state!.plots).toEqual(state.plots);
+    });
+
+    it('does not emit appearance fields that OpenMC ignores for voxel plots', async () => {
+        const state = buildTestState();
+        state.plots = [
+            {
+                id: 10,
+                type: 'voxel',
+                basis: 'xy',
+                origin: [0, 0, 0],
+                lowerLeft: [-1, -1, -1],
+                upperRight: [1, 1, 1],
+                voxels: [4, 4, 4],
+                colorBy: 'cell',
+                background: [1, 2, 3],
+                mask: { components: [1], background: [4, 5, 6] },
+                showOverlaps: true,
+                overlapColor: [7, 8, 9]
+            }
+        ];
+
+        await new XMLGenerationService().generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: true }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'plots.xml'), 'utf-8');
+        expect(xml).toContain('type="voxel"');
+        expect(xml).not.toContain('<background>');
+        expect(xml).not.toContain('<mask ');
+        expect(xml).not.toContain('<show_overlaps>');
+        expect(xml).not.toContain('<overlap_color>');
+    });
+
+    it('warns when an imported mask references domains missing from the geometry', async () => {
+        const state = buildTestState();
+        await new XMLGenerationService().generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+        fs.writeFileSync(
+            path.join(tempDir, 'plots.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<plots>',
+                '  <plot id="11" type="slice" basis="xy" color_by="material">',
+                '    <pixels>10 10</pixels>',
+                '    <origin>0 0 0</origin>',
+                '    <width>1 1</width>',
+                '    <mask components="99"/>',
+                '  </plot>',
+                '</plots>'
+            ].join('\n')
+        );
+
+        const imported = await new OpenMCStudioBackendServiceImpl().importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.plots![0].mask).toEqual({ components: [1] });
+        expect(imported.warnings.some((warning) => warning.includes('99'))).toBe(true);
+    });
+
+    it('drops and warns about appearance fields on unsupported imported plot types', async () => {
+        const state = buildTestState();
+        await new XMLGenerationService().generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false }
+        });
+        fs.writeFileSync(
+            path.join(tempDir, 'plots.xml'),
+            [
+                '<?xml version="1.0"?>',
+                '<plots>',
+                '  <plot id="12" type="voxel" color_by="cell">',
+                '    <pixels>4 4 4</pixels>',
+                '    <origin>0 0 0</origin>',
+                '    <width>1 1 1</width>',
+                '    <background>1 2 3</background>',
+                '    <mask components="1"/>',
+                '    <show_overlaps>true</show_overlaps>',
+                '    <overlap_color>4 5 6</overlap_color>',
+                '  </plot>',
+                '</plots>'
+            ].join('\n')
+        );
+
+        const imported = await new OpenMCStudioBackendServiceImpl().importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect(imported.state!.plots![0].background).toBeUndefined();
+        expect(imported.state!.plots![0].mask).toBeUndefined();
+        expect(imported.state!.plots![0].showOverlaps).toBeUndefined();
+        expect(imported.state!.plots![0].overlapColor).toBeUndefined();
+        expect(imported.warnings.some((warning) => warning.includes('not applied to voxel'))).toBe(true);
+        expect(imported.warnings.some((warning) => warning.includes('only to slice plots'))).toBe(true);
     });
 
     it('auto-appends IFP tallies and ifp_n_generation when kinetics are enabled', async () => {
@@ -1338,6 +2047,106 @@ describe('settings.xml round-trip', () => {
             { material: 2, element: 'Gd155', rate: -2e-6 }
         ]);
         expect(depletionCheck.settings.fissionQ).toEqual({ U235: 2.02e8, Pu239: 2.1e8 });
+    });
+
+    it('round-trips advanced depletion run controls through the custom block', async () => {
+        const state = buildTestState();
+        state.depletion = {
+            enabled: true,
+            chainFile: '/chains/chain_endfb71.xml',
+            timeSteps: [86400, 86400],
+            power: 1e6,
+            operator: 'coupled',
+            solver: 'cecm',
+            substeps: 3,
+            decayOnlySteps: [1],
+            reactivityControl: {
+                enabled: true,
+                parameter: 'cell-translation',
+                cellId: 7,
+                axis: 'z',
+                x0: 0,
+                x1: 10,
+                bracket: [-20, 20],
+                targetKeff: 1.0,
+                kTol: 1e-4,
+                sigmaFinal: 3e-4,
+                maxIterations: 40,
+                onFailure: 'warn'
+            },
+            externalSourceRates: [
+                {
+                    material: 1,
+                    composition: [
+                        { name: 'U235', weightPercent: 90 },
+                        { name: 'U238', weightPercent: 10 }
+                    ],
+                    rate: -1e-6,
+                    units: 'g/s',
+                    timesteps: [0, 1]
+                }
+            ],
+            continueFromResults: '/runs/old/depletion_results.h5',
+            continueTimesteps: true
+        };
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        expect(result.success).toBe(true);
+        expect(result.warnings?.some((warning) => warning.includes('driver-only'))).toBe(true);
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<substeps>3</substeps>');
+        expect(xml).toContain('<decay_only_steps>1</decay_only_steps>');
+        expect(xml).toContain('<reactivity_control>');
+        expect(xml).toContain('<external_source_rates>');
+        expect(xml).toContain('<continue_from_results>/runs/old/depletion_results.h5</continue_from_results>');
+        expect(xml).toContain('<continue_timesteps>true</continue_timesteps>');
+
+        // The runner's depletion-block parse (used to build Python args)
+        const runner = new OpenMCRunnerService();
+        const depletionCheck = await (runner as any).checkDepletionEnabled(tempDir);
+        expect(depletionCheck.enabled).toBe(true);
+        expect(depletionCheck.settings.substeps).toBe(3);
+        expect(depletionCheck.settings.decayOnlySteps).toEqual([1]);
+        expect(depletionCheck.settings.reactivityControl).toMatchObject({
+            parameter: 'cell-translation',
+            cellId: 7,
+            axis: 'z',
+            maxIterations: 40,
+            onFailure: 'warn'
+        });
+        expect(depletionCheck.settings.externalSourceRates).toEqual([
+            {
+                material: 1,
+                composition: [
+                    { name: 'U235', weightPercent: 90 },
+                    { name: 'U238', weightPercent: 10 }
+                ],
+                rate: -1e-6,
+                units: 'g/s',
+                timesteps: [0, 1]
+            }
+        ]);
+        expect(depletionCheck.settings.continueFromResults).toBe('/runs/old/depletion_results.h5');
+        expect(depletionCheck.settings.continueTimesteps).toBe(true);
+
+        // XML import restores the same depletion configuration
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await (backend as any).parseSettingsXML(path.join(tempDir, 'settings.xml'));
+        expect(imported.depletion).toMatchObject({
+            enabled: true,
+            substeps: 3,
+            decayOnlySteps: [1],
+            continueFromResults: '/runs/old/depletion_results.h5',
+            continueTimesteps: true
+        });
+        expect(imported.depletion.externalSourceRates).toEqual(depletionCheck.settings.externalSourceRates);
+        expect(imported.depletion.reactivityControl).toMatchObject({ parameter: 'cell-translation', cellId: 7 });
     });
 
     it('maps legacy depletion solver names to canonical integrator ids', async () => {
@@ -1595,8 +2404,18 @@ describe('settings.xml round-trip', () => {
             state,
             outputDirectory: tempDir,
             files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
-            // Post-0.15.3 dev format: wrapped <ray_source> + <adjoint_source>
-            randomRayCompat: { raySourceFormat: 'wrapper', adjointSource: true, tokamakSource: true, s2SampleMethod: true }
+            // Post-0.15.3 format: wrapped <ray_source> + <adjoint_source>
+            randomRayCompat: {
+                raySourceFormat: 'wrapper',
+                adjointSource: true,
+                tokamakSource: true,
+                s2SampleMethod: true,
+                depletionSubsteps: true,
+                depletionKeffSearch: true,
+                depletionExternalSourceRate: true,
+                depletionContinuation: true,
+                meshFilterRotation: true
+            }
         });
 
         const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
@@ -1652,7 +2471,7 @@ describe('settings.xml round-trip', () => {
         expect(xml).not.toContain('<ray_source>');
         expect(xml).toContain('    <source type="independent" strength="1" particle="neutron">');
         expect(xml).toContain('<parameters>-10 -10 -10 10 10 10</parameters>');
-        // adjoint_source is post-0.15.3-only: dropped with a warning
+        // adjoint_source is 0.16.0+: dropped with a warning
         expect(xml).not.toContain('<adjoint_source>');
         expect(result.warnings?.some((w) => w.includes('adjoint source'))).toBe(true);
 
@@ -1690,7 +2509,7 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.settings.randomRay!.raySource).toEqual({ lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1] });
     });
 
-    it('parses the wrapper (post-0.15.3) ray_source form from hand-written XML', async () => {
+    it('parses the wrapper (0.16.0+) ray_source form from hand-written XML', async () => {
         const settingsXml = `<?xml version="1.0"?>
 <settings>
   <run_mode>eigenvalue</run_mode>
@@ -1732,7 +2551,7 @@ describe('settings.xml round-trip', () => {
             weightWindowGenerator: {
                 meshId: 5,
                 energyBounds: [0, 1e4, 2e7],
-                particleType: 'neutron',
+                particleType: NEUTRON_PARTICLE,
                 method: 'fw_cadis',
                 maxRealizations: 100,
                 updateInterval: 2,
@@ -1770,6 +2589,223 @@ describe('settings.xml round-trip', () => {
         expect(imported.state!.varianceReduction?.weightWindowGenerator).toEqual(state.varianceReduction.weightWindowGenerator);
     });
 
+    it('round-trips source-distribution bias and the UFS mesh element', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'uniform',
+                    min: 1e5,
+                    max: 2e7,
+                    bias: { distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } }
+                },
+                angle: {
+                    type: 'isotropic',
+                    bias: {
+                        distribution: {
+                            type: 'mu-phi',
+                            mu: { type: 'uniform', min: -1, max: 1 },
+                            phi: { type: 'uniform', min: 0, max: 2 * Math.PI }
+                        }
+                    }
+                },
+                particle: NEUTRON_PARTICLE
+            }
+        ];
+        state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
+        state.varianceReduction = { ufs: { enabled: true, meshId: 5 } };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            randomRayCompat: BIAS_COMPAT,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<ufs_mesh>5</ufs_mesh>');
+        expect(xml).not.toContain('<ufs>');
+        expect(xml).toContain('<energy type="uniform" parameters="100000 20000000">');
+        expect(xml).toContain('<bias type="uniform" parameters="1000000 14000000"/>');
+        expect(xml).toContain('<angle type="isotropic">');
+        expect(xml).toContain('<bias type="mu-phi">');
+        expect(xml).toContain('<mesh id="5" type="regular">');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const source = imported.state!.settings.sources[0] as any;
+        expect(source.energy.bias).toEqual({ distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } });
+        expect(source.angle.bias.distribution.type).toBe('mu-phi');
+        expect(imported.state!.varianceReduction?.ufs).toEqual({ enabled: true, meshId: 5 });
+    });
+
+    it('round-trips point-cloud and mesh spatial array bias', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: {
+                    type: 'pointcloud',
+                    positions: [
+                        [0, 0, 0],
+                        [1, 1, 1]
+                    ],
+                    strengths: [1, 2],
+                    bias: { probabilities: [0.9, 0.1] }
+                },
+                energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.5, 0.5], bias: { probabilities: [0.1, 0.9] } },
+                particle: NEUTRON_PARTICLE
+            },
+            {
+                type: 'independent',
+                spatial: {
+                    type: 'mesh',
+                    meshId: 5,
+                    strengths: [1, 1, 1, 1, 1, 1, 1, 1],
+                    bias: { probabilities: [1, 2, 3, 4, 5, 6, 7, 8] }
+                },
+                energy: { type: 'uniform', min: 1e5, max: 2e7 },
+                particle: NEUTRON_PARTICLE
+            }
+        ];
+        state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            randomRayCompat: BIAS_COMPAT,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<bias>0.9 0.1</bias>');
+        expect(xml).toContain('<bias>1 2 3 4 5 6 7 8</bias>');
+        expect(xml).toContain('<bias>0.1 0.9</bias>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const cloud = imported.state!.settings.sources[0] as any;
+        const mesh = imported.state!.settings.sources[1] as any;
+        expect(cloud.spatial.bias.probabilities).toEqual([0.9, 0.1]);
+        expect(cloud.energy.bias.probabilities).toEqual([0.1, 0.9]);
+        expect(mesh.spatial.bias.probabilities).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    });
+
+    it('omits source bias with a warning when the probed environment predates source biasing', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                type: 'independent',
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'uniform',
+                    min: 1e5,
+                    max: 2e7,
+                    bias: { distribution: { type: 'uniform', min: 1e6, max: 1.4e7 } }
+                },
+                particle: NEUTRON_PARTICLE
+            }
+        ];
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, sourceBias: false },
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).not.toContain('<bias');
+        expect(xml).toContain('<energy type="uniform" parameters="100000 20000000"/>');
+        expect(result.warnings?.some((warning) => warning.includes('Source bias requires OpenMC'))).toBe(true);
+    });
+
+    it('round-trips multiple weight-window sets, the file, enable flag, and checkpoints', async () => {
+        const state = buildTestState();
+        state.meshes = [
+            { type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] },
+            { type: 'regular', id: 6, lowerLeft: [-2, -2, -2], upperRight: [2, 2, 2], dimension: [2, 2, 2] }
+        ];
+        state.varianceReduction = {
+            weightWindows: [
+                {
+                    id: 1,
+                    meshId: 5,
+                    particleType: NEUTRON_PARTICLE,
+                    energyBounds: [0, 1e4, 2e7],
+                    lowerBound: 0.5,
+                    upperBound: 1
+                },
+                {
+                    id: 2,
+                    meshId: 6,
+                    particleType: PHOTON_PARTICLE,
+                    energyBounds: [0, 2e7],
+                    lowerBound: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+                    survivalWeight: 4,
+                    maxSplit: 8,
+                    weightCutoff: 1e-30
+                }
+            ],
+            weightWindowsFile: '/tmp/weight_windows.h5',
+            weightWindowsOn: true,
+            weightWindowCheckpoints: { collision: true, surface: true }
+        };
+
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<weight_windows id="1">');
+        expect(xml).toContain('<weight_windows id="2">');
+        expect(xml).toContain('<weight_windows_file>/tmp/weight_windows.h5</weight_windows_file>');
+        expect(xml).toContain('<weight_windows_on>true</weight_windows_on>');
+        expect(xml).toContain('<weight_window_checkpoints>');
+        expect(xml).toContain('<collision>true</collision>');
+        expect(xml).toContain('<surface>true</surface>');
+        expect(xml).toContain('<mesh id="5" type="regular">');
+        expect(xml).toContain('<mesh id="6" type="regular">');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const vr = imported.state!.varianceReduction;
+        expect(vr?.weightWindows?.map((set) => set.id)).toEqual([1, 2]);
+        expect(vr?.weightWindows?.map((set) => set.meshId)).toEqual([5, 6]);
+        expect(vr?.weightWindows?.[0].lowerBound).toBe(0.5);
+        expect(vr?.weightWindows?.[0].upperBound).toBe(1);
+        expect(vr?.weightWindows?.[1].lowerBound).toEqual([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+        expect(vr?.weightWindows?.[1].survivalWeight).toBe(4);
+        expect(vr?.weightWindows?.[1].maxSplit).toBe(8);
+        expect(vr?.weightWindows?.[1].weightCutoff).toBe(1e-30);
+        expect(vr?.weightWindowsFile).toBe('/tmp/weight_windows.h5');
+        expect(vr?.weightWindowsOn).toBe(true);
+        expect(vr?.weightWindowCheckpoints).toEqual({ collision: true, surface: true });
+    });
+
+    it('warns instead of emitting an invalid ufs block without a mesh', async () => {
+        const state = buildTestState();
+        state.varianceReduction = { ufs: { enabled: true } };
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: false, geometry: false, settings: true, tallies: false, plots: false }
+        });
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).not.toContain('<ufs');
+        expect(result.warnings?.some((warning) => warning.includes('ufs_mesh'))).toBe(true);
+    });
+
     it('omits new elements when fields are absent (backward compatible output)', async () => {
         const state = buildTestState();
         const minimalSettings: OpenMCSettings = {
@@ -1799,5 +2835,531 @@ describe('settings.xml round-trip', () => {
         expect(xml).not.toContain('<electron_treatment>');
         expect(xml).not.toContain('<atomic_relaxation>');
         expect(xml).not.toContain('<constraints>');
+    });
+});
+
+describe('void cells', () => {
+    let tempDir: string;
+
+    beforeAll(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-void-'));
+    });
+
+    afterAll(() => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('emits material="void" so this openmc accepts the file', async () => {
+        const state = buildTestState();
+        state.geometry.cells = [
+            { id: 1, name: 'water', fillType: 'material', fillId: 1, regionString: '-1' },
+            { id: 2, name: 'void', fillType: 'void', regionString: '1' }
+        ];
+        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2] }];
+        const service = new XMLGenerationService();
+        const result = await service.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: false, plots: false }
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'geometry.xml'), 'utf-8');
+        expect(xml).toContain('<cell id="2" name="void" material="void" region="1"/>');
+    });
+
+    it('round-trips fillType void through importXML', async () => {
+        const state = buildTestState();
+        state.geometry.cells = [
+            { id: 1, name: 'water', fillType: 'material', fillId: 1, regionString: '-1' },
+            { id: 2, name: 'void', fillType: 'void', regionString: '1' }
+        ];
+        state.geometry.universes = [{ id: 0, name: 'root', cellIds: [1, 2] }];
+        const generator = new XMLGenerationService();
+        await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: false, plots: false }
+        });
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        const voidCell = imported.state!.geometry.cells.find((cell) => cell.id === 2);
+        expect(voidCell?.fillType).toBe('void');
+    });
+});
+
+describe('source distribution round-trip', () => {
+    /** Full compatibility descriptor with 0.16 source features enabled. */
+    const SOURCE_COMPAT = {
+        raySourceFormat: 'direct' as const,
+        adjointSource: false,
+        tokamakSource: true,
+        decaySpectrum: true,
+        s2SampleMethod: true,
+        depletionSubsteps: false,
+        depletionKeffSearch: false,
+        depletionExternalSourceRate: true,
+        depletionContinuation: true
+    };
+
+    /** Generate settings.xml, then import it and return both. */
+    async function generateAndImport(state: OpenMCState, compat = SOURCE_COMPAT) {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-source-'));
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: dir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: compat
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(dir, 'settings.xml'), 'utf-8');
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: dir });
+        expect(imported.success).toBe(true);
+        fs.rmSync(dir, { recursive: true, force: true });
+        return { xml, imported, warnings: result.warnings ?? [] };
+    }
+
+    it('round-trips tabular energy, mu-phi direction, and tabular time', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'box', lowerLeft: [-10, -10, -10], upperRight: [10, 10, 10] },
+                energy: {
+                    type: 'tabular',
+                    energies: [1e-5, 1e3, 14e6],
+                    probabilities: [1e-12, 0.2, 0.8],
+                    interpolation: 'log-log'
+                },
+                angle: {
+                    type: 'mu-phi',
+                    mu: { type: 'uniform', min: -1, max: 1 },
+                    phi: { type: 'discrete', energies: [0, Math.PI], probabilities: [0.5, 0.5] },
+                    referenceUvW: [0, 0, 1],
+                    referenceVwu: [1, 0, 0]
+                },
+                time: {
+                    type: 'tabular',
+                    energies: [0, 1e-6, 1e-3],
+                    probabilities: [1, 1, 0],
+                    interpolation: 'linear-linear'
+                },
+                particle: NEUTRON_PARTICLE,
+                strength: 2
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<energy type="tabular" interpolation="log-log">');
+        expect(xml).toContain('<parameters>0.00001 1000 14000000 1e-12 0.2 0.8</parameters>');
+        expect(xml).toContain('<angle type="mu-phi" reference_uvw="0 0 1" reference_vwu="1 0 0">');
+        expect(xml).toContain('<mu type="uniform" parameters="-1 1"/>');
+        expect(xml).toContain('<phi type="discrete">');
+        expect(xml).toContain('<parameters>0 3.141592653589793 0.5 0.5</parameters>');
+        expect(xml).toContain('<time type="tabular" interpolation="linear-linear">');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips Cartesian spatial, power-law energy, monodirectional direction, and uniform time', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'cartesian',
+                    x: { type: 'discrete', energies: [-1, 1], probabilities: [0.25, 0.75] },
+                    y: { type: 'uniform', min: -2, max: 2 },
+                    z: { type: 'tabular', energies: [0, 5], probabilities: [1, 1], interpolation: 'linear-linear' }
+                },
+                energy: { type: 'powerlaw', a: 0.1e6, b: 20e6, n: 2 },
+                angle: { type: 'monodirectional', referenceUvW: [0, 1, 0] },
+                time: { type: 'uniform', min: 0, max: 1e-3 },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cartesian">');
+        expect(xml).toContain('<x type="discrete">');
+        expect(xml).toContain('<parameters>-1 1 0.25 0.75</parameters>');
+        expect(xml).toContain('<energy type="powerlaw" parameters="100000 20000000 2"/>');
+        expect(xml).toContain('<angle type="monodirectional" reference_uvw="0 1 0"/>');
+        expect(xml).toContain('<time type="uniform" parameters="0 0.001"/>');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips cylindrical and spherical independent spatial distributions', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'cylindrical',
+                    r: { type: 'uniform', min: 0, max: 2 },
+                    phi: { type: 'uniform', min: 0, max: Math.PI },
+                    z: { type: 'tabular', energies: [-1, 1], probabilities: [1, 1], interpolation: 'linear-linear' },
+                    origin: [1, 2, 3],
+                    rDir: [0, 1, 0],
+                    zDir: [0, 0, 1]
+                },
+                energy: { type: 'uniform', min: 1e5, max: 2e7 },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            },
+            {
+                spatial: {
+                    type: 'spherical',
+                    r: { type: 'tabular', energies: [0, 5], probabilities: [1, 1], interpolation: 'linear-linear' },
+                    cosTheta: { type: 'uniform', min: -1, max: 0 },
+                    phi: { type: 'uniform', min: 0, max: Math.PI / 2 },
+                    origin: [4, 5, 6]
+                },
+                energy: { type: 'maxwell', temperature: 1.5 },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cylindrical" origin="1 2 3" r_dir="0 1 0">');
+        expect(xml).toContain('<space type="spherical" origin="4 5 6">');
+        expect(xml).toContain('<cos_theta type="uniform" parameters="-1 0"/>');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips point-cloud spatial, decay-spectrum energy, and discrete time', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'pointcloud',
+                    positions: [
+                        [0, 0, 0],
+                        [1, 2, 3]
+                    ],
+                    strengths: [1, 3]
+                },
+                energy: {
+                    type: 'decay-spectrum',
+                    nuclides: [
+                        { name: 'Cs137', density: 1e-8 },
+                        { name: 'Co60', density: 2e-9 }
+                    ],
+                    volume: 1000
+                },
+                time: { type: 'discrete', energies: [0, 1e-6], probabilities: [0.5, 0.5] },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cloud">');
+        expect(xml).toContain('<coords>0 0 0 1 2 3</coords>');
+        expect(xml).toContain('<strengths>1 3</strengths>');
+        expect(xml).toContain('<energy type="decay_spectrum" volume="1000">');
+        expect(xml).toContain('<nuclides>Cs137 Co60</nuclides>');
+        expect(xml).toContain('<parameters>1e-8 2e-9</parameters>');
+        expect(xml).toContain('<time type="discrete">');
+        expect(xml).toContain('<parameters>0 0.000001 0.5 0.5</parameters>');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips a mixture energy distribution with a nested mixture', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: {
+                    type: 'mixture',
+                    probability: [0.4, 0.6],
+                    distributions: [
+                        { type: 'powerlaw', a: 0.1e6, b: 20e6, n: -1 },
+                        {
+                            type: 'mixture',
+                            probability: [0.5, 0.5],
+                            distributions: [
+                                { type: 'uniform', min: 1e6, max: 2e6 },
+                                { type: 'tabular', energies: [1e6, 2e6], probabilities: [1, 1], interpolation: 'histogram' }
+                            ]
+                        }
+                    ]
+                },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<energy type="mixture">');
+        expect(xml).toContain('<pair probability="0.4">');
+        expect(xml).toContain('<pair probability="0.6">');
+        expect(xml).toContain('<dist type="mixture">');
+        expect(xml).toContain('<dist type="powerlaw" parameters="100000 20000000 -1"/>');
+        expect(xml).toContain('<dist type="tabular" interpolation="histogram">');
+
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('round-trips a mesh spatial distribution and emits its mesh in settings.xml', async () => {
+        const state = buildTestState();
+        const mesh = {
+            id: 7,
+            type: 'regular' as const,
+            lowerLeft: [-1, -1, -1] as [number, number, number],
+            upperRight: [1, 1, 1] as [number, number, number],
+            dimension: [2, 2, 2] as [number, number, number]
+        };
+        state.meshes = [mesh];
+        state.settings.sources = [
+            {
+                spatial: {
+                    type: 'mesh',
+                    meshId: 7,
+                    strengths: [1, 2, 3, 4, 5, 6, 7, 8],
+                    volumeNormalized: false
+                },
+                energy: { type: 'discrete', energies: [2e6], probabilities: [1] },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="mesh" mesh_id="7" volume_normalized="false">');
+        expect(xml).toContain('<mesh id="7" type="regular">');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+        expect(imported.state!.meshes).toEqual(state.meshes);
+    });
+
+    it('round-trips the convenience cylinder with an arbitrary axis', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'cylinder', center: [1, 2, 3], radius: 2, height: 10, axis: 'y' },
+                energy: { type: 'uniform', min: 1e5, max: 2e7 },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+
+        expect(xml).toContain('<space type="cylindrical" origin="1 2 3" r_dir="0 0 1" z_dir="0 1 0">');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+
+    it('omits decay-spectrum sources on environments without DecaySpectrum', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'decay-spectrum', nuclides: [{ name: 'Cs137', density: 1e-8 }], volume: 1 }
+            }
+        ];
+
+        const { xml, warnings } = await generateAndImport(state, {
+            ...SOURCE_COMPAT,
+            decaySpectrum: false
+        });
+
+        expect(xml).not.toContain('decay_spectrum');
+        expect(warnings.some((warning) => warning.includes('Decay spectrum source energy requires OpenMC >= 0.16.0'))).toBe(true);
+    });
+
+    it('writes discrete XML as values then probabilities (OpenMC ordering)', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [1e6, 2e6], probabilities: [0.25, 0.75] },
+                particle: NEUTRON_PARTICLE,
+                strength: 1
+            }
+        ];
+
+        const { xml, imported } = await generateAndImport(state);
+        expect(xml).toContain('<parameters>1000000 2000000 0.25 0.75</parameters>');
+        expect(imported.state!.settings.sources).toEqual(state.settings.sources);
+    });
+});
+
+describe('generalized particle round-trip', () => {
+    let tempDir: string;
+
+    beforeAll(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-particles-'));
+    });
+
+    afterAll(() => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const GENERALIZED_COMPAT = {
+        ...DEFAULT_OPENMC_COMPAT,
+        generalizedParticles: true,
+        particleProductionFilter: true
+    };
+    const HE4 = { name: 'He4', pdg: 1000020040 };
+    const ELECTRON = { name: 'electron', pdg: 11 };
+
+    it('writes a generalized source particle and imports it back as the shared model', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [2e6] },
+                particle: HE4
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('particle="He4"');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect((imported.state!.settings.sources[0] as any).particle).toEqual(HE4);
+        expect(imported.report?.ignored.some((message) => message.includes('generalized'))).toBe(false);
+    });
+
+    it('falls back to neutron with a warning when the environment predates PDG particles', async () => {
+        const state = buildTestState();
+        state.settings.sources = [
+            {
+                spatial: { type: 'point', origin: [0, 0, 0] },
+                energy: { type: 'discrete', energies: [2e6] },
+                particle: HE4
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: false }
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('particle="neutron"');
+        expect(result.warnings?.some((warning) => warning.includes('Source particle "He4" requires OpenMC 0.16'))).toBe(true);
+    });
+
+    it('round-trips a particle filter with canonical names and omits unsupported bins', async () => {
+        const state = buildTestState();
+        state.tallies = [
+            {
+                id: 1,
+                scores: ['flux'],
+                nuclides: ['total'],
+                filters: [
+                    {
+                        type: 'particle',
+                        bins: [],
+                        particleBins: [NEUTRON_PARTICLE, PHOTON_PARTICLE, ELECTRON, HE4]
+                    }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const supported = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: true, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(supported.success).toBe(true);
+        let xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<bins>neutron photon electron He4</bins>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect((imported.state!.tallies[0].filters[0] as any).particleBins).toEqual([NEUTRON_PARTICLE, PHOTON_PARTICLE, ELECTRON, HE4]);
+
+        const gated = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: true, plots: false },
+            randomRayCompat: { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: false }
+        });
+        expect(gated.success).toBe(true);
+        xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<bins>neutron photon electron</bins>');
+        expect(gated.warnings?.some((warning) => warning.includes("'He4'") && warning.includes('omitted'))).toBe(true);
+    });
+
+    it('round-trips particle-production secondary particles by canonical name', async () => {
+        const state = buildTestState();
+        state.tallies = [
+            {
+                id: 1,
+                scores: ['events'],
+                nuclides: ['total'],
+                filters: [
+                    {
+                        type: 'particleproduction',
+                        bins: [],
+                        particleTypes: [HE4, PHOTON_PARTICLE],
+                        productionEnergyBins: [0, 1e5, 2e7]
+                    }
+                ]
+            }
+        ];
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: false, tallies: true, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'tallies.xml'), 'utf-8');
+        expect(xml).toContain('<particles>He4 photon</particles>');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const imported = await backend.importXML({ directory: tempDir });
+        expect(imported.success).toBe(true);
+        expect((imported.state!.tallies[0].filters[0] as any).particleTypes).toEqual([HE4, PHOTON_PARTICLE]);
+    });
+
+    it('clamps unsupported weight-window particles and keeps the set loadable', async () => {
+        const state = buildTestState();
+        state.meshes = [{ type: 'regular', id: 5, lowerLeft: [-1, -1, -1], upperRight: [1, 1, 1], dimension: [2, 2, 2] }];
+        state.varianceReduction = {
+            weightWindows: [{ id: 1, meshId: 5, lowerBound: 0.5, energyBounds: [0, 2e7], particleType: ELECTRON }]
+        };
+
+        const generator = new XMLGenerationService();
+        const result = await generator.generateXML({
+            state,
+            outputDirectory: tempDir,
+            files: { materials: true, geometry: true, settings: true, tallies: false, plots: false },
+            randomRayCompat: GENERALIZED_COMPAT
+        });
+        expect(result.success).toBe(true);
+        const xml = fs.readFileSync(path.join(tempDir, 'settings.xml'), 'utf-8');
+        expect(xml).toContain('<particle_type>neutron</particle_type>');
+        expect(result.warnings?.some((warning) => warning.includes('not supported by OpenMC weight windows'))).toBe(true);
     });
 });

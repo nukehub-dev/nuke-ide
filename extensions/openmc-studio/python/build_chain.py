@@ -49,10 +49,10 @@ def _json_safe(obj):
     Returns:
         A JSON-serializable equivalent.
     """
-    if hasattr(obj, "item"):
-        return obj.item()
     if hasattr(obj, "tolist"):
         return obj.tolist()
+    if hasattr(obj, "item"):
+        return obj.item()
     return str(obj)
 
 

@@ -205,7 +205,7 @@ bind(OpenMCStudioBackendServiceImpl).toSelf().inSingletonScope();
 bind(OpenMCStudioBackendService).toService(OpenMCStudioBackendServiceImpl);
 ```
 
-- `OpenMCStudioBackendServiceImpl` is the actual implementation (~2000 lines).
+- `OpenMCStudioBackendServiceImpl` is the actual implementation.
 - `OpenMCStudioBackendService` is the interface token.
 - The orchestrator is a singleton: all frontend connections share the same instance, but each connection gets its own client callback channel.
 

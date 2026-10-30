@@ -2,7 +2,8 @@
 
 ## Purpose
 
-Plugin-based visualization framework for NukeIDE: shared infrastructure (Python environment detection, server lifecycle, widget management, health checks, output streaming) plus domain plugins for 3D/2D nuclear data (Base Visualizer for meshes/DAGMC, OpenMC for statepoints/tallies/geometry).
+Plugin-based 3D/2D visualization framework for NukeIDE: native three.js viewers over headless Python converters.
+Domain plugins: Base Visualizer (meshes/DAGMC/STEP/Gmsh/Exodus) and OpenMC (statepoints/tallies/geometry/outputs).
 
 ## Ownership
 
@@ -10,45 +11,133 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 
 ## Local Contracts
 
-- TypeScript side follows `extensions/AGENTS.md`: `src/browser/`, `src/common/`, `src/node/`, wired by `visualizer-frontend-module.ts` / `visualizer-backend-module.ts`.
-- Python backend lives in `python/` and is **not pip-installed**; the IDE spawns it as a subprocess:
-  - `python/server.py` — CLI entry point; commands are invoked as `python server.py <plugin>.<command> --file <path>` (e.g. `dagmc.info`).
-  - `python/nuke_viz/` — framework package: `plugin.py` (`@command`/`@arg` decorators, the global command registry, and `load_command_modules` — plugin loaders call it so a module that fails to import (missing optional dep) is skipped and logged via `nuke_viz.logging.info`, never raw-printed to stderr), `registry.py` (plugin registry), `logging.py`.
-  - `python/plugins/base/` — Base Visualizer plugin (`commands/`: convert, dagmc, serve; `lib/`: common helpers, dagmc, dagmc_viz, step).
-  - `python/plugins/openmc/` — OpenMC plugin (`commands/`: statepoint, tally_viz, xs_plot, geometry, materials, depletion, spectrum, basic, tracks, collision_track, weight_windows, kinetics, particle_restart, nuclear_data, ncrystal_data, endf_data, output_vtk; `lib/`: parsers, VTK export, overlap, `output_readers.py` shared HDF5 output readers, `output_vtk.py` output→VTK converters).
-- Command handlers report errors as a single JSON object `{"error": ...}` with exit code 1 — never a traceback. Base-plugin commands emit it on stderr; OpenMC-plugin commands emit it on stdout. Heavy imports stay lazy (inside the handler) so missing optional dependencies surface as clean JSON errors. The node side is **stdout-first**: `openmc-output-service.ts::executeCommandJson` parses stdout regardless of exit status and uses the payload's `error` as the thrown message (stderr — log noise like plugin-load notes — is only a fallback), so the UI always shows the genuine command error. Widgets render dependency-shaped errors as an actionable missing-dependency panel (`widgets/dependency-hints.ts::detectMissingDependencies`, pure + vitest-covered).
-- `src/browser/contributions/visualizer-tools-contribution.ts` exposes Visualizer commands in the Nuke Tools sidebar (`nuke-core`) under `Visualizer` and `Visualizer > OpenMC`.
-- HDF5 output readers (`plugins/openmc/lib/output_readers.py`) back the `openmc.tracks-*`, `openmc.collision-track-*`, `openmc.weight-windows`, and `openmc.kinetics` commands: pure functions returning JSON-safe dicts, raising `OutputReaderError` on failure; layouts verified against the OpenMC C++/Python writers (see the module docstring). Limits/decimation are enforced server-side.
-- Output viewers render through the existing trame/VTK pipeline, not bespoke trame UIs: `plugins/openmc/lib/output_vtk.py` converts tracks → `.vtp` polylines, collision tracks → `.vtp` point cloud, weight windows → `.vtr` rectilinear grid (one `lower_g<i>`/`upper_g<i>` cell array per energy group; `--mesh-id` anchors multi-mesh files to a chosen mesh — windows on other meshes are skipped, and the viewer offers a mesh selector when a file has windows on multiple meshes), voxel `.h5` plots → `.vti` image data (`voxel_to_vtk`), via the `openmc.tracks-vtk` / `openmc.collision-vtk` / `openmc.weight-windows-vtk` / `openmc.voxel-vtk` commands; the frontend then serves the file with `VisualizerBackendService.startServer()` (`base.serve`), whose built-in color-by control selects particle/energy/MT/group arrays. Geometry construction is numpy-only; `vtk` imports lazily for the final write.
-- `base.serve` accepts `--color-by '<Solid Color|Point: name|Cell: name>'` (validated against the file's arrays) to set the initial coloring; `VisualizerBackendService.startServer()` takes a matching optional `colorBy`. This is the only way to steer coloring from a widget — there is no remote-control API into a running trame server, so changing colors means restarting it. `openmc.vtk-info` inspects any legacy/XML VTK file (arrays, ranges, grid dims).
-- The random-ray results viewer (`widgets/random-ray/random-ray-results-widget.tsx`) opens legacy random-ray `.vtk`, `.vti`, or voxel `.h5` files through the same convert→serve→iframe base, with an array quick-select bar (flux groups / source / id arrays classified by the pure, vitest-covered `random-ray-arrays.ts`) that restarts the server with `--color-by`. Random-ray `.vtk` outputs are plain `<name>.vtk` files (name comes from the plot config, see OpenMC `src/random_ray/flat_source_domain.cpp::output_to_vtk`), so they are reached via the `openmc.open-random-ray-results` command with **no** filename claim — but voxel HDF5 plots (`*voxel*.h5`, `plot_*.h5`, distinctive enough) ARE claimed by `openmc-voxel-plot-viewer-contribution.ts` and open in the same widget.
-- `src/browser/output-viewer/output-viewer-registry.ts` — `OutputViewerContribution` registry mapping OpenMC output files (tracks, collision tracks, weight windows, kinetics, ...) to viewers. `VisualizerOpenHandler` and `OpenMCContribution` consult `OutputViewerRegistry.getHandlerFor()` first in `canHandle`/`open` and fall through to existing behavior when nothing matches. Register viewers with `bind(OutputViewerContribution).to(...)`; matching logic lives in the pure `selectOutputViewer` function (vitest-covered). Filename matching lives in `src/browser/output-viewer/output-file-patterns.ts` (pure, vitest-covered): `tracks(_pN)?.h5`, `collision_track(.N)?.h5`, `weight_windows.h5`, `particle_restart.h5`/`particle_N_M.h5`, `*voxel*.h5`/`plot_*.h5`, `summary.h5`, `openmc_simulation_n<N>.h5`. The last is NOT a registry viewer: depletion CoupledOperator per-step files (`write_bos_data` → `openmc.lib.statepoint_write(..., write_source=False)`) share the statepoint layout minus the source bank, so `OpenMCContribution` claims them straight into the statepoint viewer (the statepoint command already tolerates a missing `source_bank`). Registered viewers: tracks (`openmc-tracks-viewer-contribution.ts`), collision track, weight windows, voxel plot (→ random-ray widget) — each a widget under `src/browser/plugins/openmc/widgets/<feature>/` extending `widgets/output-viewer-widget.tsx` (shared convert→serve→iframe lifecycle with a drag-resizable split between the 3D view and the data panel) with backend data/conversion calls via `src/node/plugins/openmc/services/openmc-output-service.ts`. Exceptions: the particle restart viewer (`openmc-particle-restart-viewer-contribution.ts`) renders its summary/property cards directly in `widgets/particle-restart/` — scalar data, no trame pipeline (the run-single-particle action belongs to openmc-studio); and `summary.h5` (`openmc-summary-viewer-contribution.ts`) opens the geometry hierarchy + 3D view — the backend converts it on the fly via `geometry_parser.convert_summary_to_xml` (openmc.Summary round-trip to geometry.xml/materials.xml, lazy openmc import), which `openmc.geometry` and `openmc.visualize-geometry` apply to any `.h5` input.
-- IFP kinetics results live in ordinary `statepoint*.h5` files, so they have **no** `OutputViewerContribution` (the statepoint viewer already claims those). Instead the statepoint viewer shows a conditional 'Kinetics (IFP)' tab when any tally carries an `ifp-*` score (`kinetics-utils.ts::hasIfpTallies`, pure + vitest-covered alongside `formatUncertainty`/`kineticsToCsv`); the tab lazy-loads `openmc.kinetics` via `OpenMCService.getKineticsParameters()` and renders β_eff (total + per-group), Λ_eff, uncertainties, and CSV export with friendly empty/error states.
-- The Nuclear Data browser (`widgets/nuclear-data/`, OpenMC → Materials menu) is a read-only cross_sections.xml inspector backed by `openmc.nuclear-data-library` (cheap h5py group-key reads per file — full IncidentNeutron parses of hundreds of files take minutes) and `openmc.nuclear-data-nuclide` (`IncidentNeutron.from_hdf5` detail). These two commands keep the studio-era `{"success": bool, ...}` envelope — failures print `{"success": false, "error": ...}` (still exit 1), and `openmc-output-service.ts` parses stdout regardless of exit status to surface it. The detail panel's 'Plot in XS Viewer' opens the XS plot with the nuclide pre-selected via `XSPlotWidget.selectNuclide()` (public).
-- The Nuclear Data window is **tabbed** (Library | NCrystal | ENDF-disabled-stub, data-driven tab bar for the ENDF workstream). The NCrystal tab (`ncrystal-tab.tsx` + pure `ncrystal-cfg.ts` builder helpers, vitest-covered) is backed by `openmc.ncrystal-materials` (`NCrystal.datasrc.browseFiles()` or `--dir` scan), `openmc.ncrystal-info` (`createInfo`: phases/composition/temperature/density/structure), and `openmc.ncrystal-xs` (`createScatter/createAbsorption` → `crossSectionIsotropic` at log-spaced energies — numpy only, no matplotlib); cfg strings carry all parameters inline (`name;temp=300K;dcutoff=...`). `ncrystal` is an optional package in `packages.json` (`required: false`); the tab renders its error panel when it is missing. The **ENDF tab** (`endf-tab.tsx` + pure `endf-format.ts` helpers) is backed by `openmc.endf-evaluations` (directory scan: sub-libraries from `decay`/`nfy`/`sfy`/`neutrons` dirs, nuclides parsed from ZA-coded filenames — no file parsing) and `openmc.endf-detail` (dispatch on filename prefix: `dec-*` → `openmc.data.decay.Decay.from_endf` modes/half-life, `nfy-*`/`sfy-*` → `openmc.data.FissionProductYields.from_endf` top-N products per energy, `n-*` → cheap MF/MT text-record scan of the 80-char ENDF records with `REACTION_NAME` labels — a full `endf.Material` parse takes seconds and warns, so it is deliberately not used). The chosen library dir persists via the `nuke.endfLibrary` preference (registered in nuke-core): the parent widget reads it ready-gated, follows changes, and persists browse picks via `onDirChange`; a module-level variable is only the pre-ready fallback.
-- Some top-level imports are deliberate dependency probes that must fail fast (e.g. `import vtk` in `plugins/base/lib/dagmc_viz.py`); they carry `# noqa: F401` — do not remove them.
-- Headless rendering contract: `server.py` sets `paraview.options.batch = True` before plugin discovery (keeps render windows offscreen — no native popup when `DISPLAY` is set), and `serve.py` only defaults `DISPLAY` to empty when unset (an inherited Xvfb display must survive; conda VTK builds are X11/GLX-only and segfault without an X connection). See `docs/dev/python-backends.md`.
-- Browser traffic to trame servers goes through the backend reverse proxy at `/visualizer/<port>/` (`src/node/visualizer-proxy-contribution.ts`), never to `127.0.0.1:<port>` directly; iframe URLs are built by `toProxiedVisualizerUrl()` via Theia's `Endpoint` (StripPrefix-safe), and trame servers bind loopback only. Trame's relative asset/ws paths are a hard requirement — verify them before upgrading trame. Both the HTTP and WebSocket paths retry ECONNREFUSED/ECONNRESET for ~5 s at 250 ms intervals (`src/node/proxy-retry.ts`, pure + vitest-covered) because trame prints its startup line before finishing the port bind — the first request after a server start otherwise races the bind and strands a permanent 'unreachable' iframe.
-- Split-panel drags (output viewers' viewer/table split, nuclear-data list/detail split) share `widgets/drag-split.ts::startSplitDrag`: direct DOM writes during the drag (no per-pixel React renders, `update()` only on mouseup) and `pointer-events: none` on iframes inside the widget for the drag's duration — an iframe (trame 3D view) swallows mouse events once the cursor crosses it and would otherwise jam the drag.
-- Error paths and argument handling are covered by `tests/python/test_command_error_paths.py`; keep that contract green when adding commands.
-- Tests: `tests/python/` runs from the repo root via `yarn test:python`; `conftest.py` puts `python/` on `sys.path` and isolates the global command registry between tests. `tests/e2e/` holds full-profile e2e tests (`@pytest.mark.e2e`, skip cleanly in the minimal profile; cross sections come from `OPENMC_CROSS_SECTIONS`, never machine-specific defaults).
-- Python package requirements live in `src/common/packages.json` (single source for TS health checks and the Python `check_*_dependencies` functions in `python/plugins/base/lib/common.py`); never inline package lists in services; keep `pydagmc`'s installCommand pinned.
-- Trame UI servers (`base.serve`, dagmc, openmc tally/geometry) target **trame 3 / vuetify3 / vue3** (`trame.ui.vuetify3`, `client_type="vue3"`); trame 2's `trame.ui.vuetify2` no longer exists. `trame`/`trame-vuetify` must be >=3 and may come from pip **or** conda-forge — never mix both in one environment (a clobbered install loses submodules like `trame.app`; `check_trame_dependencies` reports that as a broken install with a reinstall hint).
-- 3D viewers use `VtkRemoteLocalView` (trame-vtk >= 2.11) with a user-switchable local (vtk.js, default) / remote (server-rendered) mode; build them via `create_view_widget` / `update_view_widget` / `UIComponents.create_render_mode_toggle` in `plugins/base/lib/common.py` with a unique state namespace per viewer, never bare `VtkRemoteView`. The default mode comes from `NUKE_VISUALIZER_RENDER_MODE` ("local"/"remote", default "local"). See `docs/dev/python-backends.md`.
-- `GLOBAL_STYLES` in `python/plugins/base/lib/common.py` targets Vuetify 3 DOM classes (`.v-theme--*`, `.v-select__content`/`.v-autocomplete__content`, `.v-chip--size-*`, `.v-field__input`); check selectors against the served vuetify3 bundle when touching CSS.
+- TS layout follows `extensions/AGENTS.md`: `src/browser/`, `src/common/`, `src/node/` wired by
+  `visualizer-frontend-module.ts` / `visualizer-backend-module.ts`; Python in `python/`, pytest in `tests/python/`.
+- Commands run as `python server.py <plugin>.<command> --file <path>` (e.g. `dagmc.info`); framework in
+  `python/nuke_viz/` (`plugin.py` `@command`/`@arg`, registry, logging), plugins in `python/plugins/base|openmc/`.
+- Error contract: handlers print one JSON `{"error": ...}` and exit 1, never a traceback; base-plugin errors go to
+  stderr, openmc-plugin errors to stdout; heavy imports stay lazy; node `executeCommandJson` is stdout-first and
+  dependency-shaped failures render via `widgets/dependency-hints.ts`.
+- Python requirements live in `src/common/packages.json` (single source; see parent contract) — never inline
+  package lists; keep shared specs matching nuke-core `package-registry.json` spec-for-spec.
+- No servers: never bind ports, spawn HTTP/trame/ParaView processes, or add proxy/iframe paths; every viewer
+  converts headlessly and renders client-side.
+- Native render rule is convert → read → render: backend writes VTK (XML or legacy ASCII) and exits, frontend reads
+  via `readVtkText` (`native-vtk-data.ts`, 256 MB `NATIVE_VTK_MAX_READ_BYTES` budget — never bare `FileService.read`)
+  and `parseNativeVtk`. Legacy volume cells emit only unshared boundary faces as triangles (no interior surface soup).
+- Shared viewer is `NativeVtkViewerWidget` (+ `widgets/native-vtk/`); color-by (`Solid Color|Point:|Cell:`) maps through
+  `viewer-core/scalar-mapping.ts` (34-preset generated `colormaps.ts` — never hand-edit); see `docs/dev/output-viewers.md`.
+  Bivariate uncertainty (`viewer-core/bivariate-mapping.ts` + Viewer Settings `Uncertainty`) pairs `<score>-mean` with its
+  `-std`/`-rel-err` companion and blends surfaces/voxel blocks toward the mask color; smooth volume/slice stays mean-only.
+  DAGMC adds categorical `Material|Volume|Group` (`dagmc-color-by.ts` + shared `material-colors`): no scalar mapping or
+  legend, and Viewer Settings hides the colormap/Invert/Log/range/threshold/legend rows (`colormap.disabled`).
+- Grid volumes use `viewer-core/volume-transfer.ts` + `volume-raycast.ts` (editable opacity stops, MIP/composite, gradient
+  shade); Viewer Settings `ViewerVolumeSettings` keeps the ramp and defaults to the legacy MIP look.
+- Orthoslices use `viewer-core/slice-view.ts`; `ViewerSettingsHost.getSlicePreview` returns RGBA for the Slice section,
+  and `slice-preview.tsx` only paints it. Never move the 3D camera from the preview.
+- Clip caps use `viewer-core/capped-clip.ts` on closed triangle soups; `clipCaps` defaults on, caps follow solid/block
+  colors, and open/point/line data stays hollow. Rebuild caps from `applyClip()`, never a separate event.
+- Dataset Inspector (`src/browser/dataset-inspector/`, `ViewerDatasetHost`) binds like Viewer Settings; hosts expose
+  `getDatasetSummary`/`getDatasetTable` and optional `getDatasetStats`, the panel only renders the first 200 rows and
+  copies that window as CSV; cell integrals use grid volume / triangle area from `viewer-core/dataset-inspector.ts`.
+  DAGMC aggregates blocks through `dagmc-dataset.ts` (counts/bounds/arrays merged, tables cross block boundaries).
+- Screenshots use `viewer-core/canvas-screenshot.ts` (`captureRendererScreenshot`, formats/scales/transparency) and the
+  props-only `viewer-export-menu.tsx`; keep the one-click PNG path and never resize the canvas CSS permanently. The
+  same menu's Dataset CSV/VTK actions call `VisualizerBackendService.runBaseCommand('base.export', …)` and download the
+  returned temp file; both require `vtk` in the active environment.
+- Color legend title/vertical-label settings are native-viewer fields (`scalarBarTitle`/`scalarBarVertical`); keep the
+  legend as the single source of truth and do not duplicate the title in the viewer header.
+- Mesh quality (`viewer-quality-menu.tsx`) runs `base.mesh-quality` through `runBaseCommand`, then opens the returned
+  `.vtp`/`.vtu` via `WorkspaceService.open`; keep the metric list closed and surface/tet-mesh-only.
+- Statistical plots use `viewer-core/statistics.ts` + `statistics-panel.tsx` (Plotly, 2D hist/scatter/box/parallel); the
+  host supplies scalar arrays, the panel owns tab/bin state only.
+- Plotly charts go through `plotly/plotly-component.tsx` + `plotly-theme.ts`; never hardcode `plotly_dark`/`theme="dark"`.
+  The component follows the Theia body theme and owns primary-axis, legend, modebar, and background colors.
+- Find Data uses `viewer-core/selection-query.ts` + props-only `find-data-dialog.tsx`; the native viewer keeps the
+  selection transient and expands it through `selection-overlay.ts` into an orange always-on-top group.
+- Axes grid uses `viewer-core/axes-grid.ts` + props-only `axes-grid-overlay.tsx`; lines live outside the data group so
+  data clipping never cuts the axes, and label projection goes through the isolated overlay host (not per-frame widget
+  re-renders).
+- Saved views use `viewer-core/viewer-state.ts` (versioned camera + display schema) and `nukeVisualizer.viewerStates`
+  keyed by viewer tab id; `orbit-controls.ts` owns `getPose`/`setPose`. Never store file paths or transient selections.
+- Output routing uses `src/browser/output-viewer/` (`output-viewer-registry.ts` + `output-file-patterns.ts`); register
+  with `bind(OutputViewerContribution).to(...)`; see `docs/dev/output-viewers.md`.
+- DAGMC/STEP/Gmsh use `python/plugins/base/lib/dagmc.py`, `step.py`, and `gmsh_mesh.py` (`DagmcError`/`StepError`/
+  `GmshMeshError`, `find_spec` probes, lazy loaders, cached converters); `.msh` imports as-is (no remeshing) via
+  `base.convert-gmsh`; see `docs/dev/python-backends.md`.
+- Analysis commands `base.integrate` / `base.describe` / `base.mesh-quality` live in
+  `python/plugins/base/commands/analysis.py` (pure numpy in `lib/analysis.py`, lazy VTK); `base.export` lives in
+  `commands/export.py` + `lib/export.py` (CSV/VTK/glTF). Register both in `base/plugin.py`.
+- Exodus series (`python/plugins/base/lib/exodus_series.py`, `base.exodus-series` → `ExodusTimeSliderWidget` for
+  `*.e`/`*.exo*`) and headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
+  `openmc.geometry-slice-vtk` into `widgets/geometry-native/` and `widgets/tally-native/`); see `docs/dev/python-backends.md`.
+- Tally series (`openmc.tally-series` in `commands/tally_series.py` + `lib/tally_series.py`) reads sibling
+  statepoints through `widgets/statepoint/tally-series-widget.tsx`; preload no per-step mesh, and pass the
+  series-wide `viewRange` as the custom 3D range when Shared color range is on.
+- Derived tallies: the statepoint viewer discovers the sibling `.nuke-openmc` project, resolves
+  `openmc-studio/python/derive_tallies.py` through nuke-core, and renders mean/std with a DERIVED badge
+  (bins/plot/CSV/comparison). Definitions are analysis-only and never enter simulation XML/Python; keep the
+  viewer free of OpenMC Studio TS imports. See `docs/user/openmc/statepoint-viewer.md`.
+- Entropy convergence: `openmc.statepoint-info` returns `entropy`, `cmfdEntropy` (HDF5 `cmfd/entropy`, with a
+  `cmfd_entropy` fallback), `cmfdEntropyStartBatch`, and `nInactive`/`nBatches`; the Entropy tab owns the
+  inactive marker and the trend hint. Never infer convergence from k alone.
+- Depletion analysis: `openmc.depletion-contact-dose` / `openmc.depletion-decay-spectrum` reuse
+  `openmc.deplete.Results` + `openmc.Material` (no duplicated physics); chain resolution is
+  `--chain-file` → `OPENMC_CHAIN_FILE` → `openmc.config`. Units live in labels and JSON (`Gy/h`, `Sv/h`, `Bq`).
+  See `docs/user/openmc/depletion.md`.
+- Comparison workspace (`viewer-core/comparison-session.ts`, `comparison-layout.ts`,
+  `visualizer-comparison-contribution.ts`) groups already-open or browsed native/DAGMC viewers into split panes;
+  four panes use a 2x2 grid, camera links apply direction only across files, and the shared range is the union of
+  active-array data ranges. Never preload data or copy source camera distance.
+- Generic probe (`viewer-core/probe-model.ts`, `widgets/probe-dialog.tsx`, `base.probe`) maps raycast hits by
+  triangle/segment/voxel indices; keep point sampling client-side and line profiles file-backed, and never
+  map derived overlay geometry (edges, caps, glyphs, selection) onto dataset tuples. Point samples render as
+  world-anchored scene markers outside `dataGroup` (newest accented); clear them with history/dataset rebuilds.
+- Shading modes live in `viewer-core/shading-mode.ts`; `edges` draws every triangle edge, `feature-edges` draws only
+  creases above `FEATURE_EDGE_ANGLE_DEGREES` (30°), and DAGMC reuses its single edge overlay for both.
+- Tally routing uses `python/plugins/openmc/lib/tally_vtk.py` (`openmc.tally-mesh-vtk` / `source-vtk` / `overlay-vtk` /
+  `overlay-geometry-vtk`, XML only) via `openmc-service.ts::openTallyNativeWidget`; tabs open instantly with a loading
+  status (`beginPendingLoad`) before conversion runs, failures land in-tab (`failPendingLoad`); probe/contour source
+  fields are pre-filled from the tab context (`seedToolContext`, never overwriting typing); see `docs/dev/output-viewers.md`.
+- File claims: `*.vtm`/`*.h5m` → `DagmcViewerWidget`, `geometry.xml` → `GeometryNativeViewerWidget`,
+  `*voxel*.h5`/`plot_*.h5` → random-ray widget; plain random-ray `.vtk` opens only via `openmc.open-random-ray-results`.
+- Kinetics IFP results stay in the statepoint viewer (no registry entry): conditional tab via
+  `kinetics-utils.ts::hasIfpTallies`, lazy-loading `openmc.kinetics`; see `docs/dev/output-viewers.md`.
+- Nuclear Data browser (`widgets/nuclear-data/`) covers the cross_sections.xml library, the read-only ICRP-74/116
+  dose-coefficient tab (`openmc.dose-coefficients`; particle/geometry availability comes from OpenMC's table
+  catalog), the NCrystal tab (`ncrystal-materials/info/xs`, optional dep), and the ENDF tab
+  (`endf-evaluations/detail`, `nuke.endfLibrary` pref).
+- Shared HDF5 readers live in `python/plugins/openmc/lib/output_readers.py` (pure JSON-safe dicts, `OutputReaderError`,
+  limits/decimation server-side); see `docs/dev/output-viewers.md`.
+- 3D navigation is `viewer-core/orbit-controls.ts` OrbitControls only (`ORBIT_DAMPING_FACTOR`,
+  `fitBounds`/`setViewDirection`/`zoomBy`) — never hand-roll orbit math.
+- Side panels bind one active viewer each: Viewer Settings (`ViewerSettingsHost`), DAGMC Outline (`DagmcOutlineHost`),
+  CSG Outline (`CsgOutlineHost`), Dataset Inspector (`ViewerDatasetHost`) under `src/browser/<panel>/`. Settings rows
+  reserve a nowrap 82 px label column with plain-integer section badges; DAGMC Outline mirrors Model Outline
+  headers/24 px rows (see `docs/dev/widget-patterns.md`). Native bottom bars expose one-click Viewer Settings,
+  Dataset Inspector, and (on DAGMC) Outline shortcuts; panel commands stay id-only in `commands/panel-commands.ts`
+  to avoid cycles.
+- `contributions/visualizer-tools-contribution.ts` exposes commands in the Nuke Tools sidebar under `Visualizer` and
+  `Visualizer > OpenMC`; 3D chrome comes from `nuke-essentials` (`ViewCube`/`ViewerNavBar`/`ViewBadge`,
+  `.nuke-viewer-status-line`) — never local gizmo/nav widgets.
+- File-specific empty states use `NukeEmptyState` with `iconNode`; reusable domain illustrations live in
+  `src/browser/widgets/domain-icons.tsx` instead of generic repo/database codicons. Widget/command `iconClass`
+  hooks and Nuke Tools `iconClass` rows use the matching `nuke-visualizer-icon-<domain>` CSS mask classes, not
+  generic `fa`/`codicon` glyphs.
 
 ## Work Guidance
 
-- Adding a plugin: create `python/plugins/<name>/` with `commands/` and `lib/`, register it in `python/plugins/__init__.py`/registry, and add the TS-side widget/open-handler wiring in `src/`. See `docs/dev/` for the full guide.
-- Adding a command to an existing plugin: add a handler in the plugin's `commands/` module using `@command`/`@arg`, keep heavy imports lazy, return JSON errors (stdout for openmc-plugin commands, stderr for base-plugin commands), and add error-path tests in `tests/python/`.
-- Optional heavy dependencies (openmc, vtk, pymoab, gmsh, trame, paraview) must be import-guarded; the test environment only has `pytest` + `numpy`.
-- Python style: ruff (config at repo root) — width 100, double quotes.
+- Add a plugin: create `python/plugins/<name>/` plus TS widget/open-handler wiring; follow `docs/dev/adding-a-plugin.md`.
+- Add a command: `@command`/`@arg` handler with lazy imports plus error-path tests in `tests/python/test_command_error_paths.py`;
+  keep `tests/python/test_command_contracts.py` green (every registered command supports `--help`, and missing
+  input yields one JSON error with no traceback); follow `docs/dev/python-backends.md`.
+- Reuse shared services, DI, and RPC patterns from `docs/dev/shared-services.md`, `docs/dev/di-wiring.md`, and
+  `docs/dev/rpc-protocols.md` — never invent new plumbing.
 
 ## Verification
 
 ```bash
-yarn test:python     # from repo root; runs this extension's pytest suite
-yarn lint:python     # ruff check + ruff format --check
+yarn test:python
 npx lerna run build --scope nuke-visualizer
 ```
 

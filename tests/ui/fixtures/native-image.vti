@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<VTKFile type="ImageData" version="0.1" byte_order="LittleEndian">
+  <ImageData WholeExtent="0 1 0 1 0 1" Origin="0 0 0" Spacing="1 1 1">
+    <Piece Extent="0 1 0 1 0 1">
+      <CellData>
+        <DataArray type="Float32" Name="flux_group_0" format="ascii">0.5</DataArray>
+      </CellData>
+    </Piece>
+  </ImageData>
+</VTKFile>

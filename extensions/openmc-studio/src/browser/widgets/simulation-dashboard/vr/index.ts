@@ -28,11 +28,11 @@
 /**
  * Barrel file for variance reduction (VR) editor components.
  *
- * Re-exports weight-window and source-biasing editors used in the
- * simulation dashboard for configuring OpenMC variance reduction techniques.
+ * Re-exports the weight-window editor and inline source-distribution bias
+ * controls used in the simulation dashboard.
  *
  * @see {@link WeightWindowEditor}
- * @see {@link SourceBiasingEditor}
+ * @see {@link BiasToggle}
  */
 
 export * from './weight-window-editor';

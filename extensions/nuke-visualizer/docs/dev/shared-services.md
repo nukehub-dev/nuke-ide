@@ -79,7 +79,7 @@ async runAnalysis(filePath: string): Promise<MyResult> {
 
     // Execute a script and parse JSON output
     const result = await this.pythonHelper.executeScriptJson<MyResult>(
-        'my_script.py',
+        this.pythonHelper.findScript('my_script.py'),
         ['analyze', filePath],
         { requirements: MY_REQUIREMENTS }
     );
@@ -89,25 +89,26 @@ async runAnalysis(filePath: string): Promise<MyResult> {
 
 ### API
 
-| Method                                    | Description                                     |
-| ----------------------------------------- | ----------------------------------------------- |
-| `detectPython(requirements?, envs?)`      | Find a Python with required packages            |
-| `detectPythonForBaseVisualizer(envs?)`    | Shorthand for base viz requirements             |
-| `checkPackages(command, requirements?)`   | Check if a specific Python has packages         |
-| `executeScript(path, args, options?)`     | Run a script, return `{stdout, stderr, status}` |
-| `executeScriptJson(path, args, options?)` | Run a script and parse stdout as JSON           |
-| `findScript(name)`                        | Resolve a script in `python/` directory         |
-| `getExtensionPath()`                      | Get root path of nuke-visualizer                |
+| Method                                    | Description                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `detectPython(requirements?, envs?)`      | Find a Python with required packages                             |
+| `detectPythonForBaseVisualizer(envs?)`    | Shorthand for base viz requirements                              |
+| `checkPackages(command, requirements?)`   | Check if a specific Python has packages                          |
+| `executeScript(path, args, options?)`     | Run a script by absolute path, return `{stdout, stderr, status}` |
+| `executeScriptJson(path, args, options?)` | Run a script by absolute path and parse stdout as one JSON value |
+| `findScript(name)`                        | Resolve a script in the extension's `python/` directory          |
+| `getExtensionPath()`                      | Get root path of nuke-visualizer                                 |
 
 ### Script Discovery
 
-`findScript('my_script.py')` searches in this order:
+`findScript('my_script.py')` delegates to nuke-core's `resolvePythonScript` and returns the first existing candidate:
 
-1. `lib/python/my_script.py` (installed)
-2. `src/python/my_script.py` (development)
-3. Fallback relative paths from `__dirname`
+1. Electron `extraResources/python/<package>/<script>` (outside `app.asar`)
+2. `<resolved package>/python/<script>` (development and `asarUnpack` installs)
+3. `<app>/extensions/<package>/python/<script>`
+4. Monorepo development fallbacks relative to the resolver module and the current working directory
 
-Always use `findScript()` instead of hardcoding paths.
+Always use `findScript()` instead of hardcoding paths, and pass its absolute result to `executeScript`/`executeScriptJson`.
 
 ---
 
@@ -166,35 +167,33 @@ Helper namespace for converting domain data to Plotly traces:
 
 ---
 
-## VisualizerWidget
+## NativeVtkViewerWidget
 
-**File:** `src/browser/visualizer-widget.tsx`
+**File:** `src/browser/plugins/openmc/widgets/native-vtk-viewer-widget.tsx`
 
-The standard iframe-based widget for Python-rendered visualizations (Trame, Dash, etc.).
+The standard widget for 3D visualizations: it takes converted VTK text and renders it natively with three.js — no server, no iframe.
 
 ### Usage
 
 ```typescript
 // Create via WidgetFactory
-const widget = (await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, {
+const widget = (await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, {
   uri: fileUri.toString(),
   id: 'my-prefix-' + filePath
-})) as VisualizerWidget;
+})) as NativeVtkViewerWidget;
 
-// Set the server URL once the Python server is ready
-widget.setServerUrl('http://127.0.0.1:8080', 8080);
+// Convert via RPC, read the file text, hand it to the widget
+const vtkText = (await this.fileService.read(convertedUri)).value.toString();
+await widget.setVtkText(vtkText);
 ```
 
 ### Key Properties & Methods
 
-| Member                      | Description                                              |
-| --------------------------- | -------------------------------------------------------- |
-| `static ID`                 | Widget type identifier (`nuke-visualizer.widget`)        |
-| `setUri(uri, volumeId?)`    | Associate a file and update the widget ID                |
-| `setServerUrl(url, port)`   | Point the iframe to a running server                     |
-| `getServerPort()`           | Get the current server port                              |
-| `loadFile(uri)`             | Full lifecycle: start server, convert if needed, set URL |
-| `static onServerStop(port)` | Static callback when any server stops                    |
+| Member               | Description                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `static ID`          | Widget type identifier (`native-vtk-viewer-widget`)                                                          |
+| `setVtkText(text)`   | Parse VTK XML text and render it (guarded by a load token, so stale conversions cannot overwrite newer ones) |
+| `setTallyText(kind)` | Tally-native subclass entry point (mesh/slice/source routing)                                                |
 
 ### States
 
@@ -203,15 +202,15 @@ The widget renders different UI based on state:
 - **Empty:** Shows "No Visualization Loaded" with a browse button
 - **Loading:** Animated spinner with status message
 - **Warning:** Yellow banner (non-fatal issues like spatial mismatch)
-- **Error:** Red banner with retry button
-- **Active:** iframe showing the Python server UI
+- **Error:** Red banner with retry button (conversion/parse failure points at the generic VTK viewer)
+- **Active:** native three.js canvas with color-by, clip, and screenshot controls
 
 ### Multi-Instance
 
-VisualizerWidget is bound with `inTransientScope()` so each tab gets a fresh instance. The widget ID is derived from the file path to prevent duplicates:
+Native viewer widgets are bound per file so each tab gets a fresh instance. The widget ID is derived from the file path to prevent duplicates:
 
 ```typescript
-widget.id = `${VisualizerWidget.ID}:${filePath}`;
+widget.id = `${NativeVtkViewerWidget.ID}:${filePath}`;
 ```
 
 ---
@@ -240,12 +239,12 @@ this.nukeCoreService.onEnvironmentChanged((event) => {
 
 ## Summary: Which Service Do I Need?
 
-| Task                                   | Service                        |
-| -------------------------------------- | ------------------------------ |
-| Check if Python packages are installed | `HealthCheckFramework`         |
-| Run a Python script                    | `PythonCommandHelper`          |
-| Show a 2D chart                        | `PlotlyService`                |
-| Embed a Python server UI               | `VisualizerWidget`             |
-| React to env changes                   | `NukeCoreService`              |
-| Log to output channel                  | `OutputChannelManager` (Theia) |
-| Show toast notifications               | `MessageService` (Theia)       |
+| Task                                   | Service                            |
+| -------------------------------------- | ---------------------------------- |
+| Check if Python packages are installed | `HealthCheckFramework`             |
+| Run a Python script                    | `PythonCommandHelper`              |
+| Show a 2D chart                        | `PlotlyService`                    |
+| Show a converted 3D dataset            | `NativeVtkViewerWidget.setVtkText` |
+| React to env changes                   | `NukeCoreService`                  |
+| Log to output channel                  | `OutputChannelManager` (Theia)     |
+| Show toast notifications               | `MessageService` (Theia)           |

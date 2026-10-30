@@ -23,7 +23,7 @@ Press `Ctrl+Shift+P`, type **"View Statepoint"**, and select a file.
 
 ## Viewer Layout
 
-The Statepoint Viewer is organized into tabs: **Overview** (run configuration), **K-Effective** (convergence), **Kinetics (IFP)** (only for statepoints with IFP tallies), **Tallies**, and **Performance** (runtime breakdown).
+The Statepoint Viewer is organized into tabs: **Overview** (run configuration), **K-Effective** (convergence), **Entropy** (Shannon-entropy convergence), **Kinetics (IFP)** (only for statepoints with IFP tallies), **Tallies**, and **Performance** (runtime breakdown).
 
 ### Simulation Metadata
 
@@ -63,43 +63,82 @@ A bar chart or table showing time spent in each phase:
 
 ### Source Distribution
 
-If the statepoint contains a source bank:
-
-- Click **"View Source"** to launch a 3D scatter plot of source particle positions.
-- Particles are colored by energy or weight.
+If the statepoint contains a source bank, the **Overview** tab shows a **Source
+Bank** card with a **Visualize 3D** button. It opens a native point cloud of the
+source particle positions, with `energy` or `weight` arrays available for
+coloring. You can also open a `source.h5` file directly, or run
+**"Visualize Source Distribution..."** from the command palette.
 
 ---
 
 ## Tallies Panel
 
-The lower half of the viewer lists all tallies found in the statepoint.
-
-| Column       | Description                                    |
-| ------------ | ---------------------------------------------- |
-| **ID**       | Tally identifier                               |
-| **Name**     | User-defined tally name                        |
-| **Scores**   | What was scored (flux, heating, fission, etc.) |
-| **Nuclides** | Which nuclides (U235, total, etc.)             |
-| **Filters**  | Applied filters (energy, mesh, material, etc.) |
+The **Tallies** tab lists one card per tally found in the statepoint. Each card
+shows the tally ID, name, filter badges (Mesh/Cell/Energy), scores, nuclides
+(truncated when long), and mesh dimensions when present.
 
 ### Actions per Tally
 
-Click a tally to reveal action buttons:
+Each card carries icon buttons; hover them for the labels below.
 
 | Action                  | Result                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------ |
-| **View 3D**             | Opens a 3D mesh tally visualization (if mesh filter exists)                    |
+| **3D**                  | Opens a 3D mesh tally visualization (mesh filter only)                         |
 | **Overlay on Geometry** | Colors DAGMC/VTK geometry with this tally (slice or full 3D)                   |
-| **+ Source**            | Colors geometry with tally _and_ overlays source particles from the statepoint |
+| **Source overlay**      | Colors geometry with tally _and_ overlays source particles from the statepoint |
 | **Heatmap**             | Opens a 2D slice heatmap viewer                                                |
-| **Spectrum**            | Plots energy spectrum (if energy filter exists)                                |
-| **Spatial**             | Plots 1D spatial distribution (if mesh filter exists)                          |
+| **Spectrum**            | Plots energy spectrum (energy filter only)                                     |
+| **Spatial**             | Plots 1D spatial distribution (mesh filter only)                               |
+| **Series**              | Charts this score across every sibling statepoint (see below)                  |
+
+### Tally Series
+
+The **Series** button (line-chart icon) plots one tally score across the
+statepoints in the same directory: `statepoint*.h5` and the depletion
+per-step files `openmc_simulation_n<N>.h5`. The chart shows the aggregated
+value with ± standard-deviation error bars; the x-axis is the numeric
+statepoint step (for example `statepoint.20.h5` plots at 20), not depletion
+time.
+
+Use the **Total/Mean/Max** selector to switch the aggregation; the chart and
+error bars reload in place. Use the first/previous/slider/next/last controls to
+move through steps. For a mesh tally, **Open 3D at this step** opens that
+statepoint's mesh in the native tally viewer. **Shared color range** (on by
+default) applies the min/max of the mesh cell means across the whole series, so
+every step is displayed on one color scale. Non-mesh tallies still chart, but
+the 3D handoff is unavailable.
+
+The value is a sum over the selected score/nuclide bins. Regular-mesh tallies
+whose only filter is the mesh are volume-weighted; other tallies use an
+unweighted sum. Use the headless `openmc.tally-series` command for explicit
+time values or scripted exports.
+
+### Derived Tallies
+
+When the statepoint sits beside an `.nuke-openmc` project that defines derived
+tallies, the **Tallies** tab shows a **Derived Tallies** section above the user
+tallies. Each card has a **DERIVED** badge and shows the stored formula, unit,
+aggregate mean (or sum of filter bins) and standard deviation, plus:
+
+| Action      | Result                                                                 |
+| ----------- | ---------------------------------------------------------------------- |
+| **Plot**    | Bar chart of mean ± standard deviation per result bin                  |
+| **Bins**    | Per-bin table with decoded filter labels, nuclide, mean, std. dev.     |
+| **Compare** | Evaluates the same derived tally across sibling statepoints            |
+| **CSV**     | Exports one row per filter bin with filter values, mean, and std. dev. |
+
+Derived results are analysis-only: they are evaluated on demand from the
+project definitions and are never added to simulation XML or Python. The
+uncertainty assumes the underlying tallies are independent; a matching caveat
+is shown in the section. If a definition references a tally/score/nuclide that
+is absent from the statepoint, the card reports the specific evaluation error
+instead of hiding it.
 
 ---
 
 ## k-Generation Convergence Plot
 
-A line chart is shown at the top of the viewer:
+The **K-Effective** tab shows a line chart:
 
 - **X-axis:** Batch (or generation) number
 - **Y-axis:** k-effective
@@ -112,21 +151,32 @@ This helps you judge whether the simulation reached convergence.
 
 ---
 
+## Entropy Convergence
+
+The **Entropy** tab plots the Shannon entropy of the fission source per batch when the run had an entropy mesh. It shows:
+
+- the entropy history with a vertical marker at the end of the inactive batches,
+- the final entropy in bits,
+- the change over the last active batches and a trend hint (stable or still changing),
+- a **CMFD entropy** toggle when the statepoint also contains CMFD entropy history (CMFD entropy starts at the CMFD solver batch).
+
+Entropy is a source-convergence diagnostic, not a tally convergence test. A stable entropy trace is a useful hint, but confirm convergence with k-effective and tally statistics.
+
+If the statepoint has no entropy history, the tab explains that an entropy mesh was not configured and links to the Simulation Dashboard's Convergence settings. Fixed-source runs do not produce entropy.
+
+---
+
 ## Tally Tree Sidebar
 
-Click **"Show Tally Information"** in the Statepoint Viewer (or use `Tools → Visualizer → OpenMC → Tally → Show Tally Information`) to open a dedicated sidebar widget.
+Click **"View Tally Tree"** in the Overview tally card or the Tallies tab header
+(or use `Tools → Visualizer → OpenMC → Tally → Show Tally Information`) to open
+a dedicated sidebar widget.
 
 The Tally Tree shows:
 
 - Hierarchical view of tallies
 - Expandable nodes for scores and nuclides
 - Quick-action buttons for each tally
-
----
-
-## Global Tallies
-
-Some statepoints contain global tallies (e.g., leakage, absorption rates). These are shown in a summary table near the top of the viewer.
 
 ---
 

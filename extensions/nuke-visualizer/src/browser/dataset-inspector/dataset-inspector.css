@@ -1,0 +1,397 @@
+/* Dataset Inspector sidebar panel. All colors come from Theia CSS variables.
+   Chrome follows Viewer Settings / the CAD Feature Tree: icon + subtitle
+   header, collapsible count-badge sections, a compact array catalogue, and a
+   bounded spreadsheet preview (the first 200 rows; the table itself scrolls
+   both axes). The shared nuke-essentials pieces (NukeEmptyState, NukeSelect,
+   Tooltip) own their own look. */
+
+.dataset-inspector-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-y: auto;
+    height: 100%;
+    font-size: 12px;
+}
+
+/* CAD-style header: accent icon + panel name + bound-viewer subtitle. */
+.dataset-inspector-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.dataset-inspector-header-icon {
+    font-size: 16px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.dataset-inspector-header-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dataset-inspector-header-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+}
+
+/* The shared Tooltip wraps the subtitle in an inline-flex span sized to the
+   content: without a shrinkable block chain a long viewer tab label
+   overflows the panel instead of ellipsizing (Viewer Settings pattern). */
+.dataset-inspector-header-text > span {
+    display: flex !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden;
+}
+
+.dataset-inspector-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.dataset-inspector-title-empty {
+    font-style: italic;
+}
+
+/* Collapsible badge section (CAD TreeSection grammar): 11 px uppercase,
+   0.3 px tracking, 7 px gap, tight 2 px section spacing. */
+.dataset-inspector-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dataset-inspector-category-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 3px;
+    padding: 1px 2px;
+}
+
+.dataset-inspector-category-header:hover {
+    color: var(--theia-foreground);
+    background: var(--theia-list-hoverBackground);
+}
+
+.dataset-inspector-category-header:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.dataset-inspector-section-icon {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.dataset-inspector-count-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: nowrap;
+}
+
+.dataset-inspector-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 8px 6px;
+    border: 1px solid var(--theia-panel-border);
+    min-width: 0;
+}
+
+/* Summary rows: a non-shrinking label column plus the value. */
+.dataset-inspector-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 8px;
+    min-width: 0;
+}
+
+.dataset-inspector-row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    color: var(--theia-descriptionForeground);
+}
+
+.dataset-inspector-row-icon {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+.dataset-inspector-value {
+    font-variant-numeric: tabular-nums;
+    color: var(--theia-foreground);
+}
+
+/* Bounds span the full row: a long coordinate pair wraps instead of
+   overflowing the 250 px sidebar. */
+.dataset-inspector-bounds {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.dataset-inspector-bounds-value {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--theia-foreground);
+    font-variant-numeric: tabular-nums;
+    word-break: break-word;
+}
+
+.dataset-inspector-muted {
+    color: var(--theia-descriptionForeground);
+    font-style: italic;
+    padding: 2px 0;
+}
+
+/* Array catalogue: name row (icon + ellipsized name + association pill) and
+   a muted metadata row (components, range, tuple count). */
+.dataset-inspector-array-row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--theia-panel-border);
+    min-width: 0;
+}
+
+.dataset-inspector-array-row:last-child {
+    border-bottom: none;
+}
+
+.dataset-inspector-array-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dataset-inspector-array-icon {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+/* The shared Tooltip wraps the array name in an inline-flex span sized to the
+   content: give that wrapper the shrink chain so long names ellipsize inside
+   the panel instead of overflowing it. The association pill keeps its own
+   chrome. */
+.dataset-inspector-array-line > span:has(> .dataset-inspector-array-name) {
+    display: flex !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden;
+}
+
+.dataset-inspector-array-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--theia-foreground);
+}
+
+.dataset-inspector-association {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 13px;
+    padding: 0 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    color: var(--theia-descriptionForeground);
+}
+
+.dataset-inspector-association.point {
+    color: var(--theia-focusBorder);
+}
+
+.dataset-inspector-array-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    padding-left: 22px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.dataset-inspector-array-range {
+    font-family: var(--theia-code-font-family);
+}
+
+/* Point / Cell toggle: compact secondary buttons sharing the clip-tab
+   sizing (the active side keeps the focus outline). */
+.dataset-inspector-association-toggle {
+    display: flex;
+    gap: 4px;
+}
+
+.dataset-inspector-association-button {
+    min-width: 0;
+    padding: 2px 8px;
+}
+
+.dataset-inspector-association-button.active {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.dataset-inspector-row .nuke-select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Keep the association/array controls, status line, and table from touching. */
+.dataset-inspector-table-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dataset-inspector-table-status {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 8px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.dataset-inspector-copy {
+    min-width: 0;
+    padding: 2px 8px;
+}
+
+.dataset-inspector-copy-status {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Bounded spreadsheet preview: the panel never grows with the dataset, the
+   header stays visible while the rows scroll (both axes), and the stable
+   gutter keeps the right edge from shifting when the scrollbar appears. */
+.dataset-inspector-table-wrap {
+    max-height: 320px;
+    overflow: auto;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.dataset-inspector-table {
+    --dataset-inspector-table-sticky-background: var(--theia-sideBar-background, var(--theia-editor-background));
+    border-collapse: collapse;
+    width: max-content;
+    min-width: 100%;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.dataset-inspector-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--dataset-inspector-table-sticky-background);
+    color: var(--theia-descriptionForeground);
+    font-weight: 600;
+    text-align: right;
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    white-space: nowrap;
+}
+
+.dataset-inspector-table tbody th,
+.dataset-inspector-table td {
+    text-align: right;
+    padding: 1px 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    color: var(--theia-foreground);
+    white-space: nowrap;
+    font-family: var(--theia-code-font-family);
+}
+
+.dataset-inspector-table tbody th {
+    font-weight: 400;
+}
+
+/* Row numbers pin to the left edge with an opaque background so they stay
+   visible over data columns during horizontal scrolling. */
+.dataset-inspector-table thead th:first-child,
+.dataset-inspector-table tbody th:first-child {
+    position: sticky;
+    left: 0;
+    text-align: left;
+    background: var(--dataset-inspector-table-sticky-background);
+    border-right: 1px solid var(--theia-panel-border);
+}
+
+.dataset-inspector-table thead th:first-child {
+    z-index: 3;
+}
+
+.dataset-inspector-table tbody th:first-child {
+    z-index: 1;
+    color: var(--theia-descriptionForeground);
+}
+
+.dataset-inspector-table tbody tr:hover td,
+.dataset-inspector-table tbody tr:hover th {
+    background: var(--theia-list-hoverBackground);
+}
+
+/* Layer the translucent list hover over the opaque sticky base, so the row
+   number cell highlights without exposing the data columns underneath. */
+.dataset-inspector-table tbody tr:hover th:first-child {
+    background:
+        linear-gradient(var(--theia-list-hoverBackground), var(--theia-list-hoverBackground)),
+        var(--dataset-inspector-table-sticky-background);
+}
+
+.dataset-inspector-table tbody tr:last-child td,
+.dataset-inspector-table tbody tr:last-child th {
+    border-bottom: none;
+}

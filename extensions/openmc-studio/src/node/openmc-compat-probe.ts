@@ -32,12 +32,19 @@
  * capabilities (never version parsing):
  *
  * - `raySourceFormat` — the random ray `ray_source` XML format (direct
- *   `<source>` in release 0.15.3 vs the `<ray_source>` wrapper in post-0.15.3
- *   dev), detected from what `Settings.to_xml_element()` actually writes
- * - `adjointSource` — random ray adjoint source support (post-0.15.3 only;
- *   release rejects the key with ValueError)
- * - `tokamakSource` — `openmc.TokamakSource` existence (0.15.4+)
+ *   `<source>` in OpenMC 0.15.3 vs the `<ray_source>` wrapper in 0.16.0+),
+ *   detected from what `Settings.to_xml_element()` actually writes
+ * - `adjointSource` — random ray adjoint source support (0.16.0+)
+ * - `tokamakSource` — `openmc.TokamakSource` existence (0.16.0+)
+ * - `decaySpectrum` — `openmc.stats.DecaySpectrum` existence (0.16.0+)
  * - `s2SampleMethod` — random ray `sample_method: 's2'` acceptance
+ * - `sharedSecondaryBank` — `Settings.shared_secondary_bank` existence (0.16.0+)
+ * - `surfaceGrazing` — `Settings.surface_grazing_cutoff` existence (0.16.0+)
+ * - `meshFilterRotation` — `openmc.MeshFilter.rotation` existence (0.16.0+)
+ * - `sourceBias` — `openmc.stats.Uniform(..., bias=...)` support (0.16.0+)
+ * - `reactionFilter` — `openmc.ReactionFilter` existence (0.16.0+)
+ * - `particleProductionFilter` — `openmc.ParticleProductionFilter` existence (0.16.0+)
+ * - `generalizedParticles` — PDG-backed `openmc.ParticleType` accepting `He4` (0.16.0+)
  *
  * Results are cached per python command; on any probe failure the
  * release-compatible default is returned (stable releases are the common case).
@@ -51,11 +58,24 @@ import { OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-pro
 import { OpenMCValidationBackendService } from './openmc-validation-backend-service';
 
 /**
- * Python one-liner: prints four space-separated tokens —
- * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>`.
+ * Python one-liner: prints fifteen space-separated tokens —
+ * `<direct|wrapper> <adjoint|no-adjoint> <tokamak|no-tokamak> <s2|no-s2>
+ * <substeps|no-substeps> <keff-search|no-keff-search>
+ * <external-rate|no-external-rate> <continuation|no-continuation>
+ * <shared-bank|no-shared-bank> <grazing|no-grazing> <decay|no-decay>
+ * <mesh-rotation|no-mesh-rotation> <bias|no-bias>
+ * <reaction-filter|no-reaction-filter> <particle-production|no-particle-production>
+ * <generalized-particles|no-generalized-particles>`.
+ *
+ * Depletion, 0.16 settings, decay-spectrum, particle, and mesh-filter
+ * capabilities are detected by introspection (never version strings):
+ * constructor parameters, public Integrator methods, and
+ * Settings/stats/MeshFilter/ParticleType attributes.
  */
 const OPENMC_COMPAT_PROBE_SCRIPT = `
+import inspect
 import openmc
+import openmc.deplete
 s = openmc.Settings()
 box = openmc.IndependentSource(space=openmc.stats.Box([-1,-1,-1],[1,1,1]))
 s.random_ray = {'ray_source': box}
@@ -71,11 +91,50 @@ try:
 except Exception:
     s2 = False
 tok = hasattr(openmc, 'TokamakSource')
-print('{} {} {} {}'.format(
+try:
+    from openmc.deplete.abc import Integrator as _Integrator
+except Exception:
+    _Integrator = getattr(openmc.deplete, 'Integrator', None)
+try:
+    _params = inspect.signature(_Integrator.__init__).parameters if _Integrator else {}
+except Exception:
+    _params = {}
+substeps = 'substeps' in _params
+keff_search = bool(_Integrator is not None and hasattr(_Integrator, 'add_keff_search_control'))
+external_rate = bool(_Integrator is not None and hasattr(_Integrator, 'add_external_source_rate'))
+continuation = 'continue_timesteps' in _params and hasattr(openmc.deplete, 'Results')
+shared_bank = hasattr(openmc.Settings(), 'shared_secondary_bank')
+grazing = hasattr(openmc.Settings(), 'surface_grazing_cutoff')
+decay = hasattr(openmc.stats, 'DecaySpectrum')
+mesh_rotation = hasattr(openmc.MeshFilter, 'rotation')
+bias = 'bias' in inspect.signature(openmc.stats.Uniform.__init__).parameters
+reaction_filter = hasattr(openmc, 'ReactionFilter')
+particle_production = hasattr(openmc, 'ParticleProductionFilter')
+try:
+    generalized_particles = (
+        hasattr(openmc.ParticleType, 'pdg_number')
+        and str(openmc.ParticleType('He4')) == 'He4'
+        and openmc.ParticleType('He4').pdg_number == 1000020040
+    )
+except Exception:
+    generalized_particles = False
+print('{} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}'.format(
     fmt,
     'adjoint' if adj else 'no-adjoint',
     'tokamak' if tok else 'no-tokamak',
-    's2' if s2 else 'no-s2'))
+    's2' if s2 else 'no-s2',
+    'substeps' if substeps else 'no-substeps',
+    'keff-search' if keff_search else 'no-keff-search',
+    'external-rate' if external_rate else 'no-external-rate',
+    'continuation' if continuation else 'no-continuation',
+    'shared-bank' if shared_bank else 'no-shared-bank',
+    'grazing' if grazing else 'no-grazing',
+    'decay' if decay else 'no-decay',
+    'mesh-rotation' if mesh_rotation else 'no-mesh-rotation',
+    'bias' if bias else 'no-bias',
+    'reaction-filter' if reaction_filter else 'no-reaction-filter',
+    'particle-production' if particle_production else 'no-particle-production',
+    'generalized-particles' if generalized_particles else 'no-generalized-particles'))
 `;
 
 const PROBE_TIMEOUT_MS = 30000;
@@ -110,34 +169,48 @@ export class OpenMCCompatProbeService {
         if (cached) {
             return cached;
         }
-        const compat = this.runProbe(pythonCommand) ?? DEFAULT_OPENMC_COMPAT;
+        const compat = (await this.runProbe(pythonCommand)) ?? DEFAULT_OPENMC_COMPAT;
         this.cache.set(pythonCommand, compat);
         console.log(`[OpenMC Compat Probe] ${pythonCommand}: ${JSON.stringify(compat)}`);
         return compat;
     }
 
     /**
-     * Run the probe script against a python command.
+     * Run the probe script against a python command without blocking the
+     * backend event loop (other JSON-RPC requests must stay responsive while
+     * Python starts up).
      * @param pythonCommand - Python executable path
      * @returns Probe result, or undefined on any failure
      */
-    protected runProbe(pythonCommand: string): OpenMCCompat | undefined {
-        try {
-            const result = cp.spawnSync(pythonCommand, ['-c', OPENMC_COMPAT_PROBE_SCRIPT], {
-                encoding: 'utf-8',
-                timeout: PROBE_TIMEOUT_MS
+    protected async runProbe(pythonCommand: string): Promise<OpenMCCompat | undefined> {
+        return new Promise<OpenMCCompat | undefined>((resolve) => {
+            let stdout = '';
+            let settled = false;
+            const finish = (value: OpenMCCompat | undefined) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                resolve(value);
+            };
+            const child = cp.spawn(pythonCommand, ['-c', OPENMC_COMPAT_PROBE_SCRIPT], { stdio: ['ignore', 'pipe', 'pipe'] });
+            const timer = setTimeout(() => {
+                child.kill();
+                finish(undefined);
+            }, PROBE_TIMEOUT_MS);
+            child.stdout?.on('data', (chunk: Buffer) => {
+                stdout += chunk.toString();
             });
-            if (result.error || result.status !== 0) {
-                return undefined;
-            }
-            return this.parseProbeOutput(result.stdout);
-        } catch {
-            return undefined;
-        }
+            child.on('error', () => finish(undefined));
+            child.on('close', (code) => finish(code === 0 ? this.parseProbeOutput(stdout) : undefined));
+        });
     }
 
     /**
-     * Parse the probe's four-token output line.
+     * Parse the probe's sixteen-token output line. Tokens after the original
+     * four are optional so older probe output still parses (falling back to
+     * the release-compatible defaults for missing capabilities).
      * @param stdout - Probe stdout
      * @returns Parsed compatibility, or undefined if malformed
      */
@@ -148,7 +221,24 @@ export class OpenMCCompatProbeService {
             .map((l) => l.trim())
             .filter((l) => l.length > 0)
             .pop();
-        const [format, adjoint, tokamak, s2] = (line ?? '').split(/\s+/);
+        const [
+            format,
+            adjoint,
+            tokamak,
+            s2,
+            substeps,
+            keffSearch,
+            externalRate,
+            continuation,
+            sharedBank,
+            grazing,
+            decay,
+            meshRotation,
+            bias,
+            reactionFilter,
+            particleProduction,
+            generalizedParticles
+        ] = (line ?? '').split(/\s+/);
         if (format !== 'direct' && format !== 'wrapper') {
             return undefined;
         }
@@ -156,7 +246,20 @@ export class OpenMCCompatProbeService {
             raySourceFormat: format,
             adjointSource: adjoint === 'adjoint',
             tokamakSource: tokamak === 'tokamak',
-            s2SampleMethod: s2 === 's2'
+            decaySpectrum: decay === 'decay',
+            s2SampleMethod: s2 === 's2',
+            depletionSubsteps: substeps === 'substeps',
+            depletionKeffSearch: keffSearch === 'keff-search',
+            depletionExternalSourceRate:
+                externalRate === 'external-rate' || (!externalRate && DEFAULT_OPENMC_COMPAT.depletionExternalSourceRate),
+            depletionContinuation: continuation === 'continuation' || (!continuation && DEFAULT_OPENMC_COMPAT.depletionContinuation),
+            sharedSecondaryBank: sharedBank === 'shared-bank',
+            surfaceGrazing: grazing === 'grazing',
+            meshFilterRotation: meshRotation === 'mesh-rotation',
+            sourceBias: bias === 'bias',
+            reactionFilter: reactionFilter === 'reaction-filter',
+            particleProductionFilter: particleProduction === 'particle-production',
+            generalizedParticles: generalizedParticles === 'generalized-particles'
         };
     }
 }

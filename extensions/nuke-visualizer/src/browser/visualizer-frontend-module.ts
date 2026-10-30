@@ -25,6 +25,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+import './icons/domain-icon-classes.css';
 import { CommandContribution, MenuContribution, MessageService } from '@theia/core/lib/common';
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { VisualizerWidget } from './visualizer-widget';
@@ -32,6 +33,7 @@ import { WidgetFactory, FrontendApplicationContribution, OpenHandler, bindViewCo
 import { VisualizerViewContribution } from './contributions/visualizer-view-contribution';
 import { VisualizerOpenHandler } from './contributions/visualizer-open-handler';
 import { VisualizerCommandContribution } from './commands/visualizer-command-contribution';
+import { VisualizerComparisonContribution } from './contributions/visualizer-comparison-contribution';
 import { VisualizerMenuContribution } from './contributions/visualizer-menu-contribution';
 import { VisualizerToolsContribution } from './contributions/visualizer-tools-contribution';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
@@ -65,10 +67,11 @@ import { XSPlotWidget } from './plugins/openmc/widgets/plotting/xs-plot-widget';
 import { OpenMCDepletionWidget } from './plugins/openmc/widgets/depletion/openmc-depletion-widget';
 import { OpenMCDepletionCompareWidget } from './plugins/openmc/widgets/depletion/openmc-depletion-compare-widget';
 import { OpenMCGeometryTreeWidget } from './plugins/openmc/widgets/geometry/openmc-geometry-tree';
-import { OpenMCGeometry3DWidget } from './plugins/openmc/widgets/geometry/openmc-geometry-3d-widget';
 import { OpenMCMaterialExplorerWidget } from './plugins/openmc/widgets/materials/openmc-material-explorer';
 import { OpenMCOverlapWidget } from './plugins/openmc/widgets/geometry/openmc-overlap-widget';
 import { OpenMCStatepointViewerWidget } from './plugins/openmc/widgets/statepoint/statepoint-viewer';
+import { OpenMCTallySeriesWidget } from './plugins/openmc/widgets/statepoint/tally-series-widget';
+import { TallyNativeViewerWidget } from './plugins/openmc/widgets/tally-native/tally-native-viewer-widget';
 import { PlotlyService, PlotlyServiceImpl } from './plotly/plotly-service';
 import { HealthCheckFramework } from './services/health-check-framework';
 import { VisualizerHealthService } from './services/visualizer-health-service';
@@ -82,12 +85,26 @@ import { OpenMCCollisionTrackViewerContribution } from './plugins/openmc/contrib
 import { OpenMCWeightWindowsViewerContribution } from './plugins/openmc/contributions/openmc-weight-windows-viewer-contribution';
 import { OpenMCRandomRayResultsWidget } from './plugins/openmc/widgets/random-ray/random-ray-results-widget';
 import { OpenMCRandomRayCommands } from './plugins/openmc/commands/random-ray-commands';
+import { DagmcViewerWidget } from './plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
+import { OpenMCDagmcViewerContribution } from './plugins/openmc/contributions/openmc-dagmc-viewer-contribution';
+import { GeometryNativeViewerWidget } from './plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
+import { OpenMCGeometryNativeViewerContribution } from './plugins/openmc/contributions/openmc-geometry-native-contribution';
 import { OpenMCParticleRestartWidget } from './plugins/openmc/widgets/particle-restart/openmc-particle-restart-widget';
 import { OpenMCParticleRestartViewerContribution } from './plugins/openmc/contributions/openmc-particle-restart-viewer-contribution';
 import { NuclearDataWidget } from './plugins/openmc/widgets/nuclear-data/nuclear-data-widget';
 import { OpenMCNuclearDataCommands } from './plugins/openmc/commands/nuclear-data-commands';
 import { OpenMCVoxelPlotViewerContribution } from './plugins/openmc/contributions/openmc-voxel-plot-viewer-contribution';
 import { OpenMCSummaryViewerContribution } from './plugins/openmc/contributions/openmc-summary-viewer-contribution';
+import { ExodusTimeSliderWidget } from './plugins/openmc/widgets/exodus-series/exodus-time-slider-widget';
+import { OpenMCExodusViewerContribution } from './plugins/openmc/contributions/openmc-exodus-viewer-contribution';
+import { ViewerSettingsWidget } from './viewer-settings/viewer-settings-widget';
+import { ViewerSettingsContribution } from './viewer-settings/viewer-settings-contribution';
+import { DatasetInspectorWidget } from './dataset-inspector/dataset-inspector-widget';
+import { DatasetInspectorContribution } from './dataset-inspector/dataset-inspector-contribution';
+import { DagmcOutlineWidget } from './dagmc-outline/dagmc-outline-widget';
+import { DagmcOutlineContribution } from './dagmc-outline/dagmc-outline-contribution';
+import { CsgOutlineWidget } from './csg-outline/csg-outline-widget';
+import { CsgOutlineContribution } from './csg-outline/csg-outline-contribution';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -154,6 +171,40 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
     bind(OpenMCWeightWindowsViewerContribution).toSelf().inSingletonScope();
     bind(OutputViewerContribution).toService(OpenMCWeightWindowsViewerContribution);
+
+    // Bind native DAGMC viewer widget (renders natively, no server)
+    bind(DagmcViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: DagmcViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<DagmcViewerWidget>(DagmcViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCDagmcViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCDagmcViewerContribution);
+
+    // Bind native geometry viewer widget (tree View 3D target)
+    bind(GeometryNativeViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: GeometryNativeViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<GeometryNativeViewerWidget>(GeometryNativeViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCGeometryNativeViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCGeometryNativeViewerContribution);
 
     // Bind random-ray results widget + open command (no OutputViewerContribution:
     // random-ray outputs are plain <name>.vtk files with no distinctive pattern,
@@ -232,7 +283,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
                     channel.appendLine(`WARNING: ${message}`);
                 },
                 onServerStop: (port: number) => {
-                    VisualizerWidget.onServerStop(port);
+                    // No frontend widget tracks server ports anymore (all
+                    // viewers render natively); the backend still reports
+                    // process exits for the output channel.
+                    console.log(`[Visualizer] Server on port ${port} stopped`);
                 }
             };
 
@@ -249,6 +303,9 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind custom commands
     bind(VisualizerCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(VisualizerCommandContribution);
+    // Bind comparison workspace commands (compare open views / stop comparison)
+    bind(VisualizerComparisonContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(VisualizerComparisonContribution);
     // Bind custom menus
     bind(VisualizerMenuContribution).toSelf().inSingletonScope();
     bind(MenuContribution).toService(VisualizerMenuContribution);
@@ -437,21 +494,6 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         }))
         .inSingletonScope();
 
-    // Bind geometry 3D widget
-    bind(OpenMCGeometry3DWidget).toSelf().inTransientScope();
-    bind(WidgetFactory)
-        .toDynamicValue((context) => ({
-            id: OpenMCGeometry3DWidget.ID,
-            createWidget: (options?: { id?: string }) => {
-                const widget = context.container.get<OpenMCGeometry3DWidget>(OpenMCGeometry3DWidget);
-                if (options?.id) {
-                    widget.id = options.id;
-                }
-                return widget;
-            }
-        }))
-        .inSingletonScope();
-
     // Bind material explorer widget
     bind(OpenMCMaterialExplorerWidget).toSelf().inTransientScope();
     bind(WidgetFactory)
@@ -502,4 +544,101 @@ export default new ContainerModule((bind: interfaces.Bind) => {
             }
         }))
         .inSingletonScope();
+
+    // Bind native tally viewer widget (no contribution: the tally flows open
+    // it programmatically after convert → FileService.read → setTallyText)
+    bind(TallyNativeViewerWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: TallyNativeViewerWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<TallyNativeViewerWidget>(TallyNativeViewerWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+
+    // Bind native Exodus time-slider widget (*.e/*.exo* via base.exodus-series, no trame server)
+    bind(ExodusTimeSliderWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: ExodusTimeSliderWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<ExodusTimeSliderWidget>(ExodusTimeSliderWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+    bind(OpenMCExodusViewerContribution).toSelf().inSingletonScope();
+    bind(OutputViewerContribution).toService(OpenMCExodusViewerContribution);
+
+    // Bind native tally-series widget (one score across sibling statepoints,
+    // opened from a statepoint viewer tally card; no trame server)
+    bind(OpenMCTallySeriesWidget).toSelf().inTransientScope();
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: OpenMCTallySeriesWidget.ID,
+            createWidget: (options?: { id?: string }) => {
+                const widget = context.container.get<OpenMCTallySeriesWidget>(OpenMCTallySeriesWidget);
+                if (options?.id) {
+                    widget.id = options.id;
+                }
+                return widget;
+            }
+        }))
+        .inSingletonScope();
+
+    // Viewer Settings sidebar (right area): one panel bound to the active
+    // native viewer through the shared ViewerSettingsHost surface
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: ViewerSettingsWidget.ID,
+            createWidget: () => context.container.get<ViewerSettingsWidget>(ViewerSettingsWidget)
+        }))
+        .inSingletonScope();
+    bind(ViewerSettingsWidget).toSelf();
+    bind(ViewerSettingsContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(ViewerSettingsContribution);
+
+    // Dataset Inspector sidebar (right area): summary + array table for the
+    // active viewer through the ViewerDatasetHost surface.
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: DatasetInspectorWidget.ID,
+            createWidget: () => context.container.get<DatasetInspectorWidget>(DatasetInspectorWidget)
+        }))
+        .inSingletonScope();
+    bind(DatasetInspectorWidget).toSelf();
+    bind(DatasetInspectorContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(DatasetInspectorContribution);
+
+    // DAGMC Outline sidebar (right area): volume/material/group visibility
+    // for the active DAGMC viewer through the DagmcOutlineHost surface
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: DagmcOutlineWidget.ID,
+            createWidget: () => context.container.get<DagmcOutlineWidget>(DagmcOutlineWidget)
+        }))
+        .inSingletonScope();
+    bind(DagmcOutlineWidget).toSelf();
+    bind(DagmcOutlineContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(DagmcOutlineContribution);
+
+    // CSG Outline sidebar (right area): cell/material visibility for the
+    // active native geometry viewer through the CsgOutlineHost surface
+    bind(WidgetFactory)
+        .toDynamicValue((context) => ({
+            id: CsgOutlineWidget.ID,
+            createWidget: () => context.container.get<CsgOutlineWidget>(CsgOutlineWidget)
+        }))
+        .inSingletonScope();
+    bind(CsgOutlineWidget).toSelf();
+    bind(CsgOutlineContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(CsgOutlineContribution);
 });

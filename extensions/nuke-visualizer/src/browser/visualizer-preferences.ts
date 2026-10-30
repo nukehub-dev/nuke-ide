@@ -45,6 +45,12 @@ export const VisualizerPreferenceSchema: PreferenceSchema = {
             type: 'number',
             default: 0.5,
             description: 'Additional timeout per MB of file size for large DAGMC/CAD files.'
+        },
+        'nukeVisualizer.viewerStates': {
+            type: 'object',
+            default: {},
+            additionalProperties: { type: 'string' },
+            description: 'Saved viewer camera/display states, keyed by viewer tab id (serialized JSON).'
         }
     }
 };
@@ -52,6 +58,7 @@ export const VisualizerPreferenceSchema: PreferenceSchema = {
 export interface VisualizerConfiguration {
     'nukeVisualizer.serverTimeout': number;
     'nukeVisualizer.serverTimeoutPerMB': number;
+    'nukeVisualizer.viewerStates': Record<string, string>;
 }
 
 export const VisualizerPreferenceContribution = Symbol('VisualizerPreferenceContribution');

@@ -10,6 +10,12 @@
    intentionally identical apart from the :is() scoping.
    ============================================================================ */
 
+/* Width containment lets the shared and per-widget sheets respond to the
+   editor panel's real width instead of the browser viewport. */
+.openmc-widget {
+    container-type: inline-size;
+}
+
 :is(.simulation-dashboard, .openmc-widget) .settings-section {
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
@@ -76,8 +82,7 @@
 }
 
 :is(.simulation-dashboard, .openmc-widget) .form-group input[type='text'],
-:is(.simulation-dashboard, .openmc-widget) .form-group input[type='number'],
-:is(.simulation-dashboard, .openmc-widget) .form-group select {
+:is(.simulation-dashboard, .openmc-widget) .form-group input[type='number'] {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid var(--theia-input-border);
@@ -86,6 +91,12 @@
     color: var(--theia-input-foreground);
     font-size: 13px;
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box;
+}
+
+/* NukeSelect root keeps the form-group layout contract (paint lives on the trigger). */
+:is(.simulation-dashboard, .openmc-widget) .form-group .nuke-select {
+    width: 100%;
     box-sizing: border-box;
 }
 
@@ -100,8 +111,7 @@
     -moz-appearance: textfield;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .form-group input:focus,
-:is(.simulation-dashboard, .openmc-widget) .form-group select:focus {
+:is(.simulation-dashboard, .openmc-widget) .form-group input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
@@ -109,7 +119,7 @@
 
 :is(.simulation-dashboard, .openmc-widget) .form-group.checkbox label {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     cursor: pointer;
     text-transform: none;
@@ -118,10 +128,12 @@
 }
 
 :is(.simulation-dashboard, .openmc-widget) .form-group.checkbox input[type='checkbox'] {
-    margin: 0;
+    flex: 0 0 auto;
+    margin: 2px 0 0;
     width: 16px;
     height: 16px;
     accent-color: var(--theia-focusBorder);
+    cursor: pointer;
     transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -132,12 +144,12 @@
 :is(.simulation-dashboard, .openmc-widget) .form-row {
     display: flex;
     gap: 12px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: flex-start;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .form-row .form-group {
-    flex: 1;
+    flex: 1 1 170px;
     min-width: 0;
     max-width: 100%;
     display: flex;
@@ -145,7 +157,7 @@
 }
 
 :is(.simulation-dashboard, .openmc-widget) .form-row .form-group input,
-:is(.simulation-dashboard, .openmc-widget) .form-row .form-group select {
+:is(.simulation-dashboard, .openmc-widget) .form-row .form-group .nuke-select {
     margin-top: auto;
 }
 
@@ -157,16 +169,31 @@
 }
 
 :is(.simulation-dashboard, .openmc-widget) .form-group.checkbox {
-    flex-direction: row;
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .form-group.checkbox label {
+:is(.simulation-dashboard, .openmc-widget) .checkbox-label {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     cursor: pointer;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .checkbox-label input[type='checkbox'],
+:is(.simulation-dashboard, .openmc-widget) .score-checkbox-label input[type='checkbox'] {
+    flex: 0 0 auto;
+    cursor: pointer;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .checkbox-label input[type='checkbox'] {
+    margin-top: 2px;
+}
+
+/* Direct form actions are compact instead of stretching to the field width. */
+:is(.simulation-dashboard, .openmc-widget) .form-group > .theia-button {
+    align-self: flex-start;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .empty-state {
@@ -176,7 +203,7 @@
     animation: empty-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .empty-state i {
+:is(.simulation-dashboard, .openmc-widget) .empty-state > i {
     font-size: 48px;
     margin-bottom: 12px;
     display: block;
@@ -186,6 +213,10 @@
 :is(.simulation-dashboard, .openmc-widget) .empty-state p {
     margin: 0;
     font-size: 14px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .empty-state p + .theia-button {
+    margin-top: 16px;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .theia-button {
@@ -234,7 +265,10 @@
 }
 
 :is(.simulation-dashboard, .openmc-widget) .theia-button:disabled {
-    opacity: 0.5;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-descriptionForeground);
+    border-color: var(--theia-panel-border);
+    opacity: 0.75;
     cursor: not-allowed;
 }
 
@@ -265,10 +299,17 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .openmc-header .header-info {
+    flex: 1 1 240px;
+    min-width: 0;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .openmc-header .header-info h2 {
@@ -279,6 +320,7 @@
     align-items: center;
     gap: 8px;
     color: var(--theia-foreground);
+    overflow-wrap: anywhere;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .openmc-header .header-info h2 i {
@@ -290,17 +332,20 @@
     margin: 4px 0 0 0;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
+    overflow-wrap: anywhere;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .openmc-header .header-actions {
     margin-left: auto;
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .openmc-header .header-stats {
     display: flex;
+    flex-wrap: wrap;
     gap: 24px;
     margin-left: 24px;
 }
@@ -467,4 +512,394 @@
 
 :is(.simulation-dashboard, .openmc-widget) .chain-builder .config-grid {
     margin-bottom: 4px;
+}
+
+/* ============================================================================
+   Narrow Editor Panels
+   ============================================================================
+   Container queries react to the widget's width (Theia docks are resizable)
+   while media queries only see the browser viewport. Keep the media-query
+   fallbacks in the per-widget sheets; these rules cover the panel-narrow case. */
+
+@container (max-width: 720px) {
+    :is(.simulation-dashboard, .openmc-widget) .openmc-header {
+        align-items: flex-start;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .openmc-header .header-stats {
+        margin-left: 0;
+        gap: 16px;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .settings-section {
+        padding: 14px;
+        margin-bottom: 14px;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .openmc-warning-box {
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .warning-content .theia-button {
+        max-width: 100%;
+        white-space: normal;
+        text-align: left;
+    }
+}
+
+@container (max-width: 520px) {
+    :is(.simulation-dashboard, .openmc-widget) .openmc-header .header-actions {
+        margin-left: 0;
+        width: 100%;
+    }
+}
+
+/* ----------------------------------------------------------------------------
+   Advanced settings: filter + named groups
+   ---------------------------------------------------------------------------- */
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px 10px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 6px;
+    background: var(--theia-input-background);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-search > .codicon-search {
+    color: var(--theia-descriptionForeground);
+    flex: 0 0 auto;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: 12px;
+    padding: 4px 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-search .theia-button {
+    flex: 0 0 auto;
+    padding: 2px 6px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-empty {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 6px;
+    color: var(--theia-descriptionForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-empty p {
+    margin: 0;
+    font-size: 12px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-group {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    margin: 0 0 8px 0;
+    animation: none;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-group:hover {
+    box-shadow: none;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-group > h3 {
+    margin: 0 0 10px 0;
+    padding: 8px 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .section-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    margin-left: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .section-status-dot.error {
+    background: var(--theia-errorForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .section-status-dot.warning {
+    background: var(--theia-warningForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .section-status-message {
+    font-size: 11px;
+    line-height: 1.4;
+    margin: -4px 0 10px 0;
+    padding: 6px 8px;
+    border-left: 3px solid var(--theia-errorForeground);
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-foreground);
+    border-radius: 0 4px 4px 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .section-status-message.warning {
+    border-left-color: var(--theia-warningForeground);
+    background: var(--theia-inputValidation-warningBackground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .trace-inputs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .trace-inputs input {
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-hint.warning-text {
+    color: var(--theia-warningForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .form-hint.warning-text .codicon {
+    margin-right: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-group h4 {
+    margin: 14px 0 8px 0;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--theia-foreground);
+}
+
+@container (max-width: 520px) {
+    :is(.simulation-dashboard, .openmc-widget) .trace-inputs {
+        grid-template-columns: 1fr;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .advanced-search {
+        flex-wrap: wrap;
+    }
+}
+
+/* Tab tooltip anchors: Tooltip wraps each tab button, so the wrapper must keep
+   the tab's content width. Otherwise a crowded row shrinks wrappers and labels
+   overlap instead of letting the row scroll. */
+:is(.dashboard-tabs, .csg-builder-tabs, .dagmc-editor-tabs, .optimization-tabs, .comparison-tabs, .tally-configurator-tabs) > span {
+    flex: 0 0 auto;
+    max-width: none !important;
+}
+
+:is(.dashboard-tabs, .csg-builder-tabs, .dagmc-editor-tabs, .optimization-tabs, .comparison-tabs, .tally-configurator-tabs) .tab-button {
+    white-space: nowrap;
+}
+
+/* ============================================================================
+   Particle type selector (sources, tally filters, weight windows)
+   ============================================================================ */
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-selector,
+:is(.simulation-dashboard, .openmc-widget) .particle-type-multi {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-select-wrap {
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-segments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-select-control {
+    display: none;
+    width: 100%;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-disabled-wrap {
+    display: inline-flex;
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-segments .segment:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom,
+:is(.simulation-dashboard, .openmc-widget) .particle-type-add-custom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 160px;
+    flex: 1 1 180px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-label {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-preview strong {
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-preview-error {
+    color: var(--theia-errorForeground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-check.unsupported {
+    opacity: 0.6;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 11px;
+    max-width: 100%;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chip > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-chip-remove {
+    display: inline-flex;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 4px 8px;
+    border-left: 3px solid var(--theia-warningForeground);
+    background: var(--theia-inputValidation-warningBackground);
+    color: var(--theia-foreground);
+    font-size: 11px;
+    border-radius: 0 4px 4px 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-warning .codicon {
+    color: var(--theia-warningForeground);
+    flex: 0 0 auto;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-warnings {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+@container (max-width: 560px) {
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-segments {
+        display: none;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-select-control {
+        display: block;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-custom,
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-add-custom {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    :is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field {
+        flex: 1 1 auto;
+    }
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget) .particle-type-info {
+    color: var(--theia-descriptionForeground);
+    cursor: help;
+    font-size: 13px;
 }

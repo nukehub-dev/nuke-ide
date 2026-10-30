@@ -47,7 +47,7 @@ function buildState(): OpenMCState {
         geometry: {
             surfaces: [{ id: 1, type: 'sphere', coefficients: { x0: 0, y0: 0, z0: 0, r: 10 }, boundary: 'vacuum' }],
             cells: [{ id: 1, fillType: 'material', fillId: 1, regionString: '-1' }],
-            universes: [{ id: 0, name: 'root', cellIds: [1], isRoot: true }],
+            universes: [{ id: 0, name: 'root', cellIds: [1] }],
             lattices: [],
             rootUniverseId: 0
         },
@@ -322,5 +322,63 @@ describe('XML generation DAGMC path resolution', () => {
         expect(fs.existsSync(path.join(outputDir, 'geometry.h5m'))).toBe(true);
         const geometryXml = fs.readFileSync(path.join(outputDir, 'geometry.xml'), 'utf-8');
         expect(geometryXml).toContain('<dagmc_universe filename="geometry.h5m"');
+    });
+});
+
+describe('project unstructured mesh path portability', () => {
+    let tempDir: string;
+    let backend: OpenMCStudioBackendServiceImpl;
+
+    beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-mesh-paths-'));
+        backend = new OpenMCStudioBackendServiceImpl();
+    });
+
+    afterEach(() => {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('stores absolute mesh files project-relative and resolves them on load', async () => {
+        const projectPath = path.join(tempDir, 'test.nuke-openmc');
+        const meshFile = path.join(tempDir, 'meshes', 'core.h5m');
+        fs.mkdirSync(path.dirname(meshFile));
+        fs.writeFileSync(meshFile, 'placeholder');
+
+        const state = buildState();
+        state.meshes = [{ type: 'unstructured', id: 1, filename: meshFile, library: 'moab' }];
+
+        const saveResult = await backend.saveProject({ projectPath, state, generateXml: false });
+        expect(saveResult.success).toBe(true);
+        expect(state.meshes[0].type === 'unstructured' && state.meshes[0].filename).toBe(meshFile);
+
+        const saved = JSON.parse(fs.readFileSync(projectPath, 'utf-8'));
+        expect(saved.state.meshes[0].filename).toBe(path.join('meshes', 'core.h5m'));
+
+        const loadResult = await backend.loadProject(projectPath);
+        expect(loadResult.success).toBe(true);
+        expect(loadResult.project!.state.meshes[0].type === 'unstructured' && loadResult.project!.state.meshes[0].filename).toBe(meshFile);
+    });
+});
+
+describe('backend file check for the mesh editor', () => {
+    it('reports existing and missing local mesh files', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmc-file-check-'));
+        const existing = path.join(tempDir, 'mesh.h5m');
+        fs.writeFileSync(existing, 'mesh');
+
+        const backend = new OpenMCStudioBackendServiceImpl();
+        const found = await backend.checkFileExists(existing);
+        expect(found.exists).toBe(true);
+        expect(found.size).toBe(4);
+
+        const missing = await backend.checkFileExists(path.join(tempDir, 'missing.h5m'));
+        expect(missing.exists).toBe(false);
+        expect(missing.error).toBeTruthy();
+
+        const relative = await backend.checkFileExists('mesh.h5m');
+        expect(relative.exists).toBe(false);
+        expect(relative.error).toContain('not absolute');
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
     });
 });

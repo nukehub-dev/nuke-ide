@@ -2,13 +2,17 @@
 
 NukeIDE is an open-source Integrated Development Environment (IDE) specifically designed for nuclear simulation and engineering. Built on the extensible Theia platform, NukeIDE provides a robust and customizable environment for computational physics, reactor design, fusion energy, and radiation transport.
 
+![NukeIDE workbench with the Nuke Tools sidebar and an OpenMC Studio project](docs/images/workbench.png)
+
 ## Features
 
 - **Integrated Development Environment**: A full-featured IDE powered by Theia, providing a modern code editing experience.
-- **Extensible Architecture**: Easily extendable with custom extensions for specialized nuclear engineering tasks.
-- **PWA Support**: Progressive Web Application (PWA) capabilities for enhanced web-based deployment.
-- **Essential Extensions**: Includes core extensions for common nuclear simulation workflows.
-- **Cross-Platform**: Supports both browser-based and Electron-based desktop deployments.
+- **Extensible Architecture**: Custom extensions for specialized nuclear engineering tasks.
+- **Nuke Core**: Python environment management, package installation, health checks, and the Nuke Tools sidebar.
+- **OpenMC Studio**: No-code OpenMC modelling, tallies, depletion, variance reduction, optimization, and runs.
+- **Nuke Visualizer**: Native 3D/2D viewers for statepoints, tallies, meshes, DAGMC geometry, and depletion output.
+- **Nuke CAD**: Parametric CAD, sketching, assemblies, drawings, DAGMC export, meshing, and FEM.
+- **Cross-Platform**: Browser and Electron desktop deployments, plus an all-in-one Docker image.
 
 ## Getting Started
 
@@ -16,8 +20,9 @@ To set up and run NukeIDE locally, follow these steps:
 
 ### Prerequisites
 
-- Node.js (>=22)
+- Node.js (>=22.13.0)
 - Yarn (>=1.7.0 <2)
+- Python 3.13 for the tested backend profile
 
 ### Installation
 
@@ -34,7 +39,7 @@ To set up and run NukeIDE locally, follow these steps:
    yarn
    ```
 
-   This command will install all root dependencies, hoist them, and then use Lerna to install dependencies and run `prepare` scripts for all workspaces (applications and extensions).
+   This installs root dependencies, hoists shared packages, and runs each extension's `prepare` build. Applications are bundled separately with `yarn build:browser` or `yarn build:electron`.
 
 3. **Download Theia plugins:**
 
@@ -66,10 +71,10 @@ yarn start:electron
 
 ### Build All
 
-To build all applications and extensions:
+To build all extensions:
 
 ```bash
-lerna run build
+npx lerna run build
 ```
 
 ### Build Specific Applications
@@ -102,6 +107,15 @@ tsc
 - `extensions/`: Houses all the custom Theia extensions developed for NukeIDE.
 - `resources/`: Static assets like logos and HTML preload templates.
 - `configs/`: Shared configuration files.
+
+## Documentation
+
+In the IDE, open `Help → Documentation`. The same guides are in the repository:
+
+- [Documentation index](docs/index.md)
+- [Getting started](docs/getting-started.md)
+- [Installation](docs/installation.md)
+- [Extension catalogue](docs/extensions.md)
 
 ## Contributing
 

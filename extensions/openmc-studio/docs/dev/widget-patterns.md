@@ -314,7 +314,7 @@ Widget → OpenMCStudioBackendService (frontend proxy)
               │ WebSocket RPC
               ▼
        OpenMCStudioBackendServiceImpl (Node backend)
-              │ child_process.spawn / executeScriptJson
+              │ child_process.spawn / execSync
               ▼
               Python script
 ```
@@ -434,9 +434,74 @@ Use BEM-like naming scoped to the widget:
 
 Reusable components from `nuke-essentials`:
 
+### Shared `openmc-widget.css`
+
+`widgets/shared/openmc-widget.css` is the shared design system: generic form/section/button styles scoped
+`:is(.simulation-dashboard, .openmc-widget)` — standalone widgets opt in via the `openmc-widget` root class. It also defines the shared
+chrome (`.openmc-header`, `.category-header` + `.count-badge`, top-aligned `.form-row` grids); accent is always `--theia-focusBorder`
+with Theia CSS vars only (tally-configurator keeps its own scoped sheet).
+
 ```typescript
 import { Tooltip, ColorPicker } from 'nuke-essentials/lib/theme/browser/components';
 ```
+
+### Domain Icons
+
+Domain chrome (widget titles, dashboard tabs, Nuke Tools rows, section headings, and empty states) uses the
+theme-aware mask set in `src/browser/icons/openmc-icon-classes.css`. The classes are `codicon-openmc-<name>` and
+are imported once by the frontend module; they work anywhere a codicon does, including Nuke Tools `icon:
+'openmc-<name>'` entries. Sizing is `1em`, so the parent font-size controls the glyph.
+
+- Use domain icons for OpenMC concepts: `openmc-atom`, `openmc-geometry`, `openmc-surface`, `openmc-cell`,
+  `openmc-universe`, `openmc-lattice`, `openmc-transform`, `openmc-periodic`, `openmc-mesh`, `openmc-grid`,
+  `openmc-material`, `openmc-tally`, `openmc-statepoint`, `openmc-depletion`, `openmc-variance`, `openmc-source`,
+  `openmc-run`, `openmc-compare`, `openmc-optimize`, `openmc-plot`, `openmc-mask`, `openmc-overlap`, `openmc-mgxs`,
+  `openmc-volume`, `openmc-validate`, `openmc-reactivity`, `openmc-feed`.
+- Keep generic codicons for universal utilities: add, save, edit, trash, close, chevrons, warnings, and errors.
+  Draw each OpenMC domain glyph as one coherent shape; do not compose detached symbols (grid + bars) into one icon.
+
+The Tally Configurator's **Derived Tallies** tab is token-first: operand/operator/parenthesis buttons
+plus Backspace/Enter/Escape, a read-only formula preview, inline validation, and a bin estimate. The
+persisted expression is parsed from the tokens (`common/derived-tallies.ts`), not concatenated at
+evaluation time. Only the definition lives in openmc-studio; results are rendered by the statepoint
+viewer in nuke-visualizer.
+
+Native Plotting keeps its common geometry fields visible and puts background, masking, and overlap
+highlighting in a collapsed **Appearance** section. Use the shared `ColorPicker`, `SearchableMultiSelect`,
+and `Tooltip`; the mask picker follows `colorBy` (cell or material IDs), and the section disables or
+explains controls the selected plot type cannot render (voxel ignores display colors; ray-traced plots
+do not detect overlaps). The picker stores visible domains; XML/Python emit the hidden complement. See
+`src/common/plot-appearance.ts` for the support matrix, inversion, and validation.
+
+### CSG Builder geometry editors
+
+- Pure editor-model helpers (lattice brush operations, fill-target search, issue grouping, inline parsing) live in
+  `src/common/geometry-editor.ts`; geometry state transitions live in `src/common/geometry-state.ts`. The widget only
+  renders and dispatches, so lattice/transform/pairing logic stays unit-testable.
+- The CSG validation banner and the dashboard run-readiness checklist both render `validateGeometryModel`
+  (`src/common/geometry-validation.ts`); never add a second rule set for the banner.
+- Universe grid/ring cells are real `<button>`s with a 28 px minimum target, `aria-label`s, and shared `Tooltip`s;
+  their scroll container keeps wide maps inside the card at narrow widths.
+
+Project identity uses `.openmc-brand-openmc`, a monochrome mask of the official OpenMC mark (from the OpenMC
+docs, MIT), so it follows the active theme foreground. DAGMC keeps the theme-aware `openmc-mesh` domain icon
+instead of the colorful Svalinn mark: DAGMC has no standalone upstream logo, and the Svalinn asset is a
+multi-color raster that does not adapt cleanly to light/dark themes or 16 px title-bar sizes.
+
+### Responsive Layout
+
+Widget roots opt into CSS width containment (`.openmc-widget`, `.simulation-dashboard`, `.csg-builder`,
+`.dagmc-editor`, `.optimization-widget`, `.simulation-comparison`, `.tally-configurator-container`). Prefer
+`@container (max-width: …)` over viewport `@media` queries so panels reflow inside split editors and docked
+sidebars. The shared narrow rules live at the end of `openmc-widget.css`.
+
+- Tab rows scroll horizontally; wrap the label in `.tab-label`, wrap the button in the shared nuke-essentials
+  `Tooltip`, and set `aria-label`. Never use native `title` attributes for product tooltips.
+  Narrow container rules hide `.tab-label` to leave icon-only tabs while keeping the accessible name.
+- Headers wrap and their `.header-info` flex item gets `min-width: 0`; descriptions use `overflow-wrap: anywhere`.
+- `.form-row` wraps with a `170px` basis and stacks under `640px`; fixed grids use
+  `minmax(min(100%, <basis>), 1fr)` or a container override.
+- Wide result tables live in a scroll container (`overflow-x: auto`) instead of widening the panel.
 
 ---
 

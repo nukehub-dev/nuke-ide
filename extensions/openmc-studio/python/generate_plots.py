@@ -59,6 +59,110 @@ def _load_domains(config, geometry, materials):
     return domains
 
 
+def _plot_color(value, field, plot_id):
+    """Validate an RGB triple from the plot config.
+
+    Args:
+        value: Candidate RGB sequence.
+        field: Field name for the error message.
+        plot_id: Plot ID for the error message.
+
+    Returns:
+        Tuple of three integers in the 0-255 range.
+    """
+    try:
+        rgb = tuple(int(component) for component in value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Plot {plot_id} has an invalid {field} color: {value!r}") from exc
+    if len(rgb) != 3 or any(component < 0 or component > 255 for component in rgb):
+        raise ValueError(f"Plot {plot_id} {field} must be three RGB integers in 0-255")
+    return rgb
+
+
+def _apply_appearance(plot, config, plot_type, plot_id, geometry, materials):
+    """Apply background, mask, and overlap settings to a plot.
+
+    OpenMC applies display colors to slice and ray-traced plots; voxel output
+    stores raw IDs and ignores them. Overlap highlighting is slice-only.
+
+    Args:
+        plot: The openmc plot object being configured.
+        config: Plot configuration dict.
+        plot_type: Plot type string.
+        plot_id: Plot ID for diagnostics.
+        geometry: Loaded openmc.Geometry (mask domain validation).
+        materials: Loaded openmc.Materials (mask domain validation).
+    """
+    background = config.get("background")
+    mask = config.get("mask")
+    show_overlaps = bool(config.get("showOverlaps"))
+    overlap_color = config.get("overlapColor")
+
+    if plot_type == "voxel":
+        if background is not None or mask or show_overlaps or overlap_color is not None:
+            log_progress(
+                f"Plot {plot_id}: voxel output stores raw cell/material IDs; "
+                "ignoring background, mask, and overlap settings. Use a slice or ray-traced plot."
+            )
+        return
+
+    if background is not None:
+        plot.background = _plot_color(background, "background", plot_id)
+
+    if mask:
+        components = [int(component) for component in mask.get("components") or []]
+        if components:
+            color_by = getattr(plot, "color_by", "cell")
+            if color_by == "material":
+                known = [material.id for material in materials]
+                domain_name = "material"
+            else:
+                known = list(geometry.get_all_cells())
+                domain_name = "cell"
+            known_set = set(known)
+            missing = [component for component in components if component not in known_set]
+            if missing:
+                log_progress(
+                    f"Plot {plot_id}: mask {domain_name} IDs not in the current geometry: "
+                    f"{', '.join(str(item) for item in missing)}"
+                )
+            # The schema stores the visible selection; OpenMC paints the
+            # listed mask components with the mask background, so emit the
+            # complement of the existing visible domains.
+            selected = {component for component in components if component in known_set}
+            hidden = [component for component in known if component not in selected]
+            if not selected:
+                log_progress(
+                    f"Plot {plot_id}: mask selection has no domains in the current geometry; skipping it"
+                )
+            elif hidden:
+                plot.mask_components = hidden
+                if mask.get("background") is not None:
+                    plot.mask_background = _plot_color(
+                        mask["background"], "mask background", plot_id
+                    )
+            else:
+                log_progress(f"Plot {plot_id}: mask selects every domain; skipping it")
+        else:
+            log_progress(f"Plot {plot_id}: mask has no components; skipping it")
+
+    if plot_type == "slice":
+        if show_overlaps:
+            plot.show_overlaps = True
+            if overlap_color is not None:
+                plot.overlap_color = _plot_color(overlap_color, "overlap", plot_id)
+        elif overlap_color is not None:
+            log_progress(
+                f"Plot {plot_id}: overlap color set without showOverlaps; OpenMC rejects "
+                "that combination, so it is ignored"
+            )
+    elif show_overlaps or overlap_color is not None:
+        log_progress(
+            f"Plot {plot_id}: overlap highlighting applies only to slice plots; "
+            f"ignoring it for a {plot_type} plot"
+        )
+
+
 def build_plot(config, geometry, materials):
     """Build an openmc plot object from a plot configuration dict.
 
@@ -107,7 +211,17 @@ def build_plot(config, geometry, materials):
             plot.light_position = tuple(config["lightPosition"])
         if config.get("diffuseFraction") is not None:
             plot.diffuse_fraction = float(config["diffuseFraction"])
-        plot.opaque_domains = config.get("opaqueIds") or []
+        # An empty opaque-domain list renders the entire scene transparent
+        # (a blank image). Default to every domain being opaque so the plot is
+        # useful out of the box; explicit IDs still override.
+        opaque_ids = config.get("opaqueIds") or []
+        if not opaque_ids:
+            opaque_ids = (
+                [m.id for m in materials]
+                if color_by == "material"
+                else list(geometry.get_all_cells())
+            )
+        plot.opaque_domains = opaque_ids
     elif plot_type == "wireframe-raytrace":
         plot = openmc.WireframeRayTracePlot(plot_id=plot_id, name=config.get("name", ""))
         plot.pixels = tuple(config.get("pixels", [1000, 1000]))
@@ -129,11 +243,38 @@ def build_plot(config, geometry, materials):
             plot.orthographic_width = float(config["orthographicWidth"])
 
     plot.color_by = color_by
+    _apply_appearance(plot, config, plot_type, plot_id, geometry, materials)
     # Explicit output filenames so the generated files are predictable
     suffix = ".h5" if plot_type == "voxel" else ".png"
     plot.filename = f"plot_{plot_id}{suffix}"
 
     return plot
+
+
+def _convert_ppm_to_png(ppm_path: Path, png_path: Path):
+    """Convert OpenMC's PPM fallback output to a PNG preview.
+
+    OpenMC builds without libpng write ``plot_<id>.png.ppm`` even when the
+    configured filename ends in ``.png``. The IDE image viewer expects PNG, so
+    convert with Pillow (a matplotlib dependency of OpenMC) and remove the
+    intermediate file.
+
+    Args:
+        ppm_path: PPM file written by ``openmc -p``.
+        png_path: Destination PNG path.
+    """
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(
+            "This OpenMC build has no libpng support and Pillow is not installed; "
+            "install Pillow or use an OpenMC build compiled with libpng."
+        ) from exc
+
+    log_progress(f"Converting {ppm_path.name} to {png_path.name} (OpenMC built without libpng)")
+    with Image.open(ppm_path) as image:
+        image.save(png_path, format="PNG")
+    ppm_path.unlink(missing_ok=True)
 
 
 def run_generate_plots(args):
@@ -159,6 +300,18 @@ def run_generate_plots(args):
     geometry = openmc.Geometry.from_xml("geometry.xml", materials)
 
     plots = [build_plot(config, geometry, materials) for config in configs]
+
+    # Remove stale outputs from an earlier run so a failed render cannot be
+    # reported as a fresh file. OpenMC builds without libpng append `.ppm`
+    # instead of writing PNG, so clean those names too.
+    for config in configs:
+        plot_id = int(config["id"])
+        if config["type"] == "voxel":
+            suffixes = (".h5", ".vti")
+        else:
+            suffixes = (".png", ".png.ppm", ".ppm")
+        for suffix in suffixes:
+            (working_dir / f"plot_{plot_id}{suffix}").unlink(missing_ok=True)
 
     log_progress(f"Exporting plots.xml with {len(plots)} plot(s)")
     openmc.Plots(plots).export_to_xml()
@@ -191,6 +344,12 @@ def run_generate_plots(args):
                         )
         else:
             png_path = working_dir / f"plot_{plot_id}.png"
+            if not png_path.exists():
+                ppm_path = working_dir / f"plot_{plot_id}.png.ppm"
+                if not ppm_path.exists():
+                    ppm_path = working_dir / f"plot_{plot_id}.ppm"
+                if ppm_path.exists():
+                    _convert_ppm_to_png(ppm_path, png_path)
             if png_path.exists():
                 files.append(
                     {"plotId": plot_id, "type": plot_type, "path": str(png_path), "kind": "png"}

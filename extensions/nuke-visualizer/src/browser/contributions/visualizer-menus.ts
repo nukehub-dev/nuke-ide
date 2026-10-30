@@ -45,7 +45,7 @@ export namespace NukeVisualizerMenus {
     export const OPENMC_MATERIAL = [...OPENMC, '5_material'];
     export const OPENMC_PLOT = [...OPENMC, '6_plot'];
 
-    // Deprecated aliases — will be removed in Phase 5
+    // Deprecated aliases.
     /** @deprecated Use OPENMC_STATEPOINT */
     export const VISUALIZER_STATEPOINT = OPENMC_STATEPOINT;
     /** @deprecated Use OPENMC_TALLY */

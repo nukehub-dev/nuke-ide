@@ -1,7 +1,7 @@
 """
 Base visualizer file-format conversion commands.
 
-Provides CLI commands for converting DAGMC and CAD files to VTK.
+Provides CLI commands for converting DAGMC, CAD, and Gmsh mesh files to VTK.
 These are invoked via: python server.py base.convert-dagmc --file <path>
 """
 
@@ -32,12 +32,35 @@ def cmd_convert_dagmc(args):
             return 1
     else:
         try:
-            result = convert_h5m_to_vtk_cached(
-                args.file, use_cache=True, do_filter_graveyard=True, max_cell_area=100.0
-            )
+            result = convert_h5m_to_vtk_cached(args.file, use_cache=True, do_filter_graveyard=True)
         except Exception as e:
             print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
             return 1
+
+    print(json.dumps(result))
+    return 0
+
+
+@command("base.convert-dagmc-multiblock", help="Convert a DAGMC .h5m file to a multiblock .vtm")
+@arg("--file", required=True, help="Path to the input .h5m file")
+@arg("--include-graveyard", action="store_true", help="Keep the Graveyard termination volume")
+def cmd_convert_dagmc_multiblock(args):
+    """Convert DAGMC H5M to a multiblock .vtm (one block per volume)."""
+    try:
+        from plugins.base.lib.dagmc import convert_h5m_to_multiblock_vtk_cached
+    except ImportError as e:
+        print(f'{{"error": "DAGMC library not available: {e}"}}', file=sys.stderr)
+        return 1
+
+    import json
+
+    try:
+        result = convert_h5m_to_multiblock_vtk_cached(
+            args.file, use_cache=True, include_graveyard=args.include_graveyard
+        )
+    except Exception as e:
+        print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
+        return 1
 
     print(json.dumps(result))
     return 0
@@ -60,6 +83,28 @@ def cmd_convert_step(args):
         result = convert_step_to_vtk_cached(args.file, use_cache=True, mesh_size_max=args.mesh_size)
     except Exception as e:
         print(f'{{"error": "{str(e)}"}}', file=sys.stderr)
+        return 1
+
+    print(json.dumps(result))
+    return 0
+
+
+@command("base.convert-gmsh", help="Convert a Gmsh .msh file to VTK")
+@arg("--file", required=True, help="Path to the input .msh file")
+def cmd_convert_gmsh(args):
+    """Convert an existing Gmsh mesh to VTK via gmsh (no remeshing)."""
+    import json
+
+    try:
+        from plugins.base.lib.gmsh_mesh import convert_gmsh_to_vtk_cached
+    except ImportError as e:
+        print(json.dumps({"error": f"Gmsh library not available: {e}"}), file=sys.stderr)
+        return 1
+
+    try:
+        result = convert_gmsh_to_vtk_cached(args.file, use_cache=True)
+    except Exception as e:
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 1
 
     print(json.dumps(result))

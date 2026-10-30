@@ -28,17 +28,18 @@ Covers architecture, frontend/backend services, widget patterns, RPC protocols, 
 
 | Feature                       | What It Does                                                                           | Typical Output                           |
 | ----------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Simulation Dashboard**      | Configure settings, sources, materials, depletion, VR, and random ray; run and monitor | Runtime logs, k-eff plots                |
+| **Simulation Dashboard**      | Configure settings, sources, materials, depletion, VR, and random ray; run and monitor | Runtime logs, statepoints                |
 | **Geometry**                  | CSG builder and DAGMC editor (incl. material overrides and depletion sync)             | `geometry.xml`, `.h5m`                   |
 | **Tally Configurator**        | Build tallies with filters, scores, meshes, triggers, and derivatives                  | `tallies.xml`                            |
 | **Depletion & Chain Builder** | Burnup timelines, transfer rates, custom chain subset/ENDF builds                      | Depletion chains, `depletion_results.h5` |
-| **Optimization Framework**    | Parameter sweeps and criticality (k-eff) searches                                      | Optimized inputs, convergence plots      |
+| **Optimization Framework**    | Parameter sweeps and criticality (k-eff) searches                                      | CSV results, k-eff trend plots           |
 | **Volume Calculation**        | Stochastic volume estimation                                                           | Domain volumes ± σ                       |
 | **Native Plotting**           | Slice, voxel, and ray-traced geometry plots (C++ plot mode)                            | PNG, `.vti`                              |
 | **MGXS Generator**            | Multi-group cross-section libraries (automatic + Library modes)                        | `mgxs.h5`                                |
-| **Simulation Comparison**     | Compare multiple statepoints side-by-side                                              | Delta tables, overlay plots              |
-| **Project Management**        | Scaffold projects and track run history                                                | Project folders, run metadata            |
-| **CAD Import**                | Convert STEP/IGES to DAGMC or CSG                                                      | `.h5m`, `geometry.xml`                   |
+| **Shutdown Dose**             | Guided R2S / D1S activation, decay-photon transport, and dose analysis                 | `r2s_summary.json`, `d1s_summary.json`   |
+| **Simulation Comparison**     | Compare multiple statepoints side-by-side                                              | Delta tables, consistency tests          |
+| **Project Management**        | Create from runnable templates, import/export XML, and manage project files            | Project files, XML inputs                |
+| **CAD Import**                | Convert STEP, IGES, BREP, and STL CAD to DAGMC                                         | `.h5m`                                   |
 
 ---
 
@@ -60,6 +61,8 @@ docs/
 │   ├── mgxs-generator.md
 │   ├── simulation-comparison.md
 │   ├── project-management.md
+│   ├── coverage.md
+│   ├── shutdown-dose.md
 │   ├── cad-import.md
 │   └── troubleshooting.md
 └── dev/                   # Developer guides
@@ -72,6 +75,7 @@ docs/
     ├── python-backends.md
     ├── xml-generation.md
     ├── adding-a-widget.md
+    ├── shutdown-dose.md
     └── testing.md
 ```
 

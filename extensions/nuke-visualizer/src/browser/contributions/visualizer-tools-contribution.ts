@@ -39,9 +39,15 @@ import {
     VisualizerCommand,
     VisualizerHealthCheckCommand,
     InstallBaseVisualizerCommand,
-    InstallOpenMCCommand
+    InstallOpenMCCommand,
+    CompareOpenViewsCommand,
+    CompareFilesCommand,
+    StopComparisonCommand
 } from '../commands/visualizer-commands';
 import { OpenMCCommands } from '../plugins/openmc/commands';
+import { OpenViewerSettingsCommand } from '../viewer-settings/viewer-settings-contribution';
+import { OpenDagmcOutlineCommand } from '../dagmc-outline/dagmc-outline-contribution';
+import { OpenDatasetInspectorCommand } from '../dataset-inspector/dataset-inspector-contribution';
 
 @injectable()
 export class VisualizerToolsContribution implements NukeToolsContribution {
@@ -55,6 +61,72 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             order: 'a',
             icon: 'graph',
             description: 'Open the Nuke Visualizer panel.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.viewer-settings',
+            label: 'Viewer Settings',
+            commandId: OpenViewerSettingsCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'b',
+            icon: 'settings-gear',
+            description: 'Open the Viewer Settings sidebar for the active 3D viewer.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.dagmc-outline',
+            label: 'DAGMC Outline',
+            commandId: OpenDagmcOutlineCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'c',
+            icon: 'layers',
+            description: 'Open the DAGMC Outline sidebar for the active DAGMC viewer.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.dataset-inspector',
+            label: 'Dataset Inspector',
+            commandId: OpenDatasetInspectorCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'd',
+            icon: 'table',
+            description: 'Inspect dataset summary, arrays, and a table preview for the active viewer.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.compare-open-views',
+            label: 'Compare Open Views...',
+            commandId: CompareOpenViewsCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'e',
+            icon: 'git-compare',
+            description: 'Arrange open 3D views side by side with linked cameras and color ranges.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.compare-files',
+            label: 'Compare Files...',
+            commandId: CompareFilesCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'f',
+            icon: 'files',
+            description: 'Browse for two to four files and compare them with linked cameras and color ranges.'
+        });
+
+        registry.registerItem({
+            id: 'nuke-visualizer.stop-comparison',
+            label: 'Stop Comparison',
+            commandId: StopComparisonCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'd',
+            order: 'g',
+            icon: 'debug-disconnect',
+            description: 'Unlink the active comparison workspace.'
         });
 
         registry.registerItem({
@@ -102,7 +174,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'database',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-statepoint',
             description: 'Open an OpenMC statepoint file for inspection.'
         });
 
@@ -114,7 +186,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'list-tree',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-tally',
             description: 'Open the OpenMC tallies panel.'
         });
 
@@ -174,7 +246,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'repo',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-geometry',
             description: 'Inspect the OpenMC geometry hierarchy.'
         });
 
@@ -186,7 +258,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'b',
-            icon: 'search',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-overlap',
             description: 'Check the OpenMC geometry for overlapping cells.'
         });
 
@@ -198,7 +270,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'a',
-            icon: 'symbol-variable',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-materials',
             description: 'Open the OpenMC materials explorer.'
         });
 
@@ -210,7 +282,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             sectionOrder: 'd',
             categoryOrder: 'b',
             order: 'b',
-            icon: 'database',
+            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-nuclear',
             description: 'Browse nuclear data libraries.'
         });
 

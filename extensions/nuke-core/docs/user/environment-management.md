@@ -24,11 +24,11 @@ Nuke Core automatically discovers Python environments across your system and let
 ### Via Status Bar
 
 1. Click the **🐍 environment indicator** in the bottom status bar.
-2. Select **"Switch Environment"** from the menu.
-3. Pick an environment from the grouped list:
+2. Pick an environment from the grouped list:
    - **Conda** — all conda/mamba environments
    - **Venv** — workspace and system virtual environments
    - **Other** — poetry, pyenv, system Python
+3. Selecting a different environment switches to it. Selecting the currently active one opens its actions instead.
 
 ### Via Command Palette
 
@@ -40,15 +40,16 @@ Nuke Core automatically discovers Python environments across your system and let
 
 For more options on a specific environment, run **"Nuke: Environment Actions"**:
 
-| Action           | What it does                                          |
-| ---------------- | ----------------------------------------------------- |
-| Switch           | Activate the selected environment                     |
-| Open Terminal    | Launch a terminal with the environment activated      |
-| Install Packages | Open the package installer targeting this environment |
-| Copy Python Path | Copy the executable path to your clipboard            |
-| Delete           | Remove the environment (if deletable)                 |
+| Action                                         | What it does                                          |
+| ---------------------------------------------- | ----------------------------------------------------- |
+| Re-select                                      | Activate the selected environment                     |
+| Open Terminal (conda run)                      | Launch a terminal with a conda environment activated  |
+| Install Packages                               | Open the package installer targeting this environment |
+| Update from environment.yml / requirements.txt | Re-apply the workspace file when present              |
+| Copy Python Path                               | Copy the executable path to your clipboard            |
+| Delete Environment                             | Remove the environment (if deletable)                 |
 
-> **Tip:** Right-clicking the status bar item also opens the actions menu for the current environment.
+> **Tip:** Clicking the active environment in the status-bar picker opens this actions menu. The status bar has no separate right-click menu.
 
 ---
 
@@ -57,24 +58,21 @@ For more options on a specific environment, run **"Nuke: Environment Actions"**:
 ### Conda Environment
 
 1. Run **"Nuke: Create Environment"** from the Command Palette.
-2. Select **"conda"** as the type.
+2. Select **"Conda Environment"** as the type.
 3. Enter a **name** for the environment (e.g., `openmc`).
-4. Choose a **Python version** (e.g., `3.11`).
-5. (Optional) Add extra packages or custom channels.
-6. A terminal opens with **live output** while the environment is created.
+4. Enter an optional **Python version** (e.g., `3.13`).
+5. A terminal opens with **live output** while the environment is created.
 
 > **Tip:** Mamba is used automatically if installed (faster solving). Nuke Core falls back to conda if mamba is not available.
 
 ### Venv Environment
 
 1. Run **"Nuke: Create Environment"**.
-2. Select **"venv"** as the type.
-3. Choose a location:
-   - **Workspace root** — creates `.venv/` in your project
-   - **Custom path** — specify any directory
+2. Select **"Virtualenv (venv)"** as the type.
+3. Enter the environment name and an optional Python executable path. Nuke Core creates the venv in the workspace root (`.venv/`).
 4. A terminal opens with live output during creation.
 
-> **Note:** If a venv already exists at the chosen location, Nuke Core warns you and offers to switch to it instead.
+> **Note:** If `.venv` already exists, Nuke Core warns you and offers to switch to it instead.
 
 ---
 
@@ -99,17 +97,16 @@ For more options on a specific environment, run **"Nuke: Environment Actions"**:
 
 Nuke Core scans your workspace for common Python configuration files and suggests setup actions automatically.
 
-| File Detected                          | Suggested Action                                         |
-| -------------------------------------- | -------------------------------------------------------- |
-| `environment.yml` / `environment.yaml` | Create a conda environment from the file                 |
-| `requirements.txt`                     | Install dependencies via pip into the active environment |
+| File Detected                          | Suggested Action                                          |
+| -------------------------------------- | --------------------------------------------------------- |
+| `environment.yml` / `environment.yaml` | Create or update a conda environment from the file        |
+| `requirements.txt`                     | Install dependencies with pip into the active environment |
 
 **How it works:**
 
 1. Open a workspace containing one of these files.
-2. Nuke Core shows a notification suggesting the appropriate action.
-3. Click **"Create Environment"** or **"Install Dependencies"** to proceed.
-4. Commands run in a **live terminal** so you can watch progress.
+2. Nuke Core shows a notification with the applicable action: **Create from environment.yml**, **Update from environment.yml**, **Install requirements.txt**, or **Install with pip**.
+3. Commands run in a **live terminal** so you can watch progress.
 
 > **Tip:** Dismissed prompts are remembered per-workspace (stored in `localStorage`) so you won't be nagged repeatedly.
 

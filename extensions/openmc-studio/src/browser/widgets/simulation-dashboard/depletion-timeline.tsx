@@ -31,6 +31,7 @@
 
 import * as React from 'react';
 import { OpenMCDepletion } from '../../../common/openmc-state-schema';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 
 /** Props for the {@link DepletionTimeline} component. */
@@ -326,17 +327,19 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
                                                 step="any"
                                                 min="0"
                                             />
-                                            <select
+                                            <NukeSelect
                                                 value={currentStep.unit}
-                                                onChange={(e) => handleUpdateStep(selectedStepIndex, currentStep.value, e.target.value)}
-                                            >
-                                                <option value="s">Seconds</option>
-                                                <option value="min">Minutes</option>
-                                                <option value="h">Hours</option>
-                                                <option value="d">Days</option>
-                                                <option value="y">Years</option>
-                                                <option value="MWd/kg">MWd/kg</option>
-                                            </select>
+                                                options={[
+                                                    { value: 's', label: 'Seconds' },
+                                                    { value: 'min', label: 'Minutes' },
+                                                    { value: 'h', label: 'Hours' },
+                                                    { value: 'd', label: 'Days' },
+                                                    { value: 'y', label: 'Years' },
+                                                    { value: 'MWd/kg', label: 'MWd/kg' }
+                                                ]}
+                                                onChange={(value: string) => handleUpdateStep(selectedStepIndex, currentStep.value, value)}
+                                                ariaLabel="Step unit"
+                                            />
                                         </div>
                                     </div>
 

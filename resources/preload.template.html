@@ -395,7 +395,7 @@
                 width: 0%;
                 background: linear-gradient(90deg, var(--theme-accent), var(--theme-accent-light), var(--theme-accent-dark));
                 border-radius: 10px;
-                transition: width 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+                transition: width 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
                 box-shadow: 0 0 16px rgba(var(--theme-accent-rgb), 0.5);
             }
 
@@ -923,7 +923,7 @@
                     <div class="progress-bar-fill" id="progress-fill"></div>
                 </div>
                 <div class="progress-info">
-                    <span class="loading-status" id="loading-status">Initializing...</span>
+                    <span class="loading-status" id="loading-status">Loading IDE...</span>
                     <span class="progress-text" id="progress-text">0%</span>
                 </div>
             </div>
@@ -959,44 +959,11 @@
               }
             }
 
-            const loadingStages = [
-              { percent: 0, status: "Initializing core..." },
-              { percent: 15, status: "Loading modules..." },
-              { percent: 30, status: "Setting up workspace..." },
-              { percent: 45, status: "Loading extensions..." },
-              { percent: 60, status: "Configuring plugins..." },
-              { percent: 75, status: "Preparing UI..." },
-              { percent: 90, status: "Almost ready..." },
-              { percent: 100, status: "Ready!" }
-            ];
-
             const tips = {{TIPS_ARRAY}};
             const TIP_DURATION = {{TIP_DURATION}};
 
-            let currentStage = 0;
             let currentTipIndex = Math.floor(Math.random() * tips.length);
-
-            function updateProgress() {
-              const progressFill = document.getElementById('progress-fill');
-              const progressText = document.getElementById('progress-text');
-              const loadingStatus = document.getElementById('loading-status');
-
-              // Splash DOM is gone (replaced after load) — stop the loop without rescheduling
-              if (!progressFill || !progressText || !loadingStatus) {
-                return;
-              }
-
-              if (currentStage < loadingStages.length) {
-                const stage = loadingStages[currentStage];
-                progressFill.style.width = stage.percent + '%';
-                progressText.textContent = stage.percent + '%';
-                loadingStatus.textContent = stage.status;
-                currentStage++;
-
-                const delay = Math.random() * 500 + 250;
-                setTimeout(updateProgress, delay);
-              }
-            }
+            let tipTimer = null;
 
             function updateTip() {
               const tipContent = document.getElementById('tip-content');
@@ -1025,6 +992,181 @@
               }, 300);
             }
 
+            // -----------------------------------------------------------------
+            // Real loading progress.
+            //
+            // This splash is embedded inside `.theia-preload` in index.html,
+            // before bundle.js. The bar reflects actual events, not timers:
+            //   1. download  — bytes reported by the Resource Timing API
+            //   2. starting  — bundle.js executed (entry seen or window load)
+            //   3. workspace — Theia attached #theia-app-shell to <body>
+            //   4. ready     — Theia added `.theia-hidden` to `.theia-preload`
+            //                  (its own reveal step); it then removes the node.
+            // Nothing hides on a timer: on slow connections the splash stays
+            // up with live byte counts until the workbench is actually there.
+            // -----------------------------------------------------------------
+            (function () {
+              const POLL_MS = 250;
+              const SLOW_NETWORK_AFTER_MS = 10000;
+              const MIN_EXPECTED_BYTES = 1.5 * 1024 * 1024;
+              const EXPECTED_FRACTION = 0.9; // treat arrived bytes as at most this share of the total
+              const DOWNLOAD_CAP_PERCENT = 88;
+              const STARTING_PERCENT = 94;
+              const WORKSPACE_PERCENT = 98;
+              const EXPECTED_BYTES_KEY = 'nukeide.preload.expectedBytes';
+
+              const progressFill = document.getElementById('progress-fill');
+              const progressText = document.getElementById('progress-text');
+              const loadingStatus = document.getElementById('loading-status');
+              const preloadEl = document.querySelector('.theia-preload');
+              if (!progressFill || !progressText || !loadingStatus || !preloadEl || !preloadEl.parentElement) {
+                return; // splash markup missing — nothing to drive
+              }
+
+              // Resource Timing has no upfront total, so seed the expected
+              // payload from the previous successful load of this origin.
+              let expectedBytes = MIN_EXPECTED_BYTES;
+              try {
+                const stored = parseInt(localStorage.getItem(EXPECTED_BYTES_KEY) || '', 10);
+                if (stored > 0) {
+                  expectedBytes = Math.max(expectedBytes, stored / EXPECTED_FRACTION);
+                }
+              } catch (e) {
+                // localStorage unavailable (private mode etc.) — heuristic only
+              }
+
+              try {
+                performance.setResourceTimingBufferSize(512);
+              } catch (e) {
+                // older engines — default buffer is large enough here
+              }
+
+              const startedAt = Date.now();
+              let phase = 'download'; // download -> starting -> workspace -> ready
+              let displayedPercent = 0;
+              let finished = false;
+
+              function loadedBytes() {
+                let total = 0;
+                try {
+                  const entries = performance.getEntriesByType('navigation').concat(performance.getEntriesByType('resource'));
+                  for (const entry of entries) {
+                    if (!entry.name || entry.name.indexOf(location.origin) !== 0) continue;
+                    total += entry.transferSize || entry.encodedBodySize || entry.decodedBodySize || 0;
+                  }
+                } catch (e) {
+                  // Performance API unavailable — milestones still drive the bar
+                }
+                return total;
+              }
+
+              function formatMB(bytes) {
+                return (bytes / (1024 * 1024)).toFixed(1);
+              }
+
+              function setPercent(percent) {
+                if (percent <= displayedPercent) return; // real signals never move backwards
+                displayedPercent = percent;
+                progressFill.style.width = percent + '%';
+                progressText.textContent = Math.round(percent) + '%';
+              }
+
+              function bundleExecuted() {
+                if (document.readyState === 'complete') return true;
+                try {
+                  return performance.getEntriesByType('resource').some((entry) => /\/bundle\.js(\?|$)/.test(entry.name));
+                } catch (e) {
+                  return false;
+                }
+              }
+
+              function tick() {
+                if (phase === 'download' && bundleExecuted()) {
+                  phase = 'starting';
+                }
+                const loaded = loadedBytes();
+                const slowNetwork = Date.now() - startedAt >= SLOW_NETWORK_AFTER_MS;
+                switch (phase) {
+                  case 'download': {
+                    if (loaded > expectedBytes * EXPECTED_FRACTION) {
+                      expectedBytes = loaded / EXPECTED_FRACTION; // first visit: keep the estimate honest
+                    }
+                    setPercent(Math.min(loaded / expectedBytes, 1) * DOWNLOAD_CAP_PERCENT);
+                    loadingStatus.textContent = slowNetwork
+                      ? `Slow connection — ${formatMB(loaded)} MB received`
+                      : `Downloading IDE — ${formatMB(loaded)} MB`;
+                    break;
+                  }
+                  case 'starting':
+                    setPercent(STARTING_PERCENT);
+                    loadingStatus.textContent = slowNetwork
+                      ? `Starting services… (${formatMB(loaded)} MB received)`
+                      : 'Starting services…';
+                    break;
+                  case 'workspace':
+                    setPercent(WORKSPACE_PERCENT);
+                    loadingStatus.textContent = 'Preparing workspace…';
+                    break;
+                  default:
+                    break;
+                }
+              }
+
+              const pollTimer = setInterval(tick, POLL_MS);
+
+              // Theia attaches the application shell directly to <body>, right
+              // before this splash, once the backend is connected.
+              const shellObserver = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                  for (const node of mutation.addedNodes) {
+                    if (node.nodeType === Node.ELEMENT_NODE && node.id === 'theia-app-shell' && phase !== 'ready') {
+                      shellObserver.disconnect();
+                      phase = 'workspace';
+                    }
+                  }
+                }
+              });
+              shellObserver.observe(document.body, { childList: true });
+
+              function persistExpectedBytes() {
+                try {
+                  const seen = loadedBytes();
+                  const previous = parseInt(localStorage.getItem(EXPECTED_BYTES_KEY) || '', 10) || 0;
+                  localStorage.setItem(EXPECTED_BYTES_KEY, String(Math.max(previous, seen)));
+                } catch (e) {
+                  // ignore persistence failures
+                }
+              }
+
+              function finish() {
+                if (finished) return;
+                finished = true;
+                clearInterval(pollTimer);
+                if (tipTimer !== null) clearInterval(tipTimer);
+                shellObserver.disconnect();
+                removalObserver.disconnect();
+                setPercent(100);
+                loadingStatus.textContent = 'Ready!';
+                persistExpectedBytes();
+              }
+
+              // Terminal signal: Theia fades this splash out itself by adding
+              // `.theia-hidden`, then removes the node after the transition.
+              new MutationObserver(() => {
+                if (preloadEl.classList.contains('theia-hidden')) finish();
+              }).observe(preloadEl, { attributes: true, attributeFilter: ['class'] });
+
+              // Safety net in case the node goes away without the class.
+              const removalObserver = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                  for (const node of mutation.removedNodes) {
+                    if (node === preloadEl) finish();
+                  }
+                }
+              });
+              removalObserver.observe(preloadEl.parentElement, { childList: true });
+            })();
+
             document.addEventListener('DOMContentLoaded', () => {
               const tipContent = document.getElementById('tip-content');
               const tipEmoji = document.getElementById('tip-emoji');
@@ -1049,28 +1191,8 @@
                 // Ignore logo color errors
               }
 
-              setTimeout(updateProgress, 500);
-              setInterval(updateTip, TIP_DURATION);
+              tipTimer = setInterval(updateTip, TIP_DURATION);
               document.addEventListener('click', updateTip);
-
-              setTimeout(() => {
-                const spinnerContainer = document.querySelector('.spinner-container');
-                const tipBox = document.getElementById('tip-box');
-                const bgPattern = document.querySelector('.bg-pattern');
-
-                if (spinnerContainer) {
-                  spinnerContainer.style.opacity = '0';
-                  spinnerContainer.style.transition = 'opacity 0.5s ease';
-                  spinnerContainer.style.pointerEvents = 'none';
-                  setTimeout(() => { spinnerContainer.style.display = 'none'; }, 500);
-                }
-                if (tipBox) {
-                  tipBox.style.opacity = '0';
-                  tipBox.style.transition = 'opacity 0.3s ease';
-                  setTimeout(() => { tipBox.style.display = 'none'; }, 300);
-                }
-                if (bgPattern) bgPattern.style.display = 'none';
-              }, 15000);
             });
         </script>
     </body>

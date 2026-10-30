@@ -1,6 +1,6 @@
 # Nuke Visualizer — Plugin Developer Guide
 
-This guide explains how to add new visualization plugins to NukeIDE. The `nuke-visualizer` extension provides shared infrastructure for spawning Python servers, managing widgets, running health checks, and executing scripts. You focus on your domain-specific logic.
+This guide explains how to add new visualization plugins to NukeIDE. The `nuke-visualizer` extension provides shared infrastructure for running headless Python converter commands, managing widgets, running health checks, and executing scripts. You focus on your domain-specific logic.
 
 > **Current plugins:** Base Visualizer (VTK/DAGMC), OpenMC  
 > **Future examples:** MOOSE, Cardinal, OpenFOAM, etc.
@@ -66,16 +66,16 @@ This guide explains how to add new visualization plugins to NukeIDE. The `nuke-v
 
 ## What You Get for Free
 
-| Infrastructure                | What It Does                                                       | Your Responsibility                                        |
-| ----------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
-| **Python detection**          | Finds a Python with your required packages via `nuke-core`         | Declare packages in `src/common/packages.json`             |
-| **Health checks**             | Verifies packages in the configured env, suggests install commands | Register requirements with `HealthCheckFramework`          |
-| **Process spawning**          | Finds free ports, starts your Python server, waits for readiness   | Provide `@command` handlers under `python/plugins/<name>/` |
-| **Widget lifecycle**          | Creates iframe widgets, handles open/close, theme propagation      | Create widgets or reuse `VisualizerWidget`                 |
-| **File open handling**        | Routes file types to your plugin via Theia `OpenHandler`           | Implement `canHandle()` and `open()`                       |
-| **Menu/command registration** | Registers commands under `Tools → Visualizer`                      | Define command IDs and labels                              |
-| **Plotly integration**        | Displays interactive 2D plots                                      | Provide `PlotlyFigure` data                                |
-| **Output channel logging**    | Streams Python stdout/stderr to IDE panels                         | Use `VisualizerClient.log/error/warn`                      |
+| Infrastructure                | What It Does                                                                     | Your Responsibility                                        |
+| ----------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **Python detection**          | Finds a Python with your required packages via `nuke-core`                       | Declare packages in `src/common/packages.json`             |
+| **Health checks**             | Verifies packages in the configured env, suggests install commands               | Register requirements with `HealthCheckFramework`          |
+| **Process execution**         | Runs your headless `@command` handlers via `server.py`, parses JSON/file results | Provide `@command` handlers under `python/plugins/<name>/` |
+| **Widget lifecycle**          | Creates native/​React widgets, handles open/close, theme propagation             | Create widgets or reuse `NativeVtkViewerWidget`            |
+| **File open handling**        | Routes file types to your plugin via Theia `OpenHandler`                         | Implement `canHandle()` and `open()`                       |
+| **Menu/command registration** | Registers commands under `Tools → Visualizer`                                    | Define command IDs and labels                              |
+| **Plotly integration**        | Displays interactive 2D plots                                                    | Provide `PlotlyFigure` data                                |
+| **Output channel logging**    | Streams Python stdout/stderr to IDE panels                                       | Use `VisualizerClient.log/error/warn`                      |
 
 ---
 
@@ -92,8 +92,6 @@ export const MooseBackendService = Symbol('MooseBackendService');
 export const MOOSE_BACKEND_PATH = '/services/moose';
 
 export interface MooseBackendService {
-  startServer(inputFile: string): Promise<{ url: string; port: number }>;
-  stopServer(port: number): Promise<void>;
   getMeshInfo(filePath: string): Promise<MooseMeshInfo>;
   // Add your domain-specific methods...
 }
@@ -134,7 +132,7 @@ python/plugins/moose/
 ├── commands/
 │   ├── __init__.py
 │   ├── info.py        # @command('moose.info')
-│   └── serve.py       # @command('moose.serve') — optional Trame server
+│   └── convert.py     # @command('moose.convert') — headless converter
 └── lib/
     ├── __init__.py
     └── reader.py      # Reusable helpers
@@ -146,13 +144,14 @@ python/plugins/moose/
 
 ```python
 """MOOSE visualization plugin for NukeIDE."""
+
 import sys
 
-_COMMAND_MODULES = ['info', 'serve']
+_COMMAND_MODULES = ["info", "convert"]
 
 for mod_name in _COMMAND_MODULES:
     try:
-        __import__(f'plugins.moose.commands.{mod_name}')
+        __import__(f"plugins.moose.commands.{mod_name}")
     except Exception as e:
         print(f"[MOOSE Plugin] '{mod_name}' not loaded: {e}", file=sys.stderr)
 
@@ -169,8 +168,9 @@ REQUIREMENTS = ["moose", "vtk"]
 from nuke_viz.plugin import command, arg
 import json
 
-@command('moose.info', help='Get MOOSE mesh info')
-@arg('--file', required=True, help='Path to Exodus or input file')
+
+@command("moose.info", help="Get MOOSE mesh info")
+@arg("--file", required=True, help="Path to Exodus or input file")
 def cmd_info(args):
     # Your logic to read MOOSE output/exodus files
     result = {"numElements": 1000, "numNodes": 500, "variables": ["temp", "disp"]}
@@ -178,9 +178,10 @@ def cmd_info(args):
     return 0
 ```
 
-Test standalone:
+Test standalone from the extension's Python directory:
 
 ```bash
+cd extensions/nuke-visualizer/python
 python server.py moose.info --file /path/to/moose.i
 ```
 
@@ -190,7 +191,7 @@ Create `src/node/plugins/moose/moose-backend-service.ts`:
 
 ```typescript
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { MooseBackendService, MooseMeshInfo } from '../../../common/moose-protocol';
+import { MooseBackendService, MooseMeshInfo, MOOSE_REQUIREMENTS } from '../../../common/moose-protocol';
 import { VisualizerClient } from '../../../common/base-visualizer-protocol';
 import { PythonCommandHelper } from '../../services/python-command-helper';
 
@@ -205,25 +206,13 @@ export class MooseBackendServiceImpl implements MooseBackendService {
     this.client = client;
   }
 
-  async startServer(inputFile: string): Promise<{ url: string; port: number }> {
-    // 1. Detect Python with moose + vtk
-    const pythonResult = await this.pythonHelper.detectPython(
-      MOOSE_REQUIREMENTS,
-      ['moose', 'dev'] // preferred env names
-    );
-
-    // 2. Find a free port
-    const port = await this.findFreePort();
-
-    // 3. Spawn your server via the unified entry point
+  async convertMesh(inputFile: string): Promise<string> {
+    // Run the headless converter via the unified entry point; it writes VTK and exits.
     const serverScript = this.pythonHelper.findScript('server.py');
-    const { spawn } = await import('child_process');
-    const proc = spawn(pythonResult.command, [serverScript, 'moose.serve', '--port', String(port), '--file', inputFile]);
-
-    // 4. Wait for ready
-    await this.waitForServer(port);
-
-    return { url: `http://localhost:${port}`, port };
+    const result = await this.pythonHelper.executeScriptJson<{ vtk_path: string }>(serverScript, ['moose.convert', '--file', inputFile], {
+      requirements: MOOSE_REQUIREMENTS
+    });
+    return result.vtk_path;
   }
 
   async getMeshInfo(filePath: string): Promise<MooseMeshInfo> {
@@ -243,7 +232,7 @@ export class MooseBackendServiceImpl implements MooseBackendService {
     return JSON.parse(jsonLine) as MooseMeshInfo;
   }
 
-  // ... helpers: findFreePort, waitForServer, stopServer
+  // ... helpers: convertMesh, getMeshInfo
 }
 ```
 
@@ -285,9 +274,9 @@ export class MooseService {
   }
 
   async openInputFile(filePath: string): Promise<void> {
-    // Start server, create widget, etc.
-    const server = await this.backend.startServer(filePath);
-    // ... create widget with iframe pointing to server.url
+    // Convert via the backend, read the converted file, render natively.
+    const vtkPath = await this.backend.convertMesh(filePath);
+    // ... read vtkPath via FileService and render with setVtkText
   }
 }
 ```
@@ -383,10 +372,10 @@ bind(ConnectionHandler)
 In your contribution's `registerMenus()`:
 
 ```typescript
-import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
+import { NukeVisualizerMenus } from '../../contributions/visualizer-menus';
 
 registerMenus(menus: MenuModelRegistry): void {
-    menus.registerMenuAction(NukeMenus.TOOLS_VISUALIZER, {
+    menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
         commandId: MooseCommands.OPEN_INPUT.id,
         label: 'MOOSE'
     });
@@ -434,14 +423,14 @@ canHandle(uri: URI): number {
 
 ### 3. Widget Creation
 
-**Option A — Reuse `VisualizerWidget` (iframe-based):**
+**Option A — Subclass `NativeVtkViewerWidget`:**
 
-Best for Python servers that render their own UI (Trame, Dash, etc.).
+Best for 3D datasets: convert to VTK XML or legacy ASCII in the backend, read the file text, and render natively.
 
 ```typescript
-const widget = await this.widgetManager.getOrCreateWidget(VisualizerWidget.ID, { uri: filePath, id: 'your-prefix-' + filePath });
-// Set the server URL after the server starts
-widget.setServerUrl(serverUrl);
+const widget = await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, { uri: filePath, id: 'your-prefix-' + filePath });
+// Convert via RPC, then render the converted text
+widget.setVtkText(vtkText);
 ```
 
 **Option B — Custom React widget:**
@@ -474,7 +463,7 @@ Use standard Theia patterns:
 commands.registerCommand(YOUR_COMMAND, { execute: () => ... });
 
 // Menus under Tools → Visualizer
-menus.registerMenuAction(NukeMenus.TOOLS_VISUALIZER, {
+menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
     commandId: YOUR_COMMAND.id,
     label: 'Your Plugin'
 });
@@ -493,10 +482,6 @@ const execResult = await helper.executeScript(serverScript, ['moose.info', '--fi
 const lines = execResult.stdout.split('\n');
 const jsonLine = lines.find((l) => l.trimStart().startsWith('{'));
 const result = JSON.parse(jsonLine);
-
-// Custom server spawning
-const python = await helper.detectPython(YOUR_REQUIREMENTS);
-const proc = spawn(python.command, [serverScript, 'moose.serve', '--port', String(port), '--file', inputFile]);
 ```
 
 ---
@@ -520,11 +505,17 @@ detectPython(
 ): Promise<PythonCommandResult>
 
 executeScriptJson<T>(
-    scriptName: string,
+    scriptPath: string,
     args: string[],
-    requirements?: PackageDependency[]
+    options?: {
+        maxBuffer?: number;
+        timeout?: number;
+        requirements?: PackageDependency[];
+    }
 ): Promise<T>
 ```
+
+`scriptPath` must be the absolute path returned by `findScript()`. `executeScriptJson` parses the entire stdout as one JSON value; commands that print log lines before the payload must use `executeScript` and extract the final JSON line.
 
 ### `PlotlyService`
 
@@ -538,8 +529,6 @@ Properties:
 
 - `id` — Widget ID (must be unique per instance)
 - `setUri(uri, volumeId?)` — Set the file to visualize
-- `setServerUrl(url)` — Point iframe to running server (pass the raw `http://127.0.0.1:<port>` URL from the backend; the widget routes it through the `/visualizer/<port>/` reverse proxy itself)
-- `onServerStop(port)` — Static callback when a server stops
 
 ### `NukeCoreService`
 
@@ -560,11 +549,11 @@ Use these to invalidate cached data when the environment changes.
 2. Install missing packages using the suggested commands
 3. Ensure your plugin's entries in `src/common/packages.json` have correct metadata (`condaOnly`, `extraIndexUrl`, etc.)
 
-### Server starts but widget shows blank
+### Conversion succeeds but widget shows blank
 
 1. Check the **Nuke Visualizer** output channel for Python errors
-2. Verify the server URL is correct (`http://localhost:PORT`)
-3. Check browser dev tools for CSP or iframe errors
+2. Verify the converted VTK path exists and parses with `parseNativeVtk`
+3. Check browser dev tools for three.js render errors
 
 ### Widget reopens instead of creating a new one
 
@@ -581,5 +570,5 @@ Health checks always verify the **configured** environment, not fallbacks. If yo
 ### Commands don't appear in menus
 
 - Verify `CommandContribution` and `MenuContribution` are bound in the frontend module
-- Check that `NukeMenus.TOOLS_VISUALIZER` is the correct menu path
+- Check that `NukeVisualizerMenus.VISUALIZER` is the correct menu path
 - Ensure command IDs match between `registerCommand` and `registerMenuAction`

@@ -142,11 +142,12 @@ def _make_workdir(tmp_path, settings_xml=SETTINGS_XML, with_statepoint=True):
     return tmp_path
 
 
-def _args(workdir, config=FULL_CONFIG, mpi_processes=None):
+def _args(workdir, config=FULL_CONFIG, mpi_processes=None, threads=None):
     return SimpleNamespace(
         working_directory=str(workdir),
         cmfd_config=json.dumps(config),
         mpi_processes=mpi_processes,
+        threads=threads,
     )
 
 
@@ -253,6 +254,17 @@ def test_run_cmfd_builds_and_runs(monkeypatch, tmp_path):
     assert run.ran is True
     assert run.run_kwargs == {}
     assert run.assignments["mesh"] is RecordingCMFDMesh.instances[0]
+
+
+def test_run_cmfd_passes_threads_to_c_api(monkeypatch, tmp_path):
+    _install_fake_openmc(monkeypatch)
+    workdir = _make_workdir(tmp_path)
+
+    run_cmfd.run_cmfd(_args(workdir, threads=3))
+
+    run = RecordingCMFDRun.instances[0]
+    assert run.ran is True
+    assert run.run_kwargs == {"args": ["-s", "3"]}
 
 
 def test_run_cmfd_without_statepoint_still_succeeds(monkeypatch, tmp_path):

@@ -1,0 +1,80 @@
+/* ============================================================================
+   NukeIDE Empty State
+   ============================================================================ */
+
+.nuke-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--nuke-space-3);
+    box-sizing: border-box;
+    /* Keep a gutter from the panel edge when the sidebar is narrower than
+       the card; cap wide sidebars at a readable width. */
+    width: calc(100% - 32px);
+    max-width: 420px;
+    margin: var(--nuke-space-4) auto;
+    padding: var(--nuke-space-6) var(--nuke-space-4);
+    text-align: center;
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background, rgba(100, 100, 100, 0.08));
+    border: 1px solid var(--theia-panel-border);
+    border-radius: var(--nuke-radius-xl);
+}
+
+.nuke-empty-state-icon {
+    font-size: 48px;
+    margin-bottom: var(--nuke-space-1);
+    opacity: 0.5;
+}
+
+.nuke-empty-state-illustration {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 76px;
+    height: 76px;
+    margin-bottom: var(--nuke-space-1);
+    color: var(--theia-focusBorder);
+    background: color-mix(in srgb, var(--theia-focusBorder), transparent 88%);
+    border: 1px solid color-mix(in srgb, var(--theia-focusBorder), transparent 72%);
+    border-radius: var(--nuke-radius-xl);
+}
+
+.nuke-empty-state-illustration > svg {
+    display: block;
+    width: 50px;
+    height: 50px;
+}
+
+.nuke-empty-state-title {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.nuke-empty-state-message {
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+    opacity: 0.85;
+}
+
+.nuke-empty-state-hint {
+    font-size: var(--theia-ui-font-size0);
+    opacity: 0.6;
+    font-family: var(--theia-ui-font-family);
+}
+
+.nuke-empty-state-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--nuke-space-3);
+    margin-top: var(--nuke-space-2);
+}
+
+.nuke-empty-state-actions .theia-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--nuke-space-1);
+}

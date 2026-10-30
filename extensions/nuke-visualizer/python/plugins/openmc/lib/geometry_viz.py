@@ -1,36 +1,16 @@
 #!/usr/bin/env python3
 """
-OpenMC Geometry 3D Visualization for NukeIDE.
-Converts OpenMC CSG geometry to VTK for visualization.
+OpenMC CSG geometry parsing and headless mesh extraction for NukeIDE.
+
+Parses ``geometry.xml`` into Surface/Cell dataclasses
+(:class:`OpenMCGeometryVisualizer`) and converts cells to numpy-only mesh
+JSON for the native three.js client — no trame/ParaView server.
 """
 
-import json
-import os
-import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 import numpy as np
-import vtk
-
-# Import common utilities
-from plugins.base.lib.common import (
-    DISTINCT_COLORS,
-    GLOBAL_STYLES,
-    StateHandlers,
-    UIComponents,
-    create_capture_screenshot_controller,
-    create_pan_camera_controller,
-    create_reset_camera_controller,
-    create_set_camera_view_controller,
-    create_update_view,
-    create_view_widget,
-    create_zoom_camera_controller,
-    hex_to_rgb,
-    init_common_state,
-    save_screenshot_with_timestamp,
-    update_view_widget,
-)
 
 
 @dataclass
@@ -56,7 +36,7 @@ class Cell:
 
 
 class OpenMCGeometryVisualizer:
-    """Converts OpenMC CSG geometry to VTK for visualization."""
+    """Parses OpenMC CSG geometry XML into surfaces, cells, and bounds."""
 
     def __init__(self):
         self.surfaces: dict[int, Surface] = {}
@@ -197,1773 +177,482 @@ class OpenMCGeometryVisualizer:
             self.bounds["zmin"] = min(zvals) - 0.1
             self.bounds["zmax"] = max(zvals) + 0.1
 
-    def create_vtk_geometry(
-        self, highlight_cell_ids: list[int] | None = None
-    ) -> vtk.vtkMultiBlockDataSet:
-        """
-        Create VTK representation of the geometry.
 
-        Args:
-            highlight_cell_ids: Optional list of cell IDs to highlight
+# ---------------------------------------------------------------------------
+# Headless CSG -> mesh JSON extractors.
+#
+# These functions extract OpenMC CSG geometry as JSON-safe meshes for a
+# native three.js client WITHOUT starting a trame/ParaView server.
+#
+# Mesh construction is numpy-only (unit-testable without vtk/openmc);
+# ``openmc`` is imported lazily and only by extract_csg_from_openmc_model.
+# Errors raise GeometryExtractorError; command wrappers convert these to the
+# single-JSON-object contract.
+# ---------------------------------------------------------------------------
 
-        Returns:
-            VTK MultiBlock dataset with geometry
-        """
-        multi_block = vtk.vtkMultiBlockDataSet()
 
-        if highlight_cell_ids is None:
-            highlight_cell_ids = []
+class GeometryExtractorError(Exception):
+    """Raised for all headless CSG extractor failures (bad input, missing
+    file, missing optional dependency, unparseable XML)."""
 
-        # Create a block for each cell
-        cell_count = 0
-        for cell_id, cell in self.cells.items():
-            cell_polydata = self._create_cell_geometry(cell)
-            if cell_polydata:
-                # Add cell ID as array for identification
-                cell_ids = vtk.vtkIntArray()
-                cell_ids.SetName("cell_id")
-                cell_ids.SetNumberOfValues(cell_polydata.GetNumberOfCells())
-                for i in range(cell_polydata.GetNumberOfCells()):
-                    cell_ids.SetValue(i, cell_id)
-                cell_polydata.GetCellData().AddArray(cell_ids)
 
-                # Add material array for coloring (use material ID if available, else 0)
-                try:
-                    mat_id = int(cell.material) if cell.material and cell.material != "void" else 0
-                except (ValueError, TypeError):
-                    mat_id = 0
-                materials = vtk.vtkIntArray()
-                materials.SetName("material")
-                materials.SetNumberOfValues(cell_polydata.GetNumberOfCells())
-                for i in range(cell_polydata.GetNumberOfCells()):
-                    materials.SetValue(i, mat_id)
-                cell_polydata.GetCellData().AddArray(materials)
+_DEFAULT_SEGMENTS = 16
+_MIN_SEGMENTS = 3
+_MAX_SEGMENTS = 64
 
-                # Add highlight array if this is one of the highlighted cells
-                highlight = vtk.vtkIntArray()
-                highlight.SetName("highlight")
-                highlight.SetNumberOfValues(cell_polydata.GetNumberOfCells())
-                is_highlighted = 1 if cell_id in highlight_cell_ids else 0
-                for i in range(cell_polydata.GetNumberOfCells()):
-                    highlight.SetValue(i, is_highlighted)
-                cell_polydata.GetCellData().AddArray(highlight)
 
-                multi_block.SetBlock(cell_count, cell_polydata)
-                multi_block.GetMetaData(cell_count).Set(
-                    vtk.vtkCompositeDataSet.NAME(), f"Cell_{cell_id}"
-                )
-                cell_count += 1
+def _require_segments(value) -> int:
+    """Validate a tessellation segment budget.
 
-        return multi_block
-
-    def create_markers_vtk(self, markers: list[dict]) -> vtk.vtkMultiBlockDataSet:
-        """Create VTK markers for overlap locations."""
-        multi_block = vtk.vtkMultiBlockDataSet()
-
-        # Limit markers to prevent performance issues
-        MAX_MARKERS = 1000
-        total_markers = len(markers)
-        if total_markers > MAX_MARKERS:
-            print(
-                f"Warning: Too many overlaps ({total_markers}). Showing first {MAX_MARKERS} markers."
-            )
-            markers = markers[:MAX_MARKERS]
-
-        # Calculate a reasonable radius based on geometry bounds if not provided
-        default_radius = 1.0
-        if self.bounds:
-            diagonal = np.sqrt(
-                (self.bounds["xmax"] - self.bounds["xmin"]) ** 2
-                + (self.bounds["ymax"] - self.bounds["ymin"]) ** 2
-                + (self.bounds["zmax"] - self.bounds["zmin"]) ** 2
-            )
-            if diagonal > 0:
-                default_radius = diagonal * 0.02  # 2% of diagonal
-
-        for i, marker in enumerate(markers):
-            coords = marker.get("coordinates", [0, 0, 0])
-            radius = marker.get("radius", default_radius)
-            if radius == 1.0:  # If it was our default 1.0, use the dynamic one
-                radius = default_radius
-
-            sphere = vtk.vtkSphereSource()
-            sphere.SetCenter(coords[0], coords[1], coords[2])
-            sphere.SetRadius(radius)
-            sphere.SetThetaResolution(8)  # Reduced for performance
-            sphere.SetPhiResolution(8)
-            sphere.Update()
-
-            multi_block.SetBlock(i, sphere.GetOutput())
-            multi_block.GetMetaData(i).Set(vtk.vtkCompositeDataSet.NAME(), f"Overlap_{i}")
-
-        return multi_block
-
-    def _create_cell_geometry(self, cell: Cell) -> vtk.vtkPolyData | None:
-        """Create VTK geometry for a single cell."""
-        if not cell.surfaces:
-            return None
-
-        # Get the primary surface (first one) to determine geometry type
-        primary_surf_id = list(cell.surfaces.keys())[0]
-        if primary_surf_id not in self.surfaces:
-            return None
-
-        surf = self.surfaces[primary_surf_id]
-
-        # Route to appropriate geometry creator based on surface type
-        surf_creators = {
-            "x-plane": lambda s: self._create_box_from_planes(
-                [(s, cell.surfaces[primary_surf_id])], cell.id
-            ),
-            "y-plane": lambda s: self._create_box_from_planes(
-                [(s, cell.surfaces[primary_surf_id])], cell.id
-            ),
-            "z-plane": lambda s: self._create_box_from_planes(
-                [(s, cell.surfaces[primary_surf_id])], cell.id
-            ),
-            "plane": lambda s: self._create_plane_cell(s, cell),
-            "x-cylinder": lambda s: self._create_x_cylinder_geometry(s),
-            "y-cylinder": lambda s: self._create_y_cylinder_geometry(s),
-            "z-cylinder": lambda s: self._create_cylinder_geometry(s, cell.id),
-            "cylinder": lambda s: self._create_cylinder_geometry(s, cell.id),
-            "sphere": lambda s: self._create_sphere_geometry(s),
-            "x-cone": lambda s: self._create_cone_geometry(s, "x"),
-            "y-cone": lambda s: self._create_cone_geometry(s, "y"),
-            "z-cone": lambda s: self._create_cone_geometry(s, "z"),
-            "x-torus": lambda s: self._create_torus_geometry(s, "x"),
-            "y-torus": lambda s: self._create_torus_geometry(s, "y"),
-            "z-torus": lambda s: self._create_torus_geometry(s, "z"),
-            "quadric": lambda s: self._create_quadric_geometry(s, cell.id),
-        }
-
-        if surf.type in surf_creators:
-            return surf_creators[surf.type](surf)
-
-        # Fallback: try to create from multiple planes if available
-        planes = []
-        for surf_id, is_comp in cell.surfaces.items():
-            if surf_id in self.surfaces:
-                s = self.surfaces[surf_id]
-                if s.type in ("x-plane", "y-plane", "z-plane"):
-                    planes.append((s, is_comp))
-
-        if len(planes) >= 2:
-            return self._create_box_from_planes(planes, cell.id)
-
-        return None
-
-    def _create_plane_cell(self, surf: Surface, cell: Cell) -> vtk.vtkPolyData:
-        """Create geometry for a general plane cell."""
-        # General plane: ax + by + cz = d
-        if len(surf.coefficients) < 4:
-            return vtk.vtkPolyData()
-
-        a, b, c, d = (
-            surf.coefficients[0],
-            surf.coefficients[1],
-            surf.coefficients[2],
-            surf.coefficients[3],
-        )
-
-        # Create a plane source
-        plane = vtk.vtkPlaneSource()
-
-        # Calculate plane center and normal
-        normal = np.array([a, b, c])
-        normal = (
-            normal / np.linalg.norm(normal) if np.linalg.norm(normal) > 0 else np.array([0, 0, 1])
-        )
-
-        # Find a point on the plane
-        if abs(a) > abs(b) and abs(a) > abs(c):
-            point = np.array([d / a, 0, 0])
-        elif abs(b) > abs(c):
-            point = np.array([0, d / b, 0])
-        else:
-            point = np.array([0, 0, d / c if c != 0 else 0])
-
-        # Create a large plane
-        plane.SetCenter(point)
-        plane.SetNormal(normal)
-        plane.SetOrigin(point - 5 * normal)
-        plane.SetPoint1(point + np.array([5, 0, 0]))
-        plane.SetPoint2(point + np.array([0, 5, 0]))
-        plane.Update()
-
-        return plane.GetOutput()
-
-    def _create_box_from_planes(
-        self, planes: list[tuple[Surface, bool]], cell_id: int
-    ) -> vtk.vtkPolyData:
-        """Create a box representation from plane surfaces."""
-        # Extract bounds from planes
-        xmin, xmax = self.bounds["xmin"], self.bounds["xmax"]
-        ymin, ymax = self.bounds["ymin"], self.bounds["ymax"]
-        zmin, zmax = self.bounds["zmin"], self.bounds["zmax"]
-
-        for surf, is_comp in planes:
-            if surf.type == "x-plane" and surf.coefficients:
-                x = surf.coefficients[0]
-                if is_comp:
-                    xmin = max(xmin, x)
-                else:
-                    xmax = min(xmax, x)
-            elif surf.type == "y-plane" and surf.coefficients:
-                y = surf.coefficients[0]
-                if is_comp:
-                    ymin = max(ymin, y)
-                else:
-                    ymax = min(ymax, y)
-            elif surf.type == "z-plane" and surf.coefficients:
-                z = surf.coefficients[0]
-                if is_comp:
-                    zmin = max(zmin, z)
-                else:
-                    zmax = min(zmax, z)
-
-        # Ensure valid bounds
-        if xmin >= xmax:
-            xmin, xmax = self.bounds["xmin"], self.bounds["xmax"]
-        if ymin >= ymax:
-            ymin, ymax = self.bounds["ymin"], self.bounds["ymax"]
-        if zmin >= zmax:
-            zmin, zmax = self.bounds["zmin"], self.bounds["zmax"]
-
-        # Create a box
-        cube = vtk.vtkCubeSource()
-        cube.SetXLength(xmax - xmin)
-        cube.SetYLength(ymax - ymin)
-        cube.SetZLength(zmax - zmin)
-        cube.SetCenter((xmin + xmax) / 2, (ymin + ymax) / 2, (zmin + zmax) / 2)
-        cube.Update()
-
-        return cube.GetOutput()
-
-    def _create_cylinder_geometry(self, surf: Surface, cell_id: int) -> vtk.vtkPolyData:
-        """Create a cylinder representation."""
-        if len(surf.coefficients) < 3:
-            return vtk.vtkPolyData()
-
-        cx, cy, r = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-        zmin, zmax = self.bounds["zmin"], self.bounds["zmax"]
-
-        # Create a cylinder
-        cylinder = vtk.vtkCylinderSource()
-        cylinder.SetRadius(r)
-        cylinder.SetHeight(zmax - zmin)
-        cylinder.SetResolution(32)
-        cylinder.Update()
-
-        # Transform to correct position
-        transform = vtk.vtkTransform()
-        transform.Translate(cx, cy, (zmin + zmax) / 2)
-        transform.RotateX(90)  # VTK cylinders are oriented along Y by default
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cylinder.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_x_cylinder_geometry(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create an x-aligned cylinder."""
-        if len(surf.coefficients) < 3:
-            return vtk.vtkPolyData()
-
-        cy, cz, r = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-        xmin, xmax = self.bounds["xmin"], self.bounds["xmax"]
-
-        cylinder = vtk.vtkCylinderSource()
-        cylinder.SetRadius(r)
-        cylinder.SetHeight(xmax - xmin)
-        cylinder.SetResolution(32)
-        cylinder.Update()
-
-        transform = vtk.vtkTransform()
-        transform.Translate((xmin + xmax) / 2, cy, cz)
-        transform.RotateZ(90)  # Rotate to align with X axis
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cylinder.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_y_cylinder_geometry(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create a y-aligned cylinder."""
-        if len(surf.coefficients) < 3:
-            return vtk.vtkPolyData()
-
-        cx, cz, r = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-        ymin, ymax = self.bounds["ymin"], self.bounds["ymax"]
-
-        cylinder = vtk.vtkCylinderSource()
-        cylinder.SetRadius(r)
-        cylinder.SetHeight(ymax - ymin)
-        cylinder.SetResolution(32)
-        cylinder.Update()
-
-        transform = vtk.vtkTransform()
-        transform.Translate(cx, (ymin + ymax) / 2, cz)
-        # Y-aligned is the default, no rotation needed
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cylinder.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_sphere_geometry(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create a sphere representation."""
-        if len(surf.coefficients) < 4:
-            return vtk.vtkPolyData()
-
-        cx, cy, cz, r = (
-            surf.coefficients[0],
-            surf.coefficients[1],
-            surf.coefficients[2],
-            surf.coefficients[3],
-        )
-
-        sphere = vtk.vtkSphereSource()
-        sphere.SetCenter(cx, cy, cz)
-        sphere.SetRadius(r)
-        sphere.SetThetaResolution(32)
-        sphere.SetPhiResolution(32)
-        sphere.Update()
-
-        return sphere.GetOutput()
-
-    def _create_cone_geometry(self, surf: Surface, axis: str) -> vtk.vtkPolyData:
-        """Create a cone representation.
-
-        OpenMC cone format:
-        - x-cone: coeffs = (x0, y0, z0, R^2) where (x-x0)^2 = R^2 * [(y-y0)^2 + (z-z0)^2]
-        - y-cone: coeffs = (x0, y0, z0, R^2) where (y-y0)^2 = R^2 * [(x-x0)^2 + (z-z0)^2]
-        - z-cone: coeffs = (x0, y0, z0, R^2) where (z-z0)^2 = R^2 * [(x-x0)^2 + (y-y0)^2]
-        """
-        if len(surf.coefficients) < 4:
-            return vtk.vtkPolyData()
-
-        # Parse coefficients: x0, y0, z0, R^2
-        x0, y0, z0, r_squared = (
-            surf.coefficients[0],
-            surf.coefficients[1],
-            surf.coefficients[2],
-            surf.coefficients[3],
-        )
-
-        # Calculate height from bounds (extent of cone)
-        if axis == "x":
-            h = max(abs(self.bounds["xmax"] - x0), abs(self.bounds["xmin"] - x0))
-        elif axis == "y":
-            h = max(abs(self.bounds["ymax"] - y0), abs(self.bounds["ymin"] - y0))
-        else:  # z
-            h = max(abs(self.bounds["zmax"] - z0), abs(self.bounds["zmin"] - z0))
-
-        # Avoid degenerate cone
-        if h < 0.001:
-            h = 1.0
-
-        # R^2 determines the cone angle: tan(theta) = R
-        # At distance h from apex, radius = h * R = h * sqrt(R^2)
-        r = np.sqrt(abs(r_squared)) if r_squared > 0 else 0.5
-        radius = h * r
-
-        # Ensure non-zero radius
-        if radius < 0.001:
-            radius = 0.1
-
-        cone = vtk.vtkConeSource()
-        # VTK cone apex is at -height/2 from center, base at +height/2
-        # We want the apex at (x0, y0, z0) pointing along the axis
-        if axis == "x":
-            cone.SetCenter(x0 + h / 2, y0, z0)
-        elif axis == "y":
-            cone.SetCenter(x0, y0 + h / 2, z0)
-        else:  # z
-            cone.SetCenter(x0, y0, z0 + h / 2)
-
-        cone.SetHeight(h)
-        cone.SetRadius(radius)
-        cone.SetResolution(32)
-        cone.Update()
-
-        # Rotate cone to align with axis
-        transform = vtk.vtkTransform()
-        if axis == "x":
-            transform.RotateY(90)
-        elif axis == "y":
-            transform.RotateX(-90)
-        # z is default orientation
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cone.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_torus_geometry(self, surf: Surface, axis: str) -> vtk.vtkPolyData:
-        """Create a torus representation.
-
-        OpenMC torus format: (x0, y0, z0, A, B, C)
-        - (x0, y0, z0): center point
-        - A: major radius (distance from center to tube center)
-        - B: minor radius in the equatorial plane
-        - C: minor radius along the axis of revolution
-
-        For VTK we use: RingRadius = A, CrossSectionRadius = (B+C)/2
-        """
-        if len(surf.coefficients) < 6:
-            print(
-                f"Warning: Torus surface {surf.id} has insufficient coefficients: {surf.coefficients}"
-            )
-            return vtk.vtkPolyData()
-
-        # Parse center position
-        cx, cy, cz = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-
-        # Parse radii
-        A = surf.coefficients[3]  # major radius
-        B = surf.coefficients[4]  # minor radius (equatorial)
-        C = surf.coefficients[5]  # minor radius (axial)
-
-        # VTK uses circular cross-section, so average B and C
-        R = max(A, 0.001)  # major radius (must be > 0)
-        r = max((B + C) / 2, 0.001)  # minor radius (must be > 0)
-
-        # Create torus using parametric function
-        parametric_torus = vtk.vtkParametricTorus()
-        parametric_torus.SetRingRadius(R)
-        parametric_torus.SetCrossSectionRadius(r)
-
-        parametric_function = vtk.vtkParametricFunctionSource()
-        parametric_function.SetParametricFunction(parametric_torus)
-        parametric_function.SetUResolution(50)
-        parametric_function.SetVResolution(50)
-        parametric_function.Update()
-
-        # Transform to correct position and orientation
-        transform = vtk.vtkTransform()
-        transform.Translate(cx, cy, cz)
-        if axis == "x":
-            transform.RotateY(90)
-        elif axis == "y":
-            transform.RotateX(90)
-        # z is default orientation
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(parametric_function.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_quadric_geometry(self, surf: Surface, cell_id: int) -> vtk.vtkPolyData:
-        """Create geometry for a quadric surface.
-
-        OpenMC quadric: Ax² + By² + Cz² + Dxy + Exz + Fyz + Gx + Hy + Iz + J = 0
-
-        Common cases:
-        - Cylinder (z-aligned): A=B, C=0, D=E=F=0
-        - Cylinder (x-aligned): A=C, B=0, D=E=F=0
-        - Cylinder (y-aligned): B=C, A=0, D=E=F=0
-        """
-        if len(surf.coefficients) < 10:
-            return vtk.vtkPolyData()
-
-        A, B, C, D, E, F, G, H, coef_z, J = surf.coefficients[0:10]
-
-        # Determine cylinder axis based on which quadratic term is zero (or near zero)
-        # For a cylinder, one axis has no quadratic term
-        absA, absB, absC = abs(A), abs(B), abs(C)
-
-        # Check if it's a cylinder (one quadratic coefficient is ~0)
-        if absC < 0.001 and absA > 0.001 and absB > 0.001:
-            # Z-aligned cylinder: Ax² + By² + Gx + Hy + J = 0
-            # Convert to standard form: (x - cx)² + (y - cy)² = r²
-            # Complete the square:
-            # A(x + G/(2A))² + B(y + H/(2B))² = -J + G²/(4A) + H²/(4B)
-
-            # Normalize to make A=B=1
-            if abs(absA - absB) < 0.001:  # A ≈ B, circular cylinder
-                cx = -G / (2 * A)
-                cy = -H / (2 * A)
-                rhs = -J / A + (G * G) / (4 * A * A) + (H * H) / (4 * A * A)
-                radius = np.sqrt(max(rhs, 0.001))
-
-                zmin, zmax = self.bounds["zmin"], self.bounds["zmax"]
-
-                cylinder = vtk.vtkCylinderSource()
-                cylinder.SetRadius(radius)
-                cylinder.SetHeight(zmax - zmin)
-                cylinder.SetResolution(32)
-                cylinder.Update()
-
-                transform = vtk.vtkTransform()
-                transform.Translate(cx, cy, (zmin + zmax) / 2)
-                transform.RotateX(90)  # VTK cylinders are Y-aligned by default
-
-                transform_filter = vtk.vtkTransformPolyDataFilter()
-                transform_filter.SetInputData(cylinder.GetOutput())
-                transform_filter.SetTransform(transform)
-                transform_filter.Update()
-
-                return transform_filter.GetOutput()
-
-        elif absA < 0.001 and absB > 0.001 and absC > 0.001:
-            # X-aligned cylinder: By² + Cz² + Hy + Iz + J = 0
-            if abs(absB - absC) < 0.001:
-                cy = -H / (2 * B)
-                cz = -coef_z / (2 * B)
-                rhs = -J / B + (H * H) / (4 * B * B) + (coef_z * coef_z) / (4 * B * B)
-                radius = np.sqrt(max(rhs, 0.001))
-
-                xmin, xmax = self.bounds["xmin"], self.bounds["xmax"]
-
-                cylinder = vtk.vtkCylinderSource()
-                cylinder.SetRadius(radius)
-                cylinder.SetHeight(xmax - xmin)
-                cylinder.SetResolution(32)
-                cylinder.Update()
-
-                transform = vtk.vtkTransform()
-                transform.Translate((xmin + xmax) / 2, cy, cz)
-                transform.RotateZ(90)  # Align with X axis
-
-                transform_filter = vtk.vtkTransformPolyDataFilter()
-                transform_filter.SetInputData(cylinder.GetOutput())
-                transform_filter.SetTransform(transform)
-                transform_filter.Update()
-
-                return transform_filter.GetOutput()
-
-        elif absB < 0.001 and absA > 0.001 and absC > 0.001:
-            # Y-aligned cylinder: Ax² + Cz² + Gx + Iz + J = 0
-            if abs(absA - absC) < 0.001:
-                cx = -G / (2 * A)
-                cz = -coef_z / (2 * A)
-                rhs = -J / A + (G * G) / (4 * A * A) + (coef_z * coef_z) / (4 * A * A)
-                radius = np.sqrt(max(rhs, 0.001))
-
-                ymin, ymax = self.bounds["ymin"], self.bounds["ymax"]
-
-                cylinder = vtk.vtkCylinderSource()
-                cylinder.SetRadius(radius)
-                cylinder.SetHeight(ymax - ymin)
-                cylinder.SetResolution(32)
-                cylinder.Update()
-
-                transform = vtk.vtkTransform()
-                transform.Translate(cx, (ymin + ymax) / 2, cz)
-                # Y-aligned is default, no rotation needed
-
-                transform_filter = vtk.vtkTransformPolyDataFilter()
-                transform_filter.SetInputData(cylinder.GetOutput())
-                transform_filter.SetTransform(transform)
-                transform_filter.Update()
-
-                return transform_filter.GetOutput()
-
-        # Fallback: create a small sphere to indicate unsupported quadric
-        print(
-            f"Warning: Unsupported quadric surface for cell {cell_id}: coeffs={surf.coefficients}"
-        )
-        sphere = vtk.vtkSphereSource()
-        sphere.SetCenter(0, 0, 0)
-        sphere.SetRadius(0.1)
-        sphere.Update()
-        return sphere.GetOutput()
-
-    def create_surface_geometry(self) -> vtk.vtkMultiBlockDataSet:
-        """Create VTK representation of surfaces (wireframe)."""
-        multi_block = vtk.vtkMultiBlockDataSet()
-
-        surf_count = 0
-        for surf_id, surf in self.surfaces.items():
-            surf_polydata = self._create_surface_geometry(surf)
-            if surf_polydata:
-                # Add surface ID
-                surf_ids = vtk.vtkIntArray()
-                surf_ids.SetName("surface_id")
-                surf_ids.SetNumberOfValues(surf_polydata.GetNumberOfCells())
-                for i in range(surf_polydata.GetNumberOfCells()):
-                    surf_ids.SetValue(i, surf_id)
-                surf_polydata.GetCellData().AddArray(surf_ids)
-
-                multi_block.SetBlock(surf_count, surf_polydata)
-                multi_block.GetMetaData(surf_count).Set(
-                    vtk.vtkCompositeDataSet.NAME(), f"Surface_{surf_id}"
-                )
-                surf_count += 1
-
-        return multi_block
-
-    def _create_surface_geometry(self, surf: Surface) -> vtk.vtkPolyData | None:
-        """Create VTK geometry for a single surface (wireframe)."""
-        surface_creators = {
-            "x-plane": lambda s: (
-                self._create_plane_surface("x", s.coefficients[0]) if s.coefficients else None
-            ),
-            "y-plane": lambda s: (
-                self._create_plane_surface("y", s.coefficients[0]) if s.coefficients else None
-            ),
-            "z-plane": lambda s: (
-                self._create_plane_surface("z", s.coefficients[0]) if s.coefficients else None
-            ),
-            "plane": lambda s: self._create_general_plane_surface(s),
-            "x-cylinder": lambda s: self._create_x_cylinder_surface(s),
-            "y-cylinder": lambda s: self._create_y_cylinder_surface(s),
-            "z-cylinder": lambda s: self._create_cylinder_surface(s),
-            "cylinder": lambda s: self._create_cylinder_surface(s),
-            "sphere": lambda s: self._create_sphere_surface(s),
-            "x-cone": lambda s: self._create_cone_surface(s, "x"),
-            "y-cone": lambda s: self._create_cone_surface(s, "y"),
-            "z-cone": lambda s: self._create_cone_surface(s, "z"),
-            "x-torus": lambda s: self._create_torus_surface(s, "x"),
-            "y-torus": lambda s: self._create_torus_surface(s, "y"),
-            "z-torus": lambda s: self._create_torus_surface(s, "z"),
-            "quadric": lambda s: self._create_quadric_surface(s),
-        }
-
-        if surf.type in surface_creators:
-            return surface_creators[surf.type](surf)
-        return None
-
-    def _create_general_plane_surface(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create a general plane surface."""
-        if len(surf.coefficients) < 4:
-            return vtk.vtkPolyData()
-
-        a, b, c, d = (
-            surf.coefficients[0],
-            surf.coefficients[1],
-            surf.coefficients[2],
-            surf.coefficients[3],
-        )
-
-        # Calculate a reasonable size based on geometry bounds
-        diagonal = 100.0
-        if self.bounds:
-            diagonal = np.sqrt(
-                (self.bounds["xmax"] - self.bounds["xmin"]) ** 2
-                + (self.bounds["ymax"] - self.bounds["ymin"]) ** 2
-                + (self.bounds["zmax"] - self.bounds["zmin"]) ** 2
-            )
-        size = diagonal * 2.0  # Make it twice the diagonal to be safe
-
-        plane = vtk.vtkPlaneSource()
-        normal = np.array([a, b, c])
-        norm = np.linalg.norm(normal)
-        if norm > 0:
-            normal = normal / norm
-        else:
-            normal = np.array([0, 0, 1])
-
-        # Find a point on the plane: a*x + b*y + c*z = d
-        if abs(a) > 0.001:
-            point = np.array([d / a, 0, 0])
-        elif abs(b) > 0.001:
-            point = np.array([0, d / b, 0])
-        elif abs(c) > 0.001:
-            point = np.array([0, 0, d / c])
-        else:
-            point = np.array([0, 0, 0])
-
-        # Create two orthogonal vectors in the plane
-        if abs(normal[0]) < 0.9:
-            v1 = np.cross(normal, [1, 0, 0])
-        else:
-            v1 = np.cross(normal, [0, 1, 0])
-        v1 = v1 / np.linalg.norm(v1)
-        v2 = np.cross(normal, v1)
-        v2 = v2 / np.linalg.norm(v2)
-
-        # Define plane using origin and two axis points
-        plane.SetOrigin(point - size / 2 * v1 - size / 2 * v2)
-        plane.SetPoint1(point + size / 2 * v1 - size / 2 * v2)
-        plane.SetPoint2(point - size / 2 * v1 + size / 2 * v2)
-        plane.SetResolution(10, 10)
-        plane.Update()
-
-        return plane.GetOutput()
-
-    def _create_x_cylinder_surface(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create an x-aligned cylinder surface."""
-        if len(surf.coefficients) < 3:
-            return vtk.vtkPolyData()
-
-        cy, cz, r = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-        xmin, xmax = self.bounds["xmin"], self.bounds["xmax"]
-
-        cylinder = vtk.vtkCylinderSource()
-        cylinder.SetRadius(r)
-        cylinder.SetHeight(xmax - xmin)
-        cylinder.SetResolution(32)
-        cylinder.CappingOff()
-        cylinder.Update()
-
-        transform = vtk.vtkTransform()
-        transform.Translate((xmin + xmax) / 2, cy, cz)
-        transform.RotateZ(90)
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cylinder.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_y_cylinder_surface(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create a y-aligned cylinder surface."""
-        if len(surf.coefficients) < 3:
-            return vtk.vtkPolyData()
-
-        cx, cz, r = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-        ymin, ymax = self.bounds["ymin"], self.bounds["ymax"]
-
-        cylinder = vtk.vtkCylinderSource()
-        cylinder.SetRadius(r)
-        cylinder.SetHeight(ymax - ymin)
-        cylinder.SetResolution(32)
-        cylinder.CappingOff()
-        cylinder.Update()
-
-        transform = vtk.vtkTransform()
-        transform.Translate(cx, (ymin + ymax) / 2, cz)
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cylinder.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_sphere_surface(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create a sphere surface."""
-        if len(surf.coefficients) < 4:
-            return vtk.vtkPolyData()
-
-        cx, cy, cz, r = (
-            surf.coefficients[0],
-            surf.coefficients[1],
-            surf.coefficients[2],
-            surf.coefficients[3],
-        )
-
-        sphere = vtk.vtkSphereSource()
-        sphere.SetCenter(cx, cy, cz)
-        sphere.SetRadius(r)
-        sphere.SetThetaResolution(32)
-        sphere.SetPhiResolution(32)
-        sphere.Update()
-
-        return sphere.GetOutput()
-
-    def _create_cone_surface(self, surf: Surface, axis: str) -> vtk.vtkPolyData:
-        """Create a cone surface.
-
-        OpenMC cone format: (x0, y0, z0, R^2)
-        The cone equation is (x-x0)^2 + (y-y0)^2 = R^2 * (z-z0)^2 for a z-cone.
-        """
-        if len(surf.coefficients) < 4:
-            return vtk.vtkPolyData()
-
-        x0, y0, z0, r_squared = (
-            surf.coefficients[0],
-            surf.coefficients[1],
-            surf.coefficients[2],
-            surf.coefficients[3],
-        )
-
-        # Determine height based on bounds
-        if axis == "x":
-            h = self.bounds["xmax"] - self.bounds["xmin"]
-        elif axis == "y":
-            h = self.bounds["ymax"] - self.bounds["ymin"]
-        else:  # z
-            h = self.bounds["zmax"] - self.bounds["zmin"]
-
-        if h <= 0:
-            h = 100.0
-
-        # R is the slope of the cone
-        slope = np.sqrt(abs(r_squared)) if r_squared > 0 else 0.5
-
-        # VTK Cone points along X axis by default
-        cone = vtk.vtkConeSource()
-        cone.SetResolution(64)
-        cone.SetCapping(0)
-
-        # Calculate radius at the far end of the bounding box to ensure it covers the region
-        cone.SetHeight(h)
-        cone.SetRadius(h * slope)
-        cone.Update()
-
-        transform = vtk.vtkTransform()
-        if axis == "x":
-            # OpenMC X-cone: (y-y0)^2 + (z-z0)^2 = R^2 * (x-x0)^2
-            # VTK cone is already on X axis
-            transform.Translate(x0 + h / 2, y0, z0)
-        elif axis == "y":
-            # OpenMC Y-cone: (x-x0)^2 + (z-z0)^2 = R^2 * (y-y0)^2
-            transform.Translate(x0, y0 + h / 2, z0)
-            transform.RotateZ(90)
-        else:  # z
-            # OpenMC Z-cone: (x-x0)^2 + (y-y0)^2 = R^2 * (z-z0)^2
-            transform.Translate(x0, y0, z0 + h / 2)
-            transform.RotateY(-90)
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cone.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_torus_surface(self, surf: Surface, axis: str) -> vtk.vtkPolyData:
-        """Create a torus surface.
-
-        OpenMC torus format: (x0, y0, z0, A, B, C)
-        """
-        if len(surf.coefficients) < 6:
-            return vtk.vtkPolyData()
-
-        cx, cy, cz = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-        A = surf.coefficients[3]
-        B = surf.coefficients[4]
-        C = surf.coefficients[5]
-
-        R = max(A, 0.001)
-        r = max((B + C) / 2, 0.001)
-
-        parametric_torus = vtk.vtkParametricTorus()
-        parametric_torus.SetRingRadius(R)
-        parametric_torus.SetCrossSectionRadius(r)
-
-        parametric_function = vtk.vtkParametricFunctionSource()
-        parametric_function.SetParametricFunction(parametric_torus)
-        parametric_function.SetUResolution(50)
-        parametric_function.SetVResolution(50)
-        parametric_function.Update()
-
-        transform = vtk.vtkTransform()
-        transform.Translate(cx, cy, cz)
-        if axis == "x":
-            transform.RotateY(90)
-        elif axis == "y":
-            transform.RotateX(90)
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(parametric_function.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-    def _create_quadric_surface(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create a quadric surface (wireframe)."""
-        if len(surf.coefficients) < 10:
-            return vtk.vtkPolyData()
-
-        A, B, C, D, E, F, G, H, coef_z, J = surf.coefficients[0:10]
-
-        # Same logic as _create_quadric_geometry but for surface
-        absA, absB, absC = abs(A), abs(B), abs(C)
-
-        if absC < 0.001 and absA > 0.001 and absB > 0.001:
-            # Z-aligned cylinder
-            if abs(absA - absB) < 0.001:
-                cx = -G / (2 * A)
-                cy = -H / (2 * A)
-                rhs = -J / A + (G * G) / (4 * A * A) + (H * H) / (4 * A * A)
-                radius = np.sqrt(max(rhs, 0.001))
-                zmin, zmax = self.bounds["zmin"], self.bounds["zmax"]
-
-                cylinder = vtk.vtkCylinderSource()
-                cylinder.SetRadius(radius)
-                cylinder.SetHeight(zmax - zmin)
-                cylinder.SetResolution(32)
-                cylinder.CappingOff()
-                cylinder.Update()
-
-                transform = vtk.vtkTransform()
-                transform.Translate(cx, cy, (zmin + zmax) / 2)
-                transform.RotateX(90)
-
-                transform_filter = vtk.vtkTransformPolyDataFilter()
-                transform_filter.SetInputData(cylinder.GetOutput())
-                transform_filter.SetTransform(transform)
-                transform_filter.Update()
-
-                return transform_filter.GetOutput()
-
-        elif absA < 0.001 and absB > 0.001 and absC > 0.001:
-            # X-aligned cylinder
-            if abs(absB - absC) < 0.001:
-                cy = -H / (2 * B)
-                cz = -coef_z / (2 * B)
-                rhs = -J / B + (H * H) / (4 * B * B) + (coef_z * coef_z) / (4 * B * B)
-                radius = np.sqrt(max(rhs, 0.001))
-                xmin, xmax = self.bounds["xmin"], self.bounds["xmax"]
-
-                cylinder = vtk.vtkCylinderSource()
-                cylinder.SetRadius(radius)
-                cylinder.SetHeight(xmax - xmin)
-                cylinder.SetResolution(32)
-                cylinder.CappingOff()
-                cylinder.Update()
-
-                transform = vtk.vtkTransform()
-                transform.Translate((xmin + xmax) / 2, cy, cz)
-                transform.RotateZ(90)
-
-                transform_filter = vtk.vtkTransformPolyDataFilter()
-                transform_filter.SetInputData(cylinder.GetOutput())
-                transform_filter.SetTransform(transform)
-                transform_filter.Update()
-
-                return transform_filter.GetOutput()
-
-        elif absB < 0.001 and absA > 0.001 and absC > 0.001:
-            # Y-aligned cylinder
-            if abs(absA - absC) < 0.001:
-                cx = -G / (2 * A)
-                cz = -coef_z / (2 * A)
-                rhs = -J / A + (G * G) / (4 * A * A) + (coef_z * coef_z) / (4 * A * A)
-                radius = np.sqrt(max(rhs, 0.001))
-                ymin, ymax = self.bounds["ymin"], self.bounds["ymax"]
-
-                cylinder = vtk.vtkCylinderSource()
-                cylinder.SetRadius(radius)
-                cylinder.SetHeight(ymax - ymin)
-                cylinder.SetResolution(32)
-                cylinder.CappingOff()
-                cylinder.Update()
-
-                transform = vtk.vtkTransform()
-                transform.Translate(cx, (ymin + ymax) / 2, cz)
-
-                transform_filter = vtk.vtkTransformPolyDataFilter()
-                transform_filter.SetInputData(cylinder.GetOutput())
-                transform_filter.SetTransform(transform)
-                transform_filter.Update()
-
-                return transform_filter.GetOutput()
-
-        return vtk.vtkPolyData()
-
-    def _create_plane_surface(self, axis: str, value: float) -> vtk.vtkPolyData:
-        """Create a plane surface for visualization."""
-        # Create a plane
-        plane = vtk.vtkPlaneSource()
-
-        if axis == "x":
-            plane.SetOrigin(value, self.bounds["ymin"], self.bounds["zmin"])
-            plane.SetPoint1(value, self.bounds["ymax"], self.bounds["zmin"])
-            plane.SetPoint2(value, self.bounds["ymin"], self.bounds["zmax"])
-        elif axis == "y":
-            plane.SetOrigin(self.bounds["xmin"], value, self.bounds["zmin"])
-            plane.SetPoint1(self.bounds["xmax"], value, self.bounds["zmin"])
-            plane.SetPoint2(self.bounds["xmin"], value, self.bounds["zmax"])
-        else:  # z
-            plane.SetOrigin(self.bounds["xmin"], self.bounds["ymin"], value)
-            plane.SetPoint1(self.bounds["xmax"], self.bounds["ymin"], value)
-            plane.SetPoint2(self.bounds["xmin"], self.bounds["ymax"], value)
-
-        plane.SetXResolution(10)
-        plane.SetYResolution(10)
-        plane.Update()
-
-        return plane.GetOutput()
-
-    def _create_cylinder_surface(self, surf: Surface) -> vtk.vtkPolyData:
-        """Create a cylinder surface."""
-        if len(surf.coefficients) < 3:
-            return vtk.vtkPolyData()
-
-        cx, cy, r = surf.coefficients[0], surf.coefficients[1], surf.coefficients[2]
-        zmin, zmax = self.bounds["zmin"], self.bounds["zmax"]
-
-        # Create a cylinder (just the surface)
-        cylinder = vtk.vtkCylinderSource()
-        cylinder.SetRadius(r)
-        cylinder.SetHeight(zmax - zmin)
-        cylinder.SetResolution(32)
-        cylinder.CappingOff()
-        cylinder.Update()
-
-        # Transform
-        transform = vtk.vtkTransform()
-        transform.Translate(cx, cy, (zmin + zmax) / 2)
-        transform.RotateX(90)
-
-        transform_filter = vtk.vtkTransformPolyDataFilter()
-        transform_filter.SetInputData(cylinder.GetOutput())
-        transform_filter.SetTransform(transform)
-        transform_filter.Update()
-
-        return transform_filter.GetOutput()
-
-
-def visualize_geometry(
-    geometry_file: str,
-    port: int = 8090,
-    highlight_cells: list[int] | None = None,
-    overlaps_file: str | None = None,
-):
+    Input: ``value`` (int, segments per curved surface). Output: the value
+    as an ``int``. Raises :class:`GeometryExtractorError` for non-integer
+    values or values outside ``[_MIN_SEGMENTS, _MAX_SEGMENTS]``.
     """
-    Start a visualization server for OpenMC geometry.
-
-    Args:
-        geometry_file: Path to geometry.xml
-        port: Server port
-        highlight_cells: List of cell IDs to highlight
-        overlaps_file: Path to JSON file containing overlap markers
-    """
-    cell_file = None
-    surf_file = None
-    marker_file = None
-    server = None
-
+    if isinstance(value, bool):
+        raise GeometryExtractorError(f"segments must be an integer, got {value!r}")
     try:
-        from paraview import simple
-        from trame.app import get_server
-        from trame.ui.vuetify3 import VAppLayout
-        from trame.widgets import html
-        from trame.widgets import paraview as pv_widgets
-        from trame.widgets import vuetify3 as vuetify
-    except ImportError as e:
-        print(f"Error: Required dependencies not installed: {e}")
-        return 1
-
-    try:
-        # Parse geometry
-        viz = OpenMCGeometryVisualizer()
-        if not viz.parse_geometry(geometry_file):
-            print("Failed to parse geometry")
-            return 1
-
-        # Load overlap markers if provided
-        overlap_markers = []
-        if overlaps_file and os.path.exists(overlaps_file):
-            with open(overlaps_file) as f:
-                data = json.load(f)
-                overlap_markers = data.get("markers", [])
-                if not overlap_markers and "overlaps" in data:
-                    # Convert from OverlapResult format to marker format
-                    for o in data["overlaps"]:
-                        overlap_markers.append(
-                            {
-                                "coordinates": o["coordinates"],
-                                "cellIds": o["cellIds"],
-                                "radius": 1.0,  # Default radius
-                            }
-                        )
-
-        # Create VTK data
-        cell_data = viz.create_vtk_geometry(highlight_cells)
-        surface_data = viz.create_surface_geometry()
-        marker_data = viz.create_markers_vtk(overlap_markers) if overlap_markers else None
-
-        # Write to temporary files
-        with tempfile.NamedTemporaryFile(suffix=".vtm", delete=False) as tmp:
-            cell_file = tmp.name
-        with tempfile.NamedTemporaryFile(suffix=".vtm", delete=False) as tmp:
-            surf_file = tmp.name
-
-        marker_file = None
-        if marker_data:
-            with tempfile.NamedTemporaryFile(suffix=".vtm", delete=False) as tmp:
-                marker_file = tmp.name
-            writer3 = vtk.vtkXMLMultiBlockDataWriter()
-            writer3.SetFileName(marker_file)
-            writer3.SetInputData(marker_data)
-            writer3.Write()
-
-        writer1 = vtk.vtkXMLMultiBlockDataWriter()
-        writer1.SetFileName(cell_file)
-        writer1.SetInputData(cell_data)
-        writer1.Write()
-
-        writer2 = vtk.vtkXMLMultiBlockDataWriter()
-        writer2.SetFileName(surf_file)
-        writer2.SetInputData(surface_data)
-        writer2.Write()
-
-        # Create trame server
-        server = get_server(client_type="vue3", port=port)
-        state = server.state
-
-        # Initialize common state from plugins.base.lib.common
-        init_common_state(state, theme="dark", opacity=0.5)
-
-        # Get cell information for UI from the ACTUAL data
-        cell_info = []
-        cell_visibility = {}
-        num_blocks = cell_data.GetNumberOfBlocks()
-        for i in range(num_blocks):
-            metadata = cell_data.GetMetaData(i)
-            if not metadata or not metadata.Has(vtk.vtkCompositeDataSet.NAME()):
-                continue
-
-            block_name = metadata.Get(vtk.vtkCompositeDataSet.NAME())
-            try:
-                # block_name is "Cell_{cell_id}"
-                cell_id = int(block_name.split("_")[1])
-                cell = viz.cells.get(cell_id)
-
-                cell_name = getattr(cell, "name", "") or f"Cell {cell_id}"
-                cell_material = (
-                    getattr(cell, "material_name", "") or getattr(cell, "material", "") or "void"
-                )
-
-                # Get surface selectors for this cell
-                surf_selectors = []
-                if cell and cell.surfaces:
-                    for s_id in cell.surfaces:
-                        surf_selectors.append(f"/Root/Surface_{s_id}")
-
-                # Deterministic color for UI consistency
-                color = DISTINCT_COLORS[cell_id % len(DISTINCT_COLORS)]
-                hex_color = (
-                    f"#{int(color[0] * 255):02x}{int(color[1] * 255):02x}{int(color[2] * 255):02x}"
-                )
-
-                cell_info.append(
-                    {
-                        "id": cell_id,
-                        "name": cell_name,
-                        "material": cell_material,
-                        "color": hex_color,
-                        "index": i,
-                        "selector": f"/Root/{block_name}",
-                        "surf_selectors": surf_selectors,
-                    }
-                )
-
-                # If highlight_cells are specified, only show those cells initially
-                # This makes the "overlap reason" much clearer by hiding irrelevant geometry
-                if highlight_cells is not None and len(highlight_cells) > 0:
-                    cell_visibility[str(cell_id)] = cell_id in highlight_cells
-                else:
-                    cell_visibility[str(cell_id)] = True  # Default all visible
-            except (ValueError, IndexError):
-                continue
-
-        # Pipeline storage
-        pipeline = {
-            "cell_reader": None,
-            "surf_reader": None,
-            "marker_reader": None,
-            "marker_extract": None,
-            "original_cell_reader": None,
-            "clip_filter": None,
-            "cell_extracts": {},  # cell_id -> extract filter
-            "cell_displays": {},  # cell_id -> display object
-            "marker_display": None,
-            "view": None,
-            "view_widget": None,
-            "material_lut": None,
-        }
-
-        # Load in ParaView
-        cell_reader = simple.XMLMultiBlockDataReader(FileName=cell_file)
-        pipeline["cell_reader"] = cell_reader
-        pipeline["original_cell_reader"] = cell_reader
-        simple.Hide(cell_reader)
-
-        if marker_file:
-            marker_reader = simple.XMLMultiBlockDataReader(FileName=marker_file)
-            pipeline["marker_reader"] = marker_reader
-            simple.Hide(marker_reader)
-
-        view = simple.GetActiveViewOrCreate("RenderView")
-        bg_rgb = hex_to_rgb(state.background_color_hex)
-        view.Background = bg_rgb if bg_rgb else [0.1, 0.1, 0.15]
-        view.UseColorPaletteForBackground = 0
-        pipeline["view"] = view
-
-        # Large set of distinct colors for cells
-        pipeline["color_palette"] = DISTINCT_COLORS
-
-        # State overrides/initialization
-        state.show_overlaps = True if overlap_markers else False
-        state.cell_info = cell_info
-        state.cell_visibility = cell_visibility
-        # Only use RED highlight (highlight_cell_ids) if we are in overlap detection mode
-        state.highlight_cell_ids = highlight_cells if (overlaps_file and highlight_cells) else []
-        # Initially select the highlighted cells
-        state.selected_cell_ids = highlight_cells if highlight_cells else []
-
-        update_view = create_update_view(pipeline, state, simple)
-
-        def update_cell_visibility(visibility=None):
-            try:
-                if visibility is None:
-                    visibility = state.cell_visibility
-
-                visibility_keys = {str(k): v for k, v in visibility.items()}
-                visible_cell_ids = set()
-
-                for cell in state.cell_info:
-                    if visibility_keys.get(str(cell["id"]), False):
-                        visible_cell_ids.add(cell["id"])
-
-                # Recreate extracts from the CURRENT cell_reader (which might be a clip filter)
-                for _cell_id, extract in list(pipeline["cell_extracts"].items()):
-                    simple.Delete(extract)
-                pipeline["cell_extracts"].clear()
-                pipeline["cell_displays"].clear()
-
-                current_reader = pipeline["cell_reader"]
-
-                for cell in state.cell_info:
-                    cell_id = cell["id"]
-                    if cell_id in visible_cell_ids:
-                        extract = simple.ExtractBlock(Input=current_reader)
-                        extract.Selectors = [cell["selector"]]
-                        pipeline["cell_extracts"][cell_id] = extract
-
-                        disp = simple.Show(extract, view)
-                        disp.Representation = state.representation
-                        disp.Opacity = float(state.opacity)
-                        disp.PointSize = float(state.point_size)
-                        disp.LineWidth = float(state.line_width)
-                        disp.Ambient = float(state.ambient_light)
-
-                        # COLORING LOGIC:
-                        # Disable scalar mapping to use DiffuseColor/AmbientColor directly
-                        disp.MapScalars = 0
-
-                        # Assign deterministic color from palette
-                        palette = pipeline["color_palette"]
-                        target_color = palette[cell_id % len(palette)]
-
-                        if cell_id in state.highlight_cell_ids:
-                            # Highlight overlapping cells as RED (Error)
-                            target_color = [1.0, 0.0, 0.0]  # Bright Red
-                            disp.Ambient = max(0.4, float(state.ambient_light))
-                        elif cell_id in state.selected_cell_ids:
-                            # User selected cells: keep original color but boost ambient to highlight
-                            disp.Ambient = max(0.35, float(state.ambient_light) + 0.15)
-
-                        disp.DiffuseColor = target_color
-                        disp.AmbientColor = target_color
-
-                        pipeline["cell_displays"][cell_id] = disp
-
-                # Markers visibility
-                if pipeline.get("marker_reader"):
-                    # Ensure we have an extract filter for markers
-                    if not pipeline.get("marker_extract"):
-                        pipeline["marker_extract"] = simple.ExtractBlock(
-                            Input=pipeline["marker_reader"]
-                        )
-
-                    if state.show_overlaps:
-                        selected_ids = state.selected_cell_ids if state.selected_cell_ids else []
-
-                        # Filter markers if cells are selected
-                        if selected_ids and len(selected_ids) > 0:
-                            marker_selectors = []
-                            for i, marker in enumerate(overlap_markers):
-                                if any(cid in selected_ids for cid in marker.get("cellIds", [])):
-                                    marker_selectors.append(f"/Root/Overlap_{i}")
-
-                            pipeline["marker_extract"].Selectors = marker_selectors
-                        else:
-                            # Show all markers when nothing is selected
-                            pipeline["marker_extract"].Selectors = ["/Root"]
-
-                        # Show or hide based on whether we have anything to show
-                        if pipeline["marker_extract"].Selectors:
-                            disp = simple.Show(pipeline["marker_extract"], view)
-                            disp.Representation = "Surface"
-                            disp.DiffuseColor = [1.0, 1.0, 0.0]  # Bright Yellow
-                            disp.Opacity = 1.0
-                            disp.Ambient = 0.5
-                            pipeline["marker_display"] = disp
-                        else:
-                            if pipeline.get("marker_display"):
-                                simple.Hide(pipeline["marker_extract"], view)
-
-                        # Ensure the raw reader is always hidden (we use the extract)
-                        simple.Hide(pipeline["marker_reader"], view)
-                    else:
-                        if pipeline.get("marker_extract"):
-                            simple.Hide(pipeline["marker_extract"], view)
-                        simple.Hide(pipeline["marker_reader"], view)
-
-                simple.Render(view)
-            except Exception as e:
-                print(f"Error updating visibility: {e}")
-
-        @state.change("cell_visibility")
-        def on_cell_visibility_change(cell_visibility, **kwargs):
-            update_cell_visibility(cell_visibility)
-            update_view()
-
-        @state.change("show_overlaps")
-        def on_show_overlaps(show_overlaps, **kwargs):
-            update_cell_visibility()
-            update_view()
-
-        @state.change("opacity")
-        def on_opacity(opacity, **kwargs):
-            for disp in pipeline["cell_displays"].values():
-                disp.Opacity = float(opacity)
-            update_view()
-
-        @state.change("representation")
-        def on_representation_change(representation, **kwargs):
-            for disp in pipeline["cell_displays"].values():
-                disp.Representation = representation
-            update_view()
-
-        @state.change("background_color_hex")
-        def on_background_color_change(background_color_hex, **kwargs):
-            rgb = hex_to_rgb(background_color_hex)
-            if rgb:
-                view.Background = rgb
-            update_view()
-
-        @state.change("selected_cell_ids")
-        def on_selected_cells_change(selected_cell_ids, **kwargs):
-            if selected_cell_ids and len(selected_cell_ids) > 0:
-                # Show ONLY selected cells
-                state.cell_visibility = {
-                    str(c["id"]): (c["id"] in selected_cell_ids) for c in state.cell_info
-                }
-            else:
-                # Show ALL cells
-                state.cell_visibility = {str(c["id"]): True for c in state.cell_info}
-
-            update_cell_visibility()
-            update_view(push_camera=True)
-
-        @state.change("show_orientation_axes")
-        def on_show_orientation_axes_change(show_orientation_axes, **kwargs):
-            StateHandlers.create_orientation_axes_handler(pipeline)(show_orientation_axes, **kwargs)
-            update_view()
-
-        @state.change("show_bounding_box")
-        def on_show_bounding_box_change(show_bounding_box, **kwargs):
-            try:
-                view = pipeline.get("view")
-                if view:
-                    if hasattr(view, "CenterAxesVisibility"):
-                        view.CenterAxesVisibility = bool(show_bounding_box)
-                    state.camera_update_counter += 1
-            except Exception as e:
-                print(f"Error updating bounding box: {e}")
-
-        @state.change("show_cube_axes")
-        def on_show_cube_axes_change(show_cube_axes, **kwargs):
-            try:
-                view = pipeline.get("view")
-                if view:
-                    if hasattr(view, "CubeAxesVisibility"):
-                        view.CubeAxesVisibility = bool(show_cube_axes)
-                    elif hasattr(view, "AxesGrid"):
-                        view.AxesGrid.Visibility = bool(show_cube_axes)
-                    state.camera_update_counter += 1
-            except Exception as e:
-                print(f"Error updating cube axes: {e}")
-
-        @state.change("point_size")
-        def on_point_size_change(point_size, **kwargs):
-            for disp in pipeline["cell_displays"].values():
-                disp.PointSize = float(point_size)
-            update_view()
-
-        @state.change("line_width")
-        def on_line_width_change(line_width, **kwargs):
-            for disp in pipeline["cell_displays"].values():
-                disp.LineWidth = float(line_width)
-            update_view()
-
-        @state.change("ambient_light")
-        def on_ambient_light_change(ambient_light, **kwargs):
-            for disp in pipeline["cell_displays"].values():
-                disp.Ambient = float(ambient_light)
-            update_view()
-
-        @state.change("parallel_projection")
-        def on_parallel_projection_change(parallel_projection, **kwargs):
-            StateHandlers.create_parallel_projection_handler(pipeline, state)(
-                parallel_projection, **kwargs
-            )
-            update_view(push_camera=True)
-
-        @state.change(
-            "clip_enabled",
-            "clip_origin_x",
-            "clip_origin_y",
-            "clip_origin_z",
-            "clip_normal_x",
-            "clip_normal_y",
-            "clip_normal_z",
-            "clip_invert",
+        number = int(value)
+    except (TypeError, ValueError):
+        raise GeometryExtractorError(f"segments must be an integer, got {value!r}") from None
+    if isinstance(value, float) and value != number:
+        raise GeometryExtractorError(f"segments must be an integer, got {value!r}")
+    if number < _MIN_SEGMENTS or number > _MAX_SEGMENTS:
+        raise GeometryExtractorError(
+            f"segments must be between {_MIN_SEGMENTS} and {_MAX_SEGMENTS}, got {value!r}"
         )
-        def on_clip_change(
-            clip_enabled,
-            clip_origin_x,
-            clip_origin_y,
-            clip_origin_z,
-            clip_normal_x,
-            clip_normal_y,
-            clip_normal_z,
-            clip_invert,
-            **kwargs,
-        ):
-            try:
-                original_reader = pipeline.get("original_cell_reader")
-                if not original_reader:
-                    return
-
-                # Remove existing clip
-                existing_clip = pipeline.get("clip_filter")
-                if existing_clip:
-                    simple.Delete(existing_clip)
-                    pipeline["clip_filter"] = None
-
-                if clip_enabled:
-                    clip = simple.Clip(Input=original_reader)
-                    clip.ClipType = "Plane"
-                    clip.ClipType.Origin = [
-                        float(clip_origin_x),
-                        float(clip_origin_y),
-                        float(clip_origin_z),
-                    ]
-                    clip.ClipType.Normal = [
-                        float(clip_normal_x),
-                        float(clip_normal_y),
-                        float(clip_normal_z),
-                    ]
-                    clip.Invert = bool(clip_invert)
-
-                    pipeline["clip_filter"] = clip
-                    pipeline["cell_reader"] = clip
-                else:
-                    pipeline["cell_reader"] = original_reader
-
-                # Re-update visibility using the new reader
-                update_cell_visibility()
-                update_view()
-            except Exception as e:
-                print(f"Error updating clip: {e}")
-
-        # Initial setup
-        update_cell_visibility()
-        simple.ResetCamera()
-
-        # Controllers
-        reset_camera = create_reset_camera_controller(pipeline, update_view)
-        set_camera_view = create_set_camera_view_controller(pipeline, state, update_view)
-        pan_camera = create_pan_camera_controller(pipeline, update_view)
-        zoom_camera = create_zoom_camera_controller(pipeline, update_view)
-        capture_screenshot = create_capture_screenshot_controller(pipeline)
-
-        def save_screenshot():
-            save_screenshot_with_timestamp(capture_screenshot, state)
-
-        # UI
-        with VAppLayout(server, theme="dark"):
-            # Custom CSS for better UI aesthetics
-            html.Component(
-                GLOBAL_STYLES
-                + """
-                .nav-guide {
-                    background: rgba(0,0,0,0.2);
-                    border-radius: 4px;
-                    padding: 8px;
-                    font-size: 0.75rem;
-                    line-height: 1.4;
-                }
-                .nav-guide b { color: #82B1FF; }
-            """,
-                **{"is": "style"},
-            )
-
-            with vuetify.VNavigationDrawer(
-                v_model=("show_controls", True), width=300, theme="dark"
-            ):
-                with vuetify.VContainer():
-                    vuetify.VListSubheader("OpenMC Geometry", classes="text-h6 pa-0")
-                    vuetify.VDivider(classes="mb-4")
-
-                    # Display Controls - Compact
-                    UIComponents.opacity_slider(vuetify, ("opacity", 0.5), classes="mb-2")
-                    UIComponents.representation_selector(vuetify, classes="mb-2")
-
-                    if overlap_markers:
-                        vuetify.VCheckbox(
-                            v_model=("show_overlaps", True),
-                            label="Show Overlap Markers",
-                            color="error",
-                            density="compact",
-                            hide_details=True,
-                            classes="mb-2",
-                        )
-
-                    vuetify.VDivider(classes="my-3")
-
-                    # Clipping Section - Compact
-                    with vuetify.VRow(dense=True, classes="mb-2", align="center"):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VListSubheader("Clipping", classes="text-subtitle-1 pa-0")
-                        with vuetify.VCol(cols=6, classes="text-right"):
-                            vuetify.VCheckbox(
-                                v_model=("clip_enabled", False),
-                                label="Enable",
-                                density="compact",
-                                hide_details=True,
-                                classes="mt-0 pt-0 d-inline-flex",
-                            )
-
-                    with vuetify.VContainer(v_if=("clip_enabled",), classes="pa-0"):
-                        # Origin in compact row
-                        with vuetify.VRow(dense=True, classes="mb-1"):
-                            with vuetify.VCol(cols=12):
-                                vuetify.VListSubheader("Origin", classes="text-caption pa-0 mb-1")
-                        with vuetify.VRow(dense=True, classes="mb-2"):
-                            for axis in ["x", "y", "z"]:
-                                with vuetify.VCol(cols=4):
-                                    vuetify.VTextField(
-                                        v_model=(f"clip_origin_{axis}", 0.0),
-                                        label=axis.upper(),
-                                        type="number",
-                                        density="compact",
-                                        variant="outlined",
-                                        hide_details=True,
-                                    )
-                        # Normal in compact row
-                        with vuetify.VRow(dense=True, classes="mb-1"):
-                            with vuetify.VCol(cols=12):
-                                vuetify.VListSubheader("Normal", classes="text-caption pa-0 mb-1")
-                        with vuetify.VRow(dense=True, classes="mb-1"):
-                            for axis, default in [("x", 1.0), ("y", 0.0), ("z", 0.0)]:
-                                with vuetify.VCol(cols=4):
-                                    vuetify.VTextField(
-                                        v_model=(f"clip_normal_{axis}", default),
-                                        label=axis.upper(),
-                                        type="number",
-                                        density="compact",
-                                        variant="outlined",
-                                        hide_details=True,
-                                    )
-                        vuetify.VCheckbox(
-                            v_model=("clip_invert", False),
-                            label="Invert",
-                            density="compact",
-                            hide_details=True,
-                            classes="mt-1",
-                        )
-
-                    vuetify.VDivider(classes="my-3")
-
-                    # Cell Selection - Compact Design
-                    vuetify.VListSubheader("Cell Selection", classes="text-subtitle-1 mb-2")
-                    with vuetify.VContainer(classes="pa-0"):
-                        # Quick cell selector with search
-                        with vuetify.VAutocomplete(
-                            v_model=("selected_cell_ids", []),
-                            items=("cell_info", []),
-                            item_title="name",
-                            item_value="id",
-                            label="Search & select cells",
-                            density="compact",
-                            variant="outlined",
-                            clearable=True,
-                            multiple=True,
-                            deletable_chips=True,
-                            hide_selected=True,
-                            auto_select_first=False,
-                            prepend_inner_icon="mdi-magnify",
-                            classes="mb-2",
-                            theme=("sidebar_dark ? 'dark' : 'light'",),
-                        ):
-                            # Item slot: customize how each cell appears in the dropdown
-                            with vuetify.Template(v_slot_item="{ props, item }"):
-                                with vuetify.VListItem(
-                                    v_bind="props",
-                                    v_bind_subtitle="'ID: ' + item.raw.id + ' | Material: ' + item.raw.material",
-                                ):
-                                    with vuetify.Template(v_slot_prepend=True):
-                                        vuetify.VIcon(
-                                            "mdi-circle",
-                                            size="small",
-                                            v_bind_style="{ color: item.raw.color }",
-                                        )
-
-                            # Selection slot: customize how selected chips look
-                            with vuetify.Template(v_slot_selection="{ item, index }"):
-                                with vuetify.VChip(
-                                    size="x-small",
-                                    closable=True,
-                                    v_bind_style="{ borderLeft: '3px solid ' + item.raw.color + ' !important' }",
-                                    classes="ma-1",
-                                    # Use JS to update state in trame on close
-                                    click_close="selected_cell_ids.splice(index, 1); set('selected_cell_ids', [...selected_cell_ids])",
-                                ):
-                                    html.Span("{{ item.raw.name }}")
-
-                        # Quick action buttons
-                        with vuetify.VRow(dense=True, classes="mb-2"):
-                            with vuetify.VCol(cols=6):
-                                vuetify.VBtn(
-                                    "Clear All",
-                                    click=lambda: setattr(state, "selected_cell_ids", []),
-                                    block=True,
-                                    size="x-small",
-                                    variant="text",
-                                    disabled=("selected_cell_ids.length === 0",),
-                                )
-                            with vuetify.VCol(cols=6):
-                                vuetify.VBtn(
-                                    "Select All",
-                                    click=lambda: setattr(
-                                        state,
-                                        "selected_cell_ids",
-                                        [c["id"] for c in state.cell_info],
-                                    ),
-                                    block=True,
-                                    size="x-small",
-                                    variant="text",
-                                )
-
-                    vuetify.VDivider(classes="my-3")
-
-                    # Compact toggles in a grid
-                    UIComponents.compact_appearance_controls(vuetify)
-
-                    # Compact sliders
-                    UIComponents.point_size_slider(vuetify, classes="mb-2 mt-2")
-                    UIComponents.line_width_slider(vuetify, classes="mb-2")
-                    UIComponents.ambient_light_slider(vuetify, classes="mb-2")
-
-                    vuetify.VDivider(classes="my-3")
-
-                    # Export Section - Compact
-                    with vuetify.VRow(dense=True, classes="mb-2", align="center"):
-                        with vuetify.VCol(cols=6):
-                            vuetify.VListSubheader("Export", classes="text-subtitle-1 pa-0")
-                    vuetify.VBtn(
-                        "Save Screenshot",
-                        click=save_screenshot,
-                        block=True,
-                        size="x-small",
-                        color="primary",
-                        classes="mb-1",
-                    )
-                    with vuetify.VContainer(
-                        v_if=("screenshot_status",), classes="text-center pa-0"
-                    ):
-                        vuetify.VListSubheader(
-                            ("screenshot_status",), classes="text-caption justify-center pa-0"
-                        )
-
-            with vuetify.VMain(style="position: relative;"):
-                # Toggle button when controls are hidden
-                with vuetify.VContainer(
-                    v_if=("!show_controls",),
-                    classes="ma-2 pa-0",
-                    style="position: absolute; top: 0; left: 0; z-index: 100;",
-                ):
-                    vuetify.VBtn(
-                        icon="mdi-chevron-right",
-                        click=lambda: setattr(state, "show_controls", True),
-                        size="small",
-                        color="primary",
-                    )
-
-                # Camera Navigation Gadget (Top Right)
-                UIComponents.create_canvas_gadget(
-                    vuetify,
-                    pan_camera,
-                    zoom_camera,
-                    reset_callback=reset_camera,
-                    view_callback=set_camera_view,
-                )
-
-                # Local/remote rendering mode toggle (bottom right)
-                UIComponents.create_render_mode_toggle(vuetify, "geomView")
-
-                # View container with explicit sizing
-                with vuetify.VContainer(
-                    fluid=True,
-                    classes="pa-0 ma-0 fill-height",
-                    style="height: 100vh; width: 100%; position: relative;",
-                ):
-                    view_widget = create_view_widget(
-                        pv_widgets, view, "geomView", style="width: 100%; height: 100%;"
-                    )
-                    pipeline["view_widget"] = view_widget
-
-                    # Force initial render and update
-                    simple.Render(view)
-                    update_view_widget(view_widget, state)
-
-                @state.change("camera_update_counter")
-                def on_camera_update(camera_update_counter, **kwargs):
-                    try:
-                        simple.Render(view)
-                        if pipeline.get("view_widget"):
-                            update_view_widget(pipeline["view_widget"], state)
-                    except Exception as e:
-                        print(f"Camera update error: {e}", flush=True)
-
-        # Ensure initial view is properly rendered
-        update_view()
-
-        # Trigger update after client connects
-        @server.controller.add("on_client_connected")
-        def on_client_connected(**kwargs):
-            try:
-                print("Client connected, updating view...", flush=True)
-                simple.Render(view)
-                if pipeline.get("view_widget"):
-                    update_view_widget(pipeline["view_widget"], state)
-            except Exception as e:
-                print(f"Error in on_client_connected: {e}", flush=True)
-
-        server.start(port=port, debug=False, open_browser=False, timeout=30)
-        return 0
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        print(f"Error starting visualization: {e}")
-        return 1
-    finally:
-        # Cleanup
-        for f in [cell_file, surf_file, marker_file]:
-            if f and os.path.exists(f):
-                try:
-                    os.remove(f)
-                except Exception:
-                    pass
+    return number
 
 
-if __name__ == "__main__":
-    import argparse
+def _require_geometry_xml_path(path) -> str:
+    """Validate a CSG geometry XML input path.
+
+    Input: ``path`` (path to ``geometry.xml``). Output: the path string.
+    Raises :class:`GeometryExtractorError` for an empty/invalid path, a
+    missing file, or a non-``.xml`` suffix.
+    """
+    import os
+
+    if not path or not isinstance(path, (str, os.PathLike)):
+        raise GeometryExtractorError(f"invalid geometry file path: {path!r}")
+    path_str = os.fspath(path)
+    if not os.path.isfile(path_str):
+        raise GeometryExtractorError(f"geometry file not found: {path_str}")
+    if not path_str.lower().endswith(".xml"):
+        raise GeometryExtractorError(f"expected a geometry.xml file, got: {path_str}")
+    return path_str
+
+
+def _load_openmc():
+    """Lazily import ``openmc`` and return the module.
+
+    Raises :class:`GeometryExtractorError` when openmc is not installed so
+    command handlers can report a clean JSON error instead of a traceback.
+    """
     import sys
 
-    parser = argparse.ArgumentParser(description="Visualize OpenMC geometry in 3D")
-    parser.add_argument("geometry", help="Path to geometry.xml")
-    parser.add_argument("--port", type=int, default=8090, help="Server port")
-    parser.add_argument("--highlight", help="Comma-separated cell IDs to highlight")
-    parser.add_argument("--overlaps", help="Path to JSON file with overlap markers")
+    existing = sys.modules.get("openmc")
+    if existing is not None:
+        return existing
+    try:
+        import importlib.util as _importlib_util
+    except ImportError as exc:
+        raise GeometryExtractorError(f"openmc not installed (required): {exc}") from None
+    if _importlib_util.find_spec("openmc") is None:
+        raise GeometryExtractorError("openmc not installed (required for model extraction)")
+    try:
+        import openmc
+    except ImportError as exc:
+        raise GeometryExtractorError(f"openmc not installed (required): {exc}") from None
+    return openmc
 
-    args = parser.parse_args()
 
-    highlight_ids = None
-    if args.highlight:
-        highlight_ids = [int(x.strip()) for x in args.highlight.split(",")]
+def _box_corners(bounds: dict) -> "np.ndarray":
+    """Return the 8 corner vertices of an axis-aligned bounding box."""
+    xmin, xmax = bounds["xmin"], bounds["xmax"]
+    ymin, ymax = bounds["ymin"], bounds["ymax"]
+    zmin, zmax = bounds["zmin"], bounds["zmax"]
+    return np.array(
+        [
+            [xmin, ymin, zmin],
+            [xmax, ymin, zmin],
+            [xmax, ymax, zmin],
+            [xmin, ymax, zmin],
+            [xmin, ymin, zmax],
+            [xmax, ymin, zmax],
+            [xmax, ymax, zmax],
+            [xmin, ymax, zmax],
+        ],
+        dtype=float,
+    )
 
-    sys.exit(visualize_geometry(args.geometry, args.port, highlight_ids, args.overlaps))
+
+_BOX_INDICES = [
+    [0, 1, 2],
+    [0, 2, 3],
+    [4, 6, 5],
+    [4, 7, 6],
+    [0, 4, 5],
+    [0, 5, 1],
+    [1, 5, 6],
+    [1, 6, 2],
+    [2, 6, 7],
+    [2, 7, 3],
+    [3, 7, 4],
+    [3, 4, 0],
+]
+
+
+def _box_mesh(bounds: dict) -> tuple[str, "np.ndarray", "np.ndarray"]:
+    """Build a box mesh (8 corners, 12 triangles) from a bounds dict."""
+    return ("box", _box_corners(bounds), np.array(_BOX_INDICES, dtype=np.int64))
+
+
+def _cylinder_mesh(
+    center: tuple[float, float], lo: float, hi: float, radius: float, axis: str, segments: int
+) -> tuple[str, "np.ndarray", "np.ndarray"]:
+    """Build a capped cylinder mesh along ``axis`` with numpy only.
+
+    Inputs: ``center`` (the two cross-axis center coordinates), ``lo``/``hi``
+    (axis extent), ``radius``, ``axis`` (``"x"``, ``"y"`` or ``"z"``),
+    ``segments`` (rim vertices). Output: ``(kind, positions, indices)``
+    with ``positions`` shaped ``(2 * segments + 2, 3)`` (two rim rings plus
+    two cap centers) and ``indices`` holding side quads plus cap fans.
+    """
+    angles = np.linspace(0.0, 2.0 * np.pi, segments, endpoint=False)
+    ring = np.stack([np.cos(angles), np.sin(angles)], axis=1) * radius
+    # Canonical z-aligned cylinder centered on the origin.
+    height = hi - lo
+    lower = np.column_stack([ring[:, 0], ring[:, 1], np.full(segments, -height / 2)])
+    upper = np.column_stack([ring[:, 0], ring[:, 1], np.full(segments, height / 2)])
+    positions = np.vstack([lower, upper, [[0.0, 0.0, -height / 2], [0.0, 0.0, height / 2]]])
+
+    indices = []
+    for i in range(segments):
+        j = (i + 1) % segments
+        indices.append([i, segments + i, segments + j])
+        indices.append([i, segments + j, j])
+        indices.append([2 * segments, j, i])
+        indices.append([2 * segments + 1, segments + i, segments + j])
+
+    positions = np.asarray(positions, dtype=float)
+    if axis == "x":
+        positions = positions[:, [2, 0, 1]]
+        mid = (lo + hi) / 2
+        positions = positions + np.array([mid, center[0], center[1]])
+    elif axis == "y":
+        positions = positions[:, [0, 2, 1]]
+        mid = (lo + hi) / 2
+        positions = positions + np.array([center[0], mid, center[1]])
+    else:
+        mid = (lo + hi) / 2
+        positions = positions + np.array([center[0], center[1], mid])
+
+    return (f"{axis}-cylinder", positions, np.array(indices, dtype=np.int64))
+
+
+def _sphere_mesh(
+    center: tuple[float, float, float], radius: float, segments: int
+) -> tuple[str, "np.ndarray", "np.ndarray"]:
+    """Build a latitude/longitude sphere mesh with numpy only.
+
+    Inputs: ``center`` ((cx, cy, cz)), ``radius``, ``segments`` (rings and
+    rim vertices per ring). Output: ``(kind, positions, indices)``.
+    """
+    n_lat, n_lon = segments, segments
+    positions = []
+    for i in range(n_lat + 1):
+        theta = np.pi * i / n_lat
+        ring_r = radius * np.sin(theta)
+        z = radius * np.cos(theta)
+        for j in range(n_lon):
+            phi = 2.0 * np.pi * j / n_lon
+            positions.append(
+                [center[0] + ring_r * np.cos(phi), center[1] + ring_r * np.sin(phi), center[2] + z]
+            )
+    positions = np.array(positions, dtype=float)
+
+    indices = []
+    for i in range(n_lat):
+        for j in range(n_lon):
+            a = i * n_lon + j
+            b = i * n_lon + (j + 1) % n_lon
+            c = (i + 1) * n_lon + j
+            d = (i + 1) * n_lon + (j + 1) % n_lon
+            indices.append([a, c, b])
+            indices.append([b, c, d])
+
+    return ("sphere", positions, np.array(indices, dtype=np.int64))
+
+
+def _cell_box(cell: Cell, surfaces: dict[int, Surface], bounds: dict) -> dict:
+    """Compute a per-cell axis-aligned bounding box with numpy only.
+
+    Starts from the global ``bounds`` and tightens with the cell's plane
+    half-spaces plus cylinder/sphere extents. Region tokens follow the
+    :meth:`OpenMCGeometryVisualizer._parse_region` convention (``-N`` is
+    the negative halfspace / inside, ``+N``/``N`` the positive halfspace /
+    outside): a negative plane halfspace caps the upper bound, a positive
+    one floors the lower bound, and curved extents only tighten inside
+    cells (an AABB cannot carve the hole an outside-cylinder cell needs,
+    so those are skipped). Output: the 6-float bounds dict plus
+    ``min``/``max`` 3-lists (the ``geometry-native`` frontend consumes
+    ``bbox.min``/``bbox.max``).
+    """
+    box = dict(bounds)
+    for surf_id, is_comp in cell.surfaces.items():
+        surf = surfaces.get(surf_id)
+        if surf is None or not surf.coefficients:
+            continue
+        coeffs = surf.coefficients
+        if surf.type == "x-plane":
+            x = float(coeffs[0])
+            if is_comp:
+                box["xmax"] = min(box["xmax"], x)
+            else:
+                box["xmin"] = max(box["xmin"], x)
+        elif surf.type == "y-plane":
+            y = float(coeffs[0])
+            if is_comp:
+                box["ymax"] = min(box["ymax"], y)
+            else:
+                box["ymin"] = max(box["ymin"], y)
+        elif surf.type == "z-plane":
+            z = float(coeffs[0])
+            if is_comp:
+                box["zmax"] = min(box["zmax"], z)
+            else:
+                box["zmin"] = max(box["zmin"], z)
+        elif surf.type in ("z-cylinder", "cylinder") and len(coeffs) >= 3:
+            if not is_comp:
+                continue
+            cx, cy, r = float(coeffs[0]), float(coeffs[1]), float(coeffs[2])
+            box["xmin"] = max(box["xmin"], cx - r)
+            box["xmax"] = min(box["xmax"], cx + r)
+            box["ymin"] = max(box["ymin"], cy - r)
+            box["ymax"] = min(box["ymax"], cy + r)
+        elif surf.type == "x-cylinder" and len(coeffs) >= 3:
+            if not is_comp:
+                continue
+            cy, cz, r = float(coeffs[0]), float(coeffs[1]), float(coeffs[2])
+            box["ymin"] = max(box["ymin"], cy - r)
+            box["ymax"] = min(box["ymax"], cy + r)
+            box["zmin"] = max(box["zmin"], cz - r)
+            box["zmax"] = min(box["zmax"], cz + r)
+        elif surf.type == "y-cylinder" and len(coeffs) >= 3:
+            if not is_comp:
+                continue
+            cx, cz, r = float(coeffs[0]), float(coeffs[1]), float(coeffs[2])
+            box["xmin"] = max(box["xmin"], cx - r)
+            box["xmax"] = min(box["xmax"], cx + r)
+            box["zmin"] = max(box["zmin"], cz - r)
+            box["zmax"] = min(box["zmax"], cz + r)
+        elif surf.type == "sphere" and len(coeffs) >= 4:
+            if not is_comp:
+                continue
+            cx, cy, cz, r = (float(coeffs[0]), float(coeffs[1]), float(coeffs[2]), float(coeffs[3]))
+            box["xmin"] = max(box["xmin"], cx - r)
+            box["xmax"] = min(box["xmax"], cx + r)
+            box["ymin"] = max(box["ymin"], cy - r)
+            box["ymax"] = min(box["ymax"], cy + r)
+            box["zmin"] = max(box["zmin"], cz - r)
+            box["zmax"] = min(box["zmax"], cz + r)
+
+    # Repair degenerate ranges against the global bounds.
+    if box["xmin"] >= box["xmax"]:
+        box["xmin"], box["xmax"] = bounds["xmin"], bounds["xmax"]
+    if box["ymin"] >= box["ymax"]:
+        box["ymin"], box["ymax"] = bounds["ymin"], bounds["ymax"]
+    if box["zmin"] >= box["zmax"]:
+        box["zmin"], box["zmax"] = bounds["zmin"], bounds["zmax"]
+    flat = {key: float(value) for key, value in box.items()}
+    flat["min"] = [flat["xmin"], flat["ymin"], flat["zmin"]]
+    flat["max"] = [flat["xmax"], flat["ymax"], flat["zmax"]]
+    return flat
+
+
+def _cell_mesh(
+    cell: Cell, surfaces: dict[int, Surface], bounds: dict, segments: int
+) -> tuple[str | None, "np.ndarray | None", "np.ndarray | None"]:
+    """Build a numpy mesh for one cell from its primary surface.
+
+    Output: ``(kind, positions, indices)`` with ``positions`` shaped
+    ``(N, 3)`` and ``indices`` shaped ``(M, 3)``. Returns ``(None, None,
+    None)`` for surface types without a numpy tessellator (general planes,
+    cones, tori, quadrics) — callers fall back to the cell bounding box.
+    """
+    if not cell.surfaces:
+        return (None, None, None)
+    primary_id = list(cell.surfaces.keys())[0]
+    surf = surfaces.get(primary_id)
+    if surf is None:
+        return (None, None, None)
+
+    if surf.type in ("x-plane", "y-plane", "z-plane"):
+        cell_bounds = _cell_box(cell, surfaces, bounds)
+        return _box_mesh(cell_bounds)
+    if surf.type in ("z-cylinder", "cylinder") and len(surf.coefficients) >= 3:
+        cx, cy, r = (
+            float(surf.coefficients[0]),
+            float(surf.coefficients[1]),
+            float(surf.coefficients[2]),
+        )
+        return _cylinder_mesh((cx, cy), bounds["zmin"], bounds["zmax"], r, "z", segments)
+    if surf.type == "x-cylinder" and len(surf.coefficients) >= 3:
+        cy, cz, r = (
+            float(surf.coefficients[0]),
+            float(surf.coefficients[1]),
+            float(surf.coefficients[2]),
+        )
+        return _cylinder_mesh((cy, cz), bounds["xmin"], bounds["xmax"], r, "x", segments)
+    if surf.type == "y-cylinder" and len(surf.coefficients) >= 3:
+        cx, cz, r = (
+            float(surf.coefficients[0]),
+            float(surf.coefficients[1]),
+            float(surf.coefficients[2]),
+        )
+        return _cylinder_mesh((cx, cz), bounds["ymin"], bounds["ymax"], r, "y", segments)
+    if surf.type == "sphere" and len(surf.coefficients) >= 4:
+        center = (
+            float(surf.coefficients[0]),
+            float(surf.coefficients[1]),
+            float(surf.coefficients[2]),
+        )
+        return _sphere_mesh(center, float(surf.coefficients[3]), segments)
+    return (None, None, None)
+
+
+def extract_csg_mesh(geometry_file: str, *, segments: int = _DEFAULT_SEGMENTS) -> dict:
+    """Extract OpenMC CSG geometry as three.js-ready mesh JSON (no server).
+
+    Inputs: ``geometry_file`` (path to ``geometry.xml``), ``segments``
+    (tessellation segments per curved surface, 3-64). Geometry is parsed
+    with the :class:`OpenMCGeometryVisualizer` XML parser; every mesh is
+    built with numpy only (no vtk/openmc required).
+
+    Output: JSON-safe dict with ``sourceFile``, ``bounds`` (6 floats),
+    ``cells`` (one entry per cell: ``id``, ``name``, ``material``,
+    ``universe``, ``surfaceIds``, ``bbox`` plus ``mesh`` with ``kind``,
+    flat ``positions``/``indices`` lists and vertex/triangle counts, or
+    ``mesh: None`` when the cell needs the bbox fallback), ``surfaces``
+    (``id``, ``type``, ``coefficients``, ``boundary``) and ``stats``.
+    Raises :class:`GeometryExtractorError` on bad input or parse failure.
+    """
+    segments = _require_segments(segments)
+    path = _require_geometry_xml_path(geometry_file)
+
+    viz = OpenMCGeometryVisualizer()
+    if not viz.parse_geometry(path):
+        raise GeometryExtractorError(f"could not parse geometry XML: {path}")
+
+    bounds = {key: float(value) for key, value in viz.bounds.items()}
+
+    surfaces_json = [
+        {
+            "id": int(surf_id),
+            "type": surf.type,
+            "coefficients": [float(c) for c in surf.coefficients],
+            "boundary": surf.boundary,
+        }
+        for surf_id, surf in sorted(viz.surfaces.items())
+    ]
+
+    cells_json = []
+    n_vertices = 0
+    n_triangles = 0
+    n_meshed = 0
+    for cell_id, cell in sorted(viz.cells.items()):
+        bbox = _cell_box(cell, viz.surfaces, bounds)
+        kind, positions, indices = _cell_mesh(cell, viz.surfaces, bounds, segments)
+        if kind is None:
+            mesh_json = None
+        else:
+            flat_positions = [float(v) for v in np.asarray(positions, dtype=float).ravel()]
+            flat_indices = [int(v) for v in np.asarray(indices, dtype=np.int64).ravel()]
+            n_vertices += int(np.asarray(positions).shape[0])
+            n_triangles += int(np.asarray(indices).shape[0])
+            n_meshed += 1
+            mesh_json = {
+                "kind": kind,
+                "positions": flat_positions,
+                "indices": flat_indices,
+                "nVertices": int(np.asarray(positions).shape[0]),
+                "nTriangles": int(np.asarray(indices).shape[0]),
+            }
+        cells_json.append(
+            {
+                "id": int(cell_id),
+                "name": cell.name,
+                "material": cell.material,
+                "universe": int(cell.universe),
+                "surfaceIds": [int(s) for s in cell.surfaces],
+                "bbox": bbox,
+                "mesh": mesh_json,
+            }
+        )
+
+    return {
+        "sourceFile": path,
+        "bounds": bounds,
+        "cells": cells_json,
+        "surfaces": surfaces_json,
+        "stats": {
+            "nCells": len(cells_json),
+            "nSurfaces": len(surfaces_json),
+            "nMeshed": n_meshed,
+            "nVertices": n_vertices,
+            "nTriangles": n_triangles,
+        },
+    }
+
+
+def extract_csg_from_openmc_model(model, *, segments: int = _DEFAULT_SEGMENTS) -> dict:
+    """Extract mesh JSON from an in-memory openmc model (no server).
+
+    Inputs: ``model`` (an ``openmc.Model`` or ``openmc.Geometry`` — anything
+    with ``export_to_xml(path)``; ``model.geometry`` is used when present),
+    ``segments`` (tessellation budget, forwarded to :func:`extract_csg_mesh`).
+    The geometry is exported to a temp ``geometry.xml`` and extracted with
+    :func:`extract_csg_mesh`, so the JSON shape is identical. Raises
+    :class:`GeometryExtractorError` when openmc is missing or the export or
+    extraction fails.
+    """
+    _load_openmc()
+    segments = _require_segments(segments)
+
+    geometry = getattr(model, "geometry", model)
+    if not hasattr(geometry, "export_to_xml"):
+        raise GeometryExtractorError("model does not expose export_to_xml (not an openmc model?)")
+
+    import os
+    import tempfile
+
+    tmp_dir = tempfile.mkdtemp(prefix="nuke-geom-mesh-")
+    xml_path = os.path.join(tmp_dir, "geometry.xml")
+    try:
+        geometry.export_to_xml(xml_path)
+    except Exception as exc:
+        raise GeometryExtractorError(f"openmc geometry export failed: {exc}") from None
+    return extract_csg_mesh(xml_path, segments=segments)
+
+
+def write_geometry_mesh_json(mesh: dict, output_path: str) -> str:
+    """Write an :func:`extract_csg_mesh` dict to a JSON file.
+
+    Inputs: ``mesh`` (extractor dict), ``output_path`` (destination
+    ``.json`` file). Output: the path string. Raises
+    :class:`GeometryExtractorError` for a non-dict mesh or a write failure.
+    """
+    import json
+    import os
+
+    if not isinstance(mesh, dict) or "cells" not in mesh:
+        raise GeometryExtractorError("mesh must be an extract_csg_mesh dict")
+    if not output_path or not isinstance(output_path, (str, os.PathLike)):
+        raise GeometryExtractorError(f"invalid output path: {output_path!r}")
+    out_str = os.fspath(output_path)
+    try:
+        with open(out_str, "w") as handle:
+            json.dump(mesh, handle, indent=2)
+    except OSError as exc:
+        raise GeometryExtractorError(f"could not write mesh JSON: {exc}") from None
+    return out_str

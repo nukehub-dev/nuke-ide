@@ -198,6 +198,11 @@ def _full_statepoint_file():
             "k_col_abs": _FakeDataset(np.float64(1.04)),
             "k_col_tra": _FakeDataset(np.float64(1.06)),
             "k_abs_tra": _FakeDataset(np.float64(1.05)),
+            "entropy": _FakeDataset(np.array([6.4, 6.1, 6.0, 5.99, 5.98])),
+            "cmfd": _FakeGroup(
+                {"entropy": _FakeDataset(np.array([4.2, 4.1, 4.0]))},
+                attrs={"cmfd_on": True, "solver_begin": 8},
+            ),
             "source_bank": _FakeDataset(_source_bank(10)),
             "runtime": runtime_group,
             "global_tallies": _FakeDataset(np.arange(12, dtype=float).reshape(4, 3)),
@@ -245,6 +250,9 @@ def test_statepoint_info_full(fake_h5py, capsys):
     assert result["kColAbs"] == pytest.approx(1.04)
     assert result["kColTra"] == pytest.approx(1.06)
     assert result["kAbsTra"] == pytest.approx(1.05)
+    assert result["entropy"] == pytest.approx([6.4, 6.1, 6.0, 5.99, 5.98])
+    assert result["cmfdEntropy"] == pytest.approx([4.2, 4.1, 4.0])
+    assert result["cmfdEntropyStartBatch"] == 8
     assert result["nSourceParticles"] == 10
     assert result["hasSourceBank"] is True
 
@@ -308,6 +316,51 @@ def test_statepoint_info_full(fake_h5py, capsys):
     assert result["meshes"][0]["width"] == [1.0, 1.5, 1.5]
     assert result["meshes"][1]["dimensions"] == [2, 2, 2]
     assert result["meshes"][1]["width"] == [2.0, 4.0, 8.0]
+
+
+def test_statepoint_info_entropy_without_cmfd(fake_h5py, capsys):
+    """Entropy alone is returned; CMFD fields stay null."""
+    fake_h5py["file"] = _FakeFile(
+        {
+            "run_mode": _FakeDataset(b"eigenvalue"),
+            "n_batches": _FakeDataset(3),
+            "n_inactive": _FakeDataset(1),
+            "entropy": _FakeDataset(np.array([5.0, 4.8, 4.7])),
+        }
+    )
+
+    args = _parse(statepoint_cmds.cmd_statepoint_info, ["sp.h5"])
+    assert statepoint_cmds.cmd_statepoint_info(args) == 0
+
+    result = _stdout_json(capsys)
+    assert result["entropy"] == pytest.approx([5.0, 4.8, 4.7])
+    assert result["cmfdEntropy"] is None
+    assert result["cmfdEntropyStartBatch"] is None
+
+
+def test_statepoint_info_cmfd_legacy_key_and_disabled_group(fake_h5py, capsys):
+    """Accept the cmfd_entropy key; ignore a group marked cmfd_on=False."""
+    fake_h5py["file"] = _FakeFile(
+        {
+            "cmfd": _FakeGroup(
+                {"cmfd_entropy": _FakeDataset(np.array([3.3, 3.2]))},
+                attrs={"cmfd_on": True, "solver_begin": 4},
+            )
+        }
+    )
+    args = _parse(statepoint_cmds.cmd_statepoint_info, ["sp.h5"])
+    assert statepoint_cmds.cmd_statepoint_info(args) == 0
+    result = _stdout_json(capsys)
+    assert result["cmfdEntropy"] == pytest.approx([3.3, 3.2])
+    assert result["cmfdEntropyStartBatch"] == 4
+
+    fake_h5py["file"] = _FakeFile(
+        {"cmfd": _FakeGroup({"entropy": _FakeDataset(np.array([9.9]))}, attrs={"cmfd_on": False})}
+    )
+    args = _parse(statepoint_cmds.cmd_statepoint_info, ["sp.h5"])
+    assert statepoint_cmds.cmd_statepoint_info(args) == 0
+    result = _stdout_json(capsys)
+    assert result["cmfdEntropy"] is None
 
 
 def test_statepoint_info_minimal_file(fake_h5py, capsys):

@@ -19,19 +19,20 @@ This means adding a new command is just decorating a function. No edits to centr
 
 ## Script Discovery
 
-Never hardcode paths. Use `PythonCommandHelper.findScript()`:
+Never hardcode paths. Use `PythonCommandHelper.findScript()`, which delegates to nuke-core's `resolvePythonScript`:
 
 ```typescript
 const scriptPath = this.pythonHelper.findScript('server.py');
 ```
 
-This resolves to:
+The resolver returns the first existing candidate in this order:
 
-1. `lib/python/server.py` (production build)
-2. `src/python/server.py` (development)
-3. Fallback relative to `__dirname`
+1. Electron `extraResources/python/<package>/<script>` (outside `app.asar`)
+2. `<resolved package>/python/<script>` (development and `asarUnpack` installs)
+3. `<app>/extensions/<package>/python/<script>`
+4. Monorepo development fallbacks relative to the resolver module and the current working directory
 
-All operations — visualization servers, file converters, data queries — go through the unified `server.py` entry point.
+All operations — file converters, data queries — go through the unified `server.py` entry point.
 
 ---
 
@@ -44,9 +45,10 @@ Commands are plain functions decorated with `@command` and `@arg`:
 from nuke_viz.plugin import command, arg
 import json
 
-@command('myplugin.greet', help='Say hello')
-@arg('name', help='Who to greet')
-@arg('--loud', action='store_true', help='Use uppercase')
+
+@command("myplugin.greet", help="Say hello")
+@arg("name", help="Who to greet")
+@arg("--loud", action="store_true", help="Use uppercase")
 def cmd_greet(args):
     message = f"Hello, {args.name}!"
     if args.loud:
@@ -60,7 +62,9 @@ def cmd_greet(args):
 - The function receives one argument: `args` (an `argparse.Namespace`).
 - Return an integer exit code (`0` for success).
 - Output **JSON to stdout** for data responses.
-- Print **errors to stderr** and exit with non-zero code.
+- Report errors as one JSON `{"error": ...}` object and exit 1, never a traceback — base-plugin commands emit it on stderr, OpenMC-plugin commands on stdout; the node side parses stdout first (`executeCommandJson`).
+- Keep `tests/python/test_command_contracts.py` green: every registered command supports `--help`, and missing
+  input produces one JSON error with no traceback.
 - Use `@arg` decorators in the order you want positional arguments to appear.
 
 ### Argument Order
@@ -68,13 +72,12 @@ def cmd_greet(args):
 Python evaluates decorators **bottom-up**, so declare positional arguments **top-down**:
 
 ```python
-@command('openmc.spectrum', help='Get energy spectrum data')
-@arg('statepoint', help='Path to statepoint file')      # first positional
-@arg('tally_id', type=int, help='Tally ID')             # second positional
-@arg('--score-index', help='Score index')               # optional flag
-@arg('--nuclide-index', help='Nuclide index')           # optional flag
-def cmd_spectrum(args):
-    ...
+@command("openmc.spectrum", help="Get energy spectrum data")
+@arg("statepoint", help="Path to statepoint file")  # first positional
+@arg("tally_id", type=int, help="Tally ID")  # second positional
+@arg("--score-index", help="Score index")  # optional flag
+@arg("--nuclide-index", help="Nuclide index")  # optional flag
+def cmd_spectrum(args): ...
 ```
 
 This produces `usage: server.py openmc.spectrum statepoint tally_id [--score-index ...]`.
@@ -116,77 +119,84 @@ REQUIREMENTS = ["numpy"]
 
 ### Graceful Dependency Handling
 
-If a command module requires heavy dependencies (e.g., `openmc`, `paraview`), wrap imports in `try/except` at the plugin level so missing deps don't break the entire plugin:
+If a command module requires heavy dependencies (e.g., `openmc`, `vtk`), wrap imports in `try/except` at the plugin level so missing deps don't break the entire plugin:
 
 ```python
 # python/plugins/openmc/plugin.py
-_COMMAND_MODULES = ['basic', 'spectrum', 'geometry', ...]
+_COMMAND_MODULES = ["basic", "spectrum", "geometry", ...]
 
 for mod_name in _COMMAND_MODULES:
     try:
-        __import__(f'plugins.openmc.commands.{mod_name}')
+        __import__(f"plugins.openmc.commands.{mod_name}")
     except Exception as e:
         print(f"[OpenMC Plugin] '{mod_name}' not loaded: {e}", file=sys.stderr)
 ```
 
 ---
 
-## Server Startup (Trame / ParaView)
+## Headless Commands (No Servers)
 
-For visualization servers that need to bind a port, use `@command` + `@arg` like any other command:
+Commands run, print JSON, and exit. Nothing binds a port and nothing serves HTTP — the frontend renders converted files natively. A converter looks like any other command:
 
 ```python
-# python/plugins/base/commands/serve.py
+# python/plugins/base/commands/convert.py
 from nuke_viz.plugin import command, arg
 
-@command('base.serve', help='Start the base visualizer server')
-@arg('--port', type=int, help='Port to run server on')
-@arg('--file', type=str, help='File to load')
-@arg('--host', type=str, default='127.0.0.1', help='Host to report in URL')
-@arg('--theme', type=str, default='dark', choices=['dark', 'light'])
-def cmd_serve(args):
-    port = args.port or find_free_port()
-    server = create_app(args.file, port, theme=args.theme)
-    print(f"Starting visualizer server on port {port}")
-    server.start(port=port, host='0.0.0.0', open_browser=False)
+
+@command("base.convert-step", help="Convert STEP to VTK")
+@arg("--file", required=True, help="Input file path")
+def cmd_convert_step(args):
+    from plugins.base.lib.step import convert_step_to_vtk_cached
+
+    result = convert_step_to_vtk_cached(args.file)
+    print(json.dumps(result))
     return 0
 ```
 
-### Readiness Signaling
-
-Python servers must signal readiness so the backend knows when to return:
-
-**Option 1: Print a ready message**
-
-```python
-print(f"Starting visualizer server on port {port}")
-server.start(port=port)
-```
-
-The backend watches stdout for `"Starting visualizer server on"`.
-
-**Option 2: Just bind the port**
-
-The backend also polls the TCP port every second. Once the port accepts connections, the server is considered ready.
+The backend invokes the command, parses stdout JSON, and reads the converted file — there is no readiness handshake because there is nothing to wait for beyond process exit.
 
 ---
 
 ## Unified Entry Point
 
-All commands are invoked through `server.py`:
+Derived tallies are the one cross-extension seam: the Node statepoint service resolves
+`openmc-studio/python/derive_tallies.py` through nuke-core's script resolver and runs it with the
+visualizer's configured Python environment. The viewer reads the definitions from the sibling
+`.nuke-openmc` project, so nuke-visualizer never imports OpenMC Studio's TypeScript or Python modules.
+
+All commands are invoked through `server.py` from the extension's Python directory:
 
 ```bash
+cd extensions/nuke-visualizer/python
+
 # Data query
 python server.py openmc.info /path/to/statepoint.h5
 
-# 3D visualization
-python server.py openmc.visualize-mesh /path/to/statepoint.h5 1 --port 8090
+# Headless conversion (geometry + VTK export, then exit)
+python server.py openmc.tally-mesh-vtk /path/to/statepoint.h5 1
 
 # Base visualizer
-python server.py base.serve --file /path/to/mesh.vtk --port 8080
+python server.py base.convert-dagmc --file /path/to/model.h5m
+python server.py base.convert-gmsh --file /path/to/mesh.msh
 ```
 
 `server.py` auto-discovers plugins, builds argparse from registered commands, and routes to the handler.
+
+---
+
+## Analysis Commands
+
+The statepoint reader (`openmc.statepoint-info`) carries the Shannon-entropy history (`entropy`), CMFD entropy (`cmfdEntropy`, read from `cmfd/entropy` with a `cmfd_entropy` fallback), the CMFD solver start batch, and `nInactive`/`nBatches`. The statepoint viewer renders entropy only from these fields.
+
+Depletion analysis commands reuse `openmc.deplete.Results` and `openmc.Material`:
+
+| Command                           | Output                                                              |
+| --------------------------------- | ------------------------------------------------------------------- |
+| `openmc.depletion-contact-dose`   | Total and per-nuclide contact dose rates for every state            |
+| `openmc.depletion-decay-spectrum` | Discrete decay lines / continuous components at one time index      |
+| `openmc.dose-coefficients`        | ICRP-74 / ICRP-116 reference table + available particles/geometries |
+
+The helpers live in `python/plugins/openmc/lib/depletion_analysis.py` (contact dose and spectrum shaping) and `commands/nuclear_data.py` (dose coefficients). The commands resolve the chain from `--chain-file`, then `OPENMC_CHAIN_FILE`, then `openmc.config['chain_file']`; a missing chain is a clean JSON error because decay-photon data is chain-backed. Chain file paths and unit strings are carried in the JSON response, never inferred in the UI.
 
 ---
 
@@ -194,19 +204,20 @@ python server.py base.serve --file /path/to/mesh.vtk --port 8080
 
 ### Standard Output
 
-Everything printed to stdout is streamed to the IDE's output channel:
+Converter stdout is captured by the backend for JSON parsing and error reporting; it is not streamed line-by-line to the IDE output channel. Backend services write their own status/progress messages (and captured errors) to the output channel:
 
 ```python
-print("Loading mesh...")        # Appears in output channel
-print(f"Result: {data}")        # Appears in output channel
+print("Loading mesh...")  # captured by executeScript, not a UI notification
+print(f"Result: {data}")  # keep machine-readable data in the final JSON payload
 ```
 
 ### Structured Warnings
 
-To show a warning toast in the IDE, use the framework helper or print manually:
+For machine-readable diagnostics, use the framework helper or print the conventional prefix:
 
 ```python
 from nuke_viz.logging import warning
+
 warning("Tally mesh does not align with geometry", warning_type="spatial_warning")
 ```
 
@@ -214,10 +225,11 @@ Or print directly:
 
 ```python
 import json
+
 print(f"NUKE_IDE_WARNING:{json.dumps({'type': 'spatial_warning', 'message': '...'})}")
 ```
 
-The backend scans stdout for lines starting with `NUKE_IDE_WARNING:` and forwards them via `VisualizerClient.warn()`.
+`nuke_viz.logging.warning()` prints one `NUKE_IDE_WARNING:<json>` line on stdout. The Node backend does not special-case the prefix, so the line stays in captured stdout rather than becoming a toast; report conditions that must reach the UI in the command's JSON payload as well.
 
 ### Errors
 
@@ -225,6 +237,7 @@ Print to stderr and exit non-zero:
 
 ```python
 import sys
+
 print("Failed to load HDF5 file", file=sys.stderr)
 sys.exit(1)
 ```
@@ -233,17 +246,9 @@ This causes `executeScriptJson()` to throw with the stderr text.
 
 ---
 
-## Port Binding
+## No Ports
 
-The backend allocates a free port and passes it to your script:
-
-```bash
-python server.py openmc.visualize-mesh statepoint.h5 1 --port 8090
-```
-
-Your script must bind to **exactly** that port. Do not pick your own port.
-
-If you need multiple ports (rare), discuss with the backend service author.
+There is no port management: commands must never bind ports or start servers. The backend allocates nothing and passes no `--port` — a command that needs to expose data writes a file (VTK/JSON) and prints its path.
 
 ---
 
@@ -259,6 +264,7 @@ In Python, verify the file exists before opening:
 
 ```python
 import os
+
 if not os.path.exists(file_path):
     print(f"File not found: {file_path}", file=sys.stderr)
     sys.exit(1)
@@ -278,41 +284,20 @@ If you need shared caching, implement it in the Node backend, not in Python.
 
 ---
 
-## Headless / Offscreen Rendering
+## Headless Conversion (No Display Needed)
 
-VTK/ParaView scripts must render offscreen so trame streams the view instead of a native window popping up. Two mechanisms, both already wired in `server.py` / `plugins/base/commands/serve.py`:
-
-```python
-# serve.py, BEFORE importing vtk or paraview:
-if "DISPLAY" not in os.environ:
-    os.environ["DISPLAY"] = ""  # preserve an inherited Xvfb display (e.g. :99)
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
-
-# server.py, before plugin discovery:
-import paraview
-paraview.options.batch = True  # pvbatch-style: never maps a native window
-```
+Converters write files with the `vtk` writers and never create a render window, so no display server, `DISPLAY` handling, or offscreen GL setup is needed. Keep `QT_QPA_PLATFORM=offscreen` defensively (some `vtk` imports touch rendering modules), and keep heavy imports lazy inside the handler so a missing `vtk` surfaces as a clean JSON error instead of a traceback.
 
 Rules:
 
-- Do **not** force `DISPLAY = ""`: conda-forge VTK builds are X11/GLX-only and abort with `bad X server connection` (then segfault via the EGL/OSMesa fallbacks) when no X connection exists. Container images provide Xvfb (`DISPLAY=:99`) for exactly this.
+- Do all geometry work in numpy; import `vtk` only for the final write (see `tally_vtk._load_vtk` / `output_vtk._load_vtk`).
+- Never create render windows or mappers in converter code — rendering happens client-side in the IDE's three.js viewers.
 
 ---
 
-## Local / Remote Rendering Modes
+## Client-Side Rendering
 
-All trame 3D viewers use `VtkRemoteLocalView` (trame-vtk >= 2.11), which embeds both a **local** vtk.js view (client-side WebGL) and a **remote** ParaView view (server-rendered image stream). The user switches modes at runtime via a small toggle (bottom-right of the canvas); the default is **local**, so CPU-bound containers do not pay for server renders during interaction. Remote mode remains as a fallback.
-
-Shared helpers in `plugins/base/lib/common.py`:
-
-- `create_view_widget(pv_widgets, view, namespace, default_mode=None, **kwargs)` — builds the `VtkRemoteLocalView` with a unique state namespace per viewer (`dagmcView`, `serveView`, `geomView`, `tallyView`, `tallySliceView`, `tally3dView`). The mode lives in the state variable `<namespace>Mode` ("local"|"remote"). `default_mode=None` reads `NUKE_VISUALIZER_RENDER_MODE` ("local"/"remote", default "local"; invalid values fall back to "local"). `disable_auto_switch=True` is always set to avoid surprise server-side renders while the local scene loads.
-- `update_view_widget(view_widget, state)` — mode-aware push: `update_geometry()` in local mode, `update_image()` in remote mode. Use it instead of the bare `view_widget.update()` (which pushes both). `create_update_view` already routes through it.
-- `UIComponents.create_render_mode_toggle(vuetify, namespace)` — the floating local/remote toggle; place it next to the canvas gadget with the same namespace as the view widget.
-
-Rules:
-
-- One namespace per viewer; the widget, the toggle, and every update call must share it.
-- Do not construct `pv_widgets.VtkRemoteView` directly for new viewers — use `create_view_widget`.
+All 3D rendering happens in the frontend (`NativeVtkViewerWidget` + `src/browser/viewer-core/`: LUT pack, toolbar state model, clip plane, canvas screenshots). Color-by, colormap, clip, and screenshot controls run against the parsed VTK with no backend round-trip — so there is no server-side render mode, toggle, or fallback to maintain in new viewer code.
 
 ---
 
@@ -328,7 +313,7 @@ python/
 ├── nuke_viz/                        # Framework
 │   ├── plugin.py
 │   ├── registry.py
-│   └── server.py
+│   └── logging.py
 └── plugins/
     ├── openmc/
     │   ├── plugin.py
@@ -344,11 +329,16 @@ python/
     └── base/
         ├── plugin.py
         ├── commands/
-        │   └── serve.py
+        │   ├── convert.py     # headless converters (DAGMC, STEP)
+        │   ├── exodus.py      # headless Exodus time-series extractor
+        │   ├── analysis.py    # integrate / describe / mesh-quality commands
+        │   └── export.py      # CSV/VTK/glTF dataset export
         └── lib/
             ├── common.py
             ├── dagmc.py           # DAGMC → VTK library
-            └── step.py            # STEP → VTK library
+            ├── step.py            # STEP → VTK library
+            ├── analysis.py        # pure numpy integrate/stats/quality helpers
+            └── export.py          # pure CSV/format helpers
 ```
 
 Import helpers using absolute imports:
@@ -369,7 +359,7 @@ You can test Python scripts independently of the IDE:
 ```bash
 cd extensions/nuke-visualizer/python
 python server.py openmc.info /path/to/statepoint.h5
-python server.py base.serve --file /path/to/mesh.vtk --port 8080
+python server.py base.convert-dagmc --file /path/to/model.h5m
 ```
 
 This is useful for debugging without starting the full Theia application.
@@ -386,24 +376,27 @@ yarn test:python:cov    # run with the coverage report
 Tests must pass with only `pytest` + `numpy` installed — guard heavy imports
 and use `pytest.importorskip` for optional dependencies. Coverage of the
 logic layer is ratcheted in CI (see "Coverage" in the root `AGENTS.md`); the
-trame/ParaView rendering modules are excluded by design and covered by
-error-path contract tests instead.
+`.coveragerc` omit list names the rendering/converter seam modules (for example
+`tally_viz.py`, `xs_plot.py`, `geometry_viz.py`, `slice_viz.py`) that are covered
+by error-path contract tests instead.
 
 ---
 
 ## File Converters
 
-Format conversion (e.g., DAGMC → VTK, STEP → VTK) is implemented as ordinary `@command` handlers in `plugins/base/commands/convert.py`:
+Format conversion (e.g., DAGMC → VTK, STEP → VTK, Gmsh → VTK) is implemented as ordinary `@command` handlers in `plugins/base/commands/convert.py`:
 
 ```python
 # python/plugins/base/commands/convert.py
 from nuke_viz.plugin import command, arg
 import json
 
-@command('base.convert-step', help='Convert STEP to VTK')
-@arg('--file', required=True, help='Input file path')
+
+@command("base.convert-step", help="Convert STEP to VTK")
+@arg("--file", required=True, help="Input file path")
 def cmd_convert_step(args):
     from plugins.base.lib.step import convert_step_to_vtk_cached
+
     result = convert_step_to_vtk_cached(args.file)
     print(json.dumps(result))
     return 0
@@ -425,6 +418,8 @@ const result = await this.pythonHelper.executeScriptJson<{
 - CLI commands → `python/plugins/<plugin>/commands/`
 - Unified entry point → `python/server.py`
 
+Converter libs follow the hardened pattern (`DagmcError`/`StepError`/`GmshMeshError`, `find_spec` probes, lazy loaders, validators before heavy imports): `plugins/base/lib/dagmc.py`, `step.py`, and `gmsh_mesh.py` (cached DAGMC, CAD, and Gmsh conversion), `plugins/base/lib/exodus_series.py` (`base.exodus-series`), and `plugins/openmc/lib/geometry_viz.py` + `slice_viz.py` (`openmc.geometry-mesh` / `openmc.geometry-slice-vtk`).
+
 ---
 
 ## Summary Checklist
@@ -436,9 +431,9 @@ When writing a new Python backend command:
 - [ ] Accept `args` (argparse.Namespace) and return an integer exit code
 - [ ] Output data as JSON to stdout
 - [ ] Print errors to stderr, exit non-zero on failure
-- [ ] Use `NUKE_IDE_WARNING:{json}` or `nuke_viz.logging.warning()` for IDE warnings
-- [ ] For servers: accept `--port` and bind to it exactly
-- [ ] Set headless env vars before importing VTK
+- [ ] Use `NUKE_IDE_WARNING:{json}` or `nuke_viz.logging.warning()` for machine-readable diagnostics, and put UI-critical conditions in the JSON result
+- [ ] Never bind ports or start servers — write files and exit
+- [ ] Keep heavy imports lazy (inside the handler) so missing deps report clean JSON errors
 - [ ] Put reusable code in `python/plugins/<plugin>/lib/`
 - [ ] Register the command module in `python/plugins/<plugin>/plugin.py`
-- [ ] Test standalone: `python server.py plugin.command-name ...`
+- [ ] Test standalone from `extensions/nuke-visualizer/python`: `python server.py plugin.command-name ...`

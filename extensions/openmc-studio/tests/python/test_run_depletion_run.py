@@ -45,11 +45,16 @@ class RecordingIntegrator:
     instances = []
     fail_on_integrate = False
 
-    def __init__(self, operator, time_steps, power=None):
+    def __init__(self, operator, time_steps, power=None, **kwargs):
         self.operator = operator
         self.time_steps = time_steps
+        self.timesteps = time_steps
         self.power = power
+        self.kwargs = kwargs
         self.integrated = False
+        self.transfer_rate_calls = []
+        self.external_source_rate_calls = []
+        self.keff_search_calls = []
         RecordingIntegrator.instances.append(self)
 
     def integrate(self):
@@ -57,16 +62,38 @@ class RecordingIntegrator:
             raise RuntimeError("transport failed")
         self.integrated = True
 
+    def add_transfer_rate(self, material, components, rate, **kwargs):
+        self.transfer_rate_calls.append((material, components, rate, kwargs))
+
+    def add_external_source_rate(
+        self, material, composition, rate, rate_units="g/s", timesteps=None
+    ):
+        self.external_source_rate_calls.append(
+            {
+                "material": material,
+                "composition": composition,
+                "rate": rate,
+                "rate_units": rate_units,
+                "timesteps": timesteps,
+            }
+        )
+
+    def add_keff_search_control(self, function, x0, x1, bracket, **kwargs):
+        self.keff_search_calls.append(
+            {"function": function, "x0": x0, "x1": x1, "bracket": bracket, "kwargs": kwargs}
+        )
+
 
 class RecordingOperator:
     """Records CoupledOperator construction."""
 
     instances = []
 
-    def __init__(self, model, chain, normalization_mode="fission-q"):
+    def __init__(self, model, chain, normalization_mode="fission-q", **kwargs):
         self.model = model
         self.chain = chain
         self.normalization_mode = normalization_mode
+        self.kwargs = kwargs
         RecordingOperator.instances.append(self)
 
 
@@ -117,9 +144,33 @@ def _install_fake_openmc(
     fake_deplete = types.ModuleType("openmc.deplete")
     fake_deplete.Chain = SimpleNamespace(from_xml=lambda path: ("chain", path))
     fake_deplete.CoupledOperator = RecordingOperator
+    fake_deplete.Results = lambda path: ("results", path)
     for name in integrator_names:
         # Distinct subclass per integrator so tests can tell which class was used
         setattr(fake_deplete, name, type(name, (RecordingIntegrator,), {}))
+
+    # Capability-probe surface: the base Integrator carries the 0.16 options
+    # and public methods the driver introspects.
+    fake_abc = types.ModuleType("openmc.deplete.abc")
+
+    class _FakeIntegrator:
+        def __init__(self, operator, timesteps, power=None, substeps=1, continue_timesteps=False):
+            self.operator = operator
+            self.timesteps = timesteps
+            self.power = power
+            self.substeps = substeps
+            self.continue_timesteps = continue_timesteps
+
+        def add_keff_search_control(self, function, x0, x1, bracket, **kwargs):
+            pass
+
+        def add_external_source_rate(
+            self, material, composition, rate, rate_units="g/s", timesteps=None
+        ):
+            pass
+
+    fake_abc.Integrator = _FakeIntegrator
+    fake_deplete.abc = fake_abc
     fake_openmc.deplete = fake_deplete
 
     RecordingOperator.instances = []
@@ -128,6 +179,7 @@ def _install_fake_openmc(
 
     monkeypatch.setitem(sys.modules, "openmc", fake_openmc)
     monkeypatch.setitem(sys.modules, "openmc.deplete", fake_deplete)
+    monkeypatch.setitem(sys.modules, "openmc.deplete.abc", fake_abc)
     return fake_openmc
 
 
@@ -156,6 +208,11 @@ def _args(workdir, **overrides):
         "normalization": None,
         "substeps": 1,
         "mpi_processes": None,
+        "reactivity_control": None,
+        "external_source_rates": None,
+        "continue_from_results": None,
+        "continue_timesteps": False,
+        "decay_only_steps": None,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

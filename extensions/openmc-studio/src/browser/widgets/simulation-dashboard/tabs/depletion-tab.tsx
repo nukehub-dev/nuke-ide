@@ -28,13 +28,15 @@
 import * as React from '@theia/core/shared/react';
 import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCTransferRate } from '../../../../common/openmc-state-schema';
 import { DEPLETION_SOLVERS, resolveDepletionSolver } from '../../../../common/depletion-solvers';
 import { ChainBuildResult } from '../../../../common/openmc-studio-protocol';
+import { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
 import { DepletionTimeline } from '../depletion-timeline';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
+import { DepletionRunControls } from './depletion-run-controls';
 
 /**
  * Depletion tab of the simulation dashboard: burnup configuration and timeline.
@@ -43,8 +45,29 @@ import { DashboardTabContribution } from './tab-registry';
 export class DepletionTabContribution implements DashboardTabContribution {
     readonly id = 'depletion';
     readonly label = 'Depletion';
-    readonly icon = 'history';
+    readonly icon = 'openmc-depletion';
     readonly order = 3;
+
+    /** Probed OpenMC compatibility for feature gating (fetched once). */
+    private compat?: OpenMCCompat;
+    private compatRequested = false;
+
+    /**
+     * Fetch the OpenMC compatibility descriptor once and re-render when it
+     * arrives (gates substeps, reactivity control, external rates, and
+     * continuation on the detected environment).
+     * @param host - Simulation dashboard widget host.
+     */
+    private requestCompat(host: SimulationDashboardWidget): void {
+        if (this.compatRequested) {
+            return;
+        }
+        this.compatRequested = true;
+        void host.studioService.getOpenMCCompat().then((compat) => {
+            this.compat = compat;
+            host.update();
+        });
+    }
 
     /**
      * Render the Depletion tab with burnup configuration and timeline.
@@ -56,6 +79,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
         const depletion = state.depletion || { timeSteps: [], power: 0, enabled: false };
         const hasDepletableMaterials = state.materials.some((m) => m.isDepletable);
         const isEnabled = depletion.enabled;
+        this.requestCompat(host);
 
         // Get default chain file from preferences
         const defaultChainFile = host.nukeCoreService.getChainFilePath();
@@ -141,16 +165,12 @@ export class DepletionTabContribution implements DashboardTabContribution {
                                         <i className="codicon codicon-symbol-method"></i>
                                         Integration Method
                                     </label>
-                                    <select
+                                    <NukeSelect
                                         value={resolveDepletionSolver((depletion as any).solver)}
-                                        onChange={(e) => host.stateManager.updateDepletion({ solver: e.target.value as any })}
-                                    >
-                                        {DEPLETION_SOLVERS.map((s) => (
-                                            <option key={s.id} value={s.id}>
-                                                {s.label}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        options={[...DEPLETION_SOLVERS.map((s) => ({ value: s.id, label: s.label }))]}
+                                        onChange={(value: string) => host.stateManager.updateDepletion({ solver: value as any })}
+                                        ariaLabel="Integration method"
+                                    />
                                     <span className="config-hint">Algorithm for solving depletion equations</span>
                                 </div>
                             </div>
@@ -176,20 +196,22 @@ export class DepletionTabContribution implements DashboardTabContribution {
                                                 }
                                             }}
                                         />
-                                        <select
+                                        <NukeSelect
                                             value={depletion.powerDensity !== undefined ? 'power_density' : 'power'}
-                                            onChange={(e) => {
+                                            options={[
+                                                { value: 'power', label: 'Watts (Total)' },
+                                                { value: 'power_density', label: 'W/g (Density)' }
+                                            ]}
+                                            onChange={(value: string) => {
                                                 const val = depletion.power || depletion.powerDensity || 0;
-                                                if (e.target.value === 'power_density') {
+                                                if (value === 'power_density') {
                                                     host.stateManager.updateDepletion({ powerDensity: val, power: undefined });
                                                 } else {
                                                     host.stateManager.updateDepletion({ power: val, powerDensity: undefined });
                                                 }
                                             }}
-                                        >
-                                            <option value="power">Watts (Total)</option>
-                                            <option value="power_density">W/g (Density)</option>
-                                        </select>
+                                            ariaLabel="Power mode"
+                                        />
                                     </div>
                                     <span className="config-hint">Reactor operating power for depletion calculations</span>
                                 </div>
@@ -310,16 +332,18 @@ export class DepletionTabContribution implements DashboardTabContribution {
                 <div className="config-grid">
                     <div className="config-item">
                         <label>Mode</label>
-                        <select
+                        <NukeSelect
                             value={this.chainBuilderMode}
-                            onChange={(e) => {
-                                this.chainBuilderMode = e.target.value as 'subset' | 'endf';
+                            options={[
+                                { value: 'subset', label: 'Subset an existing chain' },
+                                { value: 'endf', label: 'Build from ENDF directory' }
+                            ]}
+                            onChange={(value: string) => {
+                                this.chainBuilderMode = value as 'subset' | 'endf';
                                 host.update();
                             }}
-                        >
-                            <option value="subset">Subset an existing chain</option>
-                            <option value="endf">Build from ENDF directory</option>
-                        </select>
+                            ariaLabel="Chain builder mode"
+                        />
                         <span className="config-hint">
                             {this.chainBuilderMode === 'subset'
                                 ? 'Filter a full chain to a fast subset (FPY borrow parents included automatically)'
@@ -544,11 +568,7 @@ export class DepletionTabContribution implements DashboardTabContribution {
             host.stateManager.updateDepletion({ fissionQ: Object.keys(fissionQ).length > 0 ? fissionQ : undefined });
         };
 
-        const materialOptions = depletableMaterials.map((m) => (
-            <option key={m.id} value={m.id}>
-                #{m.id} {m.name}
-            </option>
-        ));
+        const materialOptions = depletableMaterials.map((m) => ({ value: String(m.id), label: `#${m.id} ${m.name}` }));
 
         return (
             <div className="settings-section depletion-advanced">
@@ -562,13 +582,17 @@ export class DepletionTabContribution implements DashboardTabContribution {
                             <i className="codicon codicon-circuit-board"></i>
                             Operator Type
                         </label>
-                        <select
+                        <NukeSelect
                             value={isIndependent ? 'independent' : 'coupled'}
-                            onChange={(e) => host.stateManager.updateDepletion({ operator: e.target.value as 'coupled' | 'independent' })}
-                        >
-                            <option value="coupled">Coupled (transport solve each step)</option>
-                            <option value="independent">Independent (pre-computed flux &amp; XS)</option>
-                        </select>
+                            options={[
+                                { value: 'coupled', label: 'Coupled (transport solve each step)' },
+                                { value: 'independent', label: 'Independent (pre-computed flux & XS)' }
+                            ]}
+                            onChange={(value: string) =>
+                                host.stateManager.updateDepletion({ operator: value as 'coupled' | 'independent' })
+                            }
+                            ariaLabel="Operator type"
+                        />
                         <span className="config-hint">Independent uses multigroup flux/cross sections instead of transport solves</span>
                         {isMultiGroup && !isIndependent && (
                             <span className="config-hint">
@@ -582,18 +606,20 @@ export class DepletionTabContribution implements DashboardTabContribution {
                             <i className="codicon codicon-symbol-operator"></i>
                             Normalization Mode
                         </label>
-                        <select
+                        <NukeSelect
                             value={depletion.normalizationMode ?? 'fission-q'}
-                            onChange={(e) =>
+                            options={[
+                                { value: 'fission-q', label: 'Fission Q (default)' },
+                                { value: 'energy-deposition', label: 'Energy Deposition' },
+                                { value: 'source-rate', label: 'Source Rate' }
+                            ]}
+                            onChange={(value: string) =>
                                 host.stateManager.updateDepletion({
-                                    normalizationMode: e.target.value as 'source-rate' | 'fission-q' | 'energy-deposition'
+                                    normalizationMode: value as 'source-rate' | 'fission-q' | 'energy-deposition'
                                 })
                             }
-                        >
-                            <option value="fission-q">Fission Q (default)</option>
-                            <option value="energy-deposition">Energy Deposition</option>
-                            <option value="source-rate">Source Rate</option>
-                        </select>
+                            ariaLabel="Normalization mode"
+                        />
                     </div>
                 </div>
 
@@ -684,9 +710,12 @@ export class DepletionTabContribution implements DashboardTabContribution {
                     <div className="form-row" key={index}>
                         <div className="form-group">
                             <label>From Material</label>
-                            <select value={tr.material} onChange={(e) => updateTransferRate(index, { material: parseInt(e.target.value) })}>
-                                {materialOptions}
-                            </select>
+                            <NukeSelect
+                                value={String(tr.material)}
+                                options={[...materialOptions]}
+                                onChange={(value: string) => updateTransferRate(index, { material: parseInt(value) })}
+                                ariaLabel="From material"
+                            />
                         </div>
                         <div className="form-group">
                             <label>Element / Nuclide</label>
@@ -708,30 +737,31 @@ export class DepletionTabContribution implements DashboardTabContribution {
                         </div>
                         <div className="form-group">
                             <label>Units</label>
-                            <select
+                            <NukeSelect
                                 value={tr.units ?? '1/s'}
-                                onChange={(e) => updateTransferRate(index, { units: e.target.value as OpenMCTransferRate['units'] })}
-                            >
-                                <option value="1/s">1/s</option>
-                                <option value="1/min">1/min</option>
-                                <option value="1/h">1/h</option>
-                                <option value="1/d">1/d</option>
-                                <option value="1/a">1/a</option>
-                            </select>
+                                options={[
+                                    { value: '1/s', label: '1/s' },
+                                    { value: '1/min', label: '1/min' },
+                                    { value: '1/h', label: '1/h' },
+                                    { value: '1/d', label: '1/d' },
+                                    { value: '1/a', label: '1/a' }
+                                ]}
+                                onChange={(value: string) => updateTransferRate(index, { units: value as OpenMCTransferRate['units'] })}
+                                ariaLabel="Transfer rate units"
+                            />
                         </div>
                         <div className="form-group">
                             <label>Destination (optional)</label>
-                            <select
-                                value={tr.destinationMaterial ?? ''}
-                                onChange={(e) =>
+                            <NukeSelect
+                                value={String(tr.destinationMaterial ?? '')}
+                                options={[{ value: '', label: 'None' }, ...materialOptions]}
+                                onChange={(value: string) =>
                                     updateTransferRate(index, {
-                                        destinationMaterial: e.target.value ? parseInt(e.target.value) : undefined
+                                        destinationMaterial: value ? parseInt(value) : undefined
                                     })
                                 }
-                            >
-                                <option value="">None</option>
-                                {materialOptions}
-                            </select>
+                                ariaLabel="Destination material"
+                            />
                         </div>
                         <div className="form-group">
                             <label>&nbsp;</label>
@@ -842,17 +872,21 @@ export class DepletionTabContribution implements DashboardTabContribution {
                 {depletion.diffBurnableMats && (
                     <div className="form-group">
                         <label>Volume Assignment Method</label>
-                        <select
+                        <NukeSelect
                             value={depletion.diffVolumeMethod ?? 'divide equally'}
-                            onChange={(e) =>
-                                host.stateManager.updateDepletion({ diffVolumeMethod: e.target.value as 'divide equally' | 'match cell' })
+                            options={[
+                                { value: 'divide equally', label: 'Divide Equally (default)' },
+                                { value: 'match cell', label: 'Match Cell' }
+                            ]}
+                            onChange={(value: string) =>
+                                host.stateManager.updateDepletion({ diffVolumeMethod: value as 'divide equally' | 'match cell' })
                             }
-                        >
-                            <option value="divide equally">Divide Equally (default)</option>
-                            <option value="match cell">Match Cell</option>
-                        </select>
+                            ariaLabel="Volume assignment method"
+                        />
                     </div>
                 )}
+
+                <DepletionRunControls host={host} state={state} compat={this.compat} />
             </div>
         );
     }

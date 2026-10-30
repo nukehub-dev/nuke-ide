@@ -38,14 +38,33 @@ export class DocsServerContribution implements BackendApplicationContribution {
             path.resolve(devRoot, 'docs');
 
         const rawPaths: Record<string, string> = {
-            '/product': productDocs,
-            '/nuke-core': findDocsDir('nuke-core') || path.resolve(devRoot, 'extensions', 'nuke-core', 'docs'),
-            '/nuke-visualizer': findDocsDir('nuke-visualizer') || path.resolve(devRoot, 'extensions', 'nuke-visualizer', 'docs'),
-            '/openmc-studio': findDocsDir('openmc-studio') || path.resolve(devRoot, 'extensions', 'openmc-studio', 'docs')
+            '/product': productDocs
         };
 
-        // Build search index at startup
-        this.searchIndex = this.buildSearchIndex(rawPaths);
+        // Serve every extension that ships a docs folder. The hardcoded lookup
+        // below keeps installed extensions working from node_modules, while the
+        // directory scan picks up new extensions without editing this file.
+        const preferredOrder = ['nuke-core', 'nuke-visualizer', 'openmc-studio', 'nuke-cad'];
+        for (const name of preferredOrder) {
+            const dir = findDocsDir(name) || path.resolve(devRoot, 'extensions', name, 'docs');
+            if (fs.existsSync(dir)) {
+                rawPaths['/' + name] = dir;
+            }
+        }
+        for (const extensionsRoot of [path.resolve(appProjectPath, 'extensions'), path.resolve(devRoot, 'extensions')]) {
+            if (!fs.existsSync(extensionsRoot)) {
+                continue;
+            }
+            for (const entry of fs.readdirSync(extensionsRoot, { withFileTypes: true })) {
+                if (!entry.isDirectory() || rawPaths['/' + entry.name]) {
+                    continue;
+                }
+                const dir = path.join(extensionsRoot, entry.name, 'docs');
+                if (fs.existsSync(dir)) {
+                    rawPaths['/' + entry.name] = dir;
+                }
+            }
+        }
 
         // Build search index at startup
         this.searchIndex = this.buildSearchIndex(rawPaths);
@@ -98,7 +117,7 @@ export class DocsServerContribution implements BackendApplicationContribution {
     protected indexDir(dir: string, urlPrefix: string, results: SearchResult[]): void {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
-            if (entry.name === '.vitepress' || entry.name === 'public') continue;
+            if (entry.name === '.vitepress' || entry.name === 'public' || entry.name === 'AGENTS.md') continue;
             const entryPath = path.join(dir, entry.name);
             const urlPath = urlPrefix + '/' + entry.name;
             if (entry.isDirectory()) {
@@ -161,7 +180,7 @@ export class DocsServerContribution implements BackendApplicationContribution {
         const children: DocsNavItem[] = [];
 
         for (const entry of entries) {
-            if (skipDirs?.has(entry.name)) continue;
+            if (skipDirs?.has(entry.name) || entry.name === 'AGENTS.md') continue;
             const entryPath = path.join(dir, entry.name);
             const urlPath = urlPrefix + '/' + entry.name;
 

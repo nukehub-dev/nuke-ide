@@ -1,0 +1,16 @@
+/* Shared dataset/view badge (nuke-cad viewport + native VTK viewers): a
+   muted top-left pill. Placement stays with the host extension. */
+
+.nuke-view-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    pointer-events: none;
+    opacity: 0.85;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 40%;
+}

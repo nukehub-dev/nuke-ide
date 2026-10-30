@@ -29,7 +29,7 @@
  * Canonical depletion solver (integrator) list, shared by the depletion tab,
  * the settings.xml depletion block, the runner, and the Python exporter.
  * Ids are the OpenMC short names from `openmc/deplete/integrators.py`
- * `integrator_by_name` (lines 565-574, identical in 0.15.3 and the dev
+ * `integrator_by_name` (lines 565-574, identical in 0.15.3 and 0.16.0
  * clone). The Python driver `run_depletion.py` mirrors this module.
  *
  * @module openmc-studio/common

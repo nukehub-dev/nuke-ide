@@ -1,0 +1,172 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ **************************************************************************** */
+
+/* Find Data dialog: self-contained card the host floats over a viewport
+   or embeds in a dialog/panel. Row chrome reuses `.openmc-output-viewer-control`
+   from output-viewer.css; the query field overrides that rule's 120px width. */
+
+.find-data-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 360px;
+    max-width: calc(100vw - 48px);
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.1),
+        0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.find-data-dialog-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--theia-descriptionForeground);
+}
+
+.find-data-dialog-range {
+    margin-left: auto;
+    overflow: hidden;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-overflow: ellipsis;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.find-data-dialog-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.find-data-dialog-label {
+    flex: 0 0 auto;
+    min-width: 68px;
+}
+
+.find-data-dialog-select {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.find-data-dialog-array {
+    flex-grow: 2;
+}
+
+.find-data-dialog .openmc-output-viewer-control input[type='text'] {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    font-family: var(--theia-ui-font-family);
+}
+
+.find-data-dialog-query {
+    font-variant-ligatures: none;
+}
+
+.find-data-dialog-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 18px;
+    font-size: var(--theia-ui-font-size0);
+    color: var(--theia-descriptionForeground);
+}
+
+.find-data-dialog-count {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.find-data-dialog-idle {
+    flex: 1 1 auto;
+}
+
+.find-data-dialog-capability {
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.find-data-dialog-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-inputValidation-errorBorder, var(--theia-errorForeground));
+    border-radius: 3px;
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-errorForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.find-data-dialog-error .codicon {
+    flex: 0 0 auto;
+    margin-top: 1px;
+}
+
+.find-data-dialog-grammar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    font-size: var(--theia-ui-font-size0);
+    color: var(--theia-descriptionForeground);
+}
+
+.find-data-dialog-grammar code {
+    padding: 0 3px;
+    border-radius: 2px;
+    background: var(--theia-textCodeBlock-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: var(--theia-code-font-size);
+}
+
+.find-data-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.find-data-dialog-actions .theia-button {
+    min-width: 0;
+    padding: 3px 12px;
+}

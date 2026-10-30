@@ -63,8 +63,8 @@ This guide covers the most common issues encountered when building, running, and
 
 1. **Check for missing cells:**
    - Open the CSG Builder.
-   - Ensure every universe has at least one cell defined.
-   - Verify the root universe is assigned.
+   - Ensure every universe used as a cell fill, lattice position, or outer fill has at least one cell.
+   - Keep top-level cells in universe 0 (the root; it cannot be reassigned).
 
 2. **Check for invalid surfaces:**
    - Surfaces must have non-degenerate coefficients (e.g., a sphere radius must be > 0).
@@ -103,7 +103,7 @@ This guide covers the most common issues encountered when building, running, and
    - For eigenvalue mode, `inactive` must be less than `batches`.
 
 4. **Review the output log:**
-   - Open the **OpenMC** output channel (`View → Output → OpenMC`).
+   - Open the **Simulation** tab and review its **Simulation Output** console.
    - Scroll to the bottom for the exact Python traceback.
 
 ---
@@ -147,7 +147,7 @@ This guide covers the most common issues encountered when building, running, and
 **Symptoms:**
 
 - Error when loading a `.h5m` file in the DAGMC Editor
-- Blank 3D view after clicking a DAGMC file
+- Blank 3D view after opening a DAGMC file in the DAGMC Editor
 - Error: `pydagmc` or `moab` not found
 
 **Fixes:**
@@ -188,13 +188,14 @@ This guide covers the most common issues encountered when building, running, and
 1. **Understand the warning:** The DAGMC Editor skips individual volumes that have corrupt or unreadable triangle data, then loads all remaining valid volumes. This is intentional — the file itself may be partially invalid.
 
 2. **Re-facet from source CAD:** If you have the original CAD file:
-   - Use **CAD Import** to re-convert to DAGMC with current settings.
+   - Use **Import CAD** to re-convert to DAGMC with current settings.
    - The native writer handles edge cases (empty elements, invalid topology) better than older pipelines.
 
 3. **Check with `pydagmc` directly:**
 
    ```python
    from pydagmc import Model
+
    m = Model("model.h5m")
    for v in m.volumes:
        try:
@@ -227,7 +228,7 @@ This guide covers the most common issues encountered when building, running, and
 2. **Adjust the default faceting tolerance for future imports:**
    - Open `Settings → Extensions → OpenMC Studio → Default Faceting Tolerance`
    - Lower values = finer mesh, larger file; higher values = coarser mesh, smaller file
-   - Default is `0.001` cm. Try `0.01` for faster draft conversions, `0.0001` for high-fidelity final meshes.
+   - Default is `1.0` cm. Try `0.1` for finer meshes or `2.0` for faster draft conversions.
 
 3. **Disable auto-adjustment for precise control:**
    - Uncheck `Settings → Extensions → OpenMC Studio → Auto-Adjust Faceting Tolerance`
@@ -235,7 +236,7 @@ This guide covers the most common issues encountered when building, running, and
    - Useful when you need consistent mesh density regardless of model size.
 
 4. **For very large models (tokamaks, vessels):**
-   - Keep auto-adjustment **enabled** (default). The importer automatically scales tolerance to `bbox_diagonal / 500`.
+   - Keep auto-adjustment **enabled** (default). When the bounding-box diagonal exceeds 100 cm and the tolerance is below 1.0 cm, the importer raises the tolerance to `diagonal / 200`, capped at 10 cm.
    - If the mesh is still too dense, use the **Draft** preset in the Faceting tab.
 
 ---
@@ -274,17 +275,18 @@ This guide covers the most common issues encountered when building, running, and
 
 The environment health check (`Tools → OpenMC Studio → Environment → Run Health Check`) may report warnings even when things appear to work. Here is how to interpret them.
 
-| Warning                    | Meaning                                                                       | Suggested Fix                                                 |
-| -------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `openmc` version mismatch  | Installed version differs from the version used to create the current project | Update OpenMC, or verify the project XML is still compatible  |
-| `h5py` missing             | Cannot read statepoint or depletion HDF5 files                                | `conda install -c conda-forge h5py` or `pip install h5py`     |
-| `numpy` outdated           | Some features rely on newer NumPy APIs                                        | `pip install -U numpy`                                        |
-| `pydagmc` missing          | DAGMC geometry features are disabled                                          | Install only if you work with `.h5m` files                    |
-| `moab` missing             | CAD import and DAGMC conversion are limited                                   | Install only if you need CAD → DAGMC workflows                |
-| `OCP` missing              | Refacet and CAD import fallback are unavailable                               | Install if you need to re-facet or convert STEP/IGES to DAGMC |
-| `mpi4py` missing           | MPI parallel execution is unavailable                                         | Install only if you plan to run multi-process simulations     |
-| Cross-section path invalid | `nuke.openmcCrossSections` points to a missing file                           | Update the path in settings to a valid `cross_sections.xml`   |
-| Python path not set        | NukeIDE does not know which interpreter to use                                | Set `Settings → Nuke Utils → Python Path`                     |
+| Warning                              | Meaning                                                              | Suggested Fix                                                 |
+| ------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `Package: openmc` missing            | OpenMC Python package is not importable                              | Install OpenMC in the selected environment                    |
+| `Package: h5py` missing              | Cannot read statepoint or depletion HDF5 files                       | `conda install -c conda-forge h5py` or `pip install h5py`     |
+| `Package: numpy` missing             | Core array support is unavailable                                    | `conda install -c conda-forge numpy` or `pip install numpy`   |
+| `Package: pydagmc` missing           | DAGMC geometry features are disabled                                 | Install only if you work with `.h5m` files                    |
+| `Package: moab` missing              | CAD import and DAGMC conversion are limited                          | Install only if you need CAD → DAGMC workflows                |
+| `Package: OCP` missing               | Refacet and CAD import fallback are unavailable                      | Install if you need to re-facet or convert STEP/IGES to DAGMC |
+| `Package: mpi4py` missing            | MPI parallel execution is unavailable                                | Install only if you plan to run multi-process simulations     |
+| Cross-sections Library not set       | `nuke.openmcCrossSections` / `OPENMC_CROSS_SECTIONS` is empty        | Set it to a valid `cross_sections.xml` path                   |
+| Depletion Chain File not set         | `OPENMC_CHAIN_FILE` is empty; informational unless you run depletion | Set it only when you need depletion                           |
+| Configured Python Environment failed | NukeIDE cannot find the configured interpreter                       | Set `Settings → Nuke Utils → Python Path`                     |
 
 > **Tip:** Warnings in yellow are advisory; red crosses indicate blockers. You can often proceed with yellow warnings if you are not using the related feature.
 

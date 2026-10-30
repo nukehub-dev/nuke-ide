@@ -1,0 +1,41 @@
+{
+    "version": "1.2.0",
+    "state": {
+        "metadata": {
+            "version": "1.2.0",
+            "name": "Derived Tally Fixture",
+            "created": "2026-10-29T00:00:00.000Z",
+            "modified": "2026-10-29T00:00:00.000Z"
+        },
+        "geometry": {
+            "surfaces": [],
+            "cells": [],
+            "universes": [{ "id": 0, "name": "root", "cellIds": [] }],
+            "lattices": [],
+            "rootUniverseId": 0
+        },
+        "materials": [],
+        "settings": {
+            "run": { "mode": "fixed source", "particles": 100, "batches": 5 },
+            "sources": [],
+            "sourceRejectionFraction": 0
+        },
+        "tallies": [{ "id": 1, "name": "flux mesh", "scores": ["flux"], "nuclides": ["total"], "filters": [] }],
+        "derivedTallies": [
+            {
+                "id": 1,
+                "name": "Double flux",
+                "description": "Scalar-scaled mesh flux used by the viewer smoke test.",
+                "expression": {
+                    "kind": "binary",
+                    "op": "*",
+                    "left": { "kind": "tally", "tallyId": 1, "score": "flux" },
+                    "right": { "kind": "scalar", "value": 2 }
+                },
+                "unit": "cm^-2",
+                "color": "#4a9eff"
+            }
+        ],
+        "meshes": []
+    }
+}

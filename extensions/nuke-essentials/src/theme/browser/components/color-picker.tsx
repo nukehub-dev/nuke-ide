@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import * as ReactDOM from '@theia/core/shared/react-dom';
 import { Tooltip } from './tooltip';
 
 export interface ColorPickerProps {
@@ -87,21 +88,93 @@ const COLOR_GROUPS = [
 export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => {
     const [isOpen, setIsOpen] = React.useState(false);
     const [hexInput, setHexInput] = React.useState(value);
+    const [popupCoords, setPopupCoords] = React.useState<{ x: number; y: number } | null>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
+    const triggerRef = React.useRef<HTMLButtonElement>(null);
+    const popupRef = React.useRef<HTMLDivElement>(null);
 
     React.useEffect(() => {
         setHexInput(value);
     }, [value]);
 
+    /**
+     * Anchor the popup to the trigger in viewport coordinates: narrow
+     * sidebars clip absolutely-positioned children (the panel scrolls with
+     * `overflow-y: auto`), so the popup portals to `document.body` with a
+     * fixed position clamped to the window instead. Left-aligns to the
+     * trigger, right-aligns when that would overflow (narrow right
+     * sidebar), and flips above the trigger when there is no room below.
+     * The state setter keeps the previous object when nothing moved so
+     * re-placement (scroll/resize, post-mount re-measure) never loops.
+     */
+    const placePopup = React.useCallback(() => {
+        const trigger = triggerRef.current;
+        if (!trigger) {
+            return;
+        }
+        const rect = trigger.getBoundingClientRect();
+        const width = Math.min(320, window.innerWidth - 16);
+        let x = rect.left;
+        if (x + width > window.innerWidth - 8) {
+            x = rect.right - width;
+        }
+        x = Math.min(Math.max(x, 8), Math.max(window.innerWidth - width - 8, 8));
+        // Prefer the live height once the popup DOM exists; estimate on the
+        // very first pass before it mounts.
+        const height = popupRef.current?.offsetHeight ?? 420;
+        let y = rect.bottom + 6;
+        if (y + height > window.innerHeight - 8) {
+            y = rect.top - height - 6;
+        }
+        y = Math.min(Math.max(y, 8), Math.max(window.innerHeight - height - 8, 8));
+        setPopupCoords((prev) => (prev !== null && prev.x === x && prev.y === y ? prev : { x, y }));
+    }, []);
+
+    // Position before first paint and render the popup only once coords
+    // exist, so it never flashes at the fallback corner (top-left blink).
+    React.useLayoutEffect(() => {
+        if (isOpen) {
+            placePopup();
+        } else {
+            setPopupCoords(null);
+        }
+    }, [isOpen, placePopup]);
+
+    // Re-measure once the popup DOM exists so the flip-above decision uses
+    // the real height instead of the pre-mount estimate.
+    React.useLayoutEffect(() => {
+        if (isOpen && popupCoords !== null) {
+            placePopup();
+        }
+    });
+
     React.useEffect(() => {
+        if (!isOpen) {
+            return;
+        }
         const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            if (containerRef.current?.contains(target) || popupRef.current?.contains(target)) {
+                return;
+            }
+            setIsOpen(false);
+        };
+        const handleKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
                 setIsOpen(false);
             }
         };
-        if (isOpen) document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [isOpen]);
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleKey);
+        window.addEventListener('scroll', placePopup, true);
+        window.addEventListener('resize', placePopup);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKey);
+            window.removeEventListener('scroll', placePopup, true);
+            window.removeEventListener('resize', placePopup);
+        };
+    }, [isOpen, placePopup]);
 
     const handleSelect = (color: string) => {
         onChange(color);
@@ -117,7 +190,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => 
 
     return (
         <div className="nuke-color-picker" ref={containerRef}>
-            <button className="nuke-color-picker-trigger" onClick={() => setIsOpen(!isOpen)}>
+            <button ref={triggerRef} className="nuke-color-picker-trigger" onClick={() => setIsOpen(!isOpen)}>
                 <Tooltip content="Click to change color" position="top">
                     <span className="nuke-color-preview" style={{ backgroundColor: value }} />
                 </Tooltip>
@@ -125,47 +198,60 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => 
                 <i className={`codicon codicon-chevron-${isOpen ? 'up' : 'down'}`} />
             </button>
 
-            {isOpen && (
-                <div className="nuke-color-picker-popup">
-                    <div className="nuke-color-picker-header">
-                        <span>Select Color</span>
-                        <button className="nuke-color-picker-close" onClick={() => setIsOpen(false)}>
-                            <i className="codicon codicon-close" />
-                        </button>
-                    </div>
+            {isOpen &&
+                popupCoords !== null &&
+                ReactDOM.createPortal(
+                    <div
+                        ref={popupRef}
+                        className="nuke-color-picker-popup"
+                        style={{
+                            position: 'fixed',
+                            left: popupCoords.x,
+                            top: popupCoords.y,
+                            width: 'min(320px, calc(100vw - 16px))',
+                            maxHeight: 'min(400px, calc(100vh - 16px))'
+                        }}
+                    >
+                        <div className="nuke-color-picker-header">
+                            <span>Select Color</span>
+                            <button className="nuke-color-picker-close" onClick={() => setIsOpen(false)}>
+                                <i className="codicon codicon-close" />
+                            </button>
+                        </div>
 
-                    <div className="nuke-color-groups">
-                        {COLOR_GROUPS.map((group) => (
-                            <div key={group.name} className="nuke-color-group">
-                                <div className="nuke-color-group-name">{group.name}</div>
-                                <div className="nuke-color-row">
-                                    {group.colors.map((color) => (
-                                        <Tooltip key={color} content={color} position="top" delay={100}>
-                                            <button
-                                                className={`nuke-color-swatch ${value === color ? 'selected' : ''}`}
-                                                style={{ backgroundColor: color }}
-                                                onClick={() => handleSelect(color)}
-                                            />
-                                        </Tooltip>
-                                    ))}
+                        <div className="nuke-color-groups">
+                            {COLOR_GROUPS.map((group) => (
+                                <div key={group.name} className="nuke-color-group">
+                                    <div className="nuke-color-group-name">{group.name}</div>
+                                    <div className="nuke-color-row">
+                                        {group.colors.map((color) => (
+                                            <Tooltip key={color} content={color} position="top" delay={100}>
+                                                <button
+                                                    className={`nuke-color-swatch ${value === color ? 'selected' : ''}`}
+                                                    style={{ backgroundColor: color }}
+                                                    onClick={() => handleSelect(color)}
+                                                />
+                                            </Tooltip>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
 
-                    <div className="nuke-color-hex-input">
-                        <span>Hex:</span>
-                        <input
-                            type="text"
-                            value={hexInput}
-                            onChange={(e) => setHexInput(e.target.value)}
-                            onKeyDown={handleHexSubmit}
-                            placeholder="#000000"
-                            className={/^#[0-9A-Fa-f]{6}$/.test(hexInput.trim()) ? 'valid' : 'invalid'}
-                        />
-                    </div>
-                </div>
-            )}
+                        <div className="nuke-color-hex-input">
+                            <span>Hex:</span>
+                            <input
+                                type="text"
+                                value={hexInput}
+                                onChange={(e) => setHexInput(e.target.value)}
+                                onKeyDown={handleHexSubmit}
+                                placeholder="#000000"
+                                className={/^#[0-9A-Fa-f]{6}$/.test(hexInput.trim()) ? 'valid' : 'invalid'}
+                            />
+                        </div>
+                    </div>,
+                    document.body
+                )}
         </div>
     );
 };

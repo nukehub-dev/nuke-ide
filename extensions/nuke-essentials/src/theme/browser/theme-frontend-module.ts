@@ -31,7 +31,25 @@ import { ThemeContribution } from './theme-contribution';
 
 // Import global styles
 import './global-styles.css';
+import './components/tooltip.css';
+import './components/nuke-select.css';
+import './components/nuke-checkbox.css';
+import './components/nuke-slider.css';
+import './components/nuke-search-input.css';
+import './components/nuke-switch.css';
+import './components/nuke-badge.css';
 import './components/searchable-multi-select.css';
+import './components/nuke-dialog.css';
+import './components/nuke-toolbar.css';
+import './components/nuke-ribbon.css';
+import './components/nuke-empty-state.css';
+import './components/nuke-loading-overlay.css';
+import './components/nuke-panel.css';
+import './components/nuke-form.css';
+import './components/view-cube.css';
+import './components/viewer-nav-bar.css';
+import './components/view-badge.css';
+import './components/viewer-chrome.css';
 
 export default new ContainerModule((bind) => {
     bind(ThemeContribution).toSelf().inSingletonScope();

@@ -63,18 +63,31 @@ export class HealthService {
     private readonly condaResolver = new CondaResolver();
     private readonly uvResolver = new UvResolver();
 
+    /**
+     * Render the install hint for a single package from its structured spec fields.
+     *
+     * - `condaOnly` → conda command only
+     * - `condaSpec` (dual-manager) → conda command with the pip alternative
+     * - otherwise → pip command honoring `pipArgs`, `extraIndexUrl`, and `pipSpec`
+     */
     private buildInstallSuggestion(pkg: PackageDependency): string {
-        if (pkg.installCommand) {
-            return pkg.installCommand;
-        }
-        if (pkg.condaOnly) {
-            const channels = pkg.channels?.length ? pkg.channels.map((c) => `-c ${c}`).join(' ') : '-c conda-forge';
-            return `conda install ${channels} ${pkg.name}`;
-        }
+        const channels = pkg.channels?.length ? pkg.channels : ['conda-forge'];
+        const channelArgs = channels.map((c) => `-c ${c}`).join(' ');
+        const condaLine = `conda install ${channelArgs} ${pkg.condaSpec ?? pkg.name}`;
+
+        const pipArgs = [...(pkg.pipArgs ?? [])];
         if (pkg.extraIndexUrl) {
-            return `pip install --extra-index-url ${pkg.extraIndexUrl} ${pkg.name}`;
+            pipArgs.push('--extra-index-url', pkg.extraIndexUrl);
         }
-        return `pip install ${pkg.name}`;
+        const pipLine = `pip install ${[...pipArgs, pkg.pipSpec ?? pkg.name].join(' ')}`;
+
+        if (pkg.condaOnly) {
+            return condaLine;
+        }
+        if (pkg.condaSpec) {
+            return `${condaLine} (or ${pipLine})`;
+        }
+        return pipLine;
     }
 
     /**

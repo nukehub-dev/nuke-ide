@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from 'react';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCTallyScore, OpenMCTallyTrigger, OpenMCTallyTriggerType } from '../../../../common/openmc-state-schema';
 
 /**
@@ -69,14 +70,16 @@ export const TriggerEditor: React.FC<TriggerEditorProps> = ({ triggers, tallySco
                 <div className="form-row" key={index}>
                     <div className="form-group">
                         <label>Type</label>
-                        <select
+                        <NukeSelect
                             value={trigger.type}
-                            onChange={(e) => updateTrigger(index, { type: e.target.value as OpenMCTallyTriggerType })}
-                        >
-                            <option value="rel_err">Relative Error</option>
-                            <option value="std_dev">Standard Deviation</option>
-                            <option value="variance">Variance</option>
-                        </select>
+                            options={[
+                                { value: 'rel_err', label: 'Relative Error' },
+                                { value: 'std_dev', label: 'Standard Deviation' },
+                                { value: 'variance', label: 'Variance' }
+                            ]}
+                            onChange={(value: string) => updateTrigger(index, { type: value as OpenMCTallyTriggerType })}
+                            ariaLabel="Trigger type"
+                        />
                     </div>
                     <div className="form-group">
                         <label>Threshold</label>

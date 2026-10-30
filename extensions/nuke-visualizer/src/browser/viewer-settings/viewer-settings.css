@@ -1,0 +1,525 @@
+/* Viewer Settings sidebar panel. All colors come from Theia CSS variables.
+   Chrome mirrors the CAD Feature Tree / Model Outline panels: icon +
+   subtitle header, collapsible count-badge sections, per-row icons, live
+   status dots. The shared nuke-essentials pieces (Tooltip) own their own
+   look. Every pre-existing class hook is kept (additive classes only). */
+
+.viewer-settings-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-y: auto;
+    height: 100%;
+    font-size: 12px;
+}
+
+/* CAD-style header: accent icon + panel name + bound-viewer subtitle. */
+.viewer-settings-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.viewer-settings-header-icon {
+    font-size: 16px;
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.viewer-settings-header-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.viewer-settings-header-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+}
+
+/* Kept hook: previously the panel title line, now the ellipsis-truncated
+   bound-viewer subtitle (full tab label in the Nuke tooltip). The shared
+   Tooltip wraps it in an inline-flex span sized to the content: without a
+   shrinkable block chain the long viewer tab label overflows the panel
+   instead of ellipsizing (same flex-override pattern as DAGMC Outline). */
+.viewer-settings-header-text > span {
+    display: flex !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden;
+}
+
+.viewer-settings-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-settings-title-empty {
+    font-style: italic;
+}
+
+/* Categorical color-mode note (DAGMC Material): muted status line under the
+   header; the shared .nuke-viewer-status-line owns the text treatment. */
+.viewer-settings-note {
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-settings-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 24px 8px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-settings-empty > i {
+    font-size: 24px;
+    opacity: 0.6;
+}
+
+.viewer-settings-empty p {
+    margin: 4px 0 0;
+    color: var(--theia-foreground);
+}
+
+.viewer-settings-empty .empty-hint {
+    font-size: 11px;
+}
+
+/* Collapsible badge section (CAD TreeSection grammar). Headers share the
+   Model Outline treatment: 11 px uppercase, 0.3 px tracking, 7 px gap,
+   tight 2 px section spacing. */
+.viewer-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.viewer-settings-category-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 3px;
+    padding: 1px 2px;
+}
+
+.viewer-settings-category-header:hover {
+    color: var(--theia-foreground);
+    background: var(--theia-list-hoverBackground);
+}
+
+.viewer-settings-category-header:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.viewer-settings-section-icon {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+}
+
+.viewer-settings-count-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: nowrap;
+}
+
+/* Live status dot (CAD feature-tree-status grammar): muted while the
+   section's live state is off, green while clip planes are enabled or
+   measure is armed. */
+.viewer-settings-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--theia-descriptionForeground);
+    opacity: 0.5;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.viewer-settings-state-dot.is-on {
+    background: var(--theia-terminal-ansiGreen);
+    opacity: 1;
+}
+
+.viewer-settings-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 8px 6px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+/* Row grid: a non-shrinking label column (min 82 px, max-content) plus the
+   controls, which absorb the remaining width. At the 250 px default the
+   simple rows stay on one line ("Background", "Point size", "Line width",
+   "Opacity" never ellipsize); dense rows wrap their extra controls only
+   when the panel is too narrow. */
+.viewer-settings-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 8px;
+    min-width: 0;
+}
+
+/* The shared Tooltip wraps row labels in an inline-flex span sized to the
+   content: reserve the label column here so labels keep their full text
+   instead of clipping next to the controls. Scoped to label wrappers only —
+   button Tooltips (clip tabs, snap row, measure) keep their hug-the-button
+   size. */
+.viewer-settings-row > span:has(> .viewer-settings-row-label) {
+    flex: 0 0 auto !important;
+    min-width: 82px !important;
+    max-width: 100% !important;
+}
+
+.viewer-settings-row-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.viewer-settings-row-icon {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+/* Shared NukeSelect (replaces every builtin select): hugs the right side
+   of the row like the old select did; the trigger paints its own input
+   chrome from Theia tokens. */
+.viewer-settings-row .nuke-select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.viewer-settings-row input[type='range'] {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Shared ColorPicker in a settings row: compact enough that the hex field
+   and chevron still fit beside the label column in a 250 px sidebar. */
+.viewer-settings-row .nuke-color-picker {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.viewer-settings-row .nuke-color-picker-trigger {
+    max-width: 100%;
+    padding: 2px 6px;
+    gap: 6px;
+}
+
+.viewer-settings-row .nuke-color-preview {
+    width: 16px;
+    height: 16px;
+}
+
+.viewer-settings-row .nuke-color-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Tooltip-wrapped sliders: the wrapper hugs content by default, so stretch
+   it to fill the row like the bare slider did. */
+.viewer-settings-tip-fill {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.viewer-settings-tip-fill > span {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+
+.viewer-settings-tip-fill input[type='range'] {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+}
+
+.viewer-settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.viewer-settings-group-label {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.8;
+}
+
+.viewer-settings-clip-tabs,
+.viewer-settings-snap-row {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+/* Compact secondary buttons: clip tabs, snap row, and the Map-row
+   Invert/Log toggles + Range Auto button share the clip-tab sizing. */
+.viewer-settings-clip-tabs .theia-button,
+.viewer-settings-snap-row .theia-button,
+.viewer-settings-map-toggle,
+.viewer-settings-range-auto {
+    min-width: 0;
+    padding: 2px 8px;
+}
+
+.viewer-settings-clip-position {
+    width: 100%;
+}
+
+/* Narrow numeric range inputs sitting with the Auto toggle in the Range row
+   (same input chrome as the row selects). Spinner arrows are suppressed:
+   they step by whole units, which is useless at data scales like 0.001 —
+   exact values come from typing, coarse moves from the dual slider below. */
+.viewer-settings-range-input {
+    width: 7ch;
+    flex-shrink: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    padding: 2px 4px;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.viewer-settings-range-input::-webkit-outer-spin-button,
+.viewer-settings-range-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Per-side range reset (ghost icon buttons beside each input). */
+.viewer-settings-range-reset {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--theia-foreground);
+    opacity: 0.6;
+    cursor: pointer;
+}
+
+.viewer-settings-range-reset:hover {
+    opacity: 1;
+}
+
+/* Dual-thumb custom range slider: two overlapping native range inputs
+   (transparent tracks, pointer events only on the thumbs) over a shared
+   track + accent fill. Chromium is the only target (IDE + headless
+   tests); Firefox thumbs ride along via the -moz rules. */
+.viewer-settings-range-slider {
+    position: relative;
+    height: 18px;
+    margin-top: 2px;
+}
+
+.viewer-settings-range-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 8px;
+    height: 2px;
+    background: var(--theia-input-border);
+}
+
+.viewer-settings-range-fill {
+    position: absolute;
+    top: 8px;
+    height: 2px;
+    background: var(--theia-focusBorder);
+}
+
+.viewer-settings-range-thumb {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 18px;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: none;
+}
+
+.viewer-settings-range-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    width: 10px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--theia-focusBorder);
+    border: 1px solid var(--theia-foreground);
+    cursor: ew-resize;
+}
+
+.viewer-settings-range-thumb::-moz-range-thumb {
+    pointer-events: auto;
+    width: 10px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--theia-focusBorder);
+    border: 1px solid var(--theia-foreground);
+    cursor: ew-resize;
+}
+
+.viewer-settings-range-thumb::-moz-range-track {
+    background: transparent;
+}
+
+.viewer-settings-measure.active,
+.viewer-settings-map-toggle.active,
+.viewer-settings-range-auto.active {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+/* Volume transfer-function editor: one compact row per opacity control
+   point, plus the slice preview under its axis/position controls. */
+.viewer-settings-volume-stops {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.viewer-settings-volume-stop {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.viewer-settings-volume-stop-label {
+    flex: 0 0 8px;
+    font-size: 10px;
+    opacity: 0.7;
+    text-align: center;
+}
+
+.viewer-settings-volume-stop-value {
+    flex: 0 0 32px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.viewer-settings-volume-stop-position,
+.viewer-settings-volume-stop-alpha {
+    flex: 1 1 0;
+    min-width: 24px;
+}
+
+.viewer-settings-volume-stop-remove {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 2px 4px;
+}
+
+.viewer-settings-volume-add {
+    min-width: 0;
+    padding: 2px 8px;
+}
+
+.viewer-settings-slice-preview-wrap {
+    margin-top: 4px;
+}
+
+/* Bivariate (mean + relative error) section: the shared UncertaintyEditor
+   owns its own rows/legend; the panel adds only the muted limitation notes. */
+.viewer-settings-uncertainty {
+    gap: 6px;
+}
+
+.viewer-settings-uncertainty-note {
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-settings-legend-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    padding: 2px 4px;
+}
+
+/* Comparison section (side-by-side sessions): the pane identity is a
+   read-only muted note, the shared-range readout follows the same muted
+   status-line typography as the Uncertainty notes, and the leave action
+   keeps the compact secondary-button sizing. */
+.viewer-settings-comparison-pane .viewer-settings-row-label {
+    color: var(--theia-descriptionForeground);
+}
+
+.viewer-settings-comparison-range-value {
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.viewer-settings-comparison-range-note {
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--theia-descriptionForeground);
+    opacity: 0.85;
+}
+
+.viewer-settings-comparison-leave {
+    min-width: 0;
+    padding: 2px 8px;
+}

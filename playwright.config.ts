@@ -23,10 +23,15 @@ export default defineConfig({
     },
     projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
     webServer: {
-        command: 'yarn --cwd applications/browser start',
+        // `../..` (relative to applications/browser) opens the repo root as
+        // the workspace: without it Quick Open file search finds nothing and
+        // every file-opening spec fails, locally and in CI.
+        command: 'yarn --cwd applications/browser start ../..',
         url: 'http://127.0.0.1:3000',
         timeout: 180_000,
-        reuseExistingServer: !process.env.CI,
+        // Docs captures must use the freshly built bundle, not a dev server
+        // left running from an earlier build.
+        reuseExistingServer: !process.env.CI && !process.env.NUKE_DOCS_SCREENSHOTS,
         stdout: 'pipe',
         stderr: 'pipe'
     }

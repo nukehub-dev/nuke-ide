@@ -1,0 +1,978 @@
+/* Drawing sheet workspace: paper, toolbar, inspector, and status bar. */
+
+.nuke-cad-drawing-root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    color: var(--theia-foreground);
+    background: var(--theia-editor-background);
+}
+
+.nuke-cad-drawing-empty-root {
+    background-color: var(--theia-editor-background);
+    background-image: radial-gradient(circle, var(--theia-panel-border) 1px, transparent 1.2px);
+    background-position: center;
+    background-size: 24px 24px;
+}
+
+.nuke-cad-drawing-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 0;
+    padding: 24px;
+    overflow: auto;
+}
+
+.nuke-cad-drawing-start-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 610px;
+    padding: 24px;
+    background: var(--theia-editorWidget-background, var(--theia-editor-background));
+    border: 1px solid var(--theia-panel-border);
+    border-radius: var(--nuke-radius-xl);
+    box-shadow: var(--nuke-shadow-sm);
+}
+
+.nuke-cad-drawing-empty-card {
+    max-width: 520px;
+    gap: 14px;
+    padding: 20px 22px;
+}
+
+.nuke-cad-drawing-empty-card .nuke-cad-drawing-start-header {
+    gap: 12px;
+}
+
+.nuke-cad-drawing-empty-card .nuke-cad-drawing-start-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--theia-editor-background);
+    color: var(--theia-focusBorder);
+}
+
+.nuke-cad-drawing-empty-card .nuke-cad-drawing-start-icon .codicon {
+    width: 22px;
+    height: 22px;
+    font-size: 22px;
+    -webkit-mask-size: 22px 22px;
+    mask-size: 22px 22px;
+}
+
+.nuke-cad-drawing-start-message code {
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.nuke-cad-drawing-empty-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: drawing-step;
+}
+
+.nuke-cad-drawing-empty-steps li {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.45;
+}
+
+.nuke-cad-drawing-empty-steps li::before {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 50%;
+    background: var(--theia-editor-background);
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    counter-increment: drawing-step;
+    content: counter(drawing-step);
+}
+
+.nuke-cad-drawing-start-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.nuke-cad-drawing-start-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 12px;
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-focusBorder);
+}
+
+.nuke-cad-drawing-start-icon .codicon {
+    width: 26px;
+    height: 26px;
+    font-size: 26px;
+    -webkit-mask-size: 26px 26px;
+    mask-size: 26px 26px;
+}
+
+.nuke-cad-drawing-start-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.nuke-cad-drawing-start-eyebrow {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.nuke-cad-drawing-start-title {
+    font-size: calc(var(--theia-ui-font-size2) + 3px);
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.nuke-cad-drawing-start-message {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.4;
+}
+
+.nuke-cad-drawing-start-label {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.nuke-cad-drawing-size-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.nuke-cad-drawing-size-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    text-align: left;
+    cursor: pointer;
+}
+
+.nuke-cad-drawing-size-card:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.nuke-cad-drawing-size-card.selected {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+    box-shadow: inset 0 0 0 1px var(--theia-focusBorder);
+}
+
+.nuke-cad-drawing-size-name {
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+}
+
+.nuke-cad-drawing-size-meta {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-variant-numeric: tabular-nums;
+}
+
+.nuke-cad-drawing-orientation-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.nuke-cad-drawing-orientation-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    box-sizing: border-box;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    text-align: left;
+    cursor: pointer;
+}
+
+.nuke-cad-drawing-orientation-card:hover {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.nuke-cad-drawing-orientation-icon {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin-bottom: 3px;
+    border-radius: 8px;
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-focusBorder);
+}
+
+.nuke-cad-drawing-orientation-icon .codicon {
+    width: 18px;
+    height: 18px;
+    -webkit-mask-size: 18px 18px;
+    mask-size: 18px 18px;
+}
+
+.nuke-cad-drawing-orientation-name {
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 600;
+}
+
+.nuke-cad-drawing-orientation-hint {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.35;
+}
+
+.nuke-cad-drawing-start-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid var(--theia-panel-border);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.nuke-cad-drawing-start-hint .codicon {
+    font-size: 13px;
+}
+
+.nuke-cad-drawing-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    box-sizing: border-box;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-titleBar-activeBackground);
+}
+
+.nuke-cad-drawing-toolbar-groups {
+    flex: 1 1 620px;
+    min-width: 0;
+    row-gap: 4px;
+}
+
+.nuke-cad-drawing-toolbar .nuke-toolbar-group {
+    align-items: center;
+}
+
+.nuke-cad-drawing-toolbar .theia-button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.nuke-cad-drawing-sheet-select {
+    width: 170px;
+}
+
+.nuke-cad-drawing-size-select {
+    width: 64px;
+}
+
+.nuke-cad-drawing-orientation-select {
+    width: 82px;
+}
+
+.nuke-cad-drawing-dimension-select {
+    width: 96px;
+}
+
+.nuke-cad-drawing-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    min-width: 0;
+    margin-left: 0;
+    padding: 0;
+}
+
+.nuke-cad-drawing-icon-button.is-active {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.nuke-cad-drawing-toolbar .nuke-cad-drawing-icon-button.secondary {
+    color: var(--theia-secondaryButton-foreground);
+}
+
+.nuke-cad-drawing-toolbar .nuke-cad-drawing-icon-button:not(.secondary) {
+    color: var(--theia-button-foreground);
+}
+
+.nuke-cad-drawing-toolbar .nuke-cad-drawing-icon-button .codicon {
+    color: inherit;
+}
+
+.nuke-cad-drawing-view-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 0 0 auto;
+}
+
+.nuke-cad-drawing-zoom-label {
+    height: 26px;
+    min-width: 46px;
+    padding: 0 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size0);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+
+.nuke-cad-drawing-zoom-label:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuke-cad-drawing-notices {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: none;
+}
+
+.nuke-cad-drawing-notice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-size: var(--theia-ui-font-size0);
+}
+
+.nuke-cad-drawing-notice span:nth-child(2) {
+    flex: 1 1 auto;
+}
+
+.nuke-cad-drawing-notice.info {
+    background: var(--theia-editorInfo-background);
+}
+
+.nuke-cad-drawing-notice.warning {
+    background: var(--theia-editorWarning-background);
+}
+
+.nuke-cad-drawing-notice.error {
+    background: var(--theia-editorError-background);
+}
+
+.nuke-cad-drawing-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+}
+
+.nuke-cad-drawing-canvas {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    padding: 20px;
+    overflow: hidden;
+    background-color: var(--theia-editorWidget-background);
+    background-image: radial-gradient(circle, var(--theia-panel-border) 1px, transparent 1.2px);
+    background-position: center;
+    background-size: 24px 24px;
+    cursor: default;
+}
+
+.nuke-cad-drawing-canvas:focus {
+    outline: none;
+}
+
+.nuke-cad-drawing-canvas:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+/* View context menu (shared `openContextMenu` renderer, compact variant). */
+.nuke-cad-drawing-root .nuke-cad-drawing-view-menu {
+    min-width: 178px;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.nuke-cad-drawing-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    transform-origin: center center;
+    transition: transform 80ms ease-out;
+}
+
+.nuke-cad-drawing-paper-stage {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.nuke-cad-drawing-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.nuke-cad-drawing-inspector {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    width: clamp(224px, 24%, 292px);
+    min-height: 0;
+    padding: 10px;
+    overflow: auto;
+    border-left: 1px solid var(--theia-panel-border);
+    background: var(--theia-sideBar-background, var(--theia-editor-background));
+}
+
+.nuke-cad-drawing-inspector .nuke-section {
+    margin-bottom: 10px;
+    padding: 11px;
+    border-radius: 8px;
+    box-shadow: none;
+}
+
+.nuke-cad-drawing-inspector .nuke-section:last-child {
+    margin-bottom: 0;
+}
+
+.nuke-cad-drawing-inspector .nuke-section-title {
+    margin-bottom: 8px;
+    font-size: var(--theia-ui-font-size1);
+}
+
+.nuke-cad-drawing-inspector .nuke-form-row {
+    margin-bottom: 8px;
+}
+
+.nuke-cad-drawing-meta {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 10px;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.nuke-cad-drawing-meta span {
+    color: var(--theia-descriptionForeground);
+}
+
+.nuke-cad-drawing-meta strong {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.nuke-cad-drawing-inspector-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.nuke-cad-drawing-value {
+    font-size: var(--theia-ui-font-size0);
+    font-variant-numeric: tabular-nums;
+}
+
+.nuke-cad-drawing-scale-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+}
+
+.nuke-cad-drawing-scale-row .nuke-select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.nuke-cad-drawing-scale-row .theia-button {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 2px 8px;
+    font-size: var(--theia-ui-font-size0);
+}
+
+.nuke-cad-drawing-panel-empty {
+    padding: 4px 0;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.4;
+}
+
+.nuke-cad-drawing-view-list,
+.nuke-cad-drawing-dimension-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.nuke-cad-drawing-view-row,
+.nuke-cad-drawing-dimension-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+}
+
+.nuke-cad-drawing-view-row:hover,
+.nuke-cad-drawing-dimension-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.nuke-cad-drawing-view-row.selected {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.nuke-cad-drawing-view-row-main,
+.nuke-cad-drawing-dimension-row-main {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 6px 7px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nuke-cad-drawing-view-row-icon,
+.nuke-cad-drawing-dimension-row-icon {
+    flex: none;
+    color: var(--theia-focusBorder);
+    font-size: 14px;
+}
+
+.nuke-cad-drawing-view-row-copy,
+.nuke-cad-drawing-dimension-row-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.nuke-cad-drawing-view-row-label,
+.nuke-cad-drawing-dimension-row-label {
+    overflow: hidden;
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-cad-drawing-view-row-meta,
+.nuke-cad-drawing-dimension-row-value {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-cad-drawing-view-row.selected .nuke-cad-drawing-view-row-meta {
+    color: inherit;
+    opacity: 0.8;
+}
+
+.nuke-cad-drawing-row-delete {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-right: 3px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.nuke-cad-drawing-row-delete:hover {
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-errorForeground);
+}
+
+.nuke-cad-drawing-dimension-row.stale .nuke-cad-drawing-dimension-row-value {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.nuke-cad-drawing-badge {
+    flex: none;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--theia-editorWarning-foreground);
+    color: var(--theia-button-foreground);
+    font-size: 9px;
+    line-height: 1.5;
+}
+
+.nuke-cad-drawing-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 3px 12px;
+    border-top: 1px solid var(--theia-panel-border);
+    background: var(--theia-statusBar-background);
+    color: var(--theia-statusBar-foreground);
+    font-size: var(--theia-ui-font-size0);
+    white-space: nowrap;
+}
+
+.nuke-cad-drawing-status-sheet {
+    overflow: hidden;
+    max-width: 36%;
+    text-overflow: ellipsis;
+}
+
+.nuke-cad-drawing-status-view {
+    overflow: hidden;
+    max-width: 42%;
+    text-overflow: ellipsis;
+}
+
+.nuke-cad-drawing-status-spacer {
+    flex: 1 1 auto;
+}
+
+.nuke-cad-drawing-status-warning,
+.nuke-cad-drawing-status-build.error {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.nuke-cad-drawing-status .error {
+    color: var(--theia-editorError-foreground);
+}
+
+/* Sheet and linework ------------------------------------------------------ */
+
+.nuke-cad-drawing-paper {
+    fill: #ffffff;
+}
+
+.nuke-cad-drawing-grid-line {
+    fill: none;
+    stroke: #dce3ea;
+    stroke-width: 0.12;
+}
+
+.nuke-cad-drawing-grid-line.major {
+    stroke: #c5d0da;
+    stroke-width: 0.18;
+}
+
+.nuke-cad-drawing-frame-border {
+    fill: none;
+    stroke: #303840;
+    stroke-width: 0.5;
+}
+
+.nuke-cad-drawing-frame-tick {
+    fill: none;
+    stroke: #303840;
+    stroke-width: 0.35;
+}
+
+.nuke-cad-drawing-title-block-box {
+    fill: #ffffff;
+    stroke: #303840;
+    stroke-width: 0.45;
+}
+
+.nuke-cad-drawing-title-block-rule {
+    stroke: #7a8590;
+    stroke-width: 0.18;
+}
+
+.nuke-cad-drawing-title-block-brand {
+    fill: #1d252c;
+    font-size: 3.3px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+
+.nuke-cad-drawing-title-block-caption {
+    fill: #6d7781;
+    font-size: 2.3px;
+    letter-spacing: 0.2px;
+}
+
+.nuke-cad-drawing-title-block-value {
+    fill: #1d252c;
+    font-size: 2.7px;
+    font-weight: 600;
+}
+
+.nuke-cad-drawing-view {
+    cursor: move;
+}
+
+/* Invisible grab area so tiny 1:1 views (and their labels) stay draggable;
+   the frame is pointer-events:none and the linework alone is too thin. */
+.nuke-cad-drawing-view-hit {
+    fill: transparent;
+    pointer-events: all;
+}
+
+.nuke-cad-drawing-view.dimension-mode {
+    cursor: crosshair;
+}
+
+/* Space-held pan overrides the view/label cursors so the whole canvas reads
+   as a single draggable surface. */
+.nuke-cad-drawing-canvas.is-pan-ready,
+.nuke-cad-drawing-canvas.is-pan-ready .nuke-cad-drawing-view,
+.nuke-cad-drawing-canvas.is-pan-ready .nuke-cad-drawing-view.dimension-mode,
+.nuke-cad-drawing-canvas.is-pan-ready .nuke-cad-drawing-dimension-text {
+    cursor: grab;
+}
+
+.nuke-cad-drawing-canvas.is-panning,
+.nuke-cad-drawing-canvas.is-panning .nuke-cad-drawing-view,
+.nuke-cad-drawing-canvas.is-panning .nuke-cad-drawing-view.dimension-mode,
+.nuke-cad-drawing-canvas.is-panning .nuke-cad-drawing-dimension-text {
+    cursor: grabbing;
+}
+
+.nuke-cad-drawing-view-frame {
+    fill: rgba(11, 107, 203, 0.04);
+    stroke: rgba(11, 107, 203, 0.45);
+    stroke-width: 0.35;
+    stroke-dasharray: 2 1.5;
+}
+
+.nuke-cad-drawing-view-frame.selected {
+    fill: rgba(11, 107, 203, 0.08);
+    stroke: #0b6bcb;
+    stroke-width: 0.6;
+    stroke-dasharray: none;
+}
+
+.nuke-cad-drawing-view-chip-bg {
+    fill: #eef4fb;
+    stroke: #b7cbe4;
+    stroke-width: 0.2;
+}
+
+.nuke-cad-drawing-view-chip-text {
+    fill: #294a6b;
+    font-size: 2.6px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+}
+
+.nuke-cad-drawing-placeholder-card {
+    fill: #f8fafc;
+    stroke: #9aa7b4;
+    stroke-width: 0.35;
+    stroke-dasharray: 2 1.5;
+}
+
+.nuke-cad-drawing-placeholder-kicker {
+    fill: #8a97a5;
+    font-size: 2.2px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.nuke-cad-drawing-placeholder-title {
+    fill: #4a5562;
+    font-size: 5px;
+    font-weight: 600;
+}
+
+.nuke-cad-drawing-placeholder-hint {
+    fill: #8a97a5;
+    font-size: 2.3px;
+}
+
+.nuke-cad-drawing-visible {
+    fill: none;
+    stroke: #111111;
+    stroke-width: 0.4;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.nuke-cad-drawing-hidden {
+    fill: none;
+    stroke: #77818c;
+    stroke-width: 0.25;
+    stroke-dasharray: 2 1.2;
+}
+
+.nuke-cad-drawing-hatch {
+    fill: rgba(0, 0, 0, 0.06);
+    stroke: #111111;
+    stroke-width: 0.25;
+}
+
+.nuke-cad-drawing-section-line {
+    stroke: #202830;
+    stroke-width: 0.55;
+}
+
+.nuke-cad-drawing-section-arrow,
+.nuke-cad-drawing-arrowhead {
+    fill: #0b6bcb;
+}
+
+.nuke-cad-drawing-section-label {
+    fill: #4a5562;
+    font-size: 2.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.nuke-cad-drawing-detail {
+    fill: none;
+    stroke: #303840;
+    stroke-width: 0.4;
+    stroke-dasharray: 2 1.5;
+}
+
+.nuke-cad-drawing-leader {
+    fill: none;
+    stroke: #0b6bcb;
+    stroke-width: 0.28;
+}
+
+.nuke-cad-drawing-dimension-text {
+    fill: #0b6bcb;
+    font-size: 4.2px;
+    font-weight: 600;
+    cursor: grab;
+    paint-order: stroke;
+    stroke: #ffffff;
+    stroke-width: 1.1px;
+    stroke-linejoin: round;
+}
+
+.nuke-cad-drawing-dimension.stale .nuke-cad-drawing-dimension-text {
+    fill: #b26a00;
+    font-style: italic;
+}
+
+.nuke-cad-drawing-dimension.stale .nuke-cad-drawing-leader {
+    stroke: #b26a00;
+}
+
+/* Responsive -------------------------------------------------------------- */
+
+@media (max-width: 980px) {
+    .nuke-cad-drawing-toolbar {
+        align-items: stretch;
+    }
+
+    .nuke-cad-drawing-view-controls {
+        flex-wrap: wrap;
+    }
+
+    .nuke-cad-drawing-orientation-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 760px) {
+    .nuke-cad-drawing-inspector {
+        display: none;
+    }
+
+    .nuke-cad-drawing-inspector-toggle {
+        display: none;
+    }
+
+    .nuke-cad-drawing-canvas {
+        padding: 12px;
+    }
+
+    .nuke-cad-drawing-status {
+        gap: 6px;
+        overflow-x: auto;
+    }
+
+    .nuke-cad-drawing-status > span:not(.nuke-cad-drawing-status-spacer):not(.nuke-cad-drawing-status-sheet) {
+        display: none;
+    }
+}

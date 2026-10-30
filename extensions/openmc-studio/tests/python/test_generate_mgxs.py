@@ -250,6 +250,18 @@ class TestMainCompatibilityGuard:
 
 
 class TestRunGenerateMgxs:
+    def test_particle_count_kwarg_prefers_modern_particles(self):
+        """0.16's particles keyword wins; legacy signatures keep nparticles."""
+
+        def modern(**kwargs):
+            return kwargs
+
+        def legacy(nparticles=2000):
+            return nparticles
+
+        assert generate_mgxs._particle_count_kwarg(modern, 10) == {"particles": 10}
+        assert generate_mgxs._particle_count_kwarg(legacy, 10) == {"nparticles": 10}
+
     def test_convert_kwargs(self, fake_openmc_module, tmp_path):
         """convert_to_multigroup receives method/groups/correction/temperatures/particles/output."""
         _write_model_xml(tmp_path)
@@ -270,7 +282,8 @@ class TestRunGenerateMgxs:
         call = _FakeModel.last_instance.convert_calls[0]
         assert call["method"] == "stochastic_slab"
         assert call["groups"] == "XMAS-172"
-        assert call["nparticles"] == 5000
+        assert call["particles"] == 5000
+        assert "nparticles" not in call
         assert call["correction"] == "P0"
         assert call["temperatures"] == [300.0, 600.0]
         assert call["mgxs_path"] == "mgxs.h5"
@@ -293,6 +306,7 @@ class TestRunGenerateMgxs:
         generate_mgxs.run_generate_mgxs(args)
         call = _FakeModel.last_instance.convert_calls[0]
         assert call["correction"] is None
+        assert "particles" not in call
         assert "nparticles" not in call
 
     def test_random_ray_conversion_exports_settings(self, fake_openmc_module, tmp_path):
@@ -445,3 +459,115 @@ class TestOpenMCIntegration:
 
         rr_params = inspect.signature(openmc.Model.convert_to_random_ray).parameters
         assert "self" in rr_params
+
+
+class TestDagmcHelpers:
+    def test_resolve_dagmc_file_handles_missing_and_malformed_xml(self, tmp_path):
+        assert generate_mgxs._resolve_dagmc_file(tmp_path) is None
+        (tmp_path / "geometry.xml").write_text("<geometry", encoding="utf-8")
+        assert generate_mgxs._resolve_dagmc_file(tmp_path) is None
+
+    def test_resolve_dagmc_file_reads_the_filename(self, tmp_path):
+        (tmp_path / "geometry.xml").write_text(
+            '<geometry><dagmc_universe filename="model.h5m"/></geometry>', encoding="utf-8"
+        )
+        assert generate_mgxs._resolve_dagmc_file(tmp_path) == tmp_path / "model.h5m"
+
+    def test_fix_dagmc_category_tags_without_dense_tag(self, tmp_path):
+        h5py = pytest.importorskip("h5py")
+        (tmp_path / "geometry.xml").write_text(
+            '<geometry><dagmc_universe filename="model.h5m"/></geometry>', encoding="utf-8"
+        )
+        with h5py.File(tmp_path / "model.h5m", "w") as handle:
+            handle.create_group("tstt/tags/CATEGORY/type")
+        generate_mgxs._fix_dagmc_category_tags(tmp_path)
+        with h5py.File(tmp_path / "model.h5m", "r") as handle:
+            assert "tstt/tags/CATEGORY/values" not in handle
+
+    def test_fix_dagmc_category_tags_skips_when_h5py_is_missing(self, monkeypatch, tmp_path):
+        (tmp_path / "geometry.xml").write_text(
+            '<geometry><dagmc_universe filename="model.h5m"/></geometry>', encoding="utf-8"
+        )
+        (tmp_path / "model.h5m").write_bytes(b"not hdf5")
+        monkeypatch.setitem(sys.modules, "h5py", None)
+        generate_mgxs._fix_dagmc_category_tags(tmp_path)
+
+
+def _fake_openmc_for_load():
+    class Mesh:
+        @classmethod
+        def from_xml_element(cls, element):
+            return cls()
+
+    module = types.ModuleType("openmc")
+    module.Materials = types.SimpleNamespace(from_xml=staticmethod(lambda path: ["materials"]))
+    module.Geometry = types.SimpleNamespace(
+        from_xml=staticmethod(lambda path, materials: "geometry")
+    )
+    module.Settings = types.SimpleNamespace(
+        from_xml_element=staticmethod(lambda root, meshes: types.SimpleNamespace(meshes=meshes))
+    )
+    module.RegularMesh = type("RegularMesh", (Mesh,), {})
+    module.CylindricalMesh = type("CylindricalMesh", (Mesh,), {})
+    module.SphericalMesh = type("SphericalMesh", (Mesh,), {})
+    return module
+
+
+def test_load_model_collects_known_mesh_types(monkeypatch, tmp_path):
+    module = _fake_openmc_for_load()
+    monkeypatch.setitem(sys.modules, "openmc", module)
+    for name in ("materials.xml", "geometry.xml", "settings.xml"):
+        (tmp_path / name).write_text("<root/>", encoding="utf-8")
+    (tmp_path / "tallies.xml").write_text(
+        "<tallies>"
+        '<mesh id="1" type="regular"/>'
+        '<mesh id="2" type="cylindrical"/>'
+        '<mesh id="3" type="spherical"/>'
+        '<mesh id="4" type="unsupported"/>'
+        "</tallies>",
+        encoding="utf-8",
+    )
+
+    materials, geometry, settings = generate_mgxs.load_model(tmp_path)
+
+    assert materials == ["materials"]
+    assert geometry == "geometry"
+    assert sorted(settings.meshes) == [1, 2, 3]
+
+
+def test_load_model_warns_on_malformed_tallies(monkeypatch, tmp_path, capsys):
+    module = _fake_openmc_for_load()
+    monkeypatch.setitem(sys.modules, "openmc", module)
+    for name in ("materials.xml", "geometry.xml", "settings.xml"):
+        (tmp_path / name).write_text("<root/>", encoding="utf-8")
+    (tmp_path / "tallies.xml").write_text("<tallies>", encoding="utf-8")
+
+    _, _, settings = generate_mgxs.load_model(tmp_path)
+
+    assert settings.meshes == {}
+    assert "Could not load meshes" in capsys.readouterr().err
+
+
+def test_main_reports_import_and_unexpected_errors(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(sys, "argv", ["generate_mgxs.py", str(tmp_path)])
+    monkeypatch.setattr(
+        generate_mgxs,
+        "run_generate_mgxs",
+        lambda args: (_ for _ in ()).throw(ImportError("no openmc")),
+    )
+    with pytest.raises(SystemExit) as exc:
+        generate_mgxs.main()
+    assert exc.value.code == 0
+    assert "Missing dependency" in json.loads(capsys.readouterr().out)["error"]
+
+    monkeypatch.setattr(
+        generate_mgxs,
+        "run_generate_mgxs",
+        lambda args: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    with pytest.raises(SystemExit) as exc:
+        generate_mgxs.main()
+    assert exc.value.code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"] == "boom"
+    assert "traceback" in payload

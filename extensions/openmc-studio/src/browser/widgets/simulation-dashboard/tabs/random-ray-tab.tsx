@@ -31,7 +31,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
-import { Tooltip, SearchableMultiSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, SearchableMultiSelect, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCRandomRaySettings, OpenMCRegularMesh } from '../../../../common/openmc-state-schema';
 import { OpenMCCompat, MgConversionResult } from '../../../../common/openmc-studio-protocol';
 import {
@@ -52,7 +52,7 @@ import { calculateGeometryBounds } from './settings/geometry-bounds';
 export class RandomRayTabContribution implements DashboardTabContribution {
     readonly id = 'random-ray';
     readonly label = 'Random Ray';
-    readonly icon = 'zap';
+    readonly icon = 'openmc-source';
     readonly order = 5;
 
     @inject(PreferenceService)
@@ -211,34 +211,32 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             {!nuclideWise && (
                                 <div className="form-group">
                                     <label>Method</label>
-                                    <select
+                                    <NukeSelect
                                         value={this.mgConvertMethod}
-                                        onChange={(e) => {
-                                            this.mgConvertMethod = e.target.value as typeof this.mgConvertMethod;
+                                        options={[
+                                            { value: 'material_wise', label: 'Material Wise (highest fidelity)' },
+                                            { value: 'stochastic_slab', label: 'Stochastic Slab' },
+                                            { value: 'infinite_medium', label: 'Infinite Medium' }
+                                        ]}
+                                        onChange={(value: string) => {
+                                            this.mgConvertMethod = value as typeof this.mgConvertMethod;
                                             host.update();
                                         }}
-                                    >
-                                        <option value="material_wise">Material Wise (highest fidelity)</option>
-                                        <option value="stochastic_slab">Stochastic Slab</option>
-                                        <option value="infinite_medium">Infinite Medium</option>
-                                    </select>
+                                        ariaLabel="Multi-group conversion method"
+                                    />
                                 </div>
                             )}
                             <div className="form-group">
                                 <label>Group Structure</label>
-                                <select
+                                <NukeSelect
                                     value={this.mgConvertGroups}
-                                    onChange={(e) => {
-                                        this.mgConvertGroups = e.target.value;
+                                    options={[...MGXS_GROUP_STRUCTURES.map((g) => ({ value: g, label: g }))]}
+                                    onChange={(value: string) => {
+                                        this.mgConvertGroups = value;
                                         host.update();
                                     }}
-                                >
-                                    {MGXS_GROUP_STRUCTURES.map((g) => (
-                                        <option key={g} value={g}>
-                                            {g}
-                                        </option>
-                                    ))}
-                                </select>
+                                    ariaLabel="Group structure"
+                                />
                             </div>
                             <div className="form-group">
                                 <label>Particles</label>
@@ -633,18 +631,20 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                 <div className="form-row">
                     <div className="form-group">
                         <label>Domain Type</label>
-                        <select
+                        <NukeSelect
                             value={this.sourceConstraintDomainType}
-                            onChange={(e) => {
-                                this.sourceConstraintDomainType = e.target.value as 'material' | 'cell' | 'universe';
+                            options={[
+                                { value: 'material', label: 'Material' },
+                                { value: 'cell', label: 'Cell / DAGMC Volume' },
+                                { value: 'universe', label: 'Universe' }
+                            ]}
+                            onChange={(value: string) => {
+                                this.sourceConstraintDomainType = value as 'material' | 'cell' | 'universe';
                                 this.sourceConstraintDomainIds = [];
                                 host.update();
                             }}
-                        >
-                            <option value="material">Material</option>
-                            <option value="cell">Cell / DAGMC Volume</option>
-                            <option value="universe">Universe</option>
-                        </select>
+                            ariaLabel="Source constraint domain type"
+                        />
                     </div>
                     <div className="form-group">
                         <label>Domain IDs</label>
@@ -795,17 +795,19 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                     <div className="form-row">
                         <div className="form-group">
                             <label>Energy Treatment</label>
-                            <select
+                            <NukeSelect
                                 value={settings.energyMode ?? 'continuous-energy'}
-                                onChange={(e) =>
+                                options={[
+                                    { value: 'continuous-energy', label: 'Continuous Energy' },
+                                    { value: 'multigroup', label: 'Multi-Group' }
+                                ]}
+                                onChange={(value: string) =>
                                     host.stateManager.updateSettings({
-                                        energyMode: e.target.value as 'continuous-energy' | 'multigroup'
+                                        energyMode: value as 'continuous-energy' | 'multigroup'
                                     })
                                 }
-                            >
-                                <option value="continuous-energy">Continuous Energy</option>
-                                <option value="multigroup">Multi-Group</option>
-                            </select>
+                                ariaLabel="Energy treatment"
+                            />
                         </div>
                     </div>
                     {isMultiGroup && (
@@ -912,29 +914,35 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             <div className="form-row">
                                 <div className="form-group">
                                     <label>Source Shape</label>
-                                    <select
+                                    <NukeSelect
                                         value={randomRay.sourceShape ?? 'flat'}
-                                        onChange={(e) =>
-                                            updateRandomRay({ sourceShape: e.target.value as 'flat' | 'linear' | 'linear_xy' })
+                                        options={[
+                                            { value: 'flat', label: 'Flat (default)' },
+                                            { value: 'linear', label: 'Linear' },
+                                            { value: 'linear_xy', label: 'Linear XY' }
+                                        ]}
+                                        onChange={(value: string) =>
+                                            updateRandomRay({ sourceShape: value as 'flat' | 'linear' | 'linear_xy' })
                                         }
-                                    >
-                                        <option value="flat">Flat (default)</option>
-                                        <option value="linear">Linear</option>
-                                        <option value="linear_xy">Linear XY</option>
-                                    </select>
+                                        ariaLabel="Source shape"
+                                    />
                                 </div>
                                 <div className="form-group">
                                     <label>Sample Method</label>
-                                    <select
+                                    <NukeSelect
                                         value={randomRay.sampleMethod ?? 'prng'}
-                                        onChange={(e) => updateRandomRay({ sampleMethod: e.target.value as 'prng' | 'halton' | 's2' })}
-                                    >
-                                        <option value="prng">PRNG (default)</option>
-                                        <option value="halton">Halton</option>
-                                        <option value="s2" disabled={s2Unsupported}>
-                                            S2{s2Unsupported ? ' (not supported by the configured OpenMC)' : ''}
-                                        </option>
-                                    </select>
+                                        options={[
+                                            { value: 'prng', label: 'PRNG (default)' },
+                                            { value: 'halton', label: 'Halton' },
+                                            {
+                                                value: 's2',
+                                                label: `S2${s2Unsupported ? ' (not supported by the configured OpenMC)' : ''}`,
+                                                disabled: s2Unsupported
+                                            }
+                                        ]}
+                                        onChange={(value: string) => updateRandomRay({ sampleMethod: value as 'prng' | 'halton' | 's2' })}
+                                        ariaLabel="Sample method"
+                                    />
                                     {s2Unsupported && randomRay.sampleMethod === 's2' && (
                                         <span className="form-hint">
                                             s2 is not supported by the configured OpenMC — 'halton' will be written to settings.xml instead.
@@ -943,18 +951,20 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                                 </div>
                                 <div className="form-group">
                                     <label>Volume Estimator</label>
-                                    <select
+                                    <NukeSelect
                                         value={randomRay.volumeEstimator ?? 'hybrid'}
-                                        onChange={(e) =>
+                                        options={[
+                                            { value: 'hybrid', label: 'Hybrid (default)' },
+                                            { value: 'naive', label: 'Naive' },
+                                            { value: 'simulation_averaged', label: 'Simulation Averaged' }
+                                        ]}
+                                        onChange={(value: string) =>
                                             updateRandomRay({
-                                                volumeEstimator: e.target.value as 'naive' | 'simulation_averaged' | 'hybrid'
+                                                volumeEstimator: value as 'naive' | 'simulation_averaged' | 'hybrid'
                                             })
                                         }
-                                    >
-                                        <option value="hybrid">Hybrid (default)</option>
-                                        <option value="naive">Naive</option>
-                                        <option value="simulation_averaged">Simulation Averaged</option>
-                                    </select>
+                                        ariaLabel="Volume estimator"
+                                    />
                                 </div>
                             </div>
                             <div className="form-row">
@@ -1088,39 +1098,42 @@ export class RandomRayTabContribution implements DashboardTabContribution {
                             <div className="form-row">
                                 <div className="form-group">
                                     <label>Source Region Mesh</label>
-                                    <select
-                                        value={randomRay.sourceRegionMeshId ?? ''}
-                                        onChange={(e) =>
+                                    <NukeSelect
+                                        value={String(randomRay.sourceRegionMeshId ?? '')}
+                                        options={[
+                                            { value: '', label: 'None' },
+                                            ...regularMeshes.map((mesh) => ({
+                                                value: String(mesh.id),
+                                                label: mesh.name || `Mesh ${mesh.id}`
+                                            }))
+                                        ]}
+                                        onChange={(value: string) =>
                                             updateRandomRay({
-                                                sourceRegionMeshId: e.target.value ? parseInt(e.target.value) : undefined
+                                                sourceRegionMeshId: value ? parseInt(value) : undefined
                                             })
                                         }
-                                    >
-                                        <option value="">None</option>
-                                        {regularMeshes.map((mesh) => (
-                                            <option key={mesh.id} value={mesh.id}>
-                                                {mesh.name || `Mesh ${mesh.id}`}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        ariaLabel="Source region mesh"
+                                    />
                                     <span className="form-hint">Regular meshes are created in the Tally Configurator</span>
                                 </div>
                                 {randomRay.sourceRegionMeshId !== undefined && (
                                     <>
                                         <div className="form-group">
                                             <label>Domain Type</label>
-                                            <select
+                                            <NukeSelect
                                                 value={randomRay.sourceRegionDomainType ?? 'cell'}
-                                                onChange={(e) =>
+                                                options={[
+                                                    { value: 'cell', label: 'Cells' },
+                                                    { value: 'material', label: 'Materials' },
+                                                    { value: 'universe', label: 'Universes' }
+                                                ]}
+                                                onChange={(value: string) =>
                                                     updateRandomRay({
-                                                        sourceRegionDomainType: e.target.value as 'cell' | 'material' | 'universe'
+                                                        sourceRegionDomainType: value as 'cell' | 'material' | 'universe'
                                                     })
                                                 }
-                                            >
-                                                <option value="cell">Cells</option>
-                                                <option value="material">Materials</option>
-                                                <option value="universe">Universes</option>
-                                            </select>
+                                                ariaLabel="Source region domain type"
+                                            />
                                         </div>
                                         <div className="form-group">
                                             <label>Domain IDs</label>

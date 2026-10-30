@@ -20,7 +20,8 @@ class TestGetDagmcInfo:
         result = dagmc_info.get_dagmc_info("whatever.h5m")
         assert result == {
             "success": False,
-            "error": "pydagmc not available. Install with: pip install pydagmc",
+            "error": "pydagmc not available. Install with: pip install "
+            "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8",
         }
 
     def test_nonexistent_file(self, monkeypatch, tmp_path):

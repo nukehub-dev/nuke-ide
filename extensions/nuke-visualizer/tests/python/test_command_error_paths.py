@@ -3,18 +3,22 @@
 The handlers in plugins.base.commands do their heavy imports lazily,
 so a missing dependency (pymoab, gmsh, pydagmc, vtk) must surface as a
 JSON error object on stderr with exit code 1 — never a traceback.
+
+OpenMC-plugin handlers follow the same lazy pattern but emit the JSON
+error object on stdout (the node side is stdout-first); the
+openmc.tally-line-probe and openmc.tally-contour sections pin that contract.
 """
 
 import argparse
 import json
 import sys
 import tempfile
-import types
 
 import pytest
 from nuke_viz.plugin import setup_parser_for_handler
 from plugins.base.commands import convert as convert_cmds
 from plugins.base.commands import dagmc as dagmc_cmds
+from plugins.openmc.commands import tally_vtk as tally_vtk_cmds
 
 
 @pytest.fixture
@@ -111,6 +115,37 @@ def test_convert_step_missing_gmsh(hermetic_tmp, monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
+# base.convert-gmsh
+# ---------------------------------------------------------------------------
+
+
+def test_convert_gmsh_missing_file(hermetic_tmp, capsys):
+    """A nonexistent Gmsh mesh fails with a JSON error and exit code 1."""
+    args = _parse(convert_cmds.cmd_convert_gmsh, ["--file", "/no/such/mesh.msh"])
+
+    rc = convert_cmds.cmd_convert_gmsh(args)
+
+    assert rc == 1
+    assert "Gmsh mesh file not found" in _stderr_error_line(capsys)
+
+
+def test_convert_gmsh_missing_gmsh(hermetic_tmp, monkeypatch, capsys):
+    """With gmsh unavailable, .msh conversion reports the import failure."""
+    from plugins.base.lib import gmsh_mesh
+
+    fake_msh = hermetic_tmp / "mesh.msh"
+    fake_msh.write_text("$MeshFormat\n2.2 0 8\n$EndMeshFormat\n")
+    monkeypatch.setitem(sys.modules, "gmsh", None)
+    monkeypatch.setattr(gmsh_mesh, "HAS_GMSH", False)
+
+    args = _parse(convert_cmds.cmd_convert_gmsh, ["--file", str(fake_msh)])
+    rc = convert_cmds.cmd_convert_gmsh(args)
+
+    assert rc == 1
+    assert "gmsh" in _stderr_error_line(capsys)
+
+
+# ---------------------------------------------------------------------------
 # dagmc.info
 # ---------------------------------------------------------------------------
 
@@ -139,70 +174,6 @@ def test_dagmc_info_missing_pydagmc(tmp_path, monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
-# dagmc.visualize
-# ---------------------------------------------------------------------------
-
-
-def test_dagmc_visualize_missing_vtk(monkeypatch, capsys):
-    """With vtk unavailable, dagmc.visualize reports the library failure
-    without ever starting a server."""
-    monkeypatch.delitem(sys.modules, "plugins.base.lib.dagmc_viz", raising=False)
-    monkeypatch.setitem(sys.modules, "vtk", None)
-
-    args = _parse(dagmc_cmds.cmd_dagmc_visualize, ["--file", "model.h5m"])
-    rc = dagmc_cmds.cmd_dagmc_visualize(args)
-
-    assert rc == 1
-    assert "DAGMC visualization library not available" in _stderr_error_line(capsys)
-
-
-def test_dagmc_visualize_highlight_list_parsing(monkeypatch):
-    """The --highlight comma-separated string becomes a list of ints."""
-    captured = {}
-
-    def fake_visualize_dagmc(file, port, theme, highlight_ids):
-        captured.update(file=file, port=port, theme=theme, highlight_ids=highlight_ids)
-        return 0
-
-    fake_module = types.ModuleType("plugins.base.lib.dagmc_viz")
-    fake_module.visualize_dagmc = fake_visualize_dagmc
-    monkeypatch.setitem(sys.modules, "plugins.base.lib.dagmc_viz", fake_module)
-
-    args = _parse(
-        dagmc_cmds.cmd_dagmc_visualize,
-        ["--file", "model.h5m", "--port", "8123", "--theme", "light", "--highlight", "1, 2,3"],
-    )
-    rc = dagmc_cmds.cmd_dagmc_visualize(args)
-
-    assert rc == 0
-    assert captured == {
-        "file": "model.h5m",
-        "port": 8123,
-        "theme": "light",
-        "highlight_ids": [1, 2, 3],
-    }
-
-
-def test_dagmc_visualize_no_highlight_passes_none(monkeypatch):
-    """Without --highlight, highlight_ids is None."""
-    captured = {}
-
-    def fake_visualize_dagmc(file, port, theme, highlight_ids):
-        captured["highlight_ids"] = highlight_ids
-        return 0
-
-    fake_module = types.ModuleType("plugins.base.lib.dagmc_viz")
-    fake_module.visualize_dagmc = fake_visualize_dagmc
-    monkeypatch.setitem(sys.modules, "plugins.base.lib.dagmc_viz", fake_module)
-
-    args = _parse(dagmc_cmds.cmd_dagmc_visualize, ["--file", "model.h5m"])
-    rc = dagmc_cmds.cmd_dagmc_visualize(args)
-
-    assert rc == 0
-    assert captured["highlight_ids"] is None
-
-
-# ---------------------------------------------------------------------------
 # Argument parsing behavior
 # ---------------------------------------------------------------------------
 
@@ -226,12 +197,149 @@ def test_convert_step_mesh_size_default_and_override():
     assert args.mesh_size == pytest.approx(2.5)
 
 
-def test_dagmc_visualize_theme_choices_enforced():
-    """--theme only accepts 'dark' or 'light' (default 'dark')."""
-    args = _parse(dagmc_cmds.cmd_dagmc_visualize, ["--file", "m.h5m"])
-    assert args.theme == "dark"
+# ---------------------------------------------------------------------------
+# openmc.tally-line-probe (stdout-JSON contract, exit 1)
+# ---------------------------------------------------------------------------
 
+
+def _probe_argv(*extra):
+    """Base probe argv: tally 1 along the unit diagonal of a missing file."""
+    return [
+        "--tally-id",
+        "1",
+        "--p0",
+        "0",
+        "0",
+        "0",
+        "--p1",
+        "1",
+        "1",
+        "1",
+        *extra,
+        "/no/such/statepoint.h5",
+    ]
+
+
+def _stdout_error_line(capsys):
+    """Extract and JSON-decode the single {"error": ...} stdout line."""
+    out = capsys.readouterr().out.strip()
+    assert out.startswith('{"error"'), f"expected JSON error on stdout, got: {out!r}"
+    return json.loads(out)["error"]
+
+
+def test_line_probe_missing_file(capsys):
+    """A nonexistent statepoint fails with a stdout JSON error and exit 1."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv())
+
+    rc = tally_vtk_cmds.cmd_tally_line_probe(args)
+
+    assert rc == 1
+    assert "File not found" in _stdout_error_line(capsys)
+
+
+def test_line_probe_exclusive_interpolation_flags(capsys):
+    """--smooth + --pixelated together fail before any file access."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv("--smooth", "--pixelated"))
+
+    rc = tally_vtk_cmds.cmd_tally_line_probe(args)
+
+    assert rc == 1
+    assert "mutually exclusive" in _stdout_error_line(capsys)
+
+
+def test_line_probe_bad_npoints(capsys):
+    """An out-of-range --npoints fails with a stdout JSON error."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv("--npoints", "1"))
+
+    rc = tally_vtk_cmds.cmd_tally_line_probe(args)
+
+    assert rc == 1
+    assert "npoints" in _stdout_error_line(capsys)
+
+
+def test_line_probe_endpoints_required():
+    """--p0/--p1 are required; argparse aborts with SystemExit when missing."""
     parser = argparse.ArgumentParser()
-    setup_parser_for_handler(dagmc_cmds.cmd_dagmc_visualize, parser)
-    with pytest.raises(SystemExit):
-        parser.parse_args(["--file", "m.h5m", "--theme", "blue"])
+    setup_parser_for_handler(tally_vtk_cmds.cmd_tally_line_probe, parser)
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["--tally-id", "1", "sp.h5"])
+    assert excinfo.value.code == 2
+
+
+def test_line_probe_npoints_default_and_parsing():
+    """--npoints defaults to 100 and parses as an int."""
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv())
+    assert args.npoints == 100
+    assert args.p0 == [0.0, 0.0, 0.0]
+    assert args.p1 == [1.0, 1.0, 1.0]
+
+    args = _parse(tally_vtk_cmds.cmd_tally_line_probe, _probe_argv("--npoints", "25"))
+    assert args.npoints == 25
+
+
+# ---------------------------------------------------------------------------
+# openmc.tally-contour (stdout-JSON contract, exit 1)
+# ---------------------------------------------------------------------------
+
+
+def _contour_argv(*extra):
+    """Base contour argv: tally 1 with one iso over a missing file.
+
+    The statepoint positional leads: --iso takes 1+ values and would
+    greedily swallow a trailing positional.
+    """
+    return ["/no/such/statepoint.h5", "--tally-id", "1", "--iso", "5.0", *extra]
+
+
+def test_tally_contour_missing_file(capsys):
+    """A nonexistent statepoint fails with a stdout JSON error and exit 1."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv())
+
+    rc = tally_vtk_cmds.cmd_tally_contour(args)
+
+    assert rc == 1
+    assert "File not found" in _stdout_error_line(capsys)
+
+
+def test_tally_contour_exclusive_interpolation_flags(capsys):
+    """--smooth + --pixelated together fail before any file access."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv("--smooth", "--pixelated"))
+
+    rc = tally_vtk_cmds.cmd_tally_contour(args)
+
+    assert rc == 1
+    assert "mutually exclusive" in _stdout_error_line(capsys)
+
+
+def test_tally_contour_bad_iso(capsys):
+    """A non-finite --iso fails with a stdout JSON error."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv())
+    args.iso = [float("nan")]
+
+    rc = tally_vtk_cmds.cmd_tally_contour(args)
+
+    assert rc == 1
+    assert "iso" in _stdout_error_line(capsys)
+
+
+def test_tally_contour_iso_required():
+    """--iso is required; argparse aborts with SystemExit when missing."""
+    parser = argparse.ArgumentParser()
+    setup_parser_for_handler(tally_vtk_cmds.cmd_tally_contour, parser)
+
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["--tally-id", "1", "sp.h5"])
+    assert excinfo.value.code == 2
+
+
+def test_tally_contour_multi_iso_parsing():
+    """--iso takes several values in one call."""
+    args = _parse(tally_vtk_cmds.cmd_tally_contour, _contour_argv())
+    assert args.iso == [5.0]
+
+    args = _parse(
+        tally_vtk_cmds.cmd_tally_contour,
+        ["/no/such/statepoint.h5", "--tally-id", "1", "--iso", "1.0", "2.5", "4.0"],
+    )
+    assert args.iso == [1.0, 2.5, 4.0]

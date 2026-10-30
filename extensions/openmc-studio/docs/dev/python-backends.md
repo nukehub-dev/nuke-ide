@@ -6,9 +6,9 @@ Python helper scripts in `python/` perform scientific work: reading statepoints,
 
 ## Script Location
 
-All Python scripts live in `extensions/openmc-studio/python/`:
+All Python scripts live in `extensions/openmc-studio/python/`.
 
-The Node.js backend resolves script paths via `__dirname` relative resolution (production `lib/python/` vs development `src/python/`).
+The Node backend resolves script paths through nuke-core's `resolvePythonScript({ packageName: 'openmc-studio', scriptName: '...' })` (see `extensions/nuke-core/src/node/utils/script-resolver.ts`). The resolver checks Electron `extraResources`, the installed/resolved package's `python/` directory, the app's `extensions/` tree, and monorepo development fallbacks — never a `lib/python` or `src/python` directory.
 
 ---
 
@@ -29,10 +29,10 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description='My backend service')
-    parser.add_argument('input_file', help='Path to input file')
-    parser.add_argument('--output', '-o', help='Output file path')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    parser = argparse.ArgumentParser(description="My backend service")
+    parser.add_argument("input_file", help="Path to input file")
+    parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
 
@@ -50,15 +50,10 @@ def main():
 
 
 def do_work(input_file: str, output: str | None, verbose: bool) -> dict:
-    return {
-        'success': True,
-        'inputFile': input_file,
-        'outputFile': output,
-        'data': {}
-    }
+    return {"success": True, "inputFile": input_file, "outputFile": output, "data": {}}
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 ```
 
@@ -81,17 +76,14 @@ The Node.js backend parses stdout as JSON. Your script must print **exactly one 
 import json
 
 # Success
-result = {
-    'success': True,
-    'data': { ... }
-}
+result = {"success": True, "data": {...}}
 print(json.dumps(result))
 
 # Error (still JSON, but success=false)
 result = {
-    'success': False,
-    'error': 'Missing dependency: openmc',
-    'traceback': traceback.format_exc()
+    "success": False,
+    "error": "Missing dependency: openmc",
+    "traceback": traceback.format_exc(),
 }
 print(json.dumps(result))
 ```
@@ -103,6 +95,7 @@ Statepoint data frequently contains numpy arrays and `uncertainties` objects. Us
 ```python
 import numpy as np
 
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -112,6 +105,7 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return super().default(obj)
+
 
 print(json.dumps(result, cls=NumpyEncoder))
 ```
@@ -137,10 +131,11 @@ try:
     import openmc
     import h5py
 except ImportError as e:
-    print(json.dumps({
-        'success': False,
-        'error': f'Missing dependency: {e}. Please install openmc and h5py.'
-    }))
+    print(
+        json.dumps(
+            {"success": False, "error": f"Missing dependency: {e}. Please install openmc and h5py."}
+        )
+    )
     sys.exit(0)  # Return JSON error so frontend can display it
 ```
 
@@ -166,43 +161,33 @@ You do NOT need to detect Python in your script. The Node.js backend:
 
 ## Backend Execution Pattern
 
-The Node.js backend executes scripts via `child_process.spawn` or helper methods. The standard pattern is:
+The Node.js backend executes short JSON queries with `child_process.execSync` and long-running simulations with `child_process.spawn`. There is no shared `executeScriptJson` helper on `OpenMCStudioBackendServiceImpl`.
 
-### `executeScriptJson` Pattern
+### Short JSON Query Pattern
+
+This mirrors the statepoint/depletion methods in `openmc-studio-backend-service.ts`:
 
 ```typescript
-// Node backend service executes a script and parses JSON stdout
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
+
 async runMyScript(inputPath: string): Promise<MyResult> {
-    const { spawn } = await import('child_process');
+    const { execSync } = await import('child_process');
+    const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'my_script.py' });
+    if (!scriptPath) {
+        throw new Error('my_script.py not found');
+    }
 
-    // Resolve Python from nuke-core configuration
-    const pythonPath = await this.getPythonPath();
-    const scriptPath = this.resolveScriptPath('my_script.py');
-
-    return new Promise((resolve, reject) => {
-        const proc = spawn(pythonPath, [scriptPath, inputPath, '--json']);
-
-        let stdout = '';
-        let stderr = '';
-
-        proc.stdout.on('data', (data) => { stdout += data; });
-        proc.stderr.on('data', (data) => { stderr += data; });
-
-        proc.on('close', (code) => {
-            if (code !== 0) {
-                reject(new Error(stderr || `Process exited with code ${code}`));
-                return;
-            }
-            try {
-                const result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
-                resolve(result);
-            } catch (e) {
-                reject(new Error(`Failed to parse JSON: ${stdout}`));
-            }
-        });
+    const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+    const output = execSync(`"${pythonInfo.command}" "${scriptPath}" "${inputPath}" --json`, {
+        encoding: 'utf-8',
+        timeout: 60000,
+        stdio: ['pipe', 'pipe', 'pipe']
     });
+    return JSON.parse(output);
 }
 ```
+
+Scripts that need streaming output, cancellation, or a process id belong on `OpenMCRunnerService`, which owns the Python detection and process lifecycle; delegate to it from the orchestrator.
 
 ### Long-Running Processes (Simulations)
 
@@ -273,23 +258,20 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description='DAGMC volume statistics')
-    parser.add_argument('file', help='Path to DAGMC .h5m file')
-    parser.add_argument('--json', action='store_true', help='Output as JSON')
+    parser = argparse.ArgumentParser(description="DAGMC volume statistics")
+    parser.add_argument("file", help="Path to DAGMC .h5m file")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 
     file_path = Path(args.file)
     if not file_path.exists():
-        print(json.dumps({'success': False, 'error': f'File not found: {args.file}'}))
+        print(json.dumps({"success": False, "error": f"File not found: {args.file}"}))
         sys.exit(1)
 
     try:
         import pymoab
     except ImportError:
-        print(json.dumps({
-            'success': False,
-            'error': 'pymoab is required for DAGMC operations'
-        }))
+        print(json.dumps({"success": False, "error": "pymoab is required for DAGMC operations"}))
         sys.exit(0)
 
     mb = pymoab.core.Core()
@@ -300,33 +282,50 @@ def main():
     surfaces = mb.get_entities_by_dimension(0, 2)
 
     result = {
-        'success': True,
-        'file': str(file_path),
-        'volumeCount': len(volumes),
-        'surfaceCount': len(surfaces),
+        "success": True,
+        "file": str(file_path),
+        "volumeCount": len(volumes),
+        "surfaceCount": len(surfaces),
     }
 
     print(json.dumps(result))
     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 ```
 
 ### Step 2: Add Backend Method
 
+Scripts that return one JSON payload follow the `execSync` pattern above; add a typed method to the orchestrator and parse stdout:
+
 ```typescript
 // src/node/openmc-studio-backend-service.ts
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
+
 async getDAGMCVolumeStats(filePath: string): Promise<{
     success: boolean;
     volumeCount?: number;
     surfaceCount?: number;
     error?: string;
 }> {
-    return this.executeScriptJson('dagmc_volume_stats.py', [filePath, '--json']);
+    const { execSync } = await import('child_process');
+    const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'dagmc_volume_stats.py' });
+    if (!scriptPath) {
+        return { success: false, error: 'dagmc_volume_stats.py not found' };
+    }
+
+    const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+    const output = execSync(`"${pythonInfo.command}" "${scriptPath}" "${filePath}" --json`, {
+        encoding: 'utf-8',
+        timeout: 60000
+    });
+    return JSON.parse(output);
 }
 ```
+
+For streaming/cancellable work, add the method to `OpenMCRunnerService` and delegate from the orchestrator.
 
 ### Step 3: Add to RPC Protocol
 
@@ -349,6 +348,97 @@ if (stats.success) {
 
 ---
 
+## Derived Tallies
+
+`derive_tallies.py --statepoint <h5> --definitions-file <json>` evaluates persisted derived-tally
+expressions. It loads `openmc.StatePoint`, resolves each tally/score/nuclide operand, and applies the
+OpenMC uncertainty formulas (sum/difference in quadrature; product/ratio via relative errors, with
+non-finite moments written as zero). Filters with the same type but different bins are rejected with
+an actionable message; filters present on only one operand broadcast across the result axes. The
+payload returns flattened filter-major mean/std arrays plus filter/nuclide/score axes.
+
+Each definition fails independently (`errors[]`); missing OpenMC, unreadable statepoints, and missing
+definitions return `success: false` with one JSON object. When `openmc.StatePoint` cannot read a
+synthetic/minimal statepoint, the script falls back to reading the HDF5 `results` moments directly
+(`[sum, sum_sq]` per filter/score/nuclide bin) so committed UI fixtures stay viewable.
+
+The statepoint viewer in `nuke-visualizer` resolves this script from `openmc-studio` and passes the
+definitions read from the sibling `.nuke-openmc` project; it never imports OpenMC Studio's TypeScript.
+The Simulation Comparison widget calls the same evaluator through
+`OpenMCStudioBackendService.evaluateDerivedTallies`.
+
+---
+
+## Domain Drivers
+
+### CAD / DAGMC and the graveyard
+
+`cad_conversion/nurbs_handler.py` auto-creates a `mat:graveyard` bounding volume during CAD→DAGMC conversion unless `--no-graveyard` /
+`addGraveyard: false` (detection via STEP/IGES product names plus a volume/bbox heuristic; existing graveyards are re-tagged).
+`dagmc_editor_service.py` exposes `detect_graveyard` / `create_graveyard_box` (preferred, new axis-aligned shell) / `tag_graveyard`
+(secondary, re-tags an enclosing volume). `refacet` re-tessellates from source CAD and re-creates the graveyard when the old file had one;
+with imprint/merge it routes through nuke-cad's `dagmc_export.py` when available, else the legacy OpenCASCADE BOPAlgo path.
+
+### Runtime controls
+
+The `openmc` binary receives OpenMP threads as `-s N`; MPI wraps it as `mpirun -np N [--host ...] openmc`.
+`run_cmfd.py` forwards `--threads` into `CMFDRun.run(args=['-s', N], ...)`, which passes it to
+`openmc.lib.init`. `run_depletion.py` sets `OMP_NUM_THREADS` before importing OpenMC because
+`CoupledOperator` initializes libopenmc internally without a `threads` kwarg, and its `--generate-microxs`
+transport solve passes `threads` through `get_microxs_and_flux(..., run_kwargs=...)`. Threads are per
+rank; `threads × processes` is the total CPU demand. None of these controls belongs in `settings.xml`.
+
+### Depletion, search, and sweep drivers
+
+`run_depletion.py` supports coupled and independent operators, `get_microxs_and_flux` generation, transfer rates (via
+`Integrator.add_transfer_rate`), custom fission Q, and diff burnable mats. It also wires CRAM `substeps`, curated
+reactivity control (control-rod translation or nuclide density through `openmc.lib`), external feed/removal rates
+(`Integrator.add_external_source_rate`), and continuation from a previous `depletion_results.h5`
+(`Results` → operator `prev_results` + `continue_timesteps`). Version-sensitive options are capability-probed by
+introspection, never version strings. Before `CoupledOperator` it syncs DAGMC universes
+(`init_lib` → `sync_dagmc_universes` → `finalize_lib`, with an `openmc.lib` cell-enumeration fallback); depletable materials must carry
+`VOLUMES`. All operator-construction failures surface as `DepletionConfigError` (clean JSON, no traceback). `run_keff_search.py` wraps
+`openmc.search_for_keff`; `run_optimization.py` applies parameter sweeps. `sync_dagmc_depletion.py` rewrites geometry.xml with per-cell
+material overrides (never the `.h5m`).
+
+### Shutdown dose (R2S / D1S)
+
+`run_r2s.py` and `run_d1s.py` are driver-only: they load the generated model XML and receive a JSON configuration (schedule, domains,
+chain, tally selection, output directory). R2S calls `R2SManager.step1`–`step4` explicitly so each stage emits a
+`@@NUKE_PROGRESS@@` marker; cell domains require `cell.volume` and either a computed bounding box or an explicit override, and mesh
+domains are read from every `<mesh>` element in `tallies.xml`/`settings.xml` (a missing `type` means regular). D1S enables
+`settings.use_decay_photons`, prepares the photon tallies, runs one transport solve, and applies `d1s.apply_time_correction`.
+`dose_coefficients.py` exposes OpenMC's shipped ICRP tables for the dose-tally template. Both drivers print one JSON object and
+write `r2s_summary.json` / `d1s_summary.json` for the Results page. See [Shutdown Dose](shutdown-dose.md).
+
+### Native plots
+
+`generate_plots.py` owns `plots.xml` for the Native Plotting window. It applies `background` and
+`mask` (`components` + `background`) to slice and ray-traced plots, and `show_overlaps` /
+`overlap_color` to slice plots; voxel output stores raw IDs and ignores display colors. Mask
+components are cell or material IDs per `colorBy`; missing IDs are reported on stderr without
+blocking the render. The project stores the visible selection, so `generate_plots.py` emits the
+complement because OpenMC paints listed mask components with the mask background. The same support
+matrix and inversion live in `src/common/plot-appearance.ts` so the UI, XML generator, importer, and
+Python exporter agree.
+
+### MGXS library and chain builder
+
+`generate_mgxs_library.py` drives the raw `openmc.mgxs.Library` API: user-chosen XS types (validated vs `MGXS_TYPES`), domain type/IDs,
+by-nuclide, Legendre order, estimator; it auto-appends the `consistent nu-scatter` + `multiplicity` matrices XSdata conversion requires.
+`--nuclide-wise` exports one micro XSdata set per nuclide (the only form random ray + DAGMC accepts). `build_chain.py` builds depletion
+chains via `--from-chain` (subset closure over decay/reaction targets, FPY products, and FPY-borrow parents) or `--from-endf`
+(`Chain.from_endf` over ENDF TEXT `decay/`/`nfy/`/`neutron(s)/` sub-libraries only); the result writes `depletion.chainFile`.
+
+### `generate_mgxs.py` pre-import guards
+
+MGXS generation is a CE per-nuclide workflow, so `generate_mgxs.py` validates MG settings / macroscopic materials via stdlib ET
+(`read_model_compatibility`) BEFORE the openmc import. On DAGMC/C-API paths `model.run` executes in-process, where a libopenmc
+`fatal_error` is a C-level `std::exit` (exit 255) that bypasses Python exceptions — no final JSON is printed, so the backend scans
+stdout backwards for the last JSON line and reports `exit code N` plus the tail instead of a parse error.
+
+---
+
 ## Summary Checklist
 
 When writing a new Python backend script:
@@ -361,5 +451,5 @@ When writing a new Python backend script:
 - [ ] Print errors to stderr and exit non-zero on unrecoverable failures
 - [ ] Wrap optional heavy dependencies in `try/except ImportError`
 - [ ] Do not hardcode Python interpreter paths
-- [ ] Test standalone: `python python/my_script.py --help`
+- [ ] Test standalone from `extensions/openmc-studio/python`: `python my_script.py --help`
 - [ ] Add pytest coverage in `tests/python/` (runs via `yarn test:python` from the repo root; must pass with only `pytest` + `numpy` — use `pytest.importorskip` for heavy deps). Logic-layer coverage is ratcheted in CI; see "Coverage" in the root `AGENTS.md`.

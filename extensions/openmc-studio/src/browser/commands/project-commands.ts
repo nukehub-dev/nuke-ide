@@ -37,8 +37,11 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { Command, CommandRegistry } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
+import { FileDialogService, OpenFileDialogProps } from '@theia/filesystem/lib/browser';
 import { OpenMCStateManager } from '../openmc-state-manager';
 import { SimulationDashboardWidget } from '../widgets/simulation-dashboard/simulation-dashboard-widget';
+import { OpenMCStudioBackendService, NukeCADImportResult } from '../../common/openmc-studio-protocol';
+import { OpenMCMaterial } from '../../common/openmc-state-schema';
 
 export namespace OpenMCProjectCommands {
     /** Command category for all project management commands. */
@@ -71,6 +74,13 @@ export namespace OpenMCProjectCommands {
         category: CATEGORY,
         label: 'Save Project As...'
     };
+
+    /** Import a DAGMC model produced by nuke-cad into the current project. */
+    export const IMPORT_NUKE_CAD: Command = {
+        id: 'openmc.project.importNukeCAD',
+        category: CATEGORY,
+        label: 'Import from nuke-cad...'
+    };
 }
 
 /**
@@ -96,6 +106,12 @@ export class ProjectCommands {
     @inject(OpenMCStateManager)
     protected readonly stateManager: OpenMCStateManager;
 
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
+
+    @inject(OpenMCStudioBackendService)
+    protected readonly backendService: OpenMCStudioBackendService;
+
     /**
      * Register project commands with the command registry.
      * @param registry - The Theia command registry
@@ -116,15 +132,21 @@ export class ProjectCommands {
         registry.registerCommand(OpenMCProjectCommands.SAVE_PROJECT_AS, {
             execute: () => this.saveProjectAs()
         });
+
+        registry.registerCommand(OpenMCProjectCommands.IMPORT_NUKE_CAD, {
+            execute: () => this.importNukeCAD()
+        });
     }
 
     /**
-     * Reset the application state and open a fresh project in the dashboard.
+     * Open the dashboard and show the New Project template picker.
      */
     private async newProject(): Promise<void> {
-        this.stateManager.reset();
-        this.messageService.info('Created new OpenMC project');
         await this.openDashboard();
+        const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
+        if (widget instanceof SimulationDashboardWidget) {
+            (widget as SimulationDashboardWidget).openNewProjectDialog();
+        }
     }
 
     /**
@@ -165,5 +187,88 @@ export class ProjectCommands {
         const widget = await this.widgetManager.getOrCreateWidget(SimulationDashboardWidget.ID);
         await this.shell.addWidget(widget, { area: 'main' });
         await this.shell.activateWidget(widget.id);
+    }
+
+    /**
+     * Import a DAGMC model produced by nuke-cad into the current project.
+     *
+     * Prompts for the .h5m file, auto-locates the sibling .regions.json manifest,
+     * populates dagmcFile/dagmcInfo, and creates placeholder OpenMC materials for
+     * every manifest material name that does not already exist.
+     */
+    private async importNukeCAD(): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Import nuke-cad DAGMC model',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: {
+                'DAGMC files': ['h5m']
+            }
+        };
+        const uri = await this.fileDialogService.showOpenDialog(props);
+        if (!uri) {
+            return;
+        }
+
+        const h5mPath = uri.path.toString();
+        this.messageService.info(`Importing nuke-cad model: ${h5mPath}`);
+
+        try {
+            const result: NukeCADImportResult = await this.backendService.importNukeCAD({ h5mPath });
+            if (!result.success || !result.dagmcInfo) {
+                this.messageService.error(result.error || 'nuke-cad import failed');
+                return;
+            }
+
+            // Create placeholder materials for any manifest material names that are missing.
+            // Placeholders are created from `material` (never from `materialId`); the
+            // physical-model UUIDs ride along as copy-provenance metadata.
+            const existingNames = new Set(this.stateManager.getState().materials.map((m) => m.name));
+            const materialNames = (result.materialNames || []).filter((name) => !existingNames.has(name));
+            if (materialNames.length > 0) {
+                const linkByMaterial = new Map((result.materialLinks || []).map((l) => [l.material, l]));
+                let nextId = this.stateManager.getNextMaterialId();
+                for (const name of materialNames) {
+                    const link = linkByMaterial.get(name);
+                    const material: OpenMCMaterial = {
+                        id: nextId++,
+                        name,
+                        density: 1.0,
+                        densityUnit: 'g/cm3',
+                        nuclides: [],
+                        thermalScattering: []
+                    };
+                    if (link?.materialId) {
+                        material.nukeCadMaterialId = link.materialId;
+                    }
+                    if (link?.parentId) {
+                        material.nukeCadParentId = link.parentId;
+                    }
+                    this.stateManager.addMaterial(material);
+                }
+                this.messageService.info(`Created ${materialNames.length} placeholder material(s): ${materialNames.join(', ')}`);
+            }
+
+            // Update settings to point at the imported DAGMC file.
+            this.stateManager.updateSettings({
+                dagmcFile: result.dagmcFile,
+                dagmcInfo: result.dagmcInfo
+            });
+
+            // Open the dashboard so the user sees the updated geometry/materials.
+            await this.openDashboard();
+
+            const warnings = result.warnings || [];
+            if (warnings.length > 0) {
+                this.messageService.warn(warnings.join('; '));
+            }
+            this.messageService.info(
+                `Imported nuke-cad model: ${result.dagmcInfo.volumeCount} volumes, ` + `${result.dagmcInfo.vertices} triangles`
+            );
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`nuke-cad import failed: ${msg}`);
+        }
     }
 }

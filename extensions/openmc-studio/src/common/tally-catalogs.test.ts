@@ -33,8 +33,9 @@
 import { describe, it, expect } from 'vitest';
 
 import { OPENMC_SCORES, OPENMC_SCORE_CATEGORY_ORDER, getScoresByCategory, getScoreEntry, isCustomMtScore } from './scores-catalog';
-import { OPENMC_FILTERS, getFilterDescriptor, createDefaultFilter } from './filters-catalog';
+import { OPENMC_FILTERS, getFilterDescriptor, createDefaultFilter, getFiltersByGroup } from './filters-catalog';
 import { OpenMCTallyFilterType } from './openmc-state-schema';
+import { PHOTON_PARTICLE } from './particle-types';
 
 /** Well-known ENDF MT numbers (openmc/data/reaction.py REACTION_NAME) */
 const KNOWN_MTS: Record<string, number> = {
@@ -79,7 +80,17 @@ const SCHEMA_FILTER_TYPES: OpenMCTallyFilterType[] = [
     'sphericalharmonics',
     'particle',
     'zernike',
-    'zernikeradial'
+    'zernikeradial',
+    'materialfrom',
+    'cellinstance',
+    'parentnuclide',
+    'meshborn',
+    'meshmaterial',
+    'collision',
+    'reaction',
+    'particleproduction',
+    'musurface',
+    'weight'
 ];
 
 describe('scores catalog integrity', () => {
@@ -179,7 +190,7 @@ describe('filters catalog integrity', () => {
             expect(filter.type).toBe(descriptor.type);
             if (descriptor.requiresMesh) {
                 expect(filter.meshId).toBe(7);
-                expect(filter.bins).toEqual([7]);
+                expect(filter.bins).toEqual(descriptor.meshIdInBins === false ? (descriptor.defaultBins ?? []) : [7]);
             } else {
                 expect(filter.bins).toEqual(descriptor.defaultBins ?? []);
             }
@@ -187,5 +198,76 @@ describe('filters catalog integrity', () => {
                 expect(filter[key as keyof typeof filter], `default ${key} of ${descriptor.type}`).toEqual(value);
             }
         }
+    });
+
+    it('describes every additional OpenMC filter with its editor, group, and defaults', () => {
+        const expected: Record<
+            string,
+            {
+                editor: string;
+                group: string;
+                requiresMesh?: boolean;
+                meshIdInBins?: boolean;
+                defaultBins?: number[];
+                defaultValues?: Record<string, unknown>;
+            }
+        > = {
+            materialfrom: { editor: 'domain-ids', group: 'spatial', defaultBins: [] },
+            cellinstance: { editor: 'cell-instance-pairs', group: 'spatial', defaultValues: { pairs: [] } },
+            parentnuclide: { editor: 'nuclide-names', group: 'reaction', defaultValues: { nuclideBins: [] } },
+            meshborn: { editor: 'mesh', group: 'mesh', requiresMesh: true },
+            meshmaterial: {
+                editor: 'mesh-material-pairs',
+                group: 'mesh',
+                requiresMesh: true,
+                meshIdInBins: false,
+                defaultValues: { pairs: [] }
+            },
+            collision: { editor: 'integer-bins', group: 'advanced', defaultBins: [1] },
+            reaction: { editor: 'reaction-bins', group: 'reaction', defaultValues: { reactionBins: [] } },
+            particleproduction: {
+                editor: 'particle-production',
+                group: 'reaction',
+                defaultValues: { particleTypes: [PHOTON_PARTICLE], productionEnergyBins: [] }
+            },
+            musurface: { editor: 'mu-bins', group: 'energy', defaultBins: [-1, 1] },
+            weight: { editor: 'real-bins', group: 'advanced', defaultBins: [0, 1] }
+        };
+
+        for (const [type, contract] of Object.entries(expected)) {
+            const descriptor = getFilterDescriptor(type as OpenMCTallyFilterType);
+            expect(descriptor, `missing descriptor for ${type}`).toBeDefined();
+            expect(descriptor!.editor).toBe(contract.editor);
+            expect(descriptor!.group).toBe(contract.group);
+            expect(descriptor!.label.length).toBeGreaterThan(0);
+            expect(descriptor!.tooltip.length).toBeGreaterThan(0);
+            expect(descriptor!.binHelp?.length ?? 0).toBeGreaterThan(0);
+            if (contract.requiresMesh) {
+                expect(descriptor!.requiresMesh).toBe(true);
+                expect(descriptor!.meshIdInBins).toBe(contract.meshIdInBins ?? true);
+            } else {
+                expect(descriptor!.requiresMesh).not.toBe(true);
+            }
+            const filter = createDefaultFilter(type as OpenMCTallyFilterType, 9);
+            expect(filter.bins).toEqual(contract.requiresMesh && (contract.meshIdInBins ?? true) ? [9] : (contract.defaultBins ?? []));
+            for (const [key, value] of Object.entries(contract.defaultValues ?? {})) {
+                expect(filter[key as keyof typeof filter], `default ${key} of ${type}`).toEqual(value);
+            }
+        }
+
+        const meshmaterial = createDefaultFilter('meshmaterial', 9);
+        expect(meshmaterial.meshId).toBe(9);
+        expect(meshmaterial.bins).toEqual([]);
+        expect(meshmaterial.pairs).toEqual([]);
+
+        expect(getFilterDescriptor('reaction')!.requiresCompat).toBe('reactionFilter');
+        expect(getFilterDescriptor('particleproduction')!.requiresCompat).toBe('particleProductionFilter');
+    });
+
+    it('groups every descriptor into an add-filter section exactly once', () => {
+        const grouped = getFiltersByGroup();
+        const groupedTypes = grouped.flatMap((group) => group.filters.map((filter) => filter.type));
+        expect(groupedTypes.sort()).toEqual(OPENMC_FILTERS.map((filter) => filter.type).sort());
+        expect(grouped.map((group) => group.id)).toEqual(['spatial', 'energy', 'mesh', 'reaction', 'advanced']);
     });
 });

@@ -26,10 +26,8 @@
 // *****************************************************************************
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { RawProcessFactory, RawProcess, RawProcessOptions } from '@theia/process/lib/node/raw-process';
 import { BackendApplicationContribution } from '@theia/core/lib/node/backend-application';
 import * as fs from 'fs';
-import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -38,13 +36,11 @@ import {
     PythonConfig,
     EnvironmentInfo,
     VisualizerClient,
-    VisualizationState,
-    CameraViewType,
-    ScreenshotOptions,
-    ScreenshotResult,
-    DEFAULT_VISUALIZATION_STATE,
     DagmcModelInfo,
-    DAGMC_SERVER_REQUIREMENTS,
+    ExodusSeries,
+    BASE_VISUALIZER_REQUIREMENTS,
+    EXODUS_REQUIREMENTS,
+    GMSH_REQUIREMENTS,
     STEP_REQUIREMENTS
 } from '../common/base-visualizer-protocol';
 import { NukeCoreBackendService, NukeCoreBackendServiceInterface } from 'nuke-core/lib/common';
@@ -53,21 +49,19 @@ import { PythonCommandHelper } from './services/python-command-helper';
 /**
  * Node.js backend implementation of the base visualizer RPC service.
  *
- * Spawns Python processes running `server.py base.serve` (Trame/ParaView)
- * to serve interactive 3D visualizations. Manages process lifecycle,
- * port allocation, DAGMC conversion, and log streaming.
+ * Runs headless `server.py` conversion/info commands (DAGMC/STEP to VTK,
+ * DAGMC model info, Exodus series) and manages visualization server
+ * lifecycle. All viewers render natively in the frontend (three.js) —
+ * no trame/ParaView server is spawned here.
  *
  * @see src/common/base-visualizer-protocol.ts for the RPC interface
  * @see src/browser/visualizer-widget.tsx for the frontend consumer
  */
 @injectable()
 export class VisualizerBackendServiceImpl implements VisualizerBackendService, BackendApplicationContribution {
-    private processes: Map<number, RawProcess> = new Map();
+    private processes: Map<number, unknown> = new Map();
     private reservedPorts: Set<number> = new Set();
     private client: VisualizerClient | undefined;
-
-    @inject(RawProcessFactory)
-    protected readonly rawProcessFactory: RawProcessFactory;
 
     @inject(NukeCoreBackendService)
     protected readonly nukeCoreService: NukeCoreBackendServiceInterface;
@@ -79,10 +73,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         this.client = client;
     }
 
-    /**
-     * Check whether a port belongs to a trame server started by this service.
-     * Used by the visualizer reverse proxy to restrict forwarding to known servers.
-     */
+    /** Whether this backend still tracks a process on the given legacy port. */
     isVisualizerPort(port: number): boolean {
         return this.processes.has(port);
     }
@@ -124,172 +115,9 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
     }
 
-    async startServer(
-        filePath?: string,
-        config?: PythonConfig,
-        theme?: string,
-        colorBy?: string
-    ): Promise<{ port: number; url: string; warning?: string }> {
-        const port = await this.findFreePort(8080);
-        this.reservedPorts.add(port);
-        // Capture process.env before local 'process' variable shadows it
-        const nodeEnv = process.env;
-
-        try {
-            // Find the Python script
-            const pythonScript = this.pythonHelper.findScript('server.py');
-
-            // Detect Python command
-            const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
-            const warning = pythonInfo.warning;
-
-            const args: string[] = [pythonScript, 'base.serve', '--port', port.toString()];
-            if (filePath) {
-                args.push('--file', filePath);
-            }
-            // Pass theme if provided (dark or light)
-            this.log(`Theme received: ${theme}`);
-            if (theme) {
-                args.push('--theme', theme);
-                this.log(`Added --theme ${theme} to args`);
-            }
-            if (colorBy) {
-                args.push('--color-by', colorBy);
-            }
-
-            const processOptions: RawProcessOptions = {
-                command: pythonInfo.command,
-                args,
-                options: {
-                    env: { ...nodeEnv, PYTHONUNBUFFERED: '1' }
-                }
-            };
-
-            this.log(`Starting server on port ${port} for ${filePath || 'default'}`);
-            const proc = this.rawProcessFactory(processOptions);
-
-            // Use a mutable port label so log messages and cleanup stay correct
-            // if Python falls back to a different port.
-            const portLabel = { value: port };
-            this.processes.set(port, proc);
-
-            this.log(`[Server ${port}] Command: ${processOptions.command} ${(processOptions.args || []).join(' ')}`);
-
-            // Collect output for logging/debugging
-            proc.outputStream.on('data', (data: Buffer) => {
-                const line = data.toString().trim();
-                this.log(`[Server ${portLabel.value}] ${line}`);
-            });
-
-            proc.errorStream.on('data', (data: Buffer) => {
-                const line = data.toString().trim();
-                this.errorLog(`[Server ${portLabel.value}] ERROR: ${line}`);
-            });
-
-            const exitHandler = (event: { code?: number; signal?: string }) => {
-                this.log(`[Server ${portLabel.value}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-                this.processes.delete(portLabel.value);
-                this.reservedPorts.delete(portLabel.value);
-                this.client?.onServerStop(portLabel.value);
-            };
-            const exitDisposable = proc.onExit(exitHandler);
-
-            // Wait for server to be ready
-            try {
-                // Compute timeout from user preferences + file size
-                const baseTimeoutSec = this.getUserPreference('nukeVisualizer.serverTimeout', 30);
-                const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.5);
-                let timeoutMs = baseTimeoutSec * 1000;
-                if (filePath && fs.existsSync(filePath)) {
-                    const stats = fs.statSync(filePath);
-                    const fileSizeMB = stats.size / (1024 * 1024);
-                    timeoutMs = Math.round(
-                        Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000))
-                    );
-                    this.log(
-                        `[Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
-                    );
-                }
-                const actualPort = await this.waitForServer(port, proc, timeoutMs);
-                if (actualPort !== port) {
-                    this.log(`Server fell back from requested port ${port} to actual port ${actualPort}`);
-                    portLabel.value = actualPort;
-                    this.processes.delete(port);
-                    this.processes.set(actualPort, proc);
-                    this.reservedPorts.delete(port);
-                    this.reservedPorts.add(actualPort);
-                }
-                return { port: actualPort, url: `http://127.0.0.1:${actualPort}`, warning };
-            } catch (error) {
-                proc.kill();
-                exitDisposable.dispose();
-                this.processes.delete(portLabel.value);
-                this.reservedPorts.delete(portLabel.value);
-                throw error;
-            }
-        } finally {
-            // If it succeeded, it's in this.processes now. If it failed, it's removed.
-            // But we keep it in reservedPorts until it's actually running or cleaned up.
-        }
-    }
-
-    private async waitForServer(expectedPort: number, process: RawProcess, timeoutMs: number = 30000): Promise<number> {
-        return new Promise((resolve, reject) => {
-            let actualPort = expectedPort;
-
-            const timeout = setTimeout(() => {
-                cleanup();
-                reject(new Error(`Server startup timeout on port ${actualPort}`));
-            }, timeoutMs);
-
-            const successListener = (data: Buffer) => {
-                const text = data.toString();
-                const match = text.match(/ACTUAL_PORT:\s*(\d+)/);
-                if (match) {
-                    const parsed = parseInt(match[1], 10);
-                    if (!isNaN(parsed)) {
-                        actualPort = parsed;
-                    }
-                }
-                if (text.includes('Starting visualizer server on') || text.includes('Starting DAGMC visualizer server on')) {
-                    cleanup();
-                    resolve(actualPort);
-                }
-            };
-
-            const portCheckInterval = setInterval(() => {
-                const socket = new net.Socket();
-                socket.on('error', () => socket.destroy());
-                socket.on('connect', () => {
-                    socket.destroy();
-                    cleanup();
-                    resolve(actualPort);
-                });
-                socket.connect(actualPort, '127.0.0.1');
-            }, 1000);
-
-            const exitListener = (event: { code?: number; signal?: string }) => {
-                cleanup();
-                reject(new Error(`Process exited with code ${event.code} before server started`));
-            };
-            const exitDisposable = process.onExit(exitListener);
-
-            process.outputStream.on('data', successListener);
-
-            const cleanup = () => {
-                clearTimeout(timeout);
-                clearInterval(portCheckInterval);
-                process.outputStream.removeListener('data', successListener);
-                exitDisposable.dispose();
-            };
-        });
-    }
-
     async stopServer(port: number): Promise<void> {
-        const process = this.processes.get(port);
-        if (process) {
-            this.log(`Stopping server on port ${port}`);
-            process.kill();
+        if (this.processes.has(port)) {
+            this.log(`Forgetting server on port ${port}`);
             this.processes.delete(port);
             this.reservedPorts.delete(port);
         }
@@ -366,6 +194,66 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         throw new Error(`Conversion completed but could not find output VTK file: ${vtkPath}`);
     }
 
+    /**
+     * Convert a DAGMC H5M file to a multiblock `.vtm` (one block per volume).
+     * Mirrors {@link convertDagmc}: same python detection, proportional
+     * timeout, and stdout-first JSON contract, but runs
+     * `base.convert-dagmc-multiblock` and returns the manifest (`.vtm`) path.
+     */
+    async convertDagmcMultiblock(filePath: string): Promise<string> {
+        this.log(`Starting DAGMC multiblock conversion: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+        const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
+        this.log(`[Converter] Using Python: ${pythonInfo.command}`);
+
+        // Always keep the graveyard block: the DAGMC Outline's Graveyard
+        // toggle is the client-side switch (hidden by default), so stripping
+        // the volume at conversion time would leave the toggle with nothing
+        // to show for both on/off.
+        const args = ['base.convert-dagmc-multiblock', '--file', filePath, '--include-graveyard'];
+
+        this.log(`[Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        // Compute proportional timeout for large files
+        const baseTimeoutSec = this.getUserPreference('nukeVisualizer.serverTimeout', 30);
+        const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.5);
+        const stats = fs.statSync(filePath);
+        const fileSizeMB = stats.size / (1024 * 1024);
+        const timeoutMs = Math.round(
+            Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000))
+        );
+        this.log(
+            `[Converter] Timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
+        );
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { timeout: timeoutMs });
+        if (execResult.status !== 0) {
+            const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
+            this.errorLog(`[Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `Multiblock conversion failed with status ${execResult.status}`);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as {
+            vtm_path: string;
+            from_cache: boolean;
+            error?: string;
+        };
+
+        if (result.error) {
+            this.errorLog(`[Converter] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        const vtmPath = result.vtm_path;
+        if (vtmPath && fs.existsSync(vtmPath)) {
+            this.log(`[Converter] Success: ${vtmPath}`);
+            return vtmPath;
+        }
+
+        throw new Error(`Multiblock conversion completed but could not find output manifest: ${vtmPath}`);
+    }
+
     async convertStep(filePath: string): Promise<string> {
         this.log(`Starting STEP conversion: ${filePath}`);
 
@@ -408,6 +296,53 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         throw new Error(`STEP conversion completed but could not find output VTK file: ${vtkPath}`);
     }
 
+    /**
+     * Convert a Gmsh `.msh` mesh to legacy ASCII VTK for the native viewer.
+     * Mirrors {@link convertStep}: detect a Python with gmsh, run
+     * `base.convert-gmsh`, and return the verified converted file path.
+     */
+    async convertGmsh(filePath: string): Promise<string> {
+        this.log(`Starting Gmsh conversion: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+
+        // Gmsh import needs gmsh only — detect Python with gmsh available
+        const pythonInfo = await this.pythonHelper.detectPython(GMSH_REQUIREMENTS);
+        this.log(`[Gmsh Converter] Using Python: ${pythonInfo.command}`);
+
+        const args = ['base.convert-gmsh', '--file', filePath];
+
+        this.log(`[Gmsh Converter] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { requirements: GMSH_REQUIREMENTS });
+        if (execResult.status !== 0) {
+            const errorOutput = (execResult.stdout || '') + (execResult.stderr || '');
+            this.errorLog(`[Gmsh Converter] FAILED with status ${execResult.status}. Output: ${errorOutput}`);
+            throw new Error(errorOutput || `Gmsh conversion failed with status ${execResult.status}`);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as {
+            vtk_path: string;
+            from_cache: boolean;
+            num_nodes?: number;
+            num_elements?: number;
+            error?: string;
+        };
+
+        if (result.error) {
+            this.errorLog(`[Gmsh Converter] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        const vtkPath = result.vtk_path;
+        if (vtkPath && fs.existsSync(vtkPath)) {
+            this.log(`[Gmsh Converter] Success: ${vtkPath}`);
+            return vtkPath;
+        }
+
+        throw new Error(`Gmsh conversion completed but could not find output VTK file: ${vtkPath}`);
+    }
+
     async getDagmcInfo(filePath: string): Promise<DagmcModelInfo> {
         this.log(`Getting DAGMC info: ${filePath}`);
 
@@ -442,88 +377,75 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         return result as DagmcModelInfo;
     }
 
-    async startDagmcServer(filePath: string, theme?: string): Promise<{ port: number; url: string; warning?: string }> {
-        const port = await this.findFreePort(8080);
-        this.reservedPorts.add(port);
-        // Capture process.env before local 'process' variable shadows it
-        const nodeEnv = process.env;
-
-        try {
-            const pythonScript = this.pythonHelper.findScript('server.py');
-            const pythonInfo = await this.pythonHelper.detectPythonForBaseVisualizer();
-            const warning = pythonInfo.warning;
-
-            const args: string[] = [pythonScript, 'dagmc.visualize', '--file', filePath, '--port', port.toString()];
-            if (theme) {
-                args.push('--theme', theme);
-            }
-
-            const processOptions: RawProcessOptions = {
-                command: pythonInfo.command,
-                args,
-                options: {
-                    env: { ...nodeEnv, PYTHONUNBUFFERED: '1' }
-                }
-            };
-
-            this.log(`Starting DAGMC server on port ${port} for ${filePath}`);
-            const proc = this.rawProcessFactory(processOptions);
-
-            const portLabel = { value: port };
-            this.processes.set(port, proc);
-
-            this.log(`[DAGMC Server ${port}] Command: ${processOptions.command} ${(processOptions.args || []).join(' ')}`);
-
-            proc.outputStream.on('data', (data: Buffer) => {
-                const line = data.toString().trim();
-                this.log(`[DAGMC Server ${portLabel.value}] ${line}`);
-            });
-
-            proc.errorStream.on('data', (data: Buffer) => {
-                const line = data.toString().trim();
-                this.errorLog(`[DAGMC Server ${portLabel.value}] ERROR: ${line}`);
-            });
-
-            const exitHandler = (event: { code?: number; signal?: string }) => {
-                this.log(`[DAGMC Server ${portLabel.value}] Process exited (code: ${event.code}, signal: ${event.signal})`);
-                this.processes.delete(portLabel.value);
-                this.reservedPorts.delete(portLabel.value);
-                this.client?.onServerStop(portLabel.value);
-            };
-            const exitDisposable = proc.onExit(exitHandler);
-
-            try {
-                // Compute timeout from user preferences + file size
-                const baseTimeoutSec = this.getUserPreference('nukeVisualizer.serverTimeout', 30);
-                const perMBSec = this.getUserPreference('nukeVisualizer.serverTimeoutPerMB', 0.2);
-                const stats = fs.statSync(filePath);
-                const fileSizeMB = stats.size / (1024 * 1024);
-                const timeoutMs = Math.round(
-                    Math.max(baseTimeoutSec * 1000, Math.min(600000, baseTimeoutSec * 1000 + fileSizeMB * perMBSec * 1000))
-                );
-                this.log(
-                    `[DAGMC Server ${port}] Startup timeout: ${(timeoutMs / 1000).toFixed(1)}s (base=${baseTimeoutSec}s, perMB=${perMBSec}s, size=${fileSizeMB.toFixed(1)}MB)`
-                );
-                const actualPort = await this.waitForServer(port, proc, timeoutMs);
-                if (actualPort !== port) {
-                    this.log(`DAGMC server fell back from requested port ${port} to actual port ${actualPort}`);
-                    portLabel.value = actualPort;
-                    this.processes.delete(port);
-                    this.processes.set(actualPort, proc);
-                    this.reservedPorts.delete(port);
-                    this.reservedPorts.add(actualPort);
-                }
-                return { port: actualPort, url: `http://127.0.0.1:${actualPort}`, warning };
-            } catch (error) {
-                proc.kill();
-                exitDisposable.dispose();
-                this.processes.delete(portLabel.value);
-                this.reservedPorts.delete(portLabel.value);
-                throw error;
-            }
-        } finally {
-            // Reserved port cleanup happens in onExit or catch above
+    /**
+     * Run one whitelisted headless base command and parse its JSON stdout.
+     * Keeps viewer actions (export/mesh quality/analysis) off the server path.
+     */
+    async runBaseCommand(command: string, args: string[], timeoutMs = 120_000): Promise<unknown> {
+        if (!/^base\.(export|integrate|describe|mesh-quality|probe)$/.test(command)) {
+            throw new Error(`Unsupported base command: ${command}`);
         }
+        const serverScript = this.pythonHelper.findScript('server.py');
+        return this.pythonHelper.executeScriptJson(serverScript, [command, ...args], {
+            timeout: timeoutMs,
+            requirements: BASE_VISUALIZER_REQUIREMENTS,
+            maxBuffer: 64 * 1024 * 1024
+        });
+    }
+
+    async getExodusSeries(filePath: string, maxSteps?: number, maxPoints?: number): Promise<ExodusSeries> {
+        this.log(`Extracting Exodus series: ${filePath}`);
+
+        const serverScript = this.pythonHelper.findScript('server.py');
+        const pythonInfo = await this.pythonHelper.detectPython(EXODUS_REQUIREMENTS);
+        this.log(`[Exodus Series] Using Python: ${pythonInfo.command}`);
+
+        const args = ['base.exodus-series', '--file', filePath];
+        if (maxSteps !== undefined) {
+            args.push('--max-steps', String(maxSteps));
+        }
+        if (maxPoints !== undefined) {
+            args.push('--max-points', String(maxPoints));
+        }
+        this.log(`[Exodus Series] Command: "${pythonInfo.command}" "${serverScript}" "${args.join('" "')}"`);
+
+        const execResult = await this.pythonHelper.executeScript(serverScript, args, { requirements: EXODUS_REQUIREMENTS });
+        if (execResult.status !== 0) {
+            // Base-plugin commands report errors as a single JSON object on
+            // stderr (never a traceback); surface that message when present.
+            const message = this.exodusErrorMessage(execResult.stdout, execResult.stderr, execResult.status);
+            this.errorLog(`[Exodus Series] FAILED with status ${execResult.status}. Output: ${message}`);
+            throw new Error(message);
+        }
+
+        const result = this.parseJsonFromMixedOutput(execResult.stdout) as ExodusSeries & { error?: string };
+
+        if (result.error) {
+            this.errorLog(`[Exodus Series] FAILED: ${result.error}`);
+            throw new Error(result.error);
+        }
+
+        return result;
+    }
+
+    /**
+     * Best-effort error text for a failed `base.exodus-series` run: the
+     * stderr JSON payload's `error` when the command honored the base-plugin
+     * contract, else the combined output, else a bare status line.
+     */
+    private exodusErrorMessage(stdout: string, stderr: string, status: number | null): string {
+        for (const output of [stderr, stdout]) {
+            try {
+                const payload = this.parseJsonFromMixedOutput(output) as { error?: unknown };
+                if (payload && typeof payload.error === 'string' && payload.error) {
+                    return payload.error;
+                }
+            } catch {
+                // No JSON here — try the next stream.
+            }
+        }
+        const combined = `${stdout || ''}${stderr || ''}`.trim();
+        return combined || `Exodus series extraction failed with status ${status}`;
     }
 
     async checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo> {
@@ -545,8 +467,6 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         const info: EnvironmentInfo = {
             pythonPath: pythonCommand,
             pythonVersion: 'unknown',
-            paraviewInstalled: false,
-            trameInstalled: false,
             moabInstalled: false
         };
 
@@ -557,12 +477,7 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         // Use nuke-core to check dependencies
-        const depCheck = await this.nukeCoreService.checkDependencies(DAGMC_SERVER_REQUIREMENTS, pythonCommand);
-
-        info.trameInstalled = depCheck.versions['trame'] !== undefined;
-        info.trameVersion = depCheck.versions['trame'];
-        info.paraviewInstalled = depCheck.versions['paraview'] !== undefined;
-        info.paraviewVersion = depCheck.versions['paraview'];
+        const depCheck = await this.nukeCoreService.checkDependencies(BASE_VISUALIZER_REQUIREMENTS, pythonCommand);
 
         // Check moab separately (optional, with fallback to mbconvert CLI)
         if (depCheck.versions['moab']) {
@@ -580,66 +495,5 @@ export class VisualizerBackendServiceImpl implements VisualizerBackendService, B
         }
 
         return info;
-    }
-
-    // === Visualization Controls ===
-    // Note: Interactive controls are handled directly in the trame UI.
-    // These backend methods are placeholders for future external control API.
-
-    async getVisualizationState(_port: number): Promise<VisualizationState> {
-        // TODO: Implement WebSocket or HTTP API to query state from Python server
-        this.log('getVisualizationState: Not yet implemented');
-        return DEFAULT_VISUALIZATION_STATE;
-    }
-
-    async updateVisualizationState(_port: number, _state: Partial<VisualizationState>): Promise<void> {
-        // TODO: Implement WebSocket or HTTP API to update state on Python server
-        this.log('updateVisualizationState: Not yet implemented');
-    }
-
-    async resetCamera(_port: number): Promise<boolean> {
-        // TODO: Implement external camera control
-        this.log('resetCamera: Not yet implemented');
-        return false;
-    }
-
-    async setCameraView(_port: number, _viewType: CameraViewType): Promise<boolean> {
-        // TODO: Implement external camera control
-        this.log('setCameraView: Not yet implemented');
-        return false;
-    }
-
-    async captureScreenshot(_port: number, _options: ScreenshotOptions): Promise<ScreenshotResult> {
-        // TODO: Implement screenshot capture API
-        this.log('captureScreenshot: Not yet implemented');
-        return { error: 'Not yet implemented' };
-    }
-
-    private async findFreePort(startPort: number): Promise<number> {
-        for (let port = startPort; port < startPort + 1000; port++) {
-            if (this.reservedPorts.has(port)) {
-                continue;
-            }
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    const server = net.createServer();
-                    server.once('error', (err: any) => {
-                        if (err.code === 'EADDRINUSE') {
-                            reject();
-                        } else {
-                            reject(err);
-                        }
-                    });
-                    server.once('listening', () => {
-                        server.close(() => resolve());
-                    });
-                    server.listen(port);
-                });
-                return port;
-            } catch {
-                continue;
-            }
-        }
-        throw new Error(`No free port found in range ${startPort}-${startPort + 1000}`);
     }
 }

@@ -46,7 +46,7 @@ export const OPENMC_EXTRA_INDEX_URL = 'https://shimwell.github.io/wheels';
 /** Core packages required to run OpenMC simulations. */
 export const STUDIO_CORE_PACKAGES: PackageDependency[] = packages.core;
 
-/** DAGMC geometry toolchain. The `pydagmc` installCommand must stay pinned. */
+/** DAGMC geometry toolchain. The `pydagmc` pipSpec must stay commit-pinned. */
 export const DAGMC_PACKAGES: PackageDependency[] = packages.dagmc;
 
 /** CAD import libraries (gmsh, OpenCASCADE via `OCC`, CadQuery). */

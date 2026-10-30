@@ -31,7 +31,7 @@ export namespace OpenMCCommands {
     export const LOAD_STATEPOINT: Command = {
         id: 'openmc.load-statepoint',
         label: 'View Statepoint...',
-        iconClass: 'codicon codicon-database'
+        iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-statepoint'
     };
     export const VISUALIZE_TALLY: Command = {
         id: 'openmc.visualize-tally',
@@ -76,22 +76,22 @@ export namespace OpenMCCommands {
     export const VIEW_GEOMETRY_HIERARCHY: Command = {
         id: 'openmc.view-geometry-hierarchy',
         label: 'View Geometry Hierarchy...',
-        iconClass: 'codicon codicon-repo'
+        iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-geometry'
     };
     export const VIEW_MATERIALS: Command = {
         id: 'openmc.view-materials',
         label: 'View Materials...',
-        iconClass: 'codicon codicon-symbol-variable'
+        iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-materials'
     };
     export const CHECK_OVERLAPS: Command = {
         id: 'openmc.check-overlaps',
         label: 'Check Geometry Overlaps...',
-        iconClass: 'codicon codicon-search'
+        iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-overlap'
     };
     export const OPEN_TALLIES: Command = {
         id: 'openmc.open-tallies',
         label: 'Open OpenMC Tallies',
-        iconClass: 'codicon codicon-list-tree'
+        iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-tally'
     };
     export const OPEN_RANDOM_RAY_RESULTS: Command = {
         id: 'openmc.open-random-ray-results',
@@ -101,6 +101,6 @@ export namespace OpenMCCommands {
     export const OPEN_NUCLEAR_DATA: Command = {
         id: 'openmc.open-nuclear-data',
         label: 'Nuclear Data',
-        iconClass: 'codicon codicon-database'
+        iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-nuclear'
     };
 }

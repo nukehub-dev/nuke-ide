@@ -16,7 +16,7 @@ This guide covers the most common issues and how to fix them.
 1. **Configure Python path** in `Settings → Nuke Utils → Python Path`.
 2. **Use a conda environment** with the required packages installed:
    ```bash
-   conda create -n nuke-env -c conda-forge openmc paraview trame h5py numpy
+    conda create -n nuke-env -c conda-forge openmc vtk h5py numpy
    conda activate nuke-env
    ```
 3. **Run the health check** (`Tools → Visualizer → Environment → Run Health Check`) and follow the suggested install commands.
@@ -27,38 +27,35 @@ This guide covers the most common issues and how to fix them.
 
 ---
 
-## Server Starts But Widget Shows Blank
+## Conversion Finishes But the 3D View Is Blank
 
 **Symptoms:**
 
-- Status says "Server ready" but the iframe is empty or white
+- Status says the file loaded but the 3D area is empty or white
 
 **Fixes:**
 
-1. Check the **Nuke Visualizer** or **OpenMC** output channel for Python errors.
-2. Verify the server URL is correct (`http://localhost:PORT`).
-3. Open browser DevTools (`Ctrl+Shift+I`) and check for:
-   - CSP (Content Security Policy) errors
-   - iframe sandbox restrictions
-   - Network connection refused
-4. Try increasing the server timeout: `Settings → nukeVisualizer.serverTimeout`.
+1. Check the **Nuke Visualizer** or **OpenMC** output channel for Python conversion errors.
+2. Open browser DevTools (`Ctrl+Shift+I`) and check for:
+   - WebGL errors (the native viewers need hardware or software WebGL)
+   - JavaScript errors in the Console
+3. Re-run the health check and confirm `vtk` is installed in the active environment.
+4. For conversion timeouts on large files, increase `nukeVisualizer.serverTimeout` in Settings (it also bounds conversion waits).
 
 ---
 
-## "Failed to start server" / Timeout
+## "Failed to convert" / Timeout
 
 **Symptoms:**
 
-- Error: `Server not responding after N seconds`
+- Error: `Conversion failed ...` or a conversion that never finishes
 - Spinner stops with an error message
 
 **Fixes:**
 
-1. Increase `nukeVisualizer.serverTimeout` (default 30s) to 60s or 120s.
-2. For large DAGMC or CAD files, conversion can take >30s. Be patient or try a smaller file.
-   For STEP/STP/BREP files, ensure **gmsh** is installed in the active Python environment.
-3. Check if another process is using the port (8080–9080 range).
-4. Restart NukeIDE to clean up orphaned Python processes.
+1. For large DAGMC, CAD, or Gmsh mesh files, conversion can take a while. Be patient or try a smaller file.
+   For STEP/STP/BREP and Gmsh `.msh` files, ensure **gmsh** is installed in the active Python environment.
+2. Restart NukeIDE to clean up orphaned Python processes.
 
 ---
 
@@ -116,14 +113,32 @@ Health checks verify the **currently configured** environment, not fallback envi
 
 ---
 
-## CAD File Conversion Issues
+## CAD and Gmsh File Conversion Issues
+
+### "Gmsh conversion failed" for .msh
+
+**Symptoms:**
+
+- Error message when opening a `.msh` file
+- Status shows `Gmsh conversion failed: gmsh is required...`
+
+**Fixes:**
+
+1. Install **gmsh** in the active Python environment (same commands as CAD).
+2. Re-run the health check to verify gmsh is detected.
+3. Check the **Nuke Visualizer** output channel for the exact Python path being used.
+4. A `.msh` file with no elements cannot be rendered; re-export it with a mesh.
 
 ### "CAD conversion failed" for .step / .stp / .brep
 
 **Symptoms:**
 
-- Error message when opening a STEP file
+- Error message when opening a STEP file in Nuke Visualizer
 - Status shows "CAD conversion failed: gmsh is required..."
+
+> With Nuke CAD installed, STEP/STP/BREP files open in the CAD viewport by
+> default. Use **Open With… → Open in Nuke Visualizer** to exercise this
+> converter.
 
 **Fixes:**
 

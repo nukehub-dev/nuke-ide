@@ -1,0 +1,764 @@
+/* Shutdown Dose (R2S / D1S) wizard — scoped to the widget root. */
+
+.shutdown-dose-widget {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.shutdown-dose-widget .shutdown-dose-stepper {
+    display: flex;
+    gap: 4px;
+    padding: 8px 16px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-editorWidget-background);
+    scrollbar-width: thin;
+    flex: 0 0 auto;
+}
+
+.shutdown-dose-widget .shutdown-dose-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-ui-font-family);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.shutdown-dose-widget .shutdown-dose-step:hover:not(:disabled) {
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-foreground);
+}
+
+.shutdown-dose-widget .shutdown-dose-step:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.shutdown-dose-widget .shutdown-dose-step.active {
+    color: var(--theia-foreground);
+    background: var(--theia-list-activeSelectionBackground);
+    border-color: var(--theia-focusBorder);
+}
+
+.shutdown-dose-widget .shutdown-dose-step.complete .step-index {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.shutdown-dose-widget .shutdown-dose-step:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.shutdown-dose-widget .step-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.shutdown-dose-widget .shutdown-dose-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.shutdown-dose-widget .shutdown-dose-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--theia-panel-border);
+    background: var(--theia-editorWidget-background);
+    flex: 0 0 auto;
+}
+
+.shutdown-dose-widget .shutdown-dose-footer-hint {
+    flex: 1 1 auto;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    text-align: center;
+}
+
+.shutdown-dose-widget .shutdown-dose-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 999px;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.shutdown-dose-widget .shutdown-dose-badge.ready {
+    color: var(--theia-testing-icon-passed, var(--theia-foreground));
+    border-color: var(--theia-testing-icon-passed, var(--theia-focusBorder));
+}
+
+.shutdown-dose-widget .shutdown-dose-badge.blocked {
+    color: var(--theia-errorForeground);
+    border-color: var(--theia-errorForeground);
+}
+
+.shutdown-dose-widget .shutdown-dose-method-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-method-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 14px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    text-align: left;
+    cursor: pointer;
+}
+
+.shutdown-dose-widget .shutdown-dose-method-card:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.shutdown-dose-widget .shutdown-dose-method-card.selected {
+    border-color: var(--theia-focusBorder);
+    box-shadow: inset 0 0 0 1px var(--theia-focusBorder);
+}
+
+.shutdown-dose-widget .shutdown-dose-method-card > i {
+    font-size: 20px;
+    color: var(--theia-focusBorder);
+}
+
+.shutdown-dose-widget .method-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.shutdown-dose-widget .method-copy {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.shutdown-dose-widget .shutdown-dose-segmented {
+    display: inline-flex;
+    margin-bottom: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.shutdown-dose-widget .shutdown-dose-segmented button {
+    padding: 6px 14px;
+    border: 0;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-ui-font-family);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.shutdown-dose-widget .shutdown-dose-segmented button.selected {
+    background: var(--theia-focusBorder);
+    color: var(--theia-button-foreground);
+}
+
+.shutdown-dose-widget .shutdown-dose-domain-list,
+.shutdown-dose-widget .shutdown-dose-tally-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.shutdown-dose-widget .shutdown-dose-domain-row,
+.shutdown-dose-widget .shutdown-dose-tally-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    font-size: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-domain-row.selected,
+.shutdown-dose-widget .shutdown-dose-tally-row.selected {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.shutdown-dose-widget .shutdown-dose-tally-row.disabled {
+    opacity: 0.6;
+}
+
+.shutdown-dose-widget .shutdown-dose-domain-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-domain-check span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shutdown-dose-widget .shutdown-dose-readiness {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.shutdown-dose-widget .shutdown-dose-readiness.ready {
+    color: var(--theia-testing-icon-passed, var(--theia-descriptionForeground));
+}
+
+.shutdown-dose-widget .shutdown-dose-readiness.blocked {
+    color: var(--theia-errorForeground);
+}
+
+.shutdown-dose-widget .shutdown-dose-inline-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.shutdown-dose-widget .shutdown-dose-inline-field input {
+    width: 110px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+}
+
+.shutdown-dose-widget .shutdown-dose-tally-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 240px;
+    min-width: 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-tally-meta {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.shutdown-dose-widget .shutdown-dose-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.shutdown-dose-widget .shutdown-dose-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--theia-ui-font-family);
+    font-size: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-table th,
+.shutdown-dose-widget .shutdown-dose-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.shutdown-dose-widget .shutdown-dose-table th {
+    color: var(--theia-descriptionForeground);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.shutdown-dose-widget .shutdown-dose-table input[type='text'],
+.shutdown-dose-widget .shutdown-dose-table input[type='number'] {
+    width: 100%;
+    min-width: 80px;
+    padding: 5px 7px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    box-sizing: border-box;
+}
+
+.shutdown-dose-widget .shutdown-dose-advanced {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+}
+
+.shutdown-dose-widget .shutdown-dose-advanced > summary {
+    cursor: pointer;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.shutdown-dose-widget .shutdown-dose-bbox-row {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.shutdown-dose-widget .shutdown-dose-bbox-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-bbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 90px), 1fr));
+    gap: 6px;
+}
+
+.shutdown-dose-widget .shutdown-dose-bbox-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.shutdown-dose-widget .shutdown-dose-bbox-grid input {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 11px;
+    box-sizing: border-box;
+}
+
+.shutdown-dose-widget .shutdown-dose-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.shutdown-dose-widget .shutdown-dose-path-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.shutdown-dose-widget .shutdown-dose-path-row input {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 8px 0;
+    color: var(--theia-foreground);
+    font-size: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-index-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-index {
+    padding: 4px 9px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font-family: var(--theia-ui-font-family);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.shutdown-dose-widget .shutdown-dose-index.selected {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-foreground);
+}
+
+.shutdown-dose-widget .shutdown-dose-index:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.shutdown-dose-widget .shutdown-dose-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-summary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    min-width: 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-summary-card.wide {
+    grid-column: 1 / -1;
+}
+
+.shutdown-dose-widget .shutdown-dose-summary-card .label,
+.shutdown-dose-widget .shutdown-dose-stat-grid .label,
+.shutdown-dose-widget .shutdown-dose-result-card .label {
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.shutdown-dose-widget .shutdown-dose-summary-card strong {
+    overflow-wrap: anywhere;
+    font-size: 13px;
+}
+
+.shutdown-dose-widget .shutdown-dose-warning {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    margin: 10px 0;
+    border-left: 3px solid var(--theia-editorWarning-foreground);
+    border-radius: 4px;
+    background: var(--theia-editorWarning-background, transparent);
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.shutdown-dose-widget .shutdown-dose-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.shutdown-dose-widget .shutdown-dose-issue {
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 5px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.shutdown-dose-widget .shutdown-dose-issue.error {
+    border-left: 3px solid var(--theia-errorForeground);
+}
+
+.shutdown-dose-widget .shutdown-dose-issue.warning {
+    border-left: 3px solid var(--theia-editorWarning-foreground);
+}
+
+.shutdown-dose-widget .shutdown-dose-issue div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.shutdown-dose-widget .shutdown-dose-issue span {
+    color: var(--theia-descriptionForeground);
+}
+
+.shutdown-dose-widget .shutdown-dose-inline-error {
+    display: flex;
+    gap: 6px;
+    color: var(--theia-errorForeground);
+    font-size: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-progress {
+    margin: 12px 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-progress-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--theia-panel-border);
+    overflow: hidden;
+}
+
+.shutdown-dose-widget .shutdown-dose-progress-fill {
+    height: 100%;
+    background: var(--theia-focusBorder);
+    transition: width 220ms ease;
+}
+
+.shutdown-dose-widget .shutdown-dose-progress-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.shutdown-dose-widget .shutdown-dose-progress-step {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.shutdown-dose-widget .shutdown-dose-progress-step.active {
+    color: var(--theia-focusBorder);
+    font-weight: 700;
+}
+
+.shutdown-dose-widget .shutdown-dose-progress-step.done {
+    color: var(--theia-foreground);
+}
+
+.shutdown-dose-widget .shutdown-dose-progress-message {
+    display: block;
+    margin-top: 6px;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-output-path {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.shutdown-dose-widget .shutdown-dose-result-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: 12px;
+}
+
+.shutdown-dose-widget .shutdown-dose-result-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    background: var(--theia-editor-background);
+    min-width: 0;
+}
+
+.shutdown-dose-widget .result-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.shutdown-dose-widget .result-card-header h3 {
+    margin: 0;
+}
+
+.shutdown-dose-widget .shutdown-dose-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 90px), 1fr));
+    gap: 8px;
+}
+
+.shutdown-dose-widget .shutdown-dose-stat-grid > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.shutdown-dose-widget .shutdown-dose-stat-grid strong {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.shutdown-dose-widget .shutdown-dose-sparkline {
+    width: 100%;
+    height: 84px;
+    max-width: 100%;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.shutdown-dose-widget .shutdown-dose-sparkline-empty {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    padding: 8px;
+}
+
+.shutdown-dose-widget .shutdown-dose-parents {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.shutdown-dose-widget .shutdown-dose-result-value {
+    color: var(--theia-foreground);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.shutdown-dose-widget .shutdown-dose-warning-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.shutdown-dose-widget .shutdown-dose-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.shutdown-dose-widget .shutdown-dose-file-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-textLink-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.shutdown-dose-widget .shutdown-dose-file-link:hover {
+    background: var(--theia-toolbar-hoverBackground);
+}
+
+.shutdown-dose-widget .mono {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+}
+
+.shutdown-dose-widget .icon-only {
+    padding-inline: 6px;
+}
+
+.shutdown-dose-widget .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@container (max-width: 720px) {
+    .shutdown-dose-widget .shutdown-dose-body {
+        padding: 12px;
+    }
+
+    .shutdown-dose-widget .shutdown-dose-stepper {
+        padding: 6px 12px;
+    }
+
+    .shutdown-dose-widget .shutdown-dose-step {
+        padding: 6px 8px;
+    }
+
+    .shutdown-dose-widget .step-label {
+        display: none;
+    }
+
+    .shutdown-dose-widget .shutdown-dose-summary-grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr));
+    }
+}
+
+@container (max-width: 520px) {
+    .shutdown-dose-widget .shutdown-dose-footer {
+        flex-wrap: wrap;
+        padding: 8px 12px;
+    }
+
+    .shutdown-dose-widget .shutdown-dose-footer-hint {
+        order: 3;
+        flex-basis: 100%;
+        text-align: left;
+    }
+
+    .shutdown-dose-widget .shutdown-dose-path-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .shutdown-dose-widget .shutdown-dose-domain-row,
+    .shutdown-dose-widget .shutdown-dose-tally-row {
+        align-items: flex-start;
+    }
+
+    .shutdown-dose-widget .shutdown-dose-result-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

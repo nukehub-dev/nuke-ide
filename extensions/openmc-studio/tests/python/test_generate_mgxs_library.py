@@ -346,3 +346,61 @@ def test_mgxs_api_surface_matches_assumptions():
     assert hasattr(openmc.mgxs.Library, "load_from_statepoint")
     assert hasattr(openmc.mgxs.Library, "get_xsdata")
     assert hasattr(openmc, "MGXSLibrary")
+
+
+def test_json_safe_supports_numpy_like_objects():
+    assert generate_mgxs_library._json_safe(SimpleNamespace(item=lambda: 5)) == 5
+    assert generate_mgxs_library._json_safe(SimpleNamespace(tolist=lambda: [1, 2])) == [1, 2]
+    assert generate_mgxs_library._json_safe(object()).startswith("<object object")
+
+
+def test_json_safe_handles_multi_element_numpy_arrays():
+    np = pytest.importorskip("numpy")
+    assert generate_mgxs_library._json_safe(np.array([1.0, 2.0])) == [1.0, 2.0]
+
+
+def test_sync_dagmc_materials_returns_without_dagmc_geometry(monkeypatch):
+    monkeypatch.setitem(sys.modules, "openmc", SimpleNamespace(DAGMCUniverse=None))
+    model = SimpleNamespace(geometry=SimpleNamespace(get_all_universes=lambda: {}))
+    generate_mgxs_library.sync_dagmc_materials(model, "/tmp")
+
+
+def test_sync_dagmc_materials_syncs_and_restores_the_run_mode(monkeypatch, tmp_path):
+    class DAGMCUniverse:
+        pass
+
+    calls = []
+
+    class Model:
+        def __init__(self):
+            self.settings = SimpleNamespace(run_mode="eigenvalue")
+            self.geometry = SimpleNamespace(get_all_universes=lambda: {0: DAGMCUniverse()})
+
+        def init_lib(self, directory, output):
+            calls.append(("init", directory, output))
+
+        def sync_dagmc_universes(self):
+            calls.append(("sync",))
+
+        def finalize_lib(self):
+            calls.append(("finalize",))
+
+    import generate_mgxs
+
+    monkeypatch.setitem(sys.modules, "openmc", SimpleNamespace(DAGMCUniverse=DAGMCUniverse))
+    monkeypatch.setattr(
+        generate_mgxs, "_fix_dagmc_category_tags", lambda path: calls.append(("fix", path))
+    )
+    model = Model()
+    generate_mgxs_library.sync_dagmc_materials(model, tmp_path)
+    assert model.settings.run_mode == "eigenvalue"
+    assert calls[0] == ("fix", tmp_path)
+    assert calls[1][0] == "init"
+    assert calls[-1] == ("finalize",)
+
+
+def test_explicit_group_edges_require_two_values(monkeypatch, tmp_path):
+    _install_fake_openmc(monkeypatch)
+    _write_xml(tmp_path)
+    with pytest.raises(ValueError, match="at least two"):
+        generate_mgxs_library.run_generate_mgxs_library(_args(tmp_path, groups="1.0"))

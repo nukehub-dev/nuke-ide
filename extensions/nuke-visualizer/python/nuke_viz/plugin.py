@@ -41,10 +41,10 @@ def arg(*args_, **kwargs):
     Can be stacked multiple times on a single handler.
 
     Example:
-        @command('openmc.visualize-mesh', help='Visualize mesh tally')
+        @command('openmc.tally-mesh-vtk', help='Convert a statepoint mesh tally to VTK')
         @arg('statepoint', help='Path to statepoint file')
-        @arg('--port', type=int, help='Server port')
-        def cmd_visualize_mesh(args):
+        @arg('--out', help='Output .vti path')
+        def cmd_tally_mesh_vtk(args):
             ...
     """
 

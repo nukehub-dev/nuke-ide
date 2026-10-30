@@ -1,0 +1,206 @@
+// *****************************************************************************
+// Copyright (C) 2024 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+/**
+ * Command definitions for nuke-cad.
+ *
+ * @module nuke-cad/browser
+ */
+
+import { Command, nls } from '@theia/core/lib/common';
+
+export namespace NukeCadCommands {
+    export const OPEN_CAD_VIEWPORT: Command = {
+        id: 'nuke.cad.openViewport',
+        label: nls.localize('nuke/cad/openViewport', 'Open CAD Viewport')
+    };
+
+    export const REBUILD_GEOMETRY: Command = {
+        id: 'nuke.cad.rebuild',
+        label: nls.localize('nuke/cad/rebuild', 'Rebuild CAD Geometry')
+    };
+
+    export const CHECK_CAD_ENVIRONMENT: Command = {
+        id: 'nuke.cad.checkEnvironment',
+        label: nls.localize('nuke/cad/checkEnvironment', 'Check CAD Environment')
+    };
+
+    export const OPEN_OUTLINE_PANEL: Command = {
+        id: 'nuke.cad.openOutlinePanel',
+        label: nls.localize('nuke/cad/openOutlinePanel', 'Open Model Outline')
+    };
+
+    export const OPEN_FEM_PANEL: Command = {
+        id: 'nuke.cad.openFemPanel',
+        label: nls.localize('nuke/cad/openFemPanel', 'Open FEM Analysis Panel')
+    };
+
+    export const OPEN_FOAM_PANEL: Command = {
+        id: 'nuke.cad.openFoamPanel',
+        label: nls.localize('nuke/cad/openFoamPanel', 'Open OpenFOAM Case Panel')
+    };
+
+    export const NEW_SKETCH: Command = {
+        id: 'nuke.cad.newSketch',
+        label: nls.localize('nuke/cad/newSketch', 'New Sketch')
+    };
+
+    export const EDIT_SKETCH: Command = {
+        id: 'nuke.cad.editSketch',
+        label: nls.localize('nuke/cad/editSketch', 'Edit Sketch')
+    };
+
+    export const EXIT_SKETCH: Command = {
+        id: 'nuke.cad.exitSketch',
+        label: nls.localize('nuke/cad/exitSketch', 'Exit Sketch')
+    };
+
+    export const NEW_DOCUMENT: Command = {
+        id: 'nuke.cad.newDocument',
+        label: nls.localize('nuke/cad/newDocument', 'New CAD Document')
+    };
+
+    export const SAVE_DOCUMENT: Command = {
+        id: 'nuke.cad.saveDocument',
+        label: nls.localize('nuke/cad/saveDocument', 'Save CAD Document')
+    };
+
+    export const SAVE_DOCUMENT_AS: Command = {
+        id: 'nuke.cad.saveDocumentAs',
+        label: nls.localize('nuke/cad/saveDocumentAs', 'Save CAD Document As...')
+    };
+
+    export const OPEN_FEATURE_TREE: Command = {
+        id: 'nuke.cad.openFeatureTree',
+        label: nls.localize('nuke/cad/openFeatureTree', 'Open Feature Tree')
+    };
+
+    export const OPEN_BOM_PANEL: Command = {
+        id: 'nuke.cad.openBomPanel',
+        label: nls.localize('nuke/cad/openBomPanel', 'Open BOM')
+    };
+
+    export const OPEN_DRAWING_SHEET: Command = {
+        id: 'nuke.cad.openDrawingSheet',
+        label: nls.localize('nuke/cad/openDrawingSheet', 'Open Drawing Sheet')
+    };
+
+    export const SAVE_NAMED_VIEW: Command = {
+        id: 'nuke.cad.saveNamedView',
+        label: nls.localize('nuke/cad/saveNamedView', 'Save Named View')
+    };
+
+    export const RESTORE_NAMED_VIEW: Command = {
+        id: 'nuke.cad.restoreNamedView',
+        label: nls.localize('nuke/cad/restoreNamedView', 'Restore Named View')
+    };
+
+    export const DELETE_NAMED_VIEW: Command = {
+        id: 'nuke.cad.deleteNamedView',
+        label: nls.localize('nuke/cad/deleteNamedView', 'Delete Named View')
+    };
+
+    export const ADD_FEATURE_PAD: Command = {
+        id: 'nuke.cad.addFeature.pad',
+        label: nls.localize('nuke/cad/addFeature/pad', 'Add Pad Feature')
+    };
+
+    export const ADD_FEATURE_POCKET: Command = {
+        id: 'nuke.cad.addFeature.pocket',
+        label: nls.localize('nuke/cad/addFeature/pocket', 'Add Pocket Feature')
+    };
+
+    export const ADD_FEATURE_REVOLVE: Command = {
+        id: 'nuke.cad.addFeature.revolve',
+        label: nls.localize('nuke/cad/addFeature/revolve', 'Add Revolve Feature')
+    };
+
+    export const ADD_FEATURE_GROOVE: Command = {
+        id: 'nuke.cad.addFeature.groove',
+        label: nls.localize('nuke/cad/addFeature/groove', 'Add Groove Feature')
+    };
+
+    export const ADD_FEATURE_SWEEP: Command = {
+        id: 'nuke.cad.addFeature.sweep',
+        label: nls.localize('nuke/cad/addFeature/sweep', 'Add Sweep Feature')
+    };
+
+    export const ADD_FEATURE_PIPE: Command = {
+        id: 'nuke.cad.addFeature.pipe',
+        label: nls.localize('nuke/cad/addFeature/pipe', 'Add Pipe Feature')
+    };
+
+    export const ADD_FEATURE_LOFT: Command = {
+        id: 'nuke.cad.addFeature.loft',
+        label: nls.localize('nuke/cad/addFeature/loft', 'Add Loft Feature')
+    };
+
+    export const ADD_FEATURE_HELICAL_SWEEP: Command = {
+        id: 'nuke.cad.addFeature.helicalSweep',
+        label: nls.localize('nuke/cad/addFeature/helicalSweep', 'Add Helical Sweep Feature')
+    };
+
+    export const ADD_FEATURE_COIL_SWEEP: Command = {
+        id: 'nuke.cad.addFeature.coilSweep',
+        label: nls.localize('nuke/cad/addFeature/coilSweep', 'Add Coil Sweep Feature')
+    };
+
+    export const EDIT_FEATURE: Command = {
+        id: 'nuke.cad.editFeature',
+        label: nls.localize('nuke/cad/editFeature', 'Edit Feature Parameters')
+    };
+
+    export const EXPORT_PYTHON: Command = {
+        id: 'nuke.cad.exportPython',
+        label: nls.localize('nuke/cad/exportPython', 'Export CAD Document as Python')
+    };
+
+    export const IMPORT_CAD_BODY: Command = {
+        id: 'nuke.cad.importCadBody',
+        label: nls.localize('nuke/cad/importCadBody', 'Import CAD as Body…')
+    };
+
+    export const REFRESH_IMPORT_SOURCES: Command = {
+        id: 'nuke.cad.refreshImportSources',
+        label: nls.localize('nuke/cad/refreshImportSources', 'Refresh Import Sources')
+    };
+
+    export const CREATE_W7X_GENERATOR: Command = {
+        id: 'nuke.cad.createW7xGenerator',
+        label: nls.localize('nuke/cad/createW7xGenerator', 'Create W7-X Generator…')
+    };
+
+    export const CREATE_W7X_COIL_STUDY: Command = {
+        id: 'nuke.cad.createW7xCoilStudy',
+        label: nls.localize('nuke/cad/createW7xCoilStudy', 'Create W7-X Coil Study…')
+    };
+
+    export const CREATE_W7X_SHAPE_STUDY: Command = {
+        id: 'nuke.cad.createW7xShapeStudy',
+        label: nls.localize('nuke/cad/createW7xShapeStudy', 'Create W7-X Coil Shape Study…')
+    };
+}

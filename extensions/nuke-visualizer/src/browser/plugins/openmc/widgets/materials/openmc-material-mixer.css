@@ -91,7 +91,7 @@
 .material-mixer-header .close-btn {
     background: transparent;
     border: none;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     cursor: pointer;
     font-size: 18px;
     padding: 6px 10px;
@@ -176,7 +176,7 @@
     margin: 0;
     padding: 14px 16px;
     font-size: 11px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.8px;
     font-weight: 700;
@@ -203,7 +203,7 @@
     left: 12px;
     top: 50%;
     transform: translateY(-50%);
-    color: var(--theia-input-placeholder-foreground);
+    color: var(--theia-input-placeholderForeground);
     font-size: 13px;
     pointer-events: none;
 }
@@ -225,7 +225,7 @@
 }
 
 .material-mixer-modal .material-mixer-search input:focus {
-    border-color: var(--theia-focus-border);
+    border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.1);
 }
 
@@ -248,12 +248,12 @@
 }
 
 .material-mixer-modal .material-mixer-available-item:hover {
-    background: var(--theia-list-hover-background);
+    background: var(--theia-list-hoverBackground);
 }
 
 .material-mixer-modal .material-mixer-available-item .mat-id {
     font-family: var(--theia-code-font-family);
-    color: var(--theia-text-link-foreground);
+    color: var(--theia-textLink-foreground);
     font-weight: 600;
     font-size: 11px;
     width: 32px;
@@ -269,7 +269,7 @@
 
 .material-mixer-modal .material-mixer-available-item i.fa-plus-circle {
     opacity: 0;
-    color: var(--theia-text-link-foreground);
+    color: var(--theia-textLink-foreground);
     font-size: 13px;
     transition: opacity 0.2s;
 }
@@ -312,13 +312,13 @@
 
 .material-mixer-modal .material-mixer-scroll-area::-webkit-scrollbar-thumb,
 .material-mixer-modal .material-mixer-available-list::-webkit-scrollbar-thumb {
-    background: var(--theia-scrollbar-slider-background);
+    background: var(--theia-scrollbarSlider-background);
     border-radius: 4px;
 }
 
 .material-mixer-modal .material-mixer-scroll-area::-webkit-scrollbar-thumb:hover,
 .material-mixer-modal .material-mixer-available-list::-webkit-scrollbar-thumb:hover {
-    background: var(--theia-scrollbar-slider-hover-background);
+    background: var(--theia-scrollbarSlider-hoverBackground);
 }
 
 .material-mixer-modal .material-mixer-section {
@@ -328,7 +328,7 @@
 .material-mixer-modal .material-mixer-section-title {
     font-size: 11px;
     font-weight: 700;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 12px;
@@ -340,8 +340,8 @@
 /* Clear All button */
 .material-mixer-modal .clear-all-btn {
     background: transparent;
-    border: 1px solid var(--theia-inputValidation-error-border);
-    color: var(--theia-error-foreground);
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    color: var(--theia-errorForeground);
     cursor: pointer;
     font-size: 11px;
     padding: 4px 10px;
@@ -355,7 +355,7 @@
 }
 
 .material-mixer-modal .clear-all-btn:hover {
-    background: var(--theia-inputValidation-error-background);
+    background: var(--theia-inputValidation-errorBackground);
 }
 
 .material-mixer-modal .material-mixer-type-selector {
@@ -384,7 +384,7 @@
 }
 
 .material-mixer-modal .material-mixer-type-option:hover {
-    background: var(--theia-list-hover-background);
+    background: var(--theia-list-hoverBackground);
 }
 
 .material-mixer-modal .material-mixer-type-option.active {
@@ -417,7 +417,7 @@
 }
 
 .material-mixer-modal .material-mixer-mix-item:hover {
-    border-color: var(--theia-focus-border);
+    border-color: var(--theia-focusBorder);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -437,7 +437,7 @@
 
 .material-mixer-modal .material-mixer-mix-item .mat-density {
     font-size: 12px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     font-family: var(--theia-code-font-family);
 }
 
@@ -464,7 +464,7 @@
 }
 
 .material-mixer-modal .material-mixer-mix-item input:focus {
-    border-color: var(--theia-focus-border);
+    border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.15);
     outline: none;
 }
@@ -483,7 +483,7 @@
 .material-mixer-modal .material-mixer-mix-item .remove-btn {
     background: transparent;
     border: none;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     cursor: pointer;
     padding: 8px;
     border-radius: 6px;
@@ -492,8 +492,8 @@
 }
 
 .material-mixer-modal .material-mixer-mix-item .remove-btn:hover {
-    background: var(--theia-inputValidation-error-background);
-    color: var(--theia-error-foreground);
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-errorForeground);
 }
 
 /* Validation Stats - Compact */
@@ -517,7 +517,7 @@
 .material-mixer-modal .material-mixer-validation.invalid {
     background: rgba(244, 67, 54, 0.1);
     border-color: rgba(244, 67, 54, 0.3);
-    color: var(--theia-error-foreground);
+    color: var(--theia-errorForeground);
 }
 
 .material-mixer-modal .material-mixer-validation .status-icon {
@@ -544,7 +544,7 @@
 .material-mixer-modal .material-mixer-field label {
     font-size: 9px;
     font-weight: 700;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     text-transform: uppercase;
 }
 
@@ -560,7 +560,7 @@
 /* Results / Preview Card - Compact */
 .material-mixer-modal .material-mixer-result-card {
     margin-top: 12px;
-    border: 1px solid var(--theia-focus-border);
+    border: 1px solid var(--theia-focusBorder);
     border-radius: 6px;
     overflow: hidden;
     animation: mixer-slide-up 0.3s ease-out;
@@ -578,7 +578,7 @@
 }
 
 .material-mixer-modal .material-mixer-result-header {
-    background: var(--theia-focus-border);
+    background: var(--theia-focusBorder);
     color: white;
     padding: 6px 10px;
     font-size: 10px;
@@ -609,7 +609,7 @@
 
 .material-mixer-modal .material-mixer-stat-item label {
     font-size: 9px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     margin-bottom: 2px;
 }
 
@@ -620,23 +620,23 @@
 }
 
 .material-mixer-modal .material-mixer-xml-box {
-    background: #1e1e1e;
-    color: #9cdcfe;
+    background: var(--theia-textCodeBlock-background, var(--theia-editor-background));
+    color: var(--theia-foreground);
     padding: 8px;
     border-radius: 4px;
     font-family: var(--theia-code-font-family);
     font-size: 10px;
     max-height: 120px;
     overflow: auto;
-    border: 1px solid #333;
+    border: 1px solid var(--theia-panel-border);
 }
 
 /* Warnings section */
 .material-mixer-modal .material-mixer-warnings {
     margin-bottom: 10px;
     padding: 8px 10px;
-    background: rgba(230, 126, 34, 0.1);
-    border: 1px solid rgba(230, 126, 34, 0.3);
+    background: var(--theia-inputValidation-warningBackground, rgba(230, 126, 34, 0.1));
+    border: 1px solid var(--theia-inputValidation-warningBorder, rgba(230, 126, 34, 0.3));
     border-radius: 6px;
     max-height: 100px;
     overflow-y: auto;
@@ -653,14 +653,14 @@
 }
 
 .material-mixer-modal .material-mixer-warnings::-webkit-scrollbar-thumb {
-    background: rgba(230, 126, 34, 0.5);
+    background: var(--theia-scrollbarSlider-background, rgba(230, 126, 34, 0.5));
     border-radius: 2px;
 }
 
 .material-mixer-modal .material-mixer-warnings-title {
     font-size: 10px;
     font-weight: 700;
-    color: #e67e22;
+    color: var(--theia-warningForeground, #e67e22);
     margin-bottom: 4px;
     display: flex;
     align-items: center;
@@ -672,7 +672,7 @@
 
 .material-mixer-modal .material-mixer-warnings-list {
     font-size: 10px;
-    color: var(--theia-description-foreground);
+    color: var(--theia-descriptionForeground);
     margin: 0;
     padding-left: 16px;
 }
@@ -741,14 +741,14 @@
 
 /* Error banner - Compact */
 .material-mixer-modal .material-mixer-error-banner {
-    background: var(--theia-inputValidation-error-background);
-    color: var(--theia-error-foreground);
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-errorForeground);
     padding: 8px 12px;
     font-size: 11px;
     display: flex;
     align-items: center;
     gap: 8px;
-    border-top: 1px solid var(--theia-inputValidation-error-border);
+    border-top: 1px solid var(--theia-inputValidation-errorBorder);
     flex-shrink: 0;
 }
 

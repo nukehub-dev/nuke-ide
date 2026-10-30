@@ -26,4 +26,3 @@
 // *****************************************************************************
 
 // OpenMC plugin services barrel export.
-// Service files will be extracted from openmc-service.ts in Phase 3.

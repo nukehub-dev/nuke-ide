@@ -28,10 +28,16 @@
 import * as React from '@theia/core/shared/react';
 import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCEigenvalueSettings, OpenMCFixedSourceSettings } from '../../../../common/openmc-state-schema';
 import { computeSetupChecklist, computeReadiness, ChecklistStatus } from '../../../../common/run-readiness';
 import { resolveDepletionSolver } from '../../../../common/depletion-solvers';
+import {
+    getDepletionSubsteps,
+    summarizeContinuation,
+    summarizeExternalSourceRatesText,
+    summarizeReactivityControl
+} from '../../../../common/depletion-config';
 import { deriveTrackCaptureSettings, isParticleRestartFile, parseParticleRestartFileName } from '../../../../common/particle-restart';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
@@ -43,7 +49,7 @@ import { DashboardTabContribution } from './tab-registry';
 export class SimulationTabContribution implements DashboardTabContribution {
     readonly id = 'simulation';
     readonly label = 'Simulation';
-    readonly icon = 'play';
+    readonly icon = 'openmc-run';
     readonly order = 6;
 
     /** Setup checklist collapse override (undefined = auto: collapsed when ready). */
@@ -276,6 +282,18 @@ export class SimulationTabContribution implements DashboardTabContribution {
                             </div>
                         )}
                         <div className="info-item">
+                            <label>OpenMP threads:</label>
+                            <span>{state.settings.threads ?? 'Auto'}</span>
+                        </div>
+                        <div className="info-item">
+                            <label>MPI:</label>
+                            <span>
+                                {state.settings.mpi?.enabled
+                                    ? `${state.settings.mpi.processes ?? '?'} rank(s)${state.settings.mpi.hosts?.length ? ` on ${state.settings.mpi.hosts.join(', ')}` : ''}`
+                                    : 'Disabled'}
+                            </span>
+                        </div>
+                        <div className="info-item">
                             <label>Materials:</label>
                             <span>{state.materials.length}</span>
                         </div>
@@ -322,6 +340,38 @@ export class SimulationTabContribution implements DashboardTabContribution {
                                 <label>Solver:</label>
                                 <span style={{ textTransform: 'uppercase' }}>{resolveDepletionSolver(state.depletion.solver)}</span>
                             </div>
+                            <div className="info-item">
+                                <label>Operator:</label>
+                                <span>{state.depletion.operator === 'independent' ? 'Independent' : 'Coupled'}</span>
+                            </div>
+                            <div className="info-item">
+                                <label>Substeps:</label>
+                                <span>{getDepletionSubsteps(state.depletion)}</span>
+                            </div>
+                            {(state.depletion.decayOnlySteps?.length ?? 0) > 0 && (
+                                <div className="info-item">
+                                    <label>Decay-Only Steps:</label>
+                                    <span>{state.depletion.decayOnlySteps!.length}</span>
+                                </div>
+                            )}
+                            {summarizeReactivityControl(state.depletion.reactivityControl) && (
+                                <div className="info-item">
+                                    <label>Reactivity Control:</label>
+                                    <span>{summarizeReactivityControl(state.depletion.reactivityControl)}</span>
+                                </div>
+                            )}
+                            {summarizeExternalSourceRatesText(state.depletion.externalSourceRates) && (
+                                <div className="info-item">
+                                    <label>External Feed/Removal:</label>
+                                    <span>{summarizeExternalSourceRatesText(state.depletion.externalSourceRates)}</span>
+                                </div>
+                            )}
+                            {summarizeContinuation(state.depletion) && (
+                                <div className="info-item">
+                                    <label>Continuation:</label>
+                                    <span>{summarizeContinuation(state.depletion)}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -329,8 +379,9 @@ export class SimulationTabContribution implements DashboardTabContribution {
                 {/* Variance Reduction Summary */}
                 {state.varianceReduction &&
                     (state.varianceReduction.survivalBiasing ||
-                        state.varianceReduction.weightWindows ||
-                        state.varianceReduction.sourceBiasing ||
+                        (state.varianceReduction.weightWindows?.length ?? 0) > 0 ||
+                        state.varianceReduction.weightWindowsFile ||
+                        state.varianceReduction.ufs?.enabled ||
                         state.varianceReduction.weightWindowGenerator) && (
                         <div className="simulation-info">
                             <div className="info-header">
@@ -345,22 +396,40 @@ export class SimulationTabContribution implements DashboardTabContribution {
                                         <span>Enabled</span>
                                     </div>
                                 )}
-                                {state.varianceReduction.weightWindows && (
+                                {(state.varianceReduction.weightWindows?.length ?? 0) > 0 && (
                                     <div className="info-item">
                                         <label>Weight Windows:</label>
-                                        <span>Mesh {state.varianceReduction.weightWindows.meshId}</span>
+                                        <span>
+                                            {state.varianceReduction.weightWindows!.length} set
+                                            {state.varianceReduction.weightWindows!.length === 1 ? '' : 's'} · mesh{' '}
+                                            {state.varianceReduction.weightWindows![0].meshId}
+                                        </span>
                                     </div>
                                 )}
-                                {state.varianceReduction.sourceBiasing && (
+                                {state.varianceReduction.weightWindowsFile && (
                                     <div className="info-item">
-                                        <label>Source Biasing:</label>
-                                        <span>Enabled</span>
+                                        <label>Weight-window File:</label>
+                                        <span>{state.varianceReduction.weightWindowsFile}</span>
+                                    </div>
+                                )}
+                                {state.varianceReduction.ufs?.enabled && (
+                                    <div className="info-item">
+                                        <label>Uniform Fission Site:</label>
+                                        <span>
+                                            {state.varianceReduction.ufs.meshId ? `mesh ${state.varianceReduction.ufs.meshId}` : 'No mesh'}
+                                        </span>
                                     </div>
                                 )}
                                 {state.varianceReduction.weightWindowGenerator && (
                                     <div className="info-item">
                                         <label>WW Generator:</label>
-                                        <span>{state.varianceReduction.weightWindowGenerator.iterations} iterations</span>
+                                        <span>
+                                            {state.varianceReduction.weightWindowGenerator.method ?? 'magic'} ·{' '}
+                                            {state.varianceReduction.weightWindowGenerator.maxRealizations ??
+                                                state.varianceReduction.weightWindowGenerator.iterations ??
+                                                '1'}{' '}
+                                            realizations
+                                        </span>
                                     </div>
                                 )}
                                 {state.varianceReduction.cutoff?.weight !== undefined && (
@@ -682,20 +751,18 @@ export class SimulationTabContribution implements DashboardTabContribution {
                             </div>
                             <div className="form-group">
                                 <label>Precursor Groups (β_eff)</label>
-                                <select
-                                    value={kinetics.numPrecursorGroups ?? 0}
-                                    onChange={(e) => {
-                                        const groups = parseInt(e.target.value);
+                                <NukeSelect
+                                    value={String(kinetics.numPrecursorGroups ?? 0)}
+                                    options={[
+                                        { value: '0', label: 'Total only' },
+                                        ...[2, 3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: `${n} groups` }))
+                                    ]}
+                                    onChange={(value: string) => {
+                                        const groups = parseInt(value);
                                         updateKinetics({ numPrecursorGroups: groups > 1 ? groups : undefined });
                                     }}
-                                >
-                                    <option value={0}>Total only</option>
-                                    {[2, 3, 4, 5, 6, 7, 8].map((n) => (
-                                        <option key={n} value={n}>
-                                            {n} groups
-                                        </option>
-                                    ))}
-                                </select>
+                                    ariaLabel="Precursor groups"
+                                />
                             </div>
                         </div>
                         <div className="form-row">

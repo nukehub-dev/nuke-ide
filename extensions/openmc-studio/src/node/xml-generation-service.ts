@@ -40,6 +40,7 @@ import * as fs from 'fs';
 import { XMLGenerationRequest, XMLGenerationResult, OpenMCCompat, DEFAULT_OPENMC_COMPAT } from '../common/openmc-studio-protocol';
 import { resolveMgxsLibrary } from '../common/mgxs-library';
 import { resolveDepletionSolver } from '../common/depletion-solvers';
+import { getDepletionXmlWarnings } from '../common/depletion-config';
 import { expandMaterialNuclides } from '../common/material-utils';
 
 import {
@@ -50,14 +51,62 @@ import {
     OpenMCTally,
     OpenMCMesh,
     OpenMCRegularMesh,
+    OpenMCRectilinearMesh,
     OpenMCCylindricalMesh,
     OpenMCSphericalMesh,
+    OpenMCUnstructuredMesh,
     OpenMCLattice,
     OpenMCEigenvalueSettings,
-    OpenMCFixedSourceSettings
+    OpenMCFixedSourceSettings,
+    OpenMCPlotConfig
 } from '../common/openmc-state-schema';
 
 import { getAutoIfpTallies } from '../common/kinetics-ifp';
+import { flattenRectLatticeUniverses, hexLatticeUniverseRows } from '../common/geometry-lattices';
+import {
+    getPlotMaskSummary,
+    plotSupportsBackground,
+    plotSupportsMask,
+    plotSupportsOverlaps,
+    toOpenMcMaskComponents
+} from '../common/plot-appearance';
+import {
+    generateAngleXml,
+    generateSpatialXml,
+    generateTimeXml,
+    generateUnivariateXml,
+    sourceUsesDecaySpectrum
+} from '../common/source-utils';
+import { validateRectilinearMesh, validateUnstructuredMeshFilename } from '../common/mesh-utils';
+import {
+    resolveWeightWindowBounds,
+    resolveWeightWindowGeneratorMesh,
+    resolveWeightWindowsEnabled,
+    sourceHasBias,
+    stripSourceBias
+} from '../common/variance-reduction';
+import {
+    flattenPairs,
+    getCellInstancePairs,
+    getFilterSupportWarning,
+    getMeshMaterialPairs,
+    getParticleFilterBins,
+    getParticleProductionTypes,
+    isFilterSupported,
+    sanitizeParticleFilter
+} from '../common/tally-filter-utils';
+import { normalizeReactionBin } from '../common/reaction-catalog';
+import { particleTypeName, sanitizeSourceParticle, sanitizeWeightWindowParticle } from '../common/particle-types';
+
+/** Context for mesh XML emission (validation warnings + path resolution). */
+interface MeshEmissionContext {
+    /** Generation warnings collected into the result. */
+    warnings?: string[];
+    /** Project directory used to resolve relative unstructured filenames. */
+    projectDirectory?: string;
+    /** Output directory used to emit run-relative unstructured filenames. */
+    outputDirectory?: string;
+}
 
 import { OpenMCStudioClient } from '../common/openmc-studio-protocol';
 
@@ -100,6 +149,11 @@ export class XMLGenerationService {
     async generateXML(request: XMLGenerationRequest): Promise<XMLGenerationResult> {
         const generatedFiles: string[] = [];
         const warnings: string[] = [];
+        if ((request.state.derivedTallies?.length ?? 0) > 0) {
+            warnings.push(
+                'Derived tallies are analysis-only and are not included in simulation XML. Evaluate them from the statepoint viewer.'
+            );
+        }
 
         try {
             const fs = await import('fs');
@@ -204,7 +258,13 @@ export class XMLGenerationService {
             // Generate tallies.xml (also when only auto-generated IFP kinetics tallies would be present)
             if (request.files.tallies && (request.state.tallies.length > 0 || request.state.settings.kinetics?.enabled)) {
                 const talliesPath = path.join(request.outputDirectory, 'tallies.xml');
-                const talliesXml = this.generateTalliesXML(request.state, warnings);
+                const talliesXml = this.generateTalliesXML(
+                    request.state,
+                    warnings,
+                    request.randomRayCompat ?? DEFAULT_OPENMC_COMPAT,
+                    projectDirectory,
+                    request.outputDirectory
+                );
                 fs.writeFileSync(talliesPath, talliesXml);
                 generatedFiles.push(talliesPath);
                 this.log(`Generated tallies.xml`);
@@ -419,6 +479,13 @@ export class XMLGenerationService {
             for (const sab of material.thermalScattering) {
                 lines.push(`    <sab name="${sab.name}"/>`);
             }
+
+            // Isotropic-in-lab elastic scattering nuclides (Material.isotropic,
+            // openmc/material.py to_xml_element)
+            const isotropic = (material.isotropic ?? []).map((name) => name.trim()).filter((name) => name.length > 0);
+            if (isotropic.length > 0) {
+                lines.push(`    <isotropic>${isotropic.join(' ')}</isotropic>`);
+            }
         }
 
         lines.push('  </material>');
@@ -535,11 +602,26 @@ export class XMLGenerationService {
         // surfaces and silently breaks any multi-region model.
         const boundaryAttr = surface.boundary ? ` boundary="${surface.boundary}"` : '';
         const nameAttr = surface.name ? ` name="${this.escapeXml(surface.name)}"` : '';
+        // openmc/surface.py only serializes an albedo on albedo-capable
+        // boundaries and omits the OpenMC default of 1.
+        const albedoAttr =
+            surface.albedo !== undefined && surface.albedo !== 1 && this.isAlbedoBoundary(surface.boundary)
+                ? ` albedo="${surface.albedo}"`
+                : '';
+        const periodicAttr =
+            surface.boundary === 'periodic' && surface.periodicSurfaceId !== undefined
+                ? ` periodic_surface_id="${surface.periodicSurfaceId}"`
+                : '';
 
         // Map internal surface type to OpenMC-compatible type
         const openmcType = this.mapSurfaceTypeToOpenMC(surface);
 
-        return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${openmcType}"${boundaryAttr}${nameAttr}/>`;
+        return `  <surface coeffs="${this.coeffsToString(surface)}" id="${surface.id}" type="${openmcType}"${boundaryAttr}${albedoAttr}${periodicAttr}${nameAttr}/>`;
+    }
+
+    /** Whether a boundary condition carries an albedo in OpenMC. */
+    private isAlbedoBoundary(boundary: OpenMCSurface['boundary']): boolean {
+        return boundary === 'reflective' || boundary === 'periodic' || boundary === 'white';
     }
 
     /**
@@ -615,17 +697,24 @@ export class XMLGenerationService {
         const nameAttr = cell.name ? ` name="${this.escapeXml(cell.name)}"` : '';
         const tempAttr = cell.temperature ? ` temperature="${cell.temperature}"` : '';
         const universeAttr = universeId !== 0 ? ` universe="${universeId}"` : '';
+        const densityAttr = cell.density !== undefined ? ` density="${cell.density}"` : '';
+        const translationAttr = cell.translation ? ` translation="${cell.translation.join(' ')}"` : '';
+        const rotationAttr = cell.rotation ? ` rotation="${cell.rotation.join(' ')}"` : '';
 
         // Build attributes for self-closing tag (compatible with OpenMC geometry viewer)
         let fillAttr = '';
         if (cell.fillType === 'material' && cell.fillId !== undefined) {
             fillAttr = ` material="${cell.fillId}"`;
+        } else if (cell.fillType === 'void') {
+            // Void cells carry the literal material="void" (openmc.Cell
+            // contract): omitting the attribute makes this openmc reject the
+            // file ("Neither material nor fill was specified").
+            fillAttr = ' material="void"';
         } else if (cell.fillType === 'universe' && cell.fillId !== undefined) {
             fillAttr = ` fill="${cell.fillId}"`;
         } else if (cell.fillType === 'lattice' && cell.fillId !== undefined) {
             fillAttr = ` fill="${cell.fillId}"`;
         }
-        // Note: void cells don't need a material attribute (empty cell)
 
         // Build region attribute
         let regionAttr = '';
@@ -639,8 +728,12 @@ export class XMLGenerationService {
             regionAttr = ` region="${this.escapeXml(regionValue)}"`;
         }
 
+        // Cell volume is optional in geometry.xml and required by cell-based
+        // activation workflows (R2S); emit it only when explicitly set.
+        const volumeAttr = typeof cell.volume === 'number' && cell.volume > 0 ? ` volume="${cell.volume}"` : '';
+
         // Use self-closing tag format for cleaner XML
-        return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}/>\n`;
+        return `  <cell id="${cell.id}"${nameAttr}${fillAttr}${regionAttr}${tempAttr}${universeAttr}${densityAttr}${volumeAttr}${translationAttr}${rotationAttr}/>\n`;
     }
 
     private regionNodeToString(node: any): string {
@@ -667,11 +760,45 @@ export class XMLGenerationService {
 
     private generateLatticeElement(lattice: OpenMCLattice): string {
         const lines: string[] = [];
+        const nameAttr = lattice.name ? ` name="${this.escapeXml(lattice.name)}"` : '';
 
-        // This is a simplified implementation
-        // Full implementation would handle different lattice types
-        lines.push(`  <!-- Lattice ${lattice.id} generation not yet fully implemented -->`);
+        if (lattice.type === 'rect') {
+            lines.push(`  <lattice id="${lattice.id}"${nameAttr}>`);
+            lines.push(`    <pitch>${lattice.pitch.join(' ')}</pitch>`);
+            if (lattice.outer !== undefined) {
+                lines.push(`    <outer>${lattice.outer}</outer>`);
+            }
+            lines.push(`    <dimension>${lattice.dimensions.join(' ')}</dimension>`);
+            lines.push(`    <lower_left>${lattice.lowerLeft.join(' ')}</lower_left>`);
+            lines.push('    <universes>');
+            for (const row of flattenRectLatticeUniverses(lattice)) {
+                lines.push(`      ${row.join(' ')}`);
+            }
+            lines.push('    </universes>');
+            lines.push('  </lattice>');
+        } else {
+            const orientation = lattice.orientation ?? 'y';
+            const nAxial = lattice.nAxial ?? 1;
+            const orientationAttr = orientation === 'x' ? ' orientation="x"' : '';
+            const axialAttr = nAxial > 1 ? ` n_axial="${nAxial}"` : '';
+            lines.push(`  <hex_lattice id="${lattice.id}"${nameAttr} n_rings="${lattice.rings}"${orientationAttr}${axialAttr}>`);
+            lines.push(`    <pitch>${lattice.pitch.join(' ')}</pitch>`);
+            if (lattice.outer !== undefined) {
+                lines.push(`    <outer>${lattice.outer}</outer>`);
+            }
+            lines.push(`    <center>${lattice.center.join(' ')}</center>`);
+            lines.push('    <universes>');
+            for (let z = 0; z < nAxial; z++) {
+                for (const row of hexLatticeUniverseRows(lattice.rings, orientation)) {
+                    const ids = row.map(({ ring, theta }) => lattice.universes[z]?.[ring]?.[theta] ?? 0);
+                    lines.push(`      ${ids.join(' ')}`);
+                }
+            }
+            lines.push('    </universes>');
+            lines.push('  </hex_lattice>');
+        }
 
+        lines.push('');
         return lines.join('\n');
     }
 
@@ -738,12 +865,21 @@ export class XMLGenerationService {
         if (settings.sources && settings.sources.length > 0) {
             let validSources = 0;
             for (const source of settings.sources) {
-                // TokamakSource is 0.15.4+ — drop on unsupported envs with a warning
+                // TokamakSource is 0.16.0+ — drop on unsupported envs with a warning
                 if (source.type === 'tokamak' && !compat.tokamakSource) {
-                    warnings?.push('Tokamak source requires OpenMC >= 0.15.4; the tokamak source was not written to settings.xml');
+                    warnings?.push('Tokamak source requires OpenMC >= 0.16.0; the tokamak source was not written to settings.xml');
                     continue;
                 }
-                const sourceXml = this.generateSourceElement(source);
+                if (sourceUsesDecaySpectrum(source) && !compat.decaySpectrum) {
+                    warnings?.push('Decay spectrum source energy requires OpenMC >= 0.16.0; the source was not written to settings.xml');
+                    continue;
+                }
+                const biased = sourceHasBias(source);
+                if (biased && compat.sourceBias === false) {
+                    warnings?.push('Source bias requires OpenMC >= 0.16.0; the source was written without its bias.');
+                }
+                const effectiveSource = biased && compat.sourceBias === false ? stripSourceBias(source) : source;
+                const sourceXml = this.generateSourceElement(effectiveSource, compat, warnings);
                 if (sourceXml) {
                     lines.push(sourceXml);
                     validSources++;
@@ -763,13 +899,19 @@ export class XMLGenerationService {
             // (settings.py _create_source_subelement), NOT tallies.xml — the
             // tallies generator skips these ids (OpenMC mesh_memo pattern).
             for (const source of settings.sources) {
-                if (source.type === 'mesh' && source.meshId !== undefined && !emittedMeshIds.has(source.meshId)) {
-                    const mesh = state.meshes.find((m) => m.id === source.meshId);
+                const meshId =
+                    source.type === 'mesh'
+                        ? source.meshId
+                        : (source.type ?? 'independent') === 'independent' && (source as any).spatial?.type === 'mesh'
+                          ? ((source as any).spatial.meshId as number | undefined)
+                          : undefined;
+                if (meshId !== undefined && !emittedMeshIds.has(meshId)) {
+                    const mesh = state.meshes.find((m) => m.id === meshId);
                     if (mesh) {
-                        lines.push(this.generateMeshElement(mesh));
-                        emittedMeshIds.add(source.meshId);
+                        lines.push(this.generateMeshElement(mesh, { warnings, projectDirectory, outputDirectory: projectDirectory }));
+                        emittedMeshIds.add(meshId);
                     } else {
-                        this.log(`Warning: Mesh source references mesh ${source.meshId} which is not in state.meshes`);
+                        this.log(`Warning: Source references mesh ${meshId} which is not in state.meshes`);
                     }
                 }
             }
@@ -798,26 +940,59 @@ export class XMLGenerationService {
             lines.push(`  <source_rejection_fraction>${settings.sourceRejectionFraction}</source_rejection_fraction>`);
         }
 
-        // Temperature settings
+        // Temperature settings (openmc/settings.py
+        // _create_temperature_subelements emits separate temperature_* elements)
         if (settings.temperature) {
-            lines.push('  <temperature_default>');
-            if (settings.temperature.default) {
-                lines.push(`    <default>${settings.temperature.default}</default>`);
+            if (settings.temperature.default !== undefined) {
+                lines.push(`  <temperature_default>${settings.temperature.default}</temperature_default>`);
             }
             if (settings.temperature.method) {
-                lines.push(`    <method>${settings.temperature.method}</method>`);
+                lines.push(`  <temperature_method>${settings.temperature.method}</temperature_method>`);
             }
-            lines.push('  </temperature_default>');
+            if (settings.temperature.tolerance !== undefined) {
+                lines.push(`  <temperature_tolerance>${settings.temperature.tolerance}</temperature_tolerance>`);
+            }
+            if (settings.temperature.multipole !== undefined) {
+                lines.push(`  <temperature_multipole>${settings.temperature.multipole}</temperature_multipole>`);
+            }
         }
 
-        // Cutoff
-        if (settings.cutoff) {
+        // Cutoff (weight, energy, and time; neutron/photon time use the
+        // separate time_neutron/time_photon elements read by src/settings.cpp).
+        // The variance-reduction tab's weight cutoff is the legacy editor for
+        // the same block; settings.cutoff wins when both are present so XML
+        // never carries two <cutoff> elements.
+        const vrCutoff = state.varianceReduction?.cutoff;
+        const cutoff = {
+            ...(vrCutoff ? { weight: vrCutoff.weight, weightAvg: vrCutoff.weightAvg } : {}),
+            ...(settings.cutoff ?? {})
+        };
+        const hasCutoff =
+            cutoff.weight !== undefined ||
+            cutoff.weightAvg !== undefined ||
+            cutoff.energyNeutron !== undefined ||
+            cutoff.energyPhoton !== undefined ||
+            cutoff.time !== undefined ||
+            cutoff.timePhoton !== undefined;
+        if (hasCutoff) {
             lines.push('  <cutoff>');
-            if (settings.cutoff.weight) {
-                lines.push(`    <weight>${settings.cutoff.weight}</weight>`);
+            if (cutoff.weight !== undefined) {
+                lines.push(`    <weight>${cutoff.weight}</weight>`);
             }
-            if (settings.cutoff.weightAvg) {
-                lines.push(`    <weight_avg>${settings.cutoff.weightAvg}</weight_avg>`);
+            if (cutoff.weightAvg !== undefined) {
+                lines.push(`    <weight_avg>${cutoff.weightAvg}</weight_avg>`);
+            }
+            if (cutoff.energyNeutron !== undefined) {
+                lines.push(`    <energy_neutron>${cutoff.energyNeutron}</energy_neutron>`);
+            }
+            if (cutoff.energyPhoton !== undefined) {
+                lines.push(`    <energy_photon>${cutoff.energyPhoton}</energy_photon>`);
+            }
+            if (cutoff.time !== undefined) {
+                lines.push(`    <time_neutron>${cutoff.time}</time_neutron>`);
+            }
+            if (cutoff.timePhoton !== undefined) {
+                lines.push(`    <time_photon>${cutoff.timePhoton}</time_photon>`);
             }
             lines.push('  </cutoff>');
         }
@@ -1009,7 +1184,7 @@ export class XMLGenerationService {
             }
             if (rr.raySource) {
                 // Release 0.15.3 reads <source> directly under <random_ray>;
-                // post-0.15.3 dev wraps it in <ray_source> (src/settings.cpp:284-289)
+                // 0.16.0+ wraps it in <ray_source> (src/settings.cpp:284-289)
                 const wrap = compat.raySourceFormat === 'wrapper';
                 if (wrap) {
                     lines.push('    <ray_source>');
@@ -1040,7 +1215,7 @@ export class XMLGenerationService {
                     lines.push('    </adjoint_source>');
                 } else {
                     warnings?.push(
-                        'Random ray adjoint source requires a post-0.15.3 OpenMC; the configured adjoint source was not written to settings.xml'
+                        'Random ray adjoint source requires OpenMC 0.16.0+; the configured adjoint source was not written to settings.xml'
                     );
                 }
             }
@@ -1059,7 +1234,7 @@ export class XMLGenerationService {
             if (rr.sourceRegionMeshId !== undefined) {
                 const srMesh = state.meshes.find((m) => m.id === rr.sourceRegionMeshId && m.type === 'regular');
                 if (srMesh) {
-                    lines.push(this.generateMeshElement(srMesh));
+                    lines.push(this.generateMeshElement(srMesh, { warnings, projectDirectory, outputDirectory: projectDirectory }));
                     emittedMeshIds.add(rr.sourceRegionMeshId);
                 }
             }
@@ -1160,13 +1335,42 @@ export class XMLGenerationService {
             if (state.depletion.fissionQ && Object.keys(state.depletion.fissionQ).length > 0) {
                 lines.push(`    <fission_q>${this.escapeXml(JSON.stringify(state.depletion.fissionQ))}</fission_q>`);
             }
+            if (state.depletion.substeps !== undefined && state.depletion.substeps > 1) {
+                lines.push(`    <substeps>${state.depletion.substeps}</substeps>`);
+            }
+            if (state.depletion.decayOnlySteps && state.depletion.decayOnlySteps.length > 0) {
+                lines.push(`    <decay_only_steps>${state.depletion.decayOnlySteps.join(',')}</decay_only_steps>`);
+            }
+            if (state.depletion.reactivityControl) {
+                lines.push(
+                    `    <reactivity_control>${this.escapeXml(JSON.stringify(state.depletion.reactivityControl))}</reactivity_control>`
+                );
+            }
+            if (state.depletion.externalSourceRates && state.depletion.externalSourceRates.length > 0) {
+                lines.push(
+                    `    <external_source_rates>${this.escapeXml(
+                        JSON.stringify(state.depletion.externalSourceRates)
+                    )}</external_source_rates>`
+                );
+            }
+            if (state.depletion.continueFromResults) {
+                lines.push(`    <continue_from_results>${this.escapeXml(state.depletion.continueFromResults)}</continue_from_results>`);
+            }
+            if (state.depletion.continueTimesteps) {
+                lines.push('    <continue_timesteps>true</continue_timesteps>');
+            }
 
             lines.push('  </depletion>');
+
+            if (warnings) {
+                warnings.push(...getDepletionXmlWarnings(state.depletion));
+            }
         }
 
         // Variance Reduction settings
         if (state.varianceReduction) {
             const vr = state.varianceReduction;
+            const weightWindowSets = vr.weightWindows ?? [];
 
             // Survival biasing
             if (vr.survivalBiasing) {
@@ -1175,113 +1379,111 @@ export class XMLGenerationService {
                 lines.push('  <survival_biasing>true</survival_biasing>');
             }
 
-            // Cutoff settings
-            if (vr.cutoff && (vr.cutoff.weight !== undefined || vr.cutoff.weightAvg !== undefined)) {
-                lines.push('  <cutoff>');
-                if (vr.cutoff.weight !== undefined) {
-                    lines.push(`    <weight>${vr.cutoff.weight}</weight>`);
-                }
-                if (vr.cutoff.weightAvg !== undefined) {
-                    lines.push(`    <weight_avg>${vr.cutoff.weightAvg}</weight_avg>`);
-                }
-                lines.push('  </cutoff>');
-            }
+            // Cutoff settings are merged into the single <cutoff> block above
+            // (settings.cutoff wins over the legacy varianceReduction.cutoff).
 
-            // Weight window generator (real OpenMC format: openmc/weight_windows.py:713)
-            if (vr.weightWindowGenerator) {
-                const wwg = vr.weightWindowGenerator;
-                const wwgMeshId = wwg.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1;
-                const wwgEnergyBounds = wwg.energyBounds ?? vr.weightWindows?.energyBounds;
-                const maxRealizations =
-                    wwg.maxRealizations ?? wwg.iterations ?? (state.settings.run.mode === 'eigenvalue' ? state.settings.run.batches : 1);
-
-                lines.push('  <weight_window_generators>');
-                lines.push('    <weight_windows_generator>');
-                lines.push(`      <mesh>${wwgMeshId}</mesh>`);
-                if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
-                    lines.push(`      <energy_bounds>${wwgEnergyBounds.join(' ')}</energy_bounds>`);
-                }
-                lines.push(`      <particle_type>${wwg.particleType ?? vr.weightWindows?.particleType ?? 'neutron'}</particle_type>`);
-                lines.push(`      <max_realizations>${maxRealizations}</max_realizations>`);
-                lines.push(`      <update_interval>${wwg.updateInterval ?? 1}</update_interval>`);
-                lines.push(`      <on_the_fly>${wwg.onTheFly ?? true}</on_the_fly>`);
-                lines.push(`      <method>${wwg.method ?? 'magic'}</method>`);
-                if (wwg.method === 'fw_cadis' && wwg.targetTallyIds && wwg.targetTallyIds.length > 0) {
-                    lines.push(`      <targets>${wwg.targetTallyIds.join(' ')}</targets>`);
-                }
-                lines.push('    </weight_windows_generator>');
-                lines.push('  </weight_window_generators>');
-            }
-
-            // Weight windows
-            if (vr.weightWindows) {
-                const ww = vr.weightWindows;
-                lines.push('  <weight_windows id="1">');
-
-                if (ww.meshId !== undefined) {
-                    lines.push(`    <mesh>${ww.meshId}</mesh>`);
-                }
-
-                // Particle type (required, default neutron)
-                lines.push(`    <particle_type>${ww.particleType || 'neutron'}</particle_type>`);
-
-                // Calculate number of mesh cells for bounds array
-                let numCells = 1;
-                const mesh = state.meshes.find((m: OpenMCMesh) => m.id === ww.meshId);
-                if (mesh) {
-                    if (mesh.type === 'regular') {
-                        const regularMesh = mesh as OpenMCRegularMesh;
-                        numCells = regularMesh.dimension[0] * regularMesh.dimension[1] * regularMesh.dimension[2];
-                    } else if (mesh.type === 'cylindrical') {
-                        const cylMesh = mesh as OpenMCCylindricalMesh;
-                        numCells = (cylMesh.rGrid.length - 1) * (cylMesh.phiGrid.length - 1) * (cylMesh.zGrid.length - 1);
-                    } else if (mesh.type === 'spherical') {
-                        const sphMesh = mesh as OpenMCSphericalMesh;
-                        numCells = (sphMesh.rGrid.length - 1) * (sphMesh.thetaGrid.length - 1) * (sphMesh.phiGrid.length - 1);
-                    }
-                }
-
-                // Number of energy groups (N bounds = N-1 groups)
-                const numEnergyGroups = ww.energyBounds && ww.energyBounds.length > 1 ? ww.energyBounds.length - 1 : 1;
-                const totalBounds = numCells * numEnergyGroups;
-
-                // Lower ww bounds - must have one value per mesh cell per energy group
-                const lowerBoundValue = typeof ww.lowerBound === 'number' ? ww.lowerBound : 0.5;
-                const lowerBounds = Array(totalBounds).fill(lowerBoundValue);
-                lines.push(`    <lower_ww_bounds>${lowerBounds.join(' ')}</lower_ww_bounds>`);
-
-                // Upper ww bounds - must have one value per mesh cell per energy group
-                const upperBoundValue = typeof ww.upperBound === 'number' ? ww.upperBound : lowerBoundValue * 2;
-                const upperBounds = Array(totalBounds).fill(upperBoundValue);
-                lines.push(`    <upper_ww_bounds>${upperBounds.join(' ')}</upper_ww_bounds>`);
-
-                // Survival ratio (default 3.0)
-                lines.push(`    <survival_ratio>${ww.survivalWeight !== undefined ? ww.survivalWeight : 3.0}</survival_ratio>`);
-
-                // Required parameters
-                lines.push(`    <max_split>10</max_split>`);
-                lines.push(`    <weight_cutoff>1e-38</weight_cutoff>`);
-
-                // Energy bounds - REQUIRED by OpenMC
-                // Must have at least 2 bounds to define 1 energy group
-                if (ww.energyBounds && ww.energyBounds.length >= 2) {
-                    lines.push(`    <energy_bounds>${ww.energyBounds.join(' ')}</energy_bounds>`);
-                } else {
-                    this.log('Warning: Weight windows require energy_bounds (minimum 2 values)');
-                }
-
-                lines.push('  </weight_windows>');
-            }
-
-            // Uniform Fission Site (UFS)
+            // Uniform Fission Site (UFS) — OpenMC reads <ufs_mesh>, not <ufs>
             if (vr.ufs?.enabled) {
                 lines.push('');
                 lines.push('  <!-- Uniform Fission Site -->');
-                lines.push('  <ufs>');
                 if (vr.ufs.meshId !== undefined) {
-                    lines.push(`    <mesh>${vr.ufs.meshId}</mesh>`);
+                    lines.push(`  <ufs_mesh>${vr.ufs.meshId}</ufs_mesh>`);
+                } else if (warnings) {
+                    warnings.push('Uniform fission site is enabled without a mesh; OpenMC requires <ufs_mesh>');
                 }
-                lines.push('  </ufs>');
+            }
+
+            // Weight window generator (real OpenMC format: openmc/weight_windows.py)
+            if (vr.weightWindowGenerator) {
+                const wwg = vr.weightWindowGenerator;
+                const wwgMeshId = resolveWeightWindowGeneratorMesh(vr);
+                const wwgEnergyBounds = wwg.energyBounds ?? weightWindowSets[0]?.energyBounds;
+                const maxRealizations =
+                    wwg.maxRealizations ?? wwg.iterations ?? (state.settings.run.mode === 'eigenvalue' ? state.settings.run.batches : 1);
+
+                if (wwgMeshId !== undefined) {
+                    const generatorParticle = sanitizeWeightWindowParticle(
+                        wwg.particleType ?? weightWindowSets[0]?.particleType,
+                        'Weight-window generator'
+                    );
+                    if (generatorParticle.warning) {
+                        warnings?.push(generatorParticle.warning);
+                    }
+                    lines.push('  <weight_window_generators>');
+                    lines.push('    <weight_windows_generator>');
+                    lines.push(`      <mesh>${wwgMeshId}</mesh>`);
+                    if (wwgEnergyBounds && wwgEnergyBounds.length > 0) {
+                        lines.push(`      <energy_bounds>${wwgEnergyBounds.join(' ')}</energy_bounds>`);
+                    }
+                    lines.push(`      <particle_type>${generatorParticle.particle.name}</particle_type>`);
+                    lines.push(`      <max_realizations>${maxRealizations}</max_realizations>`);
+                    lines.push(`      <update_interval>${wwg.updateInterval ?? 1}</update_interval>`);
+                    lines.push(`      <on_the_fly>${wwg.onTheFly ?? true}</on_the_fly>`);
+                    lines.push(`      <method>${wwg.method ?? 'magic'}</method>`);
+                    if (wwg.method === 'fw_cadis' && wwg.targetTallyIds && wwg.targetTallyIds.length > 0) {
+                        lines.push(`      <targets>${wwg.targetTallyIds.join(' ')}</targets>`);
+                    }
+                    lines.push('    </weight_windows_generator>');
+                    lines.push('  </weight_window_generators>');
+                } else if (warnings) {
+                    warnings.push('Weight window generator is enabled without a mesh; it was not emitted');
+                }
+            }
+
+            // Weight windows (one <weight_windows id="..."> block per set)
+            for (let index = 0; index < weightWindowSets.length; index++) {
+                const ww = weightWindowSets[index];
+                const id = ww.id ?? index + 1;
+                const setParticle = sanitizeWeightWindowParticle(ww.particleType, `Weight-window set ${id}`);
+                if (setParticle.warning) {
+                    warnings?.push(setParticle.warning);
+                }
+                lines.push(`  <weight_windows id="${id}">`);
+                if (ww.meshId !== undefined && Number.isFinite(ww.meshId)) {
+                    lines.push(`    <mesh>${ww.meshId}</mesh>`);
+                }
+                lines.push(`    <particle_type>${setParticle.particle.name}</particle_type>`);
+
+                if (ww.energyBounds && ww.energyBounds.length >= 2) {
+                    lines.push(`    <energy_bounds>${ww.energyBounds.join(' ')}</energy_bounds>`);
+                } else if (warnings) {
+                    warnings.push(`Weight-window set ${id} has fewer than two energy bounds; OpenMC requires at least two`);
+                }
+
+                const { lower, upper } = resolveWeightWindowBounds(ww, state.meshes);
+                lines.push(`    <lower_ww_bounds>${lower.join(' ')}</lower_ww_bounds>`);
+                lines.push(`    <upper_ww_bounds>${upper.join(' ')}</upper_ww_bounds>`);
+                lines.push(`    <survival_ratio>${ww.survivalWeight !== undefined ? ww.survivalWeight : 3.0}</survival_ratio>`);
+                lines.push(`    <max_split>${ww.maxSplit !== undefined ? ww.maxSplit : 10}</max_split>`);
+                lines.push(`    <weight_cutoff>${ww.weightCutoff !== undefined ? ww.weightCutoff : 1e-38}</weight_cutoff>`);
+                lines.push('  </weight_windows>');
+            }
+
+            // Explicit enable flag. OpenMC enables weight windows automatically
+            // when sets or a file exist; emitting the resolved value keeps the
+            // UI toggle authoritative.
+            if (weightWindowSets.length > 0 || vr.weightWindowsFile || vr.weightWindowGenerator) {
+                lines.push(`  <weight_windows_on>${resolveWeightWindowsEnabled(vr)}</weight_windows_on>`);
+            }
+
+            if (vr.weightWindowsFile) {
+                lines.push(`  <weight_windows_file>${this.escapeXml(vr.weightWindowsFile)}</weight_windows_file>`);
+            }
+
+            if (vr.weightWindowCheckpoints) {
+                const checkpoints = [vr.weightWindowCheckpoints.collision, vr.weightWindowCheckpoints.surface].filter(
+                    (value) => value !== undefined
+                );
+                if (checkpoints.length > 0) {
+                    lines.push('  <weight_window_checkpoints>');
+                    if (vr.weightWindowCheckpoints.collision !== undefined) {
+                        lines.push(`    <collision>${vr.weightWindowCheckpoints.collision}</collision>`);
+                    }
+                    if (vr.weightWindowCheckpoints.surface !== undefined) {
+                        lines.push(`    <surface>${vr.weightWindowCheckpoints.surface}</surface>`);
+                    }
+                    lines.push('  </weight_window_checkpoints>');
+                }
             }
 
             // Emit the mesh elements referenced by weight windows / the WW
@@ -1289,11 +1491,14 @@ export class XMLGenerationService {
             // the settings root — without them the C++ mesh lookup crashes
             // with unordered_map::at during settings reading)
             const vrMeshIds = new Set<number>();
-            if (vr.weightWindowGenerator) {
-                vrMeshIds.add(vr.weightWindowGenerator.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1);
+            const generatorMeshId = resolveWeightWindowGeneratorMesh(vr);
+            if (generatorMeshId !== undefined) {
+                vrMeshIds.add(generatorMeshId);
             }
-            if (vr.weightWindows?.meshId !== undefined) {
-                vrMeshIds.add(vr.weightWindows.meshId);
+            for (const set of weightWindowSets) {
+                if (set.meshId !== undefined) {
+                    vrMeshIds.add(set.meshId);
+                }
             }
             if (vr.ufs?.enabled && vr.ufs.meshId !== undefined) {
                 vrMeshIds.add(vr.ufs.meshId);
@@ -1302,9 +1507,9 @@ export class XMLGenerationService {
                 if (emittedMeshIds.has(meshId)) {
                     continue;
                 }
-                const vrMesh = state.meshes.find((m) => m.id === meshId && m.type === 'regular');
+                const vrMesh = state.meshes.find((m) => m.id === meshId);
                 if (vrMesh) {
-                    lines.push(this.generateMeshElement(vrMesh));
+                    lines.push(this.generateMeshElement(vrMesh, { warnings, projectDirectory, outputDirectory: projectDirectory }));
                     emittedMeshIds.add(meshId);
                 }
             }
@@ -1354,6 +1559,97 @@ export class XMLGenerationService {
         if (settings.uniformSourceSampling !== undefined) {
             lines.push(`  <uniform_source_sampling>${settings.uniformSourceSampling}</uniform_source_sampling>`);
         }
+        if (settings.trace !== undefined) {
+            lines.push(`  <trace>${settings.trace.join(' ')}</trace>`);
+        }
+        if (settings.keffTrigger !== undefined) {
+            lines.push('  <keff_trigger>');
+            lines.push(`    <type>${settings.keffTrigger.type}</type>`);
+            lines.push(`    <threshold>${settings.keffTrigger.threshold}</threshold>`);
+            lines.push('  </keff_trigger>');
+        }
+        if (settings.confidenceIntervals !== undefined) {
+            lines.push(`  <confidence_intervals>${settings.confidenceIntervals}</confidence_intervals>`);
+        }
+        if (settings.freeGasThreshold !== undefined) {
+            lines.push(`  <free_gas_threshold>${settings.freeGasThreshold}</free_gas_threshold>`);
+        }
+        if (settings.sharedSecondaryBank !== undefined) {
+            if (compat.sharedSecondaryBank) {
+                lines.push(`  <shared_secondary_bank>${settings.sharedSecondaryBank}</shared_secondary_bank>`);
+            } else {
+                warnings?.push('shared_secondary_bank requires OpenMC >= 0.16.0; the setting was not written to settings.xml');
+            }
+        }
+        if (settings.surfaceGrazingCutoff !== undefined || settings.surfaceGrazingRatio !== undefined) {
+            if (compat.surfaceGrazing) {
+                if (settings.surfaceGrazingCutoff !== undefined) {
+                    lines.push(`  <surface_grazing_cutoff>${settings.surfaceGrazingCutoff}</surface_grazing_cutoff>`);
+                }
+                if (settings.surfaceGrazingRatio !== undefined) {
+                    lines.push(`  <surface_grazing_ratio>${settings.surfaceGrazingRatio}</surface_grazing_ratio>`);
+                }
+            } else {
+                warnings?.push('Surface grazing cutoffs require OpenMC >= 0.16.0; the setting was not written to settings.xml');
+            }
+        }
+        if (settings.maxParticleEvents !== undefined) {
+            lines.push(`  <max_particle_events>${settings.maxParticleEvents}</max_particle_events>`);
+        }
+        if (settings.maxParticlesInFlight !== undefined) {
+            lines.push(`  <max_particles_in_flight>${settings.maxParticlesInFlight}</max_particles_in_flight>`);
+        }
+        if (settings.maxSecondaries !== undefined) {
+            lines.push(`  <max_secondaries>${settings.maxSecondaries}</max_secondaries>`);
+        }
+        if (settings.maxHistorySplits !== undefined) {
+            lines.push(`  <max_history_splits>${settings.maxHistorySplits}</max_history_splits>`);
+        }
+        if (settings.maxWriteLostParticles !== undefined) {
+            lines.push(`  <max_write_lost_particles>${settings.maxWriteLostParticles}</max_write_lost_particles>`);
+        }
+        if (settings.noReduce !== undefined) {
+            lines.push(`  <no_reduce>${settings.noReduce}</no_reduce>`);
+        }
+        if (settings.stride !== undefined) {
+            lines.push(`  <stride>${settings.stride}</stride>`);
+        }
+        if (settings.plotSeed !== undefined) {
+            lines.push(`  <plot_seed>${settings.plotSeed}</plot_seed>`);
+        }
+        if (settings.propertiesFile) {
+            lines.push(`  <properties_file>${this.escapeXml(settings.propertiesFile)}</properties_file>`);
+        }
+        if (settings.verbosity !== undefined) {
+            lines.push(`  <verbosity>${settings.verbosity}</verbosity>`);
+        }
+        if (settings.materialCellOffsets !== undefined) {
+            lines.push(`  <material_cell_offsets>${settings.materialCellOffsets}</material_cell_offsets>`);
+        }
+        if (settings.resonanceScattering) {
+            const resonance = settings.resonanceScattering;
+            const hasResonanceValue =
+                resonance.enable !== undefined ||
+                resonance.method !== undefined ||
+                resonance.energyMin !== undefined ||
+                resonance.energyMax !== undefined;
+            if (hasResonanceValue) {
+                lines.push('  <resonance_scattering>');
+                if (resonance.enable !== undefined) {
+                    lines.push(`    <enable>${resonance.enable}</enable>`);
+                }
+                if (resonance.method) {
+                    lines.push(`    <method>${resonance.method}</method>`);
+                }
+                if (resonance.energyMin !== undefined) {
+                    lines.push(`    <energy_min>${resonance.energyMin}</energy_min>`);
+                }
+                if (resonance.energyMax !== undefined) {
+                    lines.push(`    <energy_max>${resonance.energyMax}</energy_max>`);
+                }
+                lines.push('  </resonance_scattering>');
+            }
+        }
         if (settings.tabularLegendre?.enable !== undefined) {
             lines.push('  <tabular_legendre>');
             lines.push(`    <enable>${settings.tabularLegendre.enable}</enable>`);
@@ -1386,7 +1682,7 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generateSourceElement(source: any): string {
+    private generateSourceElement(source: any, compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT, warnings?: string[]): string {
         const lines: string[] = [];
         const sourceType = source.type ?? 'independent';
 
@@ -1441,7 +1737,7 @@ export class XMLGenerationService {
             const totalStrength = subSources.reduce((sum, sub) => sum + (sub.strength ?? 1.0), 0);
             lines.push(`  <source type="mesh" mesh="${source.meshId}" strength="${totalStrength}">`);
             for (const sub of subSources) {
-                const subXml = this.generateSourceElement(sub);
+                const subXml = this.generateSourceElement(sub, compat, warnings);
                 if (subXml) {
                     lines.push(
                         subXml
@@ -1489,15 +1785,11 @@ export class XMLGenerationService {
             }
             // Optional time distribution (TokamakSource.time; delta is a
             // single-point discrete in OpenMC XML)
-            const time = source.time;
-            if (time?.type === 'delta' && time.params.time !== undefined) {
-                lines.push(`    <time type="discrete">\n      <parameters>${time.params.time} 1</parameters>\n    </time>`);
-            } else if (time?.type === 'uniform' && time.params.min !== undefined && time.params.max !== undefined) {
-                lines.push(`    <time type="uniform">\n      <parameters>${time.params.min} ${time.params.max}</parameters>\n    </time>`);
-            } else if (time?.type === 'discrete' && time.params.times && time.params.times.length > 0) {
-                const probs: number[] = time.params.probabilities ?? time.params.times.map(() => 1 / time.params.times!.length);
-                const interleaved: number[] = time.params.times.flatMap((v: number, i: number) => [v, probs[i]]);
-                lines.push(`    <time type="discrete">\n      <parameters>${interleaved.join(' ')}</parameters>\n    </time>`);
+            if (source.time) {
+                const timeLines = generateTimeXml(source.time, 4);
+                if (timeLines) {
+                    lines.push(timeLines);
+                }
             }
             const tokamakConstraints = this.generateSourceConstraintsElement(source.constraints);
             if (tokamakConstraints) {
@@ -1514,12 +1806,18 @@ export class XMLGenerationService {
             return '';
         }
 
-        // Source with required attributes (type, strength, particle)
+        // Source with required attributes (type, strength, particle). Particles
+        // outside the probed OpenMC surface fall back to neutron with a warning
+        // so the emitted deck stays loadable.
         const strength = source.strength !== undefined ? source.strength : 1.0;
-        const particle = source.particle || 'neutron';
-        lines.push(`  <source type="independent" strength="${strength}" particle="${particle}">`);
+        const sanitizedParticle = sanitizeSourceParticle(source.particle, compat);
+        if (sanitizedParticle.warning) {
+            warnings?.push(sanitizedParticle.warning);
+        }
+        lines.push(`  <source type="independent" strength="${strength}" particle="${sanitizedParticle.particle.name}">`);
 
-        // Generate spatial distribution with parameters
+        // Generate spatial distribution with parameters. Element order matches
+        // IndependentSource.populate_xml_element: space, angle, energy, time.
         const spatialLines = this.generateSpatialElement(source.spatial);
         if (spatialLines) {
             lines.push(spatialLines);
@@ -1529,17 +1827,30 @@ export class XMLGenerationService {
             return '';
         }
 
-        if (source.energy) {
-            const energyLines = this.generateEnergyElement(source.energy);
-            if (energyLines) {
-                lines.push(energyLines);
-            }
-        }
-
         if (source.angle) {
             const angleLines = this.generateAngleElement(source.angle);
             if (angleLines) {
                 lines.push(angleLines);
+            } else {
+                this.log(`Warning: Skipping invalid angular distribution on source`);
+            }
+        }
+
+        if (source.energy) {
+            const energyLines = this.generateEnergyElement(source.energy);
+            if (energyLines) {
+                lines.push(energyLines);
+            } else {
+                this.log(`Warning: Skipping invalid energy distribution on source`);
+            }
+        }
+
+        if (source.time) {
+            const timeLines = generateTimeXml(source.time, 4);
+            if (timeLines) {
+                lines.push(timeLines);
+            } else {
+                this.log(`Warning: Skipping invalid time distribution on source`);
             }
         }
 
@@ -1584,103 +1895,44 @@ export class XMLGenerationService {
         return ['    <constraints>', ...lines, '    </constraints>'].join('\n');
     }
 
+    /**
+     * Serialize a spatial distribution. The shared helper owns element names,
+     * attributes, and parameter ordering for every OpenMC spatial type.
+     * @param spatial - Spatial distribution from the state model.
+     * @returns Indented `<space>` XML, or an empty string when invalid.
+     */
     private generateSpatialElement(spatial: any): string {
-        const type = spatial.type;
-
-        switch (type) {
-            case 'box':
-                const lowerLeft = spatial.lowerLeft || [-10, -10, -10];
-                const upperRight = spatial.upperRight || [10, 10, 10];
-                return `    <space type="box">\n      <parameters>${lowerLeft.join(' ')} ${upperRight.join(' ')}</parameters>\n    </space>`;
-
-            case 'point':
-                const origin = spatial.origin || [0, 0, 0];
-                return `    <space type="point">\n      <parameters>${origin.join(' ')}</parameters>\n    </space>`;
-
-            case 'sphere':
-                // OpenMC XML uses 'spherical' with independent distributions for r, theta, phi
-                const center = spatial.center || [0, 0, 0];
-                const radius = spatial.radius !== undefined ? spatial.radius : 1;
-                return `    <space type="spherical" origin="${center.join(' ')}">\n      <r type="uniform" parameters="0 ${radius}"/>\n      <cos_theta type="uniform" parameters="-1 1"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n    </space>`;
-
-            case 'cylinder':
-                // OpenMC XML uses 'cylindrical' with independent distributions for r, phi, z
-                const cylCenter = spatial.center || [0, 0, 0];
-                const cylRadius = spatial.radius !== undefined ? spatial.radius : 1;
-                const height = spatial.height !== undefined ? spatial.height : 1;
-                return `    <space type="cylindrical" origin="${cylCenter.join(' ')}">\n      <r type="uniform" parameters="0 ${cylRadius}"/>\n      <phi type="uniform" parameters="0 6.28318530718"/>\n      <z type="uniform" parameters="-${height / 2} ${height / 2}"/>\n    </space>`;
-
-            default:
-                this.log(`Warning: Unknown spatial type '${type}', using default box`);
-                return '    <space type="box">\n      <parameters>-10 -10 -10 10 10 10</parameters>\n    </space>';
+        const xml = generateSpatialXml(spatial, 4);
+        if (!xml) {
+            this.log(`Warning: Invalid or unsupported spatial distribution '${spatial?.type}'`);
         }
+        return xml;
     }
 
+    /**
+     * Serialize an energy distribution (shared univariate helper).
+     * @param energy - Energy distribution from the state model.
+     * @returns Indented `<energy>` XML, or an empty string when invalid.
+     */
     private generateEnergyElement(energy: any): string {
-        const type = energy.type;
-
-        switch (type) {
-            case 'discrete':
-                const energies = energy.energies || [1e6];
-                // For discrete energy, parameters are: energy1 prob1 energy2 prob2 ...
-                // If only energies provided, assume equal probability (sum to 1)
-                const params: string[] = [];
-                const prob = 1.0 / energies.length;
-                for (const e of energies) {
-                    params.push(String(e));
-                    params.push(String(prob));
-                }
-                return `    <energy type="discrete">\n      <parameters>${params.join(' ')}</parameters>\n    </energy>`;
-
-            case 'uniform':
-                const min = energy.min !== undefined ? energy.min : 1e-5;
-                const max = energy.max !== undefined ? energy.max : 2e7;
-                return `    <energy type="uniform">\n      <parameters>${min} ${max}</parameters>\n    </energy>`;
-
-            case 'maxwell':
-                const temp = energy.temperature || 0.025;
-                return `    <energy type="maxwell">\n      <parameters>${temp}</parameters>\n    </energy>`;
-
-            case 'watt':
-                const a = energy.a || 0.988;
-                const b = energy.b || 2.249;
-                return `    <energy type="watt">\n      <parameters>${a} ${b}</parameters>\n    </energy>`;
-
-            case 'normal': {
-                return `    <energy type="normal">\n      <parameters>${energy.mean} ${energy.stdDev}</parameters>\n    </energy>`;
-            }
-
-            case 'muir': {
-                // muir() is a function returning a Normal in this OpenMC
-                // version: std_dev = sqrt(2 * e0 * kt / m_rat); XML is type
-                // 'normal' (univariate.py:1243-1267)
-                const stdDev = Math.sqrt((2 * energy.e0 * energy.kt) / energy.m_rat);
-                return `    <energy type="normal">\n      <parameters>${energy.e0} ${stdDev}</parameters>\n    </energy>`;
-            }
-
-            case 'tabular':
-                this.log(`Warning: Energy type '${type}' not fully implemented`);
-                return '';
-
-            default:
-                return '';
+        const xml = generateUnivariateXml(energy, 'energy', 4);
+        if (!xml) {
+            this.log(`Warning: Invalid or unsupported energy distribution '${energy?.type}'`);
         }
+        return xml;
     }
 
+    /**
+     * Serialize an angular distribution (shared helper).
+     * @param angle - Angular distribution from the state model.
+     * @returns Indented `<angle>` XML, or an empty string when invalid.
+     */
     private generateAngleElement(angle: any): string {
-        const type = angle.type;
-
-        switch (type) {
-            case 'isotropic':
-                return '    <angle type="isotropic"/>';
-
-            case 'monodirectional':
-                return '    <angle type="monodirectional"/>';
-
-            default:
-                this.log(`Warning: Angle type '${type}' not fully implemented`);
-                return '';
+        const xml = generateAngleXml(angle, 4);
+        if (!xml) {
+            this.log(`Warning: Invalid or unsupported angular distribution '${angle?.type}'`);
         }
+        return xml;
     }
 
     // ============================================================================
@@ -1709,6 +1961,12 @@ export class XMLGenerationService {
             if (source.type === 'mesh' && source.meshId !== undefined) {
                 ids.add(source.meshId);
             }
+            if ((source.type ?? 'independent') === 'independent') {
+                const spatial = (source as any).spatial as { type?: string; meshId?: number } | undefined;
+                if (spatial?.type === 'mesh' && spatial.meshId !== undefined) {
+                    ids.add(spatial.meshId);
+                }
+            }
         }
         if (state.settings.entropyMesh) {
             ids.add(state.settings.entropyMesh.id ?? 10000);
@@ -1718,19 +1976,20 @@ export class XMLGenerationService {
         // never skips a mesh settings.xml did not actually emit
         const emittedRegularMesh = (id: number | undefined): boolean =>
             id !== undefined && state.meshes.some((m) => m.id === id && m.type === 'regular');
+        const emittedMesh = (id: number | undefined): boolean => id !== undefined && state.meshes.some((m) => m.id === id);
         if (emittedRegularMesh(state.settings.randomRay?.sourceRegionMeshId)) {
             ids.add(state.settings.randomRay!.sourceRegionMeshId!);
         }
         const vr = state.varianceReduction;
         if (vr) {
-            if (vr.weightWindowGenerator) {
-                const wwgMeshId = vr.weightWindowGenerator.meshId ?? vr.weightWindows?.meshId ?? vr.ufs?.meshId ?? 1;
-                if (emittedRegularMesh(wwgMeshId)) {
-                    ids.add(wwgMeshId);
-                }
+            const generatorMeshId = resolveWeightWindowGeneratorMesh(vr);
+            if (emittedMesh(generatorMeshId)) {
+                ids.add(generatorMeshId!);
             }
-            if (emittedRegularMesh(vr.weightWindows?.meshId)) {
-                ids.add(vr.weightWindows!.meshId!);
+            for (const set of vr.weightWindows ?? []) {
+                if (emittedMesh(set.meshId)) {
+                    ids.add(set.meshId);
+                }
             }
             if (vr.ufs?.enabled && emittedRegularMesh(vr.ufs.meshId)) {
                 ids.add(vr.ufs.meshId!);
@@ -1739,7 +1998,13 @@ export class XMLGenerationService {
         return ids;
     }
 
-    private generateTalliesXML(state: OpenMCState, warnings?: string[]): string {
+    private generateTalliesXML(
+        state: OpenMCState,
+        warnings?: string[],
+        compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT,
+        projectDirectory?: string,
+        outputDirectory?: string
+    ): string {
         const lines: string[] = ['<?xml version="1.0"?>', '<tallies>', ''];
 
         // Add meshes first. Meshes referenced by settings-level features live
@@ -1750,7 +2015,7 @@ export class XMLGenerationService {
         const settingsMeshIds = this.getSettingsMeshIds(state);
         for (const mesh of state.meshes) {
             if (!settingsMeshIds.has(mesh.id)) {
-                lines.push(this.generateMeshElement(mesh));
+                lines.push(this.generateMeshElement(mesh, { warnings, projectDirectory, outputDirectory }));
             }
         }
 
@@ -1768,11 +2033,38 @@ export class XMLGenerationService {
             }
         }
 
+        // Omit 0.16-only filters with a warning on older environments so the
+        // tally never references a filter element that was not written. The
+        // UI keeps the user's configured filter in the project state.
+        const emittableTallies = effectiveTallies.map((tally) => {
+            const label = `Tally ${tally.id}${tally.name ? ` (${tally.name})` : ''}`;
+            const supported = tally.filters.flatMap((filter) => {
+                if (!isFilterSupported(filter.type, compat)) {
+                    const warning = getFilterSupportWarning(filter.type);
+                    if (warning) {
+                        warnings?.push(`${label}: ${warning}`);
+                    }
+                    return [];
+                }
+                const sanitized = sanitizeParticleFilter(filter, compat, label);
+                if (sanitized.warning) {
+                    warnings?.push(sanitized.warning);
+                }
+                if (filter.type === 'particle' && getParticleFilterBins(sanitized.filter).length === 0) {
+                    warnings?.push(`${label}: particle filter has no supported bins and was omitted from tallies.xml`);
+                    return [];
+                }
+                return [sanitized.filter];
+            });
+            const changed = supported.length !== tally.filters.length || supported.some((filter, index) => filter !== tally.filters[index]);
+            return changed ? { ...tally, filters: supported } : tally;
+        });
+
         // Collect all unique filters and assign them IDs
         const filterMap = new Map<string, { id: number } & OpenMCTally['filters'][number]>();
         let nextFilterId = 1;
 
-        for (const tally of effectiveTallies) {
+        for (const tally of emittableTallies) {
             for (const filter of tally.filters) {
                 // Create a unique key for this filter
                 const key = this.getFilterKey(filter);
@@ -1788,7 +2080,7 @@ export class XMLGenerationService {
         // tallies.py _create_derivative_subelements)
         const derivativeIds = new Map<NonNullable<OpenMCTally['derivative']>, number>();
         let nextDerivativeId = 1;
-        for (const tally of effectiveTallies) {
+        for (const tally of emittableTallies) {
             if (tally.derivative) {
                 if (!derivativeIds.has(tally.derivative)) {
                     derivativeIds.set(tally.derivative, tally.derivative.id ?? nextDerivativeId++);
@@ -1805,11 +2097,11 @@ export class XMLGenerationService {
 
         // Generate filter elements at the top level
         for (const filter of filterMap.values()) {
-            lines.push(this.generateFilterElement(filter));
+            lines.push(this.generateFilterElement(filter, compat, warnings));
         }
 
         // Add tallies with filter references
-        for (const tally of effectiveTallies) {
+        for (const tally of emittableTallies) {
             lines.push(this.generateTallyElement(tally, filterMap, derivativeIds));
         }
 
@@ -1831,26 +2123,59 @@ export class XMLGenerationService {
             filter.center ? `${filter.center.x},${filter.center.y},${filter.center.r}` : undefined,
             filter.energyValues?.join(','),
             filter.responseValues?.join(','),
-            filter.interpolation
+            filter.interpolation,
+            filter.meshTranslation?.join(','),
+            filter.meshRotation?.join(','),
+            filter.pairs ? flattenPairs(filter.pairs).join(',') : undefined,
+            filter.nuclideBins?.join(','),
+            filter.reactionBins?.join(','),
+            filter.particleBins?.map((particle: any) => particleTypeName(particle) ?? particle.name).join(','),
+            filter.particleTypes?.map((particle: any) => particleTypeName(particle) ?? particle.name).join(','),
+            filter.productionEnergyBins?.join(',')
         ]
             .filter((v) => v !== undefined)
             .join(':');
         return paramKey ? `${baseKey}:${paramKey}` : baseKey;
     }
 
-    private generateMeshElement(mesh: OpenMCMesh): string {
+    /**
+     * Emit a `<mesh>` element for any supported mesh type.
+     *
+     * Rectilinear grids are checked for finite, strictly increasing boundaries;
+     * unstructured filenames are checked against the selected library and the
+     * filesystem. Problems are reported as generation warnings — the element is
+     * still written so the user's data is never silently dropped.
+     *
+     * @param mesh - Mesh to emit.
+     * @param context - Generation warnings and path-resolution directories.
+     * @returns Formatted `<mesh>` XML.
+     */
+    private generateMeshElement(mesh: OpenMCMesh, context: MeshEmissionContext = {}): string {
         const lines: string[] = [];
+        const nameAttr = mesh.name ? ` name="${this.escapeXml(mesh.name)}"` : '';
 
         if (mesh.type === 'regular') {
             const regularMesh = mesh as OpenMCRegularMesh;
-            lines.push(`  <mesh id="${mesh.id}" type="regular">`);
+            lines.push(`  <mesh id="${mesh.id}" type="regular"${nameAttr}>`);
             lines.push(`    <lower_left>${regularMesh.lowerLeft.join(' ')}</lower_left>`);
             lines.push(`    <upper_right>${regularMesh.upperRight.join(' ')}</upper_right>`);
             lines.push(`    <dimension>${regularMesh.dimension.join(' ')}</dimension>`);
             lines.push('  </mesh>');
+        } else if (mesh.type === 'rectilinear') {
+            const rectMesh = mesh as OpenMCRectilinearMesh;
+            for (const issue of validateRectilinearMesh(rectMesh)) {
+                context.warnings?.push(
+                    `Mesh ${mesh.id} ${issue.axis}_grid is invalid: ${issue.message}. OpenMC will reject this mesh — fix the grid in the Tally Configurator`
+                );
+            }
+            lines.push(`  <mesh id="${mesh.id}" type="rectilinear"${nameAttr}>`);
+            lines.push(`    <x_grid>${rectMesh.xGrid.join(' ')}</x_grid>`);
+            lines.push(`    <y_grid>${rectMesh.yGrid.join(' ')}</y_grid>`);
+            lines.push(`    <z_grid>${rectMesh.zGrid.join(' ')}</z_grid>`);
+            lines.push('  </mesh>');
         } else if (mesh.type === 'cylindrical') {
             const cylMesh = mesh as OpenMCCylindricalMesh;
-            lines.push(`  <mesh id="${mesh.id}" type="cylindrical">`);
+            lines.push(`  <mesh id="${mesh.id}" type="cylindrical"${nameAttr}>`);
             if (cylMesh.origin) {
                 lines.push(`    <origin>${cylMesh.origin.join(' ')}</origin>`);
             }
@@ -1863,7 +2188,7 @@ export class XMLGenerationService {
             lines.push('  </mesh>');
         } else if (mesh.type === 'spherical') {
             const sphMesh = mesh as OpenMCSphericalMesh;
-            lines.push(`  <mesh id="${mesh.id}" type="spherical">`);
+            lines.push(`  <mesh id="${mesh.id}" type="spherical"${nameAttr}>`);
             if (sphMesh.origin) {
                 lines.push(`    <origin>${sphMesh.origin.join(' ')}</origin>`);
             }
@@ -1871,10 +2196,63 @@ export class XMLGenerationService {
             lines.push(`    <theta_grid>${sphMesh.thetaGrid.join(' ')}</theta_grid>`);
             lines.push(`    <phi_grid>${sphMesh.phiGrid.join(' ')}</phi_grid>`);
             lines.push('  </mesh>');
+        } else {
+            const unstructured = mesh as OpenMCUnstructuredMesh;
+            const validationError = validateUnstructuredMeshFilename(unstructured.filename, unstructured.library);
+            if (validationError) {
+                context.warnings?.push(`Mesh ${mesh.id}: ${validationError}. OpenMC will reject this mesh at run time`);
+            }
+            const lengthMultiplier =
+                unstructured.lengthMultiplier !== undefined && unstructured.lengthMultiplier !== 1
+                    ? ` length_multiplier="${unstructured.lengthMultiplier}"`
+                    : '';
+            const optionsAttr = unstructured.options ? ` options="${this.escapeXml(unstructured.options)}"` : '';
+            const library = unstructured.library ?? 'moab';
+            lines.push(`  <mesh id="${mesh.id}" type="unstructured"${nameAttr} library="${library}"${optionsAttr}${lengthMultiplier}>`);
+            lines.push(`    <filename>${this.escapeXml(this.resolveUnstructuredMeshFilename(unstructured, context))}</filename>`);
+            lines.push('  </mesh>');
         }
 
         lines.push('');
         return lines.join('\n');
+    }
+
+    /**
+     * Resolve an unstructured mesh filename for XML emission and warn when the
+     * file cannot be found.
+     *
+     * Absolute paths are rewritten relative to the run directory when possible
+     * (the same pattern as DAGMC geometry), so generated decks stay portable.
+     *
+     * @param mesh - Unstructured mesh.
+     * @param context - Path-resolution directories and warnings.
+     * @returns Filename text for the `<filename>` element.
+     */
+    private resolveUnstructuredMeshFilename(mesh: OpenMCUnstructuredMesh, context: MeshEmissionContext): string {
+        const filename = mesh.filename ?? '';
+        if (!filename) {
+            return filename;
+        }
+        const baseDirectory = context.projectDirectory || context.outputDirectory;
+        const absolute = path.isAbsolute(filename) || !baseDirectory ? filename : path.resolve(baseDirectory, filename);
+
+        try {
+            if (!fs.existsSync(absolute)) {
+                context.warnings?.push(
+                    `Unstructured mesh ${mesh.id} file not found: ${absolute}. Place the file next to the project or choose it again in the Tally Configurator`
+                );
+            }
+        } catch {
+            // A stat failure is already surfaced by the missing-file check on export.
+        }
+
+        if (context.outputDirectory && path.isAbsolute(absolute)) {
+            const relative = path.relative(context.outputDirectory, absolute).replace(/\\/g, '/');
+            if (relative && !path.isAbsolute(relative)) {
+                return relative;
+            }
+        }
+        return filename;
     }
     private generateTallyElement(
         tally: OpenMCTally,
@@ -1917,6 +2295,12 @@ export class XMLGenerationService {
             lines.push(`    <estimator>${tally.estimator}</estimator>`);
         }
 
+        // Optional higher-moment accumulation (openmc.Tally.to_xml_element
+        // writes <higher_moments>true</higher_moments>).
+        if (tally.higherMoments) {
+            lines.push('    <higher_moments>true</higher_moments>');
+        }
+
         // Derivative reference (the <derivative> elements live at the
         // tallies root; the tally carries the ID as text, tallies.py:1477-1480)
         if (tally.derivative && derivativeIds) {
@@ -1940,16 +2324,103 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generateFilterElement(filter: any): string {
+    private generateFilterElement(filter: any, compat: OpenMCCompat = DEFAULT_OPENMC_COMPAT, warnings?: string[]): string {
         const lines: string[] = [];
 
         switch (filter.type) {
             case 'mesh':
             case 'meshsurface':
-                // Mesh-based filters reference the mesh ID in <bins>
-                lines.push(`  <filter id="${filter.id}" type="${filter.type}">`);
+            case 'meshborn': {
+                // Mesh-based filters reference the mesh ID in <bins>. MeshFilter
+                // translation is a 0.15.3+ attribute; rotation is 0.16.0+
+                // (openmc/filter.py MeshFilter.to_xml_element) and is gated by
+                // the probed capability. MeshBornFilter inherits the same
+                // transform surface; MeshMaterialFilter is separate because its
+                // bins are element/material pairs and it never emits rotation.
+                const translation = filter.meshTranslation as [number, number, number] | undefined;
+                const rotation = filter.meshRotation as [number, number, number] | undefined;
+                const translationAttr = translation ? ` translation="${translation.join(' ')}"` : '';
+                let rotationAttr = '';
+                if (rotation) {
+                    if (compat.meshFilterRotation) {
+                        rotationAttr = ` rotation="${rotation.join(' ')}"`;
+                    } else {
+                        warnings?.push(
+                            `Mesh filter rotation (${rotation.join(', ')}) requires OpenMC 0.16 or newer and was omitted from tallies.xml — remove the rotation or update the Python environment`
+                        );
+                    }
+                }
+                lines.push(`  <filter id="${filter.id}" type="${filter.type}"${translationAttr}${rotationAttr}>`);
                 lines.push(`    <bins>${filter.meshId ?? filter.bins.join(' ')}</bins>`);
                 break;
+            }
+
+            case 'meshmaterial': {
+                const pairs = getMeshMaterialPairs(filter);
+                const flattened = filter.bins.length % 2 !== 0 ? filter.bins : pairs.length > 0 ? flattenPairs(pairs) : filter.bins;
+                if (flattened.length % 2 !== 0) {
+                    warnings?.push(
+                        `Mesh-material filter ${filter.id} has an odd number of bins (${flattened.length}); OpenMC expects element/material pairs and will reject this filter`
+                    );
+                }
+                const translation = filter.meshTranslation as [number, number, number] | undefined;
+                const translationAttr = translation ? ` translation="${translation.join(' ')}"` : '';
+                lines.push(`  <filter id="${filter.id}" type="meshmaterial" mesh="${filter.meshId ?? 0}"${translationAttr}>`);
+                lines.push(`    <bins>${flattened.join(' ')}</bins>`);
+                break;
+            }
+
+            case 'cellinstance': {
+                const pairs = getCellInstancePairs(filter);
+                const flattened = filter.bins.length % 2 !== 0 ? filter.bins : pairs.length > 0 ? flattenPairs(pairs) : filter.bins;
+                if (flattened.length % 2 !== 0) {
+                    warnings?.push(
+                        `Cell-instance filter ${filter.id} has an odd number of bins (${flattened.length}); OpenMC expects cell/instance pairs and will reject this filter`
+                    );
+                }
+                lines.push(`  <filter id="${filter.id}" type="cellinstance">`);
+                lines.push(`    <bins>${flattened.join(' ')}</bins>`);
+                break;
+            }
+
+            case 'parentnuclide': {
+                const bins = filter.nuclideBins ?? [];
+                lines.push(`  <filter id="${filter.id}" type="parentnuclide">`);
+                lines.push(`    <bins>${bins.map((name: string) => this.escapeXml(name)).join(' ')}</bins>`);
+                break;
+            }
+
+            case 'reaction': {
+                const bins = (filter.reactionBins ?? []).map((bin: string) => {
+                    const canonical = normalizeReactionBin(bin);
+                    if (!canonical) {
+                        warnings?.push(
+                            `Reaction filter ${filter.id} contains "${bin}", which is not a known OpenMC reaction; OpenMC will reject this filter`
+                        );
+                        return bin;
+                    }
+                    return canonical;
+                });
+                lines.push(`  <filter id="${filter.id}" type="reaction">`);
+                lines.push(`    <bins>${bins.map((bin: string) => this.escapeXml(bin)).join(' ')}</bins>`);
+                break;
+            }
+
+            case 'particleproduction': {
+                const particles = getParticleProductionTypes(filter);
+                const energies = filter.productionEnergyBins ?? [];
+                if (particles.length === 0) {
+                    warnings?.push(
+                        `Particle-production filter ${filter.id} has no secondary particle types; OpenMC will reject this filter`
+                    );
+                }
+                lines.push(`  <filter id="${filter.id}" type="particleproduction">`);
+                lines.push(`    <particles>${particles.map((particle) => this.escapeXml(particle.name)).join(' ')}</particles>`);
+                if (energies.length > 0) {
+                    lines.push(`    <energies>${energies.join(' ')}</energies>`);
+                }
+                break;
+            }
 
             case 'legendre':
             case 'spatiallegendre':
@@ -1982,11 +2453,13 @@ export class XMLGenerationService {
                 lines.push(`    <interpolation>${filter.interpolation ?? 'linear-linear'}</interpolation>`);
                 break;
 
-            case 'particle':
-                // Particle filter bins are particle names in real OpenMC XML
+            case 'particle': {
+                // Particle filter bins are canonical particle names in OpenMC XML.
+                const particles = getParticleFilterBins(filter);
                 lines.push(`  <filter id="${filter.id}" type="particle">`);
-                lines.push(`    <bins>${filter.bins.map((b: number) => (b === 2 ? 'photon' : 'neutron')).join(' ') || 'neutron'}</bins>`);
+                lines.push(`    <bins>${particles.map((particle) => this.escapeXml(particle.name)).join(' ')}</bins>`);
                 break;
+            }
 
             default:
                 lines.push(`  <filter id="${filter.id}" type="${filter.type}">`);
@@ -2012,7 +2485,7 @@ export class XMLGenerationService {
         const lines: string[] = ['<?xml version="1.0"?>', '<plots>', ''];
 
         for (const plot of state.plots || []) {
-            lines.push(this.generatePlotElement(plot));
+            lines.push(this.generatePlotElement(plot, state));
         }
 
         lines.push('</plots>');
@@ -2020,7 +2493,7 @@ export class XMLGenerationService {
         return lines.join('\n');
     }
 
-    private generatePlotElement(plot: any): string {
+    private generatePlotElement(plot: OpenMCPlotConfig, state: OpenMCState): string {
         const lines: string[] = [];
         const nameAttr = plot.name ? ` name="${this.escapeXml(plot.name)}"` : '';
         const colorBy = plot.colorBy === 'material' ? 'material' : 'cell';
@@ -2040,9 +2513,8 @@ export class XMLGenerationService {
             lines.push(`    <pixels>${(plot.voxels ?? [50, 50, 50]).join(' ')}</pixels>`);
             const lowerLeft = plot.lowerLeft;
             const upperRight = plot.upperRight;
-            const origin =
-                lowerLeft && upperRight ? lowerLeft.map((v: number, i: number) => (v + upperRight[i]) / 2) : (plot.origin ?? [0, 0, 0]);
-            const width = lowerLeft && upperRight ? lowerLeft.map((v: number, i: number) => upperRight[i] - v) : [10, 10, 10];
+            const origin = lowerLeft && upperRight ? lowerLeft.map((v, i) => (v + upperRight[i]) / 2) : (plot.origin ?? [0, 0, 0]);
+            const width = lowerLeft && upperRight ? lowerLeft.map((v, i) => upperRight[i] - v) : [10, 10, 10];
             lines.push(`    <origin>${origin.join(' ')}</origin>`);
             lines.push(`    <width>${width.join(' ')}</width>`);
         } else {
@@ -2070,6 +2542,27 @@ export class XMLGenerationService {
                 if (plot.wireframeIds && plot.wireframeIds.length > 0) {
                     lines.push(`    <wireframe_ids>${plot.wireframeIds.join(' ')}</wireframe_ids>`);
                 }
+            }
+        }
+
+        // Display colors apply to slice and ray-traced plots; voxel output
+        // stores raw IDs and ignores them.
+        if (plotSupportsBackground(plot.type) && plot.background) {
+            lines.push(`    <background>${plot.background.join(' ')}</background>`);
+        }
+        if (plotSupportsMask(plot.type) && plot.mask && plot.mask.components.length > 0) {
+            // OpenMC paints the listed mask components with the mask background;
+            // the state stores the visible selection, so emit the complement.
+            const hidden = toOpenMcMaskComponents(plot, state);
+            if (getPlotMaskSummary(plot, state).visible > 0 && hidden.length > 0) {
+                const maskBackground = plot.mask.background ? ` background="${plot.mask.background.join(' ')}"` : '';
+                lines.push(`    <mask components="${hidden.join(' ')}"${maskBackground}/>`);
+            }
+        }
+        if (plotSupportsOverlaps(plot.type) && plot.showOverlaps) {
+            lines.push('    <show_overlaps>true</show_overlaps>');
+            if (plot.overlapColor) {
+                lines.push(`    <overlap_color>${plot.overlapColor.join(' ')}</overlap_color>`);
             }
         }
 

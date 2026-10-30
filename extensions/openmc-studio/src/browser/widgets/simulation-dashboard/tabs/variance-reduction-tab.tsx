@@ -26,10 +26,14 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import { NukeSelect, Tooltip as NukeTooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { injectable } from '@theia/core/shared/inversify';
 import { OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
-import { OpenMCState } from '../../../../common/openmc-state-schema';
-import { WeightWindowEditor, SourceBiasingEditor } from '../vr';
+import { OpenMCState, OpenMCWeightWindows } from '../../../../common/openmc-state-schema';
+import { NEUTRON_PARTICLE } from '../../../../common/particle-types';
+import { nextWeightWindowId } from '../../../../common/variance-reduction';
+import { ParticleTypeSelector } from '../../shared/particle-type-selector';
+import { WeightWindowEditor } from '../vr';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
 import { DashboardTabContribution } from './tab-registry';
 
@@ -40,7 +44,7 @@ import { DashboardTabContribution } from './tab-registry';
 export class VarianceReductionTabContribution implements DashboardTabContribution {
     readonly id = 'variance-reduction';
     readonly label = 'Variance Reduction';
-    readonly icon = 'dashboard';
+    readonly icon = 'openmc-variance';
     readonly order = 4;
 
     /**
@@ -93,86 +97,105 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                 </div>
 
                 {/* Uniform Fission Site (UFS) */}
-                {state.settings.run.mode === 'eigenvalue' && (
-                    <div className="settings-section ufs-section">
-                        <h3>
-                            <i className="codicon codicon-radio-tower"></i>
-                            Uniform Fission Site (UFS)
-                        </h3>
-                        <div className="form-group checkbox">
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    checked={vr.ufs?.enabled || false}
-                                    onChange={(e) => {
-                                        if (e.target.checked) {
-                                            host.stateManager.updateVarianceReduction({
-                                                ...vr,
-                                                ufs: { enabled: true }
-                                            });
-                                        } else {
-                                            host.stateManager.updateVarianceReduction({
-                                                ...vr,
-                                                ufs: undefined
-                                            });
-                                        }
-                                    }}
-                                />
-                                Enable Uniform Fission Site
-                            </label>
-                        </div>
-                        <span className="form-hint">
-                            For eigenvalue calculations: sample fission sites uniformly across the fissionable mesh. Improves source
-                            convergence for problems with localized fission sources.
-                        </span>
-
-                        {vr.ufs?.enabled && meshes.length > 0 && (
-                            <div className="form-group" style={{ marginTop: '12px' }}>
-                                <label>UFS Mesh (optional)</label>
-                                <select
-                                    value={vr.ufs.meshId || ''}
-                                    onChange={(e) => {
-                                        const meshId = e.target.value ? parseInt(e.target.value) : undefined;
-                                        host.stateManager.updateVarianceReduction({
-                                            ...vr,
-                                            ufs: { ...vr.ufs, meshId }
-                                        });
-                                    }}
-                                >
-                                    <option value="">Use weight window mesh</option>
-                                    {meshes.map((mesh) => (
-                                        <option key={mesh.id} value={mesh.id}>
-                                            {mesh.name || `Mesh ${mesh.id}`} ({mesh.type})
-                                        </option>
-                                    ))}
-                                </select>
-                                <span className="form-hint">Select a specific mesh or use the weight window mesh</span>
+                {(() => {
+                    const isEigenvalue = state.settings.run.mode === 'eigenvalue';
+                    const regularMeshes = meshes.filter((mesh) => mesh.type === 'regular');
+                    const ufsEnabled = !!vr.ufs?.enabled;
+                    return (
+                        <div className="settings-section ufs-section">
+                            <h3>
+                                <i className="codicon codicon-radio-tower"></i>
+                                Uniform Fission Site (UFS)
+                            </h3>
+                            <div className="form-group checkbox">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={ufsEnabled}
+                                        disabled={!isEigenvalue}
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                host.stateManager.updateVarianceReduction({
+                                                    ...vr,
+                                                    ufs: { enabled: true }
+                                                });
+                                            } else {
+                                                host.stateManager.updateVarianceReduction({
+                                                    ...vr,
+                                                    ufs: undefined
+                                                });
+                                            }
+                                        }}
+                                    />
+                                    Enable Uniform Fission Site
+                                </label>
                             </div>
-                        )}
-                    </div>
-                )}
+                            <span className="form-hint">
+                                UFS re-weights fission sites uniformly over a regular mesh in eigenvalue runs. It is ignored in fixed-source
+                                mode.
+                            </span>
+                            {!isEigenvalue && (
+                                <span className="form-hint source-warning">Switch the run mode to eigenvalue to use UFS.</span>
+                            )}
 
-                {/* Cutoff Settings -->
-                <div className='settings-section cutoff-section'>
+                            {ufsEnabled && (
+                                <div className="form-group ufs-mesh-picker">
+                                    <label>UFS mesh</label>
+                                    <NukeSelect
+                                        value={String(vr.ufs?.meshId ?? '')}
+                                        options={[
+                                            {
+                                                value: '',
+                                                label: regularMeshes.length > 0 ? 'Select a regular mesh...' : 'No regular meshes'
+                                            },
+                                            ...regularMeshes.map((mesh) => ({
+                                                value: String(mesh.id),
+                                                label: `${mesh.name || `Mesh ${mesh.id}`} (${mesh.type})`
+                                            }))
+                                        ]}
+                                        onChange={(value: string) => {
+                                            const meshId = value ? parseInt(value) : undefined;
+                                            host.stateManager.updateVarianceReduction({
+                                                ...vr,
+                                                ufs: { ...vr.ufs, enabled: true, meshId }
+                                            });
+                                        }}
+                                        ariaLabel="UFS mesh"
+                                    />
+                                    {vr.ufs?.meshId === undefined ? (
+                                        <span className="form-error">
+                                            Select a regular mesh; UFS cannot run without <code>ufs_mesh</code>.
+                                        </span>
+                                    ) : (
+                                        <span className="form-hint">The mesh must cover every fissionable region.</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })()}
+
+                {/* Cutoff Settings */}
+                <div className="settings-section cutoff-section">
                     <h3>
-                        <i className='codicon codicon-settings'></i>
+                        <i className="codicon codicon-settings"></i>
                         Weight Cutoffs
                     </h3>
 
-                    <div className='form-row'>
-                        <div className='form-group'>
+                    <div className="form-row">
+                        <div className="form-group">
                             <label>
                                 Weight Cutoff
-                                <Tooltip content='Particles with weight below this value are terminated' position='top'>
-                                    <i className='codicon codicon-info info-icon'></i>
-                                </Tooltip>
+                                <NukeTooltip content="Particles with weight below this value are terminated" position="top">
+                                    <i className="codicon codicon-info info-icon"></i>
+                                </NukeTooltip>
                             </label>
                             <input
-                                type='number'
+                                type="number"
                                 min={0}
                                 step={0.001}
                                 value={vr.cutoff?.weight || ''}
-                                placeholder='Default'
+                                placeholder="Default"
                                 onChange={(e) => {
                                     const weight = e.target.value ? parseFloat(e.target.value) : undefined;
                                     host.stateManager.updateVarianceReduction({
@@ -181,22 +204,22 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                     });
                                 }}
                             />
-                            <span className='form-hint'>Terminate particles below this weight</span>
+                            <span className="form-hint">Terminate particles below this weight</span>
                         </div>
 
-                        <div className='form-group'>
+                        <div className="form-group">
                             <label>
                                 Average Weight Cutoff
-                                <Tooltip content='Threshold for average weight of particles in a cell' position='top'>
-                                    <i className='codicon codicon-info info-icon'></i>
-                                </Tooltip>
+                                <NukeTooltip content="Threshold for average weight of particles in a cell" position="top">
+                                    <i className="codicon codicon-info info-icon"></i>
+                                </NukeTooltip>
                             </label>
                             <input
-                                type='number'
+                                type="number"
                                 min={0}
                                 step={0.001}
                                 value={vr.cutoff?.weightAvg || ''}
-                                placeholder='Default'
+                                placeholder="Default"
                                 onChange={(e) => {
                                     const weightAvg = e.target.value ? parseFloat(e.target.value) : undefined;
                                     host.stateManager.updateVarianceReduction({
@@ -205,7 +228,7 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                     });
                                 }}
                             />
-                            <span className='form-hint'>Cell-based average weight threshold</span>
+                            <span className="form-hint">Cell-based average weight threshold</span>
                         </div>
                     </div>
                 </div>
@@ -226,7 +249,7 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                     if (e.target.checked) {
                                         host.stateManager.updateVarianceReduction({
                                             ...vr,
-                                            weightWindowGenerator: { iterations: 5, particleType: 'neutron' }
+                                            weightWindowGenerator: { iterations: 5, particleType: NEUTRON_PARTICLE }
                                         });
                                     } else {
                                         host.stateManager.updateVarianceReduction({
@@ -245,21 +268,23 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                             <div className="form-row">
                                 <div className="form-group">
                                     <label>Method</label>
-                                    <select
+                                    <NukeSelect
                                         value={vr.weightWindowGenerator.method ?? 'magic'}
-                                        onChange={(e) =>
+                                        options={[
+                                            { value: 'magic', label: 'MAGIC (default)' },
+                                            { value: 'fw_cadis', label: 'FW-CADIS (multi-group)' }
+                                        ]}
+                                        onChange={(value: string) =>
                                             host.stateManager.updateVarianceReduction({
                                                 ...vr,
                                                 weightWindowGenerator: {
                                                     ...vr.weightWindowGenerator,
-                                                    method: e.target.value as 'magic' | 'fw_cadis'
+                                                    method: value as 'magic' | 'fw_cadis'
                                                 }
                                             })
                                         }
-                                    >
-                                        <option value="magic">MAGIC (default)</option>
-                                        <option value="fw_cadis">FW-CADIS (multi-group)</option>
-                                    </select>
+                                        ariaLabel="Weight window generator method"
+                                    />
                                 </div>
 
                                 <div className="form-group">
@@ -286,22 +311,23 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                                 </div>
 
                                 <div className="form-group">
-                                    <label>Particle Type</label>
-                                    <select
-                                        value={vr.weightWindowGenerator.particleType || 'neutron'}
-                                        onChange={(e) =>
+                                    <ParticleTypeSelector
+                                        value={vr.weightWindowGenerator.particleType}
+                                        onChange={(particleType) =>
                                             host.stateManager.updateVarianceReduction({
                                                 ...vr,
                                                 weightWindowGenerator: {
                                                     ...vr.weightWindowGenerator,
-                                                    particleType: e.target.value as 'neutron' | 'photon'
+                                                    particleType
                                                 }
                                             })
                                         }
-                                    >
-                                        <option value="neutron">Neutron</option>
-                                        <option value="photon">Photon</option>
-                                    </select>
+                                        scope="weight-window"
+                                        allowedNames={['neutron', 'photon']}
+                                        allowCustom={false}
+                                        ariaLabel="Generator particle type"
+                                        label="Particle Type"
+                                    />
                                     <span className="form-hint">Particle type to generate weight windows for</span>
                                 </div>
                             </div>
@@ -400,59 +426,81 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
                 {/* Weight Windows Editor */}
                 <WeightWindowEditor
                     weightWindows={vr.weightWindows}
+                    weightWindowsFile={vr.weightWindowsFile}
+                    weightWindowsOn={vr.weightWindowsOn}
+                    weightWindowCheckpoints={vr.weightWindowCheckpoints}
                     meshes={meshes}
                     onChange={(updates) =>
                         host.stateManager.updateVarianceReduction({
                             ...vr,
-                            weightWindows: { ...vr.weightWindows, ...updates } as any
+                            ...updates
                         })
                     }
-                    onToggle={(enabled) => {
-                        if (enabled) {
-                            host.stateManager.updateVarianceReduction({
-                                ...vr,
-                                weightWindows: {
-                                    meshId: meshes[0]?.id || 0,
-                                    lowerBound: 0.5,
-                                    energyBounds: [0.0, 2e7] // Default: 0 to 20 MeV
-                                }
-                            });
-                        } else {
-                            host.stateManager.updateVarianceReduction({
-                                ...vr,
-                                weightWindows: undefined
-                            });
-                        }
-                    }}
+                    onBrowseFile={() => this.browseWeightWindowsFile(host)}
                     onWWINPImport={() => this.importWWINP(host)}
-                    onWWINPExport={() => this.exportWWINP(host)}
+                    onWWINPExport={(set) => this.exportWWINP(host, set)}
                 />
 
-                {/* Source Biasing Editor */}
-                <SourceBiasingEditor
-                    sourceBiasing={vr.sourceBiasing}
-                    onChange={(updates) =>
-                        host.stateManager.updateVarianceReduction({
-                            ...vr,
-                            sourceBiasing: { ...vr.sourceBiasing, ...updates }
-                        })
-                    }
-                    onToggle={(enabled) => {
-                        if (enabled) {
-                            host.stateManager.updateVarianceReduction({
-                                ...vr,
-                                sourceBiasing: {}
-                            });
-                        } else {
-                            host.stateManager.updateVarianceReduction({
-                                ...vr,
-                                sourceBiasing: undefined
-                            });
-                        }
-                    }}
-                />
+                <div className="vr-source-bias-note">
+                    <i className="codicon codicon-info" aria-hidden="true"></i>
+                    <span>
+                        Source bias is configured per distribution in <strong>Settings → Sources</strong>: energy/time, direction, and
+                        point-cloud/mesh spatial sections each carry their own bias control.
+                    </span>
+                </div>
+
+                {vr.weightWindowGenerator && host.producedWeightWindowsUri && (
+                    <div className="ww-bootstrap-action">
+                        <div className="ww-bootstrap-text">
+                            <strong>Generated weight_windows.h5 is available</strong>
+                            <span>
+                                Use the generated file for production and turn the generator off so the next run does not overwrite it.
+                            </span>
+                        </div>
+                        <button
+                            className="theia-button primary"
+                            onClick={() => {
+                                host.stateManager.updateVarianceReduction({
+                                    ...vr,
+                                    weightWindowsFile: host.producedWeightWindowsUri!.path.toString(),
+                                    weightWindowsOn: true,
+                                    weightWindowGenerator: undefined
+                                });
+                                host.messageService.info('Weight-window file set; generator disabled for the follow-up run');
+                            }}
+                        >
+                            <i className="codicon codicon-file-media"></i> Use generated weight_windows.h5
+                        </button>
+                    </div>
+                )}
             </div>
         );
+    }
+
+    /**
+     * Browse for a weight-window HDF5 file and store its absolute path.
+     * @param host - Simulation dashboard widget host.
+     */
+    private async browseWeightWindowsFile(host: SimulationDashboardWidget): Promise<void> {
+        const props: OpenFileDialogProps = {
+            title: 'Select Weight Windows File',
+            canSelectFiles: true,
+            canSelectFolders: false,
+            filters: {
+                'Weight Windows': ['h5', 'hdf5'],
+                'All Files': ['*']
+            }
+        };
+        const uri = await host.fileDialogService.showOpenDialog(props);
+        if (!uri) {
+            return;
+        }
+        const state = host.stateManager.getState();
+        host.stateManager.updateVarianceReduction({
+            ...(state.varianceReduction ?? {}),
+            weightWindowsFile: uri.path.toString(),
+            weightWindowsOn: true
+        });
     }
 
     /**
@@ -486,9 +534,17 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
             if (result.success && result.weightWindows) {
                 const state = host.stateManager.getState();
                 const vr = state.varianceReduction || {};
+                const sets = vr.weightWindows ?? [];
                 host.stateManager.updateVarianceReduction({
                     ...vr,
-                    weightWindows: result.weightWindows
+                    weightWindows: [
+                        ...sets,
+                        {
+                            ...result.weightWindows,
+                            id: nextWeightWindowId(sets)
+                        }
+                    ],
+                    weightWindowsOn: true
                 });
                 host.messageService.info('WWINP imported successfully');
             } else {
@@ -501,14 +557,14 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
     }
 
     /**
-     * Export current weight windows to an MCNP WWINP file.
+     * Export one weight-window set to an MCNP WWINP file.
      * @param host - Simulation dashboard widget host.
+     * @param set - Weight-window set to export.
      */
-    private async exportWWINP(host: SimulationDashboardWidget): Promise<void> {
+    private async exportWWINP(host: SimulationDashboardWidget, set: OpenMCWeightWindows): Promise<void> {
         const state = host.stateManager.getState();
-        const vr = state.varianceReduction;
 
-        if (!vr?.weightWindows) {
+        if (!set) {
             host.messageService.warn('No weight windows configured to export');
             return;
         }
@@ -529,7 +585,7 @@ export class VarianceReductionTabContribution implements DashboardTabContributio
             // Call backend service to generate WWINP
             const result = await host.studioService.getBackendService().exportWWINP({
                 filePath: uri.path.toString(),
-                weightWindows: vr.weightWindows,
+                weightWindows: set,
                 meshes: state.meshes
             });
 

@@ -1,0 +1,62 @@
+/* ============================================================================
+   NukeIDE Custom Checkbox (replaces builtin checkbox inputs across the IDE)
+   Native input underneath (focus + Space free); painted box on Theia tokens.
+   ============================================================================ */
+
+.nuke-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.nuke-checkbox.is-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Visually hidden but focusable: keyboard + screen readers stay honest. */
+.nuke-checkbox-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.nuke-checkbox-box {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: var(--theia-checkbox-background, var(--theia-input-background));
+    border: 1px solid var(--theia-checkbox-border, var(--theia-input-border));
+    color: transparent;
+    transition:
+        background var(--nuke-transition-fast),
+        border-color var(--nuke-transition-fast);
+}
+
+.nuke-checkbox-box .codicon {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.nuke-checkbox-input:checked + .nuke-checkbox-box {
+    background: var(--theia-checkbox-background, var(--theia-focusBorder));
+    border-color: var(--theia-checkbox-border, var(--theia-focusBorder));
+    color: var(--theia-checkbox-foreground, var(--theia-button-foreground));
+}
+
+.nuke-checkbox-input:focus-visible + .nuke-checkbox-box {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}

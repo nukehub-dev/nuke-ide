@@ -44,7 +44,7 @@ export interface DashboardTabContribution {
     readonly id: string;
     /** Display label of the tab button. */
     readonly label: string;
-    /** Codicon name without the `codicon-` prefix, e.g. 'settings-gear'. */
+    /** Codicon name without the `codicon-` prefix, e.g. 'settings-gear' or a custom `openmc-*` domain icon. */
     readonly icon: string;
     /** Sort order among the dashboard tabs. */
     readonly order: number;

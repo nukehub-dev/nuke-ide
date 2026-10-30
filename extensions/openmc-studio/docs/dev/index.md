@@ -8,11 +8,12 @@ This section is for developers who want to understand, modify, or extend `openmc
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | [**Architecture**](architecture.md)       | How the frontend React widgets, Theia backend services, and Python scripts fit together             |
 | [**DI Wiring**](di-wiring.md)             | DI bindings, command/menu contributions, OpenHandler registration, and state management             |
-| [**State Model**](state-model.md)         | The shared `.nuke-openmc` state schema and how widgets read/update it                               |
+| [**State Model**](state-model.md)         | The shared `.nuke-openmc` state schema, runnable project templates, and how widgets read/update it  |
 | [**Widget Patterns**](widget-patterns.md) | When to use React widgets vs iframe widgets, state propagation, and CSS theming                     |
 | [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract and state schema                     |
 | [**Python Backends**](python-backends.md) | Conventions for Python service scripts (statepoint reading, DAGMC editing, depletion, optimization) |
 | [**XML Generation**](xml-generation.md)   | How the state model becomes OpenMC XML (and back via import)                                        |
+| [**Shutdown Dose**](shutdown-dose.md)     | R2S/D1S driver-only contract, progress protocol, cell volumes, and Python export boundary           |
 | [**Adding a Widget**](adding-a-widget.md) | Step-by-step guide to adding a new widget or dashboard tab                                          |
 | [**Testing**](testing.md)                 | Python/TypeScript unit tests and the e2e layer (env vars, profiles, conventions)                    |
 
@@ -53,7 +54,8 @@ The frontend communicates with backend services over Theia's JSON-RPC channel. B
 src/
 ├── common/                          # RPC protocols & shared types
 │   ├── openmc-studio-protocol.ts    # Main frontend/backend contract
-│   └── openmc-state-schema.ts       # Shared state shape
+│   ├── openmc-state-schema.ts       # Shared state shape
+│   └── project-templates.ts         # Runnable project templates (shared with backend)
 ├── browser/                         # Frontend code
 │   ├── openmc-studio-frontend-module.ts   # DI bindings
 │   ├── openmc-studio-service.ts           # Shared frontend service
@@ -78,7 +80,9 @@ src/
 │   │   ├── dagmc-editor/
 │   │   ├── mgxs-generator/
 │   │   ├── native-plotting/
+│   │   ├── new-project/             # New Project template picker
 │   │   ├── optimization/
+│   │   ├── shutdown-dose/
 │   │   ├── simulation-comparison/
 │   │   ├── simulation-dashboard/
 │   │   │   └── tabs/                # DashboardTabContribution per tab
@@ -110,6 +114,9 @@ python/                              # Python service scripts
 ├── run_keff_search.py               # Criticality search driver
 ├── run_cmfd.py                      # CMFD acceleration driver
 ├── run_volume_calc.py               # Stochastic volume estimation
+├── run_r2s.py                       # R2S shutdown-dose driver
+├── run_d1s.py                       # D1S shutdown-dose driver
+├── dose_coefficients.py             # ICRP dose-response table reader
 ├── generate_mgxs.py                 # convert_to_multigroup driver
 ├── generate_mgxs_library.py         # openmc.mgxs.Library driver
 ├── generate_plots.py                # Native plot mode driver

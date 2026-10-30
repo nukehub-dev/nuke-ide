@@ -101,6 +101,10 @@ def test_step_cache_path_deterministic_and_sensitive_to_content(step_file, tmp_p
     assert os.path.basename(path1).startswith("bracket_")
     assert path1.endswith(".vtk")
 
+    coarse, _ = step_lib.get_cache_path(str(step_file), cache_dir, mesh_size_max=10.0)
+    fine, _ = step_lib.get_cache_path(str(step_file), cache_dir, mesh_size_max=2.0)
+    assert coarse != fine, "mesh size must participate in the STEP cache key"
+
 
 def test_compute_triangle_area_known_triangles():
     """_compute_triangle_area matches analytic results for known triangles."""

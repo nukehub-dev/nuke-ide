@@ -1,0 +1,46 @@
+/* Presentational 2D slice preview (Viewer Settings slice section).
+   Colors come from Theia theme variables only: the component is reused by
+   every native viewer and must follow the active theme. */
+
+.slice-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 72px;
+}
+
+/* Cell preview: fill the panel width (aspect preserved by the canvas
+   intrinsic ratio) and cap tall slices. Keep cells crisp (nearest) unless
+   the host asks for a linearly sampled slice, then let the canvas
+   interpolate. */
+.slice-preview-canvas {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    max-height: 180px;
+    object-fit: contain;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 2px;
+    background: var(--theia-editor-background);
+    image-rendering: pixelated;
+}
+
+.slice-preview-canvas.slice-preview-smooth {
+    image-rendering: auto;
+}
+
+/* Muted placeholder while the host has no extractable slice (no grid,
+   solid color mode, DAGMC without a mapped grid, ...). */
+.slice-preview-empty {
+    box-sizing: border-box;
+    min-height: 72px;
+    padding: 8px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+    text-align: center;
+}

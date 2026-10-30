@@ -603,8 +603,10 @@ export class EnvironmentService {
     /**
      * Build an install command suggestion based on package metadata.
      *
-     * Separates conda-only packages (e.g. paraview) from pip-installable ones.
-     * Respects per-package channels and global conda channel preferences.
+     * Renders from the structured spec fields: `condaOnly`/`condaSpec` entries are
+     * grouped into conda commands (by channel set, using `condaSpec || name`), the
+     * remaining entries into pip commands grouped by (`extraIndexUrl`, `pipArgs`)
+     * signature (using `pipSpec || name`).
      *
      * @param packages - Full list of package dependencies
      * @param missingNames - Names of the subset of packages that are missing
@@ -612,7 +614,7 @@ export class EnvironmentService {
      */
     private buildInstallSuggestion(packages: PackageDependency[], missingNames: string[]): string {
         const missing = packages.filter((p) => missingNames.includes(p.name));
-        const condaPkgs = missing.filter((p) => p.condaOnly);
+        const condaPkgs = missing.filter((p) => p.condaOnly || p.condaSpec);
 
         // Default channels from config, fallback to conda-forge
         const defaultChannels = this.config.condaChannels
@@ -631,29 +633,34 @@ export class EnvironmentService {
                 const channels = pkg.channels?.length ? pkg.channels : defaultChannels;
                 const key = channels.join(',');
                 const list = channelGroups.get(key) || [];
-                list.push(pkg.name);
+                list.push(pkg.condaSpec ?? pkg.name);
                 channelGroups.set(key, list);
             }
-            for (const [channelsKey, names] of channelGroups) {
+            for (const [channelsKey, specs] of channelGroups) {
                 const channels = channelsKey.split(',');
                 const channelArgs = channels.flatMap((c) => ['-c', c]).join(' ');
-                parts.push(`conda install ${channelArgs} ${names.join(' ')}`);
+                parts.push(`conda install ${channelArgs} ${specs.join(' ')}`);
             }
         }
 
-        // Pip packages: group by extra index URL
-        const pipPkgObjs = missing.filter((p) => !p.condaOnly);
+        // Pip packages: group by (extra index URL, pip args) signature
+        const pipPkgObjs = missing.filter((p) => !p.condaOnly && !p.condaSpec);
         if (pipPkgObjs.length > 0) {
             const indexGroups = new Map<string | undefined, string[]>();
             for (const pkg of pipPkgObjs) {
+                const args = [...(pkg.pipArgs ?? [])];
                 const index = pkg.extraIndexUrl || this.config.pipExtraIndexUrl || undefined;
-                const list = indexGroups.get(index) || [];
-                list.push(pkg.name);
-                indexGroups.set(index, list);
+                if (index) {
+                    args.push(`--extra-index-url ${index}`);
+                }
+                args.push(pkg.pipSpec ?? pkg.name);
+                const key = args.slice(0, -1).join(' ');
+                const list = indexGroups.get(key) || [];
+                list.push(args[args.length - 1]);
+                indexGroups.set(key, list);
             }
-            for (const [index, names] of indexGroups) {
-                const indexArg = index ? `--extra-index-url ${index} ` : '';
-                parts.push(`pip install ${indexArg}${names.join(' ')}`.trim());
+            for (const [argsKey, specs] of indexGroups) {
+                parts.push(`pip install ${argsKey ? `${argsKey} ` : ''}${specs.join(' ')}`);
             }
         }
 

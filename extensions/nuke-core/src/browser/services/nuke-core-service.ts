@@ -64,7 +64,8 @@ import {
     NukeCoreStatusBarVisibility,
     CreateEnvironmentOptions,
     CreateEnvironmentResult,
-    CreateEnvironmentCommand
+    CreateEnvironmentCommand,
+    DependencyInstallCommand
 } from '../../common/nuke-core-protocol';
 import { NukeCoreVisibilityService } from './nuke-core-visibility-service';
 
@@ -549,6 +550,17 @@ export class NukeCoreService {
      */
     async prepareInstallPackagesCommand(options: PackageInstallOptions): Promise<{ command: string; cwd: string }> {
         return this.backend.prepareInstallPackagesCommand(options);
+    }
+
+    /**
+     * Prepare the ordered shell commands for installing structured package dependencies.
+     *
+     * @param defs - The dependency entries to install (typically the missing ones).
+     * @param pythonPath - Optional explicit target Python.
+     * @returns The ordered list of commands (conda batch first, then pip groups).
+     */
+    async prepareDependencyInstallCommands(defs: PackageDependency[], pythonPath?: string): Promise<DependencyInstallCommand[]> {
+        return this.backend.prepareDependencyInstallCommands(defs, pythonPath);
     }
 
     /**

@@ -133,6 +133,9 @@ export class OpenMCXMLGenerationService {
 
             if (result.success) {
                 this.messageService.info(`Generated ${result.generatedFiles.length} XML files`);
+                for (const warning of result.warnings ?? []) {
+                    this.messageService.warn(warning);
+                }
             } else {
                 this.messageService.error(`XML generation failed: ${result.error}`);
             }

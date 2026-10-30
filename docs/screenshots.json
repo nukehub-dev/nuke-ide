@@ -1,0 +1,108 @@
+{
+  "$comment": "Manifest for generated docs screenshots. PNGs are captured and quantized by `yarn docs:screenshots`; declare every docs PNG here. See docs/AGENTS.md.",
+  "version": 1,
+  "screenshots": [
+    {
+      "id": "workbench",
+      "file": "docs/images/workbench.png",
+      "title": "NukeIDE workbench",
+      "description": "Nuke Tools sidebar and an OpenMC Studio project in the editor area."
+    },
+    {
+      "id": "tools-sidebar",
+      "file": "extensions/nuke-core/docs/user/images/tools-sidebar.png",
+      "title": "Nuke Tools sidebar",
+      "description": "Expanded OpenMC Studio categories in the searchable Nuke Tools sidebar."
+    },
+    {
+      "id": "openmc-dashboard",
+      "file": "extensions/openmc-studio/docs/user/images/dashboard.png",
+      "title": "OpenMC Studio dashboard",
+      "description": "Blank project with the Materials tab and the material-creation guidance."
+    },
+    {
+      "id": "openmc-settings",
+      "file": "extensions/openmc-studio/docs/user/images/dashboard-settings.png",
+      "title": "OpenMC Studio settings tab",
+      "description": "Blank project with the Settings tab open."
+    },
+    {
+      "id": "openmc-simulation",
+      "file": "extensions/openmc-studio/docs/user/images/dashboard-simulation.png",
+      "title": "OpenMC Studio simulation tab",
+      "description": "Blank project with the Simulation tab and run readiness checklist."
+    },
+    {
+      "id": "openmc-templates",
+      "file": "extensions/openmc-studio/docs/user/images/project-templates.png",
+      "title": "OpenMC project templates",
+      "description": "New Project dialog with the runnable project templates."
+    },
+    {
+      "id": "openmc-csg-builder",
+      "file": "extensions/openmc-studio/docs/user/images/csg-builder.png",
+      "title": "CSG Builder",
+      "description": "CSG Builder opened on the committed assembly fixture."
+    },
+    {
+      "id": "openmc-tally-config",
+      "file": "extensions/openmc-studio/docs/user/images/tally-configurator.png",
+      "title": "Tally Configurator",
+      "description": "Tally Configurator opened on the committed derived-tally project."
+    },
+    {
+      "id": "openmc-shutdown-dose",
+      "file": "extensions/openmc-studio/docs/user/images/shutdown-dose.png",
+      "title": "Shutdown Dose wizard",
+      "description": "R2S/D1S Shutdown Dose wizard opened on the committed project."
+    },
+    {
+      "id": "cad-start",
+      "file": "extensions/nuke-cad/docs/user/images/cad-start.png",
+      "title": "CAD viewport start card",
+      "description": "Empty CAD viewport with New Document, Open CAD Model, and import actions."
+    },
+    {
+      "id": "cad-sketch",
+      "file": "extensions/nuke-cad/docs/user/images/sketch-mode.png",
+      "title": "CAD sketch mode",
+      "description": "Sketch mode with a rectangle, constraint bar, toolbar, and solver status."
+    },
+    {
+      "id": "native-viewer",
+      "file": "extensions/nuke-visualizer/docs/user/images/native-viewer.png",
+      "title": "Native VTK viewer",
+      "description": "Native viewer with the Viewer Settings sidebar open."
+    },
+    {
+      "id": "openmc-material-form",
+      "file": "extensions/openmc-studio/docs/user/images/material-form.png",
+      "title": "OpenMC material editor",
+      "description": "Populated light-water material with nuclides and S(alpha,beta) thermal scattering."
+    },
+    {
+      "id": "openmc-tally-editor",
+      "file": "extensions/openmc-studio/docs/user/images/tally-editor.png",
+      "title": "OpenMC tally editor",
+      "description": "Populated tally with scores, filters, and nuclide controls."
+    },
+    {
+      "id": "openmc-dagmc-editor",
+      "file": "extensions/openmc-studio/docs/user/images/dagmc-editor.png",
+      "title": "DAGMC Editor volumes",
+      "description": "Fuel-pin DAGMC volumes with material assignment and volume details."
+    },
+    {
+      "id": "cad-feature-tree",
+      "file": "extensions/nuke-cad/docs/user/images/feature-tree.png",
+      "title": "Nuke CAD Feature Tree",
+      "description": "Built pincell with the Feature Tree and an open feature parameter dialog."
+    },
+    {
+      "id": "visualizer-comparison",
+      "file": "extensions/nuke-visualizer/docs/user/images/comparison-workspace.png",
+      "title": "Visualizer comparison workspace",
+      "description": "Four-pane A/B/C/D comparison with linked cameras and shared color range."
+    }
+  ]
+}

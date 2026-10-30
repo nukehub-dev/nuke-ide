@@ -105,3 +105,18 @@
 .mgxs-generator-widget .openmc-warning-box {
     margin-bottom: 16px;
 }
+
+@container (max-width: 600px) {
+    .mgxs-generator-widget .mgxs-body {
+        padding: 12px;
+    }
+
+    .mgxs-generator-widget .mgxs-mode-row {
+        justify-content: flex-start;
+    }
+
+    .mgxs-generator-widget .segmented-control {
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+}

@@ -35,6 +35,8 @@
  * @module openmc-studio/common
  */
 
+import type { OpenMCParticleType, OpenMCParticleValue } from './particle-types';
+
 // ============================================================================
 // Core Metadata
 // ============================================================================
@@ -132,6 +134,12 @@ export interface OpenMCSurface {
     name?: string;
     /** Periodic surface pair ID (for periodic BC) */
     periodicSurfaceId?: number;
+    /**
+     * Boundary albedo (importance multiplier after a boundary interaction).
+     * Only meaningful for reflective, periodic, and white boundaries; OpenMC
+     * ignores it on vacuum and transmission surfaces.
+     */
+    albedo?: number;
 }
 
 // ============================================================================
@@ -183,8 +191,25 @@ export interface OpenMCCell {
     materialName?: string;
     /** Temperature in Kelvin (for multigroup calculations) */
     temperature?: number;
-    /** Cell density in g/cm³ (if specified, overrides material density) */
+    /**
+     * Cell density override; positive. Units follow the material density unit.
+     * Only meaningful when the cell is filled with a material.
+     */
     density?: number;
+    /**
+     * Intrinsic Tait-Bryan rotation in degrees (phi, theta, psi), applied as
+     * Rz(psi) Ry(theta) Rx(phi). Only meaningful on cells filled with a
+     * universe or lattice.
+     */
+    rotation?: [number, number, number];
+    /** Translation in cm, applied after the rotation. */
+    translation?: [number, number, number];
+    /**
+     * Cell volume in cm³ (`<cell volume="...">`). Required for cell-based
+     * activation workflows such as R2S; OpenMC computes it when omitted from
+     * ordinary transport runs.
+     */
+    volume?: number;
 }
 
 // ============================================================================
@@ -199,14 +224,16 @@ export interface OpenMCCell {
 
 /** Universe definition */
 export interface OpenMCUniverse {
-    /** Universe ID (0 is the root/unused universe) */
+    /**
+     * Universe ID. Universe 0 is the root: OpenMC XML has no explicit root
+     * element, so cells without a `universe` attribute belong to universe 0
+     * and every other universe must be reachable from it.
+     */
     id: number;
     /** Universe name */
     name?: string;
     /** Cells in this universe */
     cellIds: number[];
-    /** Whether this is the root universe */
-    isRoot?: boolean;
 }
 
 // ============================================================================
@@ -219,38 +246,50 @@ export interface OpenMCUniverse {
  * @see {@link OpenMCLattice}
  */
 
-/** Lattice types */
-export type OpenMCLatticeType = 'rect' | 'hex' | 'x-hex' | 'y-hex';
+/**
+ * Lattice types. Hexagonal orientation is the `orientation` field, not a
+ * separate type; OpenMC serializes both as `<hex_lattice>`.
+ */
+export type OpenMCLatticeType = 'rect' | 'hex';
+
+/** Hexagonal lattice orientation (faces perpendicular to this axis) */
+export type OpenMCHexOrientation = 'x' | 'y';
 
 /** Rectangular lattice definition */
 export interface OpenMCRectLattice {
     type: 'rect';
-    /** Lower-left corner coordinates [x, y, z] */
-    lowerLeft: [number, number, number];
+    /** Lower-left corner coordinates [x, y] or [x, y, z] */
+    lowerLeft: [number, number] | [number, number, number];
     /** Pitch (cell dimensions) [dx, dy] or [dx, dy, dz] */
     pitch: [number, number] | [number, number, number];
     /** Universe array dimensions [nx, ny] or [nx, ny, nz] */
     dimensions: [number, number] | [number, number, number];
-    /** Universe IDs filling the lattice (flattened or nested array) */
+    /**
+     * Universe IDs indexed `[z][y][x]`. The y index runs from the top row
+     * (index 0) to the bottom row, matching OpenMC's `RectLattice.universes`;
+     * 2D lattices carry exactly one z slice.
+     */
     universes: number[][][];
 }
 
 /** Hexagonal lattice definition */
 export interface OpenMCHexLattice {
-    type: 'hex' | 'x-hex' | 'y-hex';
+    type: 'hex';
     /** Center coordinates [x, y] or [x, y, z] */
     center: [number, number] | [number, number, number];
-    /** Pitch (distance between opposite sides) */
+    /** Pitch [radial] or [radial, axial] (distance between opposite sides) */
     pitch: [number] | [number, number];
-    /** Number of rings (2D) or ring-universe pattern (3D) */
-    rings?: number;
-    /** Axial lattice (for 3D hex lattices) */
-    axial?: {
-        pitch: number;
-        offset: number;
-        nStacks: number;
-    };
-    /** Universe IDs for each ring/position */
+    /** Number of radial rings including the center ring (OpenMC n_rings) */
+    rings: number;
+    /** Hexagon orientation; OpenMC defaults to 'y' */
+    orientation?: OpenMCHexOrientation;
+    /** Number of axial positions (OpenMC n_axial); omitted for 2D lattices */
+    nAxial?: number;
+    /**
+     * Universe IDs indexed `[z][ring][theta]`. Ring 0 is the outermost ring
+     * and theta starts at the top and proceeds clockwise, matching
+     * `HexLattice.universes`; 2D lattices carry exactly one z slice.
+     */
     universes: number[][][];
 }
 
@@ -327,7 +366,12 @@ export interface OpenMCGeometry {
     universes: OpenMCUniverse[];
     /** All lattices defined in the model */
     lattices: OpenMCLattice[];
-    /** Root universe ID (default: 0) */
+    /**
+     * Root universe ID. OpenMC derives the root from the universe that is not
+     * used as a cell fill or lattice universe, so this must be 0 for XML and
+     * Python export parity; the Python API can name a different root, but XML
+     * cannot represent it explicitly.
+     */
     rootUniverseId: number;
 }
 
@@ -396,8 +440,18 @@ export interface OpenMCMaterial {
     volume?: number;
     /** Optional temperature in K (for Doppler broadening) */
     temperature?: number;
+    /**
+     * Nuclides whose elastic scattering is treated as isotropic in the
+     * laboratory system (`Material.isotropic`; `<isotropic>` in materials.xml).
+     * Empty/undefined keeps OpenMC's default anisotropic treatment.
+     */
+    isotropic?: string[];
     /** Material color for visualization (hex code) */
     color?: string;
+    /** nuke-cad physical-model UUID carried through DAGMC import (copy provenance; never used for naming). */
+    nukeCadMaterialId?: string;
+    /** Parent physical-model UUID from the nuke-cad manifest. */
+    nukeCadParentId?: string;
 }
 
 // ============================================================================
@@ -410,8 +464,196 @@ export interface OpenMCMaterial {
  * @see {@link OpenMCSource}
  */
 
+// ----------------------------------------------------------------------------
+// Shared univariate distributions
+// ----------------------------------------------------------------------------
+
+/**
+ * Univariate distribution types that OpenMC serializes to XML and accepts in
+ * `openmc.stats` (energy, time, spatial coordinates, mu/phi, and mixture
+ * children all use this one model).
+ *
+ * `openmc.stats.Legendre` is deliberately absent: its `to_xml_element()` raises
+ * `NotImplementedError`, so it cannot round-trip and has no editor control.
+ */
+export type OpenMCUnivariateType =
+    'discrete' | 'uniform' | 'maxwell' | 'watt' | 'normal' | 'powerlaw' | 'tabular' | 'mixture' | 'decay-spectrum' | 'muir';
+
+/**
+ * Nested bias distribution for a continuous univariate (`<bias type="...">`).
+ * OpenMC requires the bias distribution to share the parent support interval
+ * and forbids a bias distribution that is itself biased.
+ */
+export interface OpenMCBiasDistribution {
+    /** Distribution sampled instead of the parent distribution. */
+    distribution: OpenMCUnivariate;
+}
+
+/**
+ * Alternative sampling probabilities for `Discrete` / `Mixture` (array bias,
+ * serialized as `<bias>p1 p2 ...</bias>`) and for point-cloud / mesh spatial
+ * distributions.
+ */
+export interface OpenMCBiasProbabilities {
+    probabilities: number[];
+}
+
+/** Bias attached to a univariate distribution (energy, time, or coordinate). */
+export type OpenMCUnivariateBias = OpenMCBiasDistribution | OpenMCBiasProbabilities;
+
+/**
+ * Array bias for point-cloud / mesh spatial distributions. The probabilities
+ * are normalized by OpenMC and must match the number of points or mesh
+ * elements.
+ */
+export interface OpenMCArrayBias {
+    probabilities: number[];
+}
+
+/** @deprecated Use {@link OpenMCUnivariateBias}; kept as the energy-specific name. */
+export type OpenMCEnergyBias = OpenMCUnivariateBias;
+
+/** Base univariate distribution definition */
+export interface OpenMCUnivariateBase {
+    type: OpenMCUnivariateType;
+    /**
+     * Optional importance-sampling bias. Continuous distributions carry a
+     * nested distribution (same support); Discrete/Mixture carry alternative
+     * probabilities. Decay spectra cannot be biased (OpenMC fixes bias=None).
+     */
+    bias?: OpenMCUnivariateBias;
+}
+
+/**
+ * Discrete distribution (`openmc.stats.Discrete`, XML type `discrete`).
+ * In the schema `energies` holds the sampled values for every domain — eV for
+ * energy, seconds for time, and coordinate units for spatial distributions.
+ */
+export interface OpenMCDiscreteUnivariate extends OpenMCUnivariateBase {
+    type: 'discrete';
+    /** Sampled values (eV, seconds, or coordinates) */
+    energies: number[];
+    /** Relative probabilities; omitted means equal probability */
+    probabilities?: number[];
+}
+
+/** Uniform distribution (`openmc.stats.Uniform`, XML type `uniform`) */
+export interface OpenMCUniformUnivariate extends OpenMCUnivariateBase {
+    type: 'uniform';
+    min: number;
+    max: number;
+}
+
+/**
+ * Maxwellian energy distribution (`openmc.stats.Maxwell`, XML type `maxwell`).
+ * `temperature` is OpenMC's effective temperature theta in eV (not kelvin).
+ */
+export interface OpenMCMaxwellUnivariate extends OpenMCUnivariateBase {
+    type: 'maxwell';
+    /** Effective temperature theta [eV] */
+    temperature: number;
+}
+
+/** Watt fission spectrum (`openmc.stats.Watt`, XML type `watt`) */
+export interface OpenMCWattUnivariate extends OpenMCUnivariateBase {
+    type: 'watt';
+    /** First Watt parameter [eV] */
+    a: number;
+    /** Second Watt parameter [1/eV] */
+    b: number;
+}
+
+/** Normal (Gaussian) distribution (`openmc.stats.Normal`, XML type `normal`) */
+export interface OpenMCNormalUnivariate extends OpenMCUnivariateBase {
+    type: 'normal';
+    /** Mean [eV for energy] */
+    mean: number;
+    /** Standard deviation [eV for energy] */
+    stdDev: number;
+}
+
+/**
+ * Muir energy distribution (D-T fusion; a Normal parameterized by e0/m_rat/kt).
+ * OpenMC XML has no `muir` type — it serializes as `normal`, and the Python
+ * exporter uses `openmc.stats.muir(e0, m_rat, kt)`.
+ */
+export interface OpenMCMuirUnivariate extends OpenMCUnivariateBase {
+    type: 'muir';
+    /** Mean energy [eV] */
+    e0: number;
+    /** Ratio of reactant masses to 1 amu */
+    m_rat: number;
+    /** Ion temperature [eV] */
+    kt: number;
+}
+
+/** Power-law distribution (`openmc.stats.PowerLaw`, XML type `powerlaw`) */
+export interface OpenMCPowerLawUnivariate extends OpenMCUnivariateBase {
+    type: 'powerlaw';
+    /** Lower bound a */
+    a: number;
+    /** Upper bound b (must be greater than a) */
+    b: number;
+    /** Exponent n; p(x) ∝ x^n on [a, b] */
+    n: number;
+}
+
+/** Tabular distribution (`openmc.stats.Tabular`, XML type `tabular`) */
+export interface OpenMCTabularUnivariate extends OpenMCUnivariateBase {
+    type: 'tabular';
+    /** Strictly increasing abscissae (x values) */
+    energies: number[];
+    /** Probability densities, one per abscissa */
+    probabilities: number[];
+    /** Interpolation scheme between points (default: linear-linear) */
+    interpolation?: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
+}
+
+/**
+ * Mixture distribution (`openmc.stats.Mixture`, XML type `mixture`).
+ * Each `<pair probability="..."><dist .../></pair>` child is represented by a
+ * probability and one distribution in the same array position.
+ */
+export interface OpenMCMixtureUnivariate extends OpenMCUnivariateBase {
+    type: 'mixture';
+    /** Component selection probabilities (must sum to 1) */
+    probability: number[];
+    /** Component distributions */
+    distributions: OpenMCSourceEnergy[];
+}
+
+/**
+ * Decay photon spectrum (`openmc.stats.DecaySpectrum`, XML type
+ * `decay_spectrum`, OpenMC 0.16+).
+ */
+export interface OpenMCDecaySpectrumUnivariate extends OpenMCUnivariateBase {
+    type: 'decay-spectrum';
+    /** Nuclide names and atom densities [atom/b-cm] */
+    nuclides: { name: string; density: number }[];
+    /** Source-region volume [cm^3] */
+    volume: number;
+}
+
+/** Shared univariate distribution union */
+export type OpenMCUnivariate =
+    | OpenMCDiscreteUnivariate
+    | OpenMCUniformUnivariate
+    | OpenMCMaxwellUnivariate
+    | OpenMCWattUnivariate
+    | OpenMCNormalUnivariate
+    | OpenMCMuirUnivariate
+    | OpenMCPowerLawUnivariate
+    | OpenMCTabularUnivariate
+    | OpenMCMixtureUnivariate
+    | OpenMCDecaySpectrumUnivariate;
+
+// ----------------------------------------------------------------------------
+// Spatial distributions
+// ----------------------------------------------------------------------------
+
 /** Source spatial distribution types */
-export type OpenMCSourceSpatialType = 'point' | 'box' | 'sphere' | 'cylinder' | 'cartesian' | 'cylindrical' | 'spherical';
+export type OpenMCSourceSpatialType =
+    'point' | 'box' | 'sphere' | 'cylinder' | 'cartesian' | 'cylindrical' | 'spherical' | 'pointcloud' | 'mesh';
 
 /** Base source spatial definition */
 export interface OpenMCSourceSpatialBase {
@@ -431,14 +673,14 @@ export interface OpenMCBoxSourceSpatial extends OpenMCSourceSpatialBase {
     upperRight: [number, number, number];
 }
 
-/** Sphere source spatial */
+/** Sphere source spatial (uniform in a sphere; serializes as spherical) */
 export interface OpenMCSphereSourceSpatial extends OpenMCSourceSpatialBase {
     type: 'sphere';
     center: [number, number, number];
     radius: number;
 }
 
-/** Cylinder source spatial */
+/** Cylinder source spatial (uniform in a cylinder; serializes as cylindrical) */
 export interface OpenMCCylinderSourceSpatial extends OpenMCSourceSpatialBase {
     type: 'cylinder';
     center: [number, number, number];
@@ -447,12 +689,89 @@ export interface OpenMCCylinderSourceSpatial extends OpenMCSourceSpatialBase {
     axis: 'x' | 'y' | 'z';
 }
 
+/** Independent Cartesian spatial distribution (`<space type="cartesian">`) */
+export interface OpenMCCartesianSpatial extends OpenMCSourceSpatialBase {
+    type: 'cartesian';
+    x: OpenMCUnivariate;
+    y: OpenMCUnivariate;
+    z: OpenMCUnivariate;
+}
+
+/** Independent cylindrical spatial distribution (`<space type="cylindrical">`) */
+export interface OpenMCCylindricalSpatial extends OpenMCSourceSpatialBase {
+    type: 'cylindrical';
+    r: OpenMCUnivariate;
+    phi: OpenMCUnivariate;
+    z: OpenMCUnivariate;
+    /** Reference-frame origin (default: [0, 0, 0]) */
+    origin?: [number, number, number];
+    /** Cylinder r axis at phi=0 (default: [1, 0, 0]) */
+    rDir?: [number, number, number];
+    /** Cylinder z axis direction (default: [0, 0, 1]) */
+    zDir?: [number, number, number];
+}
+
+/** Independent spherical spatial distribution (`<space type="spherical">`) */
+export interface OpenMCSphericalSpatial extends OpenMCSourceSpatialBase {
+    type: 'spherical';
+    r: OpenMCUnivariate;
+    cosTheta: OpenMCUnivariate;
+    phi: OpenMCUnivariate;
+    /** Sphere center (default: [0, 0, 0]) */
+    origin?: [number, number, number];
+}
+
+/** Point-cloud spatial distribution (`<space type="cloud">`) */
+export interface OpenMCPointCloudSpatial extends OpenMCSourceSpatialBase {
+    type: 'pointcloud';
+    /** Source points (each a 3-vector) */
+    positions: [number, number, number][];
+    /** Optional relative probability per point; length must match positions */
+    strengths?: number[];
+    /**
+     * Optional biased sampling probabilities per point (OpenMC
+     * `PointCloud(..., bias=...)`). Requires a matching strengths array.
+     */
+    bias?: OpenMCArrayBias;
+}
+
+/** Mesh spatial distribution (`<space type="mesh">`) */
+export interface OpenMCMeshSpatial extends OpenMCSourceSpatialBase {
+    type: 'mesh';
+    /** Reference to a mesh in state.meshes */
+    meshId?: number;
+    /** Optional relative source strength per mesh element */
+    strengths?: number[];
+    /**
+     * Optional biased sampling probabilities per mesh element (OpenMC
+     * `MeshSpatial(..., bias=...)`). Requires a matching strengths array.
+     */
+    bias?: OpenMCArrayBias;
+    /**
+     * Multiply strengths by element volume. The editor/Python default is true;
+     * C++ treats an omitted XML attribute as false, and import follows C++.
+     */
+    volumeNormalized?: boolean;
+}
+
 /** Source spatial definition (union of all types) */
 export type OpenMCSourceSpatial =
-    OpenMCPointSourceSpatial | OpenMCBoxSourceSpatial | OpenMCSphereSourceSpatial | OpenMCCylinderSourceSpatial;
+    | OpenMCPointSourceSpatial
+    | OpenMCBoxSourceSpatial
+    | OpenMCSphereSourceSpatial
+    | OpenMCCylinderSourceSpatial
+    | OpenMCCartesianSpatial
+    | OpenMCCylindricalSpatial
+    | OpenMCSphericalSpatial
+    | OpenMCPointCloudSpatial
+    | OpenMCMeshSpatial;
+
+// ----------------------------------------------------------------------------
+// Energy distributions
+// ----------------------------------------------------------------------------
 
 /** Source energy distribution types */
-export type OpenMCSourceEnergyType = 'discrete' | 'uniform' | 'maxwell' | 'watt' | 'muir' | 'normal' | 'tabular';
+export type OpenMCSourceEnergyType = OpenMCUnivariateType;
 
 /** Base source energy definition */
 export interface OpenMCSourceEnergyBase {
@@ -460,80 +779,102 @@ export interface OpenMCSourceEnergyBase {
 }
 
 /** Discrete energy distribution */
-export interface OpenMCDiscreteEnergy extends OpenMCSourceEnergyBase {
-    type: 'discrete';
-    energies: number[];
-    probabilities?: number[];
-}
+export type OpenMCDiscreteEnergy = OpenMCDiscreteUnivariate;
 
 /** Uniform energy distribution */
-export interface OpenMCUniformEnergy extends OpenMCSourceEnergyBase {
-    type: 'uniform';
-    min: number;
-    max: number;
-}
+export type OpenMCUniformEnergy = OpenMCUniformUnivariate;
 
 /** Maxwell energy distribution */
-export interface OpenMCMaxwellEnergy extends OpenMCSourceEnergyBase {
-    type: 'maxwell';
-    temperature: number;
-}
+export type OpenMCMaxwellEnergy = OpenMCMaxwellUnivariate;
 
 /** Watt energy distribution */
-export interface OpenMCWattEnergy extends OpenMCSourceEnergyBase {
-    type: 'watt';
-    a: number;
-    b: number;
+export type OpenMCWattEnergy = OpenMCWattUnivariate;
+
+/** Muir energy distribution */
+export type OpenMCMuirEnergy = OpenMCMuirUnivariate;
+
+/** Normal (Gaussian) energy distribution */
+export type OpenMCNormalEnergy = OpenMCNormalUnivariate;
+
+/** Tabular energy distribution */
+export type OpenMCTabularEnergy = OpenMCTabularUnivariate;
+
+/** Power-law energy distribution */
+export type OpenMCPowerLawEnergy = OpenMCPowerLawUnivariate;
+
+/** Mixture energy distribution */
+export type OpenMCMixtureEnergy = OpenMCMixtureUnivariate;
+
+/** Decay-spectrum energy distribution */
+export type OpenMCDecaySpectrumEnergy = OpenMCDecaySpectrumUnivariate;
+
+/** Source energy distribution (shared univariate model) */
+export type OpenMCSourceEnergy = OpenMCUnivariate;
+
+// ----------------------------------------------------------------------------
+// Angular and time distributions
+// ----------------------------------------------------------------------------
+
+/**
+ * Angle bias for an isotropic distribution. OpenMC only accepts a
+ * PolarAzimuthal (`mu-phi`) bias for `Isotropic`, supported on mu = [-1, 1]
+ * and phi = [0, 2π], and the bias distributions may not carry their own bias.
+ */
+export interface OpenMCAngleBias {
+    /** Polar-azimuthal distribution sampled instead of the isotropic one. */
+    distribution: OpenMCMuPhiAngle;
 }
 
-/** Muir energy distribution (D-T fusion; a Normal parameterized by e0/m_rat/kt) */
-export interface OpenMCMuirEnergy extends OpenMCSourceEnergyBase {
-    type: 'muir';
-    e0: number;
-    m_rat: number;
-    kt: number;
+/** Isotropic angular distribution */
+export interface OpenMCIsotropicAngle {
+    type: 'isotropic';
+    /** Optional biased angular sampling (PolarAzimuthal). */
+    bias?: OpenMCAngleBias;
+}
+
+/** Monodirectional angular distribution (all particles follow one direction) */
+export interface OpenMCMonodirectionalAngle {
+    type: 'monodirectional';
+    /** Direction vector (default: [0, 0, 1], the C++ XML default); OpenMC normalizes it */
+    referenceUvW?: [number, number, number];
 }
 
 /**
- * Normal (Gaussian) energy distribution — the form Muir serializes to in this
- * OpenMC version (muir() is a function returning Normal; XML is type="normal"
- * with mean/std_dev parameters, univariate.py:1243-1267).
+ * Polar-azimuthal angular distribution (`openmc.stats.PolarAzimuthal`, XML
+ * type `mu-phi`). `mu` is the cosine of the polar angle and `phi` is the
+ * azimuthal angle in radians.
  */
-export interface OpenMCNormalEnergy extends OpenMCSourceEnergyBase {
-    type: 'normal';
-    /** Mean of the Gaussian [eV] */
-    mean: number;
-    /** Standard deviation of the Gaussian [eV] */
-    stdDev: number;
+export interface OpenMCMuPhiAngle {
+    type: 'mu-phi';
+    /** Cosine of the polar angle distribution */
+    mu: OpenMCUnivariate;
+    /** Azimuthal angle distribution [rad] */
+    phi: OpenMCUnivariate;
+    /** Polar-angle reference direction (default: [0, 0, 1]) */
+    referenceUvW?: [number, number, number];
+    /** Azimuthal-angle reference direction (default: [1, 0, 0]) */
+    referenceVwu?: [number, number, number];
 }
-
-/** Tabular energy distribution */
-export interface OpenMCTabularEnergy extends OpenMCSourceEnergyBase {
-    type: 'tabular';
-    energies: number[];
-    probabilities: number[];
-    interpolation?: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
-}
-
-/** Source energy distribution (union of all types) */
-export type OpenMCSourceEnergy =
-    | OpenMCDiscreteEnergy
-    | OpenMCUniformEnergy
-    | OpenMCMaxwellEnergy
-    | OpenMCWattEnergy
-    | OpenMCMuirEnergy
-    | OpenMCNormalEnergy
-    | OpenMCTabularEnergy;
 
 /** Source angular distribution */
-export interface OpenMCSourceAngle {
-    type: 'isotropic' | 'monodirectional' | 'polar-azimuthal' | 'mu-phi' | 'reference';
-    params?: {
-        mu?: number;
-        phi?: number;
-        referenceUvW?: [number, number, number];
-    };
+export type OpenMCSourceAngle = OpenMCIsotropicAngle | OpenMCMonodirectionalAngle | OpenMCMuPhiAngle;
+
+/** Delta (single-time) distribution. Stored as a one-point discrete in XML. */
+export interface OpenMCDeltaTime {
+    type: 'delta';
+    /** Particle birth time [s] */
+    time: number;
 }
+
+/** Source time distribution types (all values are seconds) */
+export type OpenMCSourceTimeType = 'delta' | 'uniform' | 'discrete' | 'tabular' | 'mixture';
+
+/**
+ * Source time distribution. OpenMC tracks particle time in seconds, so every
+ * value in this union is seconds. Delta is a single-point Discrete in XML.
+ */
+export type OpenMCSourceTime =
+    OpenMCDeltaTime | OpenMCUniformUnivariate | OpenMCDiscreteUnivariate | OpenMCTabularUnivariate | OpenMCMixtureUnivariate;
 
 /** Source type discriminator */
 export type OpenMCSourceType = 'independent' | 'file' | 'compiled' | 'mesh' | 'tokamak';
@@ -579,13 +920,13 @@ export interface OpenMCIndependentSource extends OpenMCSourceBase {
     energy: OpenMCSourceEnergy;
     /** Angular distribution (default: isotropic) */
     angle?: OpenMCSourceAngle;
-    /** Particle type: 'neutron', 'photon' */
-    particle?: 'neutron' | 'photon';
-    /** Time distribution (for time-dependent problems) */
-    time?: {
-        type: 'delta' | 'uniform' | 'discrete';
-        params: { times?: number[]; probabilities?: number[]; min?: number; max?: number; time?: number };
-    };
+    /**
+     * Source particle type. Canonical OpenMC name plus PDG number (for example
+     * `He4`); legacy names from pre-PDG project files are normalized on load.
+     */
+    particle?: OpenMCParticleValue;
+    /** Time distribution in seconds (for time-dependent problems) */
+    time?: OpenMCSourceTime;
 }
 
 /** File source: particles read from a source file (e.g. surface source file) */
@@ -623,7 +964,7 @@ export interface OpenMCMeshSource extends OpenMCSourceBase {
 
 /**
  * Tokamak neutron source (openmc.TokamakSource, source.py:901 — versionadded
- * 0.15.4). Samples positions from a Miller-style flux-surface parameterization
+ * 0.16.0). Samples positions from a Miller-style flux-surface parameterization
  * with a user-provided emission profile S(r/a). NOTE: this class has no
  * ion-temperature or fuel-composition model — the neutron energy comes from
  * an explicit energy distribution (single distribution applied at all radii;
@@ -893,15 +1234,31 @@ export interface OpenMCSettings {
     entropyMesh?: OpenMCEntropyMesh;
     /** CMFD acceleration settings (C-API feature; not written to settings.xml) */
     cmfd?: OpenMCCmfdSettings;
-    /** Number of OpenMP threads */
+    /** Number of OpenMP threads passed to the runner (`-s N`; per MPI rank) */
     threads?: number;
+    /**
+     * MPI launch controls. Runtime-only: MPI is applied to the `openmc`
+     * invocation, never written to settings.xml. Threads are per rank, so
+     * `threads * processes` is the total CPU demand.
+     */
+    mpi?: {
+        /** Launch through `mpirun` (requires an MPI-enabled OpenMC build) */
+        enabled?: boolean;
+        /** Number of MPI ranks (`mpirun -np N`) */
+        processes?: number;
+        /** Optional host list for `mpirun --host host1,host2` */
+        hosts?: string[];
+    };
     /** Verbosity level (1-10) */
     verbosity?: number;
     /** Cutoff energies and weights */
     cutoff?: {
         energyNeutron?: number;
         energyPhoton?: number;
+        /** Neutron time cutoff in seconds (`<time_neutron>`) */
         time?: number;
+        /** Photon time cutoff in seconds (`<time_photon>`) */
+        timePhoton?: number;
         weight?: number;
         weightAvg?: number;
     };
@@ -981,6 +1338,50 @@ export interface OpenMCSettings {
         tolerance?: number;
         multipole?: boolean;
     };
+    /** Debug trace of one particle: [batch, generation, particle] (`<trace>`) */
+    trace?: [number, number, number];
+    /**
+     * Combined k-eff precision trigger (`<keff_trigger>`). Ignored outside
+     * eigenvalue mode. OpenMC requires both the metric and a positive
+     * threshold; there is no per-batch restriction on this trigger.
+     */
+    keffTrigger?: {
+        type: 'variance' | 'std_dev' | 'rel_err';
+        threshold: number;
+    };
+    /**
+     * Report tally uncertainties as 95% confidence-interval half-widths
+     * (`<confidence_intervals>true</confidence_intervals>`).
+     */
+    confidenceIntervals?: boolean;
+    /** Free-gas scattering threshold in units of kT (`<free_gas_threshold>`) */
+    freeGasThreshold?: number;
+    /** Shared secondary particle bank (`<shared_secondary_bank>`, 0.16.0+) */
+    sharedSecondaryBank?: boolean;
+    /** Surface-flux grazing cosine cutoff (`<surface_grazing_cutoff>`, 0.16.0+) */
+    surfaceGrazingCutoff?: number;
+    /** Surface-flux grazing cosine substitution ratio (`<surface_grazing_ratio>`, 0.16.0+) */
+    surfaceGrazingRatio?: number;
+    /** Maximum events per particle (`<max_particle_events>`) */
+    maxParticleEvents?: number;
+    /** Event-based parallelism in-flight particle limit (`<max_particles_in_flight>`) */
+    maxParticlesInFlight?: number;
+    /** Maximum secondary bank size (`<max_secondaries>`) */
+    maxSecondaries?: number;
+    /** Maximum splits per history (`<max_history_splits>`) */
+    maxHistorySplits?: number;
+    /** Maximum lost-particle restart files written per rank (`<max_write_lost_particles>`) */
+    maxWriteLostParticles?: number;
+    /** Skip tally reduction across MPI ranks (`<no_reduce>`) */
+    noReduce?: boolean;
+    /** Random-number stride per source history (`<stride>`) */
+    stride?: number;
+    /** Seed for plot color generation (`<plot_seed>`) */
+    plotSeed?: number;
+    /** Properties HDF5 file for cell temperatures/densities (`<properties_file>`) */
+    propertiesFile?: string;
+    /** Material/cell offset optimization (`<material_cell_offsets>`) */
+    materialCellOffsets?: boolean;
     /** DAGMC geometry file path (for direct CAD geometry) */
     dagmcFile?: string;
     /** DAGMC model information (populated when importing DAGMC file) */
@@ -993,7 +1394,7 @@ export interface OpenMCSettings {
     /** Resonance scattering settings */
     resonanceScattering?: {
         enable?: boolean;
-        method?: 'rvs' | 'dbrc' | 'wcm';
+        method?: 'rvs' | 'dbrc';
         energyMin?: number;
         energyMax?: number;
     };
@@ -1082,7 +1483,25 @@ export type OpenMCTallyFilterType =
     | 'sphericalharmonics'
     | 'particle'
     | 'zernike'
-    | 'zernikeradial';
+    | 'zernikeradial'
+    | 'materialfrom'
+    | 'cellinstance'
+    | 'parentnuclide'
+    | 'meshborn'
+    | 'meshmaterial'
+    | 'collision'
+    | 'reaction'
+    | 'particleproduction'
+    | 'musurface'
+    | 'weight';
+
+/** Structured numeric pair used by cell-instance and mesh-material filters. */
+export interface OpenMCBinnedPair {
+    /** Cell ID (`cellinstance`) or zero-based mesh element index (`meshmaterial`). */
+    first: number;
+    /** Cell instance index (`cellinstance`) or material ID (`meshmaterial`). */
+    second: number;
+}
 
 /** Tally filter definition */
 export interface OpenMCTallyFilter {
@@ -1090,7 +1509,27 @@ export interface OpenMCTallyFilter {
     type: OpenMCTallyFilterType;
     /** Filter bins (IDs for cell/material/universe, values for energy, etc.) */
     bins: number[];
-    /** For mesh/meshsurface filter: mesh ID */
+    /**
+     * Structured pairs for `cellinstance` (cell ID + instance index) and
+     * `meshmaterial` (zero-based mesh element + material ID). The flattened
+     * OpenMC `<bins>` encoding is mirrored into {@link bins}.
+     */
+    pairs?: OpenMCBinnedPair[];
+    /** For `parentnuclide`: parent nuclide names (e.g. `U235`, `Pu239`). */
+    nuclideBins?: string[];
+    /** For `reaction`: canonical OpenMC reaction names (e.g. `(n,gamma)`, MT 102). */
+    reactionBins?: string[];
+    /**
+     * For `particle`: canonical particle bins (name + PDG). Legacy project
+     * files keep numeric bins (1 = neutron, 2 = photon) and are normalized on
+     * load; generation accepts either representation.
+     */
+    particleBins?: OpenMCParticleType[];
+    /** For `particleproduction`: secondary particle types (name + PDG). */
+    particleTypes?: OpenMCParticleValue[];
+    /** For `particleproduction`: secondary energy boundaries in eV (empty = no energy binning). */
+    productionEnergyBins?: number[];
+    /** For mesh/meshsurface/meshborn/meshmaterial filter: mesh ID */
     meshId?: number;
     /** For expansion filters (legendre, spatiallegendre, sphericalharmonics, zernike, zernikeradial): expansion order */
     order?: number;
@@ -1110,6 +1549,19 @@ export interface OpenMCTallyFilter {
     responseValues?: number[];
     /** For energyfunction filter: interpolation scheme */
     interpolation?: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
+    /**
+     * MeshFilter translation in cm (OpenMC 0.15.3+). Serializes as the
+     * `translation` attribute of `<filter type="mesh">` and maps to
+     * `openmc.MeshFilter.translation`.
+     */
+    meshTranslation?: [number, number, number];
+    /**
+     * MeshFilter rotation in degrees (OpenMC 0.16.0+). Intrinsic Tait-Bryan
+     * angles (phi, theta, psi) applied as Rz(psi) Ry(theta) Rx(phi). Serializes
+     * as the `rotation` attribute of `<filter type="mesh">`; omitted with a
+     * warning on environments that lack MeshFilter.rotation.
+     */
+    meshRotation?: [number, number, number];
 }
 
 /** Tally score types */
@@ -1200,12 +1652,60 @@ export interface OpenMCTally {
     filters: OpenMCTallyFilter[];
     /** Tally estimator */
     estimator?: OpenMCTallyEstimator;
-    /** Whether to multiply by atom density (for some scores) */
+    /** Whether to multiply by atom density (for some scores); absent = true */
     multiplyDensity?: boolean;
+    /**
+     * Accumulate third/fourth central moments in the statepoint
+     * (`<higher_moments>true</higher_moments>`, openmc.Tally.higher_moments).
+     */
+    higherMoments?: boolean;
     /** Per-tally triggers (openmc.Trigger list) */
     triggers?: OpenMCTallyTrigger[];
     /** Material perturbation derivative for this tally (openmc.TallyDerivative) */
     derivative?: OpenMCTallyDerivative;
+}
+
+// ============================================================================
+// Derived Tallies (post-processing)
+// ============================================================================
+
+/**
+ * One leaf of a derived-tally expression: a tally score (optionally restricted
+ * to one nuclide) or a numeric constant.
+ *
+ * Derived tallies are analysis-only. They live in `.nuke-openmc` state and are
+ * evaluated against a statepoint by `python/derive_tallies.py`; they are never
+ * emitted to `tallies.xml` or the OpenMC Python model.
+ */
+export type OpenMCDerivedOperand = { kind: 'tally'; tallyId: number; score: string; nuclide?: string } | { kind: 'scalar'; value: number };
+
+/**
+ * Derived-tally expression tree. Operands are tally/score slices or scalars;
+ * binary operators are `+`, `-`, `*`, `/`; unary negation is supported.
+ *
+ * OpenMC tally arithmetic combines filters in all possible ways and multiplies
+ * uncertainty assuming independent tallies, so the evaluated result carries
+ * its own filter/nuclide axes rather than assuming a 1:1 bin match.
+ */
+export type OpenMCDerivedExpression =
+    | OpenMCDerivedOperand
+    | { kind: 'binary'; op: '+' | '-' | '*' | '/'; left: OpenMCDerivedExpression; right: OpenMCDerivedExpression }
+    | { kind: 'unary'; op: '-'; operand: OpenMCDerivedExpression };
+
+/** A persisted derived tally (post-processing only; never a simulation input). */
+export interface OpenMCDerivedTally {
+    /** Unique derived-tally ID (independent of simulation tally IDs) */
+    id: number;
+    /** Display name */
+    name: string;
+    /** Optional description of what the expression means */
+    description?: string;
+    /** Expression tree over tally scores and scalars */
+    expression: OpenMCDerivedExpression;
+    /** Optional unit label, e.g. "ratio", "cm^-2", "W" */
+    unit?: string;
+    /** Display color for plots */
+    color?: string;
 }
 
 // ============================================================================
@@ -1214,12 +1714,13 @@ export interface OpenMCTally {
 
 /**
  * Mesh definitions for tally filters and variance reduction.
- * Supports regular (Cartesian), cylindrical, and spherical meshes.
+ * Supports regular (Cartesian), rectilinear, cylindrical, spherical, and
+ * unstructured meshes (openmc.mesh).
  * @see {@link OpenMCMesh}
  */
 
 /** Mesh types */
-export type OpenMCMeshType = 'regular' | 'cylindrical' | 'spherical';
+export type OpenMCMeshType = 'regular' | 'rectilinear' | 'cylindrical' | 'spherical' | 'unstructured';
 
 /** Regular (Cartesian) mesh */
 export interface OpenMCRegularMesh {
@@ -1234,6 +1735,49 @@ export interface OpenMCRegularMesh {
     upperRight: [number, number, number];
     /** Number of mesh cells in each dimension */
     dimension: [number, number, number];
+}
+
+/**
+ * Rectilinear mesh: explicit boundaries on each Cartesian axis
+ * (openmc.RectilinearMesh). Grid arrays include both endpoints and must
+ * strictly increase; each axis needs at least two points.
+ */
+export interface OpenMCRectilinearMesh {
+    type: 'rectilinear';
+    /** Unique mesh ID */
+    id: number;
+    /** Mesh name */
+    name?: string;
+    /** X-axis boundaries in cm */
+    xGrid: number[];
+    /** Y-axis boundaries in cm */
+    yGrid: number[];
+    /** Z-axis boundaries in cm */
+    zGrid: number[];
+}
+
+/** Unstructured mesh library (openmc.UnstructuredMesh) */
+export type OpenMCUnstructuredMeshLibrary = 'moab' | 'libmesh';
+
+/**
+ * Unstructured mesh: an external MOAB/Exodus mesh file read at run time
+ * (openmc.UnstructuredMesh). The filename may be absolute or relative to the
+ * project/run directory.
+ */
+export interface OpenMCUnstructuredMesh {
+    type: 'unstructured';
+    /** Unique mesh ID */
+    id: number;
+    /** Mesh name */
+    name?: string;
+    /** Path to the mesh file (.h5m/.h5/.vtk for MOAB; .e/.exo/.ex2 for libMesh) */
+    filename: string;
+    /** Mesh library used to read the file */
+    library: OpenMCUnstructuredMeshLibrary;
+    /** Constant multiplier applied to mesh coordinates */
+    lengthMultiplier?: number;
+    /** MOAB AdaptiveKDTree search options (e.g. 'MAX_DEPTH=20;PLANE_SET=2;') */
+    options?: string;
 }
 
 /** Cylindrical mesh */
@@ -1273,7 +1817,7 @@ export interface OpenMCSphericalMesh {
 }
 
 /** Mesh definition (union of all mesh types) */
-export type OpenMCMesh = OpenMCRegularMesh | OpenMCCylindricalMesh | OpenMCSphericalMesh;
+export type OpenMCMesh = OpenMCRegularMesh | OpenMCRectilinearMesh | OpenMCCylindricalMesh | OpenMCSphericalMesh | OpenMCUnstructuredMesh;
 
 // ============================================================================
 // Variance Reduction
@@ -1285,23 +1829,46 @@ export type OpenMCMesh = OpenMCRegularMesh | OpenMCCylindricalMesh | OpenMCSpher
  * @see {@link OpenMCVarianceReduction}
  */
 
-/** Weight window settings */
+/** Weight window settings (one `<weight_windows>` set) */
 export interface OpenMCWeightWindows {
+    /**
+     * Unique set identifier emitted as `<weight_windows id="...">`. Assigned
+     * deterministically (1, 2, ...) when absent so older single-set projects
+     * load unchanged.
+     */
+    id?: number;
     /** Mesh ID for weight windows */
     meshId: number;
-    /** Lower weight bounds */
+    /** Lower weight bounds (scalar broadcasts to every cell/group) */
     lowerBound: number | number[];
-    /** Upper weight bounds */
+    /** Upper weight bounds (defaults to 2× the lower bound) */
     upperBound?: number | number[];
-    /** Survival weight */
+    /**
+     * Survival ratio emitted as `<survival_ratio>` (ratio of survival weight
+     * to the lower weight window bound). Retained field name for compatibility
+     * with older project files.
+     */
     survivalWeight?: number;
-    /** Particle type */
-    particleType?: 'neutron' | 'photon';
+    /**
+     * Particle type. OpenMC weight windows accept only neutron or photon
+     * (`WeightWindows.particle_type` setter); the shared particle model keeps
+     * imported/configured values visible and generation clamps to neutron.
+     */
+    particleType?: OpenMCParticleValue;
     /** Energy bounds for energy-dependent weight windows */
     energyBounds?: number[];
+    /** Maximum number of splits per history (default 10) */
+    maxSplit?: number;
+    /** Weight cutoff below which particles are terminated (default 1e-38) */
+    weightCutoff?: number;
 }
 
-/** Source biasing settings */
+/**
+ * Source biasing settings from older project files.
+ * @deprecated Source bias is configured on each source distribution
+ * (`energy.bias`, `angle.bias`, spatial `bias`); this object is migrated on
+ * load and never emitted.
+ */
 export interface OpenMCSourceBiasing {
     /** Strength bias factor */
     strengthBias?: number;
@@ -1315,14 +1882,26 @@ export interface OpenMCSourceBiasing {
 export interface OpenMCUFS {
     /** Whether UFS is enabled */
     enabled?: boolean;
-    /** Mesh ID for UFS (if not specified, uses weight window mesh) */
+    /** Regular mesh ID for UFS; required when enabled */
     meshId?: number;
 }
 
 /** Variance reduction settings */
 export interface OpenMCVarianceReduction {
-    /** Weight windows definition */
-    weightWindows?: OpenMCWeightWindows;
+    /** Weight window sets (one or more `<weight_windows>` blocks) */
+    weightWindows?: OpenMCWeightWindows[];
+    /** HDF5 weight window file loaded at simulation start */
+    weightWindowsFile?: string;
+    /**
+     * Whether weight windows are applied (`<weight_windows_on>`). Defaults to
+     * true when sets or a file exist; explicit false disables transport checks.
+     */
+    weightWindowsOn?: boolean;
+    /** Weight-window split/roulette checkpoints (collision default true) */
+    weightWindowCheckpoints?: {
+        collision?: boolean;
+        surface?: boolean;
+    };
     /** Weight window generator settings */
     weightWindowGenerator?: {
         /** Mesh ID for the generated weight windows */
@@ -1341,10 +1920,13 @@ export interface OpenMCVarianceReduction {
         targetTallyIds?: number[];
         /** Legacy iterations field (maps to maxRealizations when present) */
         iterations?: number;
-        /** Particle type */
-        particleType?: 'neutron' | 'photon';
+        /** Particle type (OpenMC generator accepts neutron or photon only). */
+        particleType?: OpenMCParticleValue;
     };
-    /** Source biasing settings */
+    /**
+     * @deprecated Migrated to the first independent source on load; never
+     * emitted or shown as a control.
+     */
     sourceBiasing?: OpenMCSourceBiasing;
     /** Survival biasing toggle */
     survivalBiasing?: boolean;
@@ -1409,6 +1991,83 @@ export interface OpenMCDepletion {
     decayOnlySteps?: number[];
     /** Reduce or eliminate output files */
     reduceOutput?: boolean;
+    /**
+     * Optional reactivity search that adjusts a model parameter during each
+     * depletion step to hold a target k-effective (OpenMC 0.16+).
+     */
+    reactivityControl?: OpenMCReactivityControl;
+    /** External feed/removal rates for depletable materials (g/s … g/a) */
+    externalSourceRates?: OpenMCExternalSourceRate[];
+    /**
+     * Previous `depletion_results.h5` used as the operator's restart point.
+     * Combined with {@link continueTimesteps} this continues an existing
+     * schedule; on its own it appends new steps to the previous results.
+     */
+    continueFromResults?: string;
+    /**
+     * Treat this run as a continuation of {@link continueFromResults}: the
+     * configured timesteps must begin with the previous schedule and must use
+     * the same power/source-rate specification. Requires OpenMC 0.15.1+.
+     */
+    continueTimesteps?: boolean;
+}
+
+/**
+ * Curated reactivity-control parameter for the OpenMC keff search. The driver
+ * modifies the model through `openmc.lib` while a keff search runs at each
+ * depletion step.
+ */
+export interface OpenMCReactivityControl {
+    /** Whether the search runs. Absent means enabled when configured. */
+    enabled?: boolean;
+    /** Curated parameter type */
+    parameter: 'cell-translation' | 'nuclide-density';
+    /** Cell whose translation is adjusted (cell-translation) */
+    cellId?: number;
+    /** Translation axis adjusted by the search (cell-translation) */
+    axis?: 'x' | 'y' | 'z';
+    /** Material whose nuclide density is adjusted (nuclide-density) */
+    materialId?: number;
+    /** Nuclide name (e.g. 'U235') adjusted by the search (nuclide-density) */
+    nuclide?: string;
+    /** First search guess (lower value) */
+    x0: number;
+    /** Second search guess (upper value) */
+    x1: number;
+    /** Absolute search bounds [min, max] */
+    bracket: [number, number];
+    /** Target k-effective (default 1.0) */
+    targetKeff?: number;
+    /** Absolute k-effective tolerance (default 1e-4) */
+    kTol?: number;
+    /** Maximum accepted k-effective uncertainty (default 3e-4) */
+    sigmaFinal?: number;
+    /** Maximum search iterations (default 50) */
+    maxIterations?: number;
+    /** Non-convergence behavior: stop the run or log a warning and continue */
+    onFailure?: 'fail' | 'warn';
+}
+
+/** External feed/removal rate for a depletable material. */
+export interface OpenMCExternalSourceRate {
+    /** Depletable material ID */
+    material: number;
+    /** Composition vector; weight percent per element/nuclide */
+    composition: OpenMCExternalSourceComposition[];
+    /** Mass rate; positive feeds, negative removes */
+    rate: number;
+    /** Mass-per-time units (default 'g/s') */
+    units?: 'g/s' | 'g/min' | 'g/h' | 'g/d' | 'g/a';
+    /** Timestep indices the rate applies to; absent means every step */
+    timesteps?: number[];
+}
+
+/** One element or nuclide in an external source rate composition. */
+export interface OpenMCExternalSourceComposition {
+    /** Element or nuclide name (e.g. 'U', 'U235') */
+    name: string;
+    /** Weight percent (OpenMC normalizes the vector) */
+    weightPercent: number;
 }
 
 /** External transfer rate between materials (Integrator.add_transfer_rate) */
@@ -1526,6 +2185,99 @@ export interface OpenMCOptimizationState {
 }
 
 // ============================================================================
+// Shutdown Dose (R2S / D1S)
+// ============================================================================
+
+/** Wizard page persisted with the shutdown-dose configuration. */
+export type OpenMCShutdownDoseWizardStep = 'method' | 'schedule' | 'tallies' | 'review' | 'results';
+
+/** Cell bounding box override used for cell-based R2S source sampling. */
+export interface OpenMCShutdownDoseBoundingBox {
+    /** Lower-left corner in cm */
+    lowerLeft: [number, number, number];
+    /** Upper-right corner in cm */
+    upperRight: [number, number, number];
+}
+
+/** Dose-response template used by the "Add dose tally" action. */
+export interface OpenMCShutdownDoseTallyTemplate {
+    /** ICRP data source */
+    dataSource: 'icrp74' | 'icrp116';
+    /** Dose quantity */
+    doseQuantity: 'effective' | 'ambient';
+    /** Irradiation geometry (effective dose only) */
+    geometry: 'AP' | 'PA' | 'LLAT' | 'RLAT' | 'ROT' | 'ISO';
+    /** Energy interpolation for the response function */
+    interpolation: 'histogram' | 'linear-linear' | 'linear-log' | 'log-linear' | 'log-log';
+}
+
+/** Last completed shutdown-dose run, used to resume the results page. */
+export interface OpenMCShutdownDoseLastRun {
+    /** Directory written by the driver (contains the summary JSON). */
+    outputDirectory: string;
+    /** Analysis method that produced the directory. */
+    method: 'r2s' | 'd1s';
+    /** ISO timestamp of completion. */
+    completedAt?: string;
+}
+
+/**
+ * Driver-only shutdown-dose configuration (R2S / D1S).
+ *
+ * None of these fields are written to settings.xml or tallies.xml. The
+ * workflow runs through `python/run_r2s.py` / `python/run_d1s.py` with the
+ * generated model XML as input.
+ */
+export interface OpenMCShutdownDoseConfig {
+    /** Analysis method */
+    method: 'r2s' | 'd1s';
+    /** R2S activation domain type (ignored for D1S) */
+    domainType?: 'cell' | 'mesh';
+    /** R2S activation cells */
+    cellIds?: number[];
+    /** R2S activation meshes (non-overlapping) */
+    meshIds?: number[];
+    /** Activation schedule. Numbers use `timestepUnits`; strings carry a unit. */
+    timesteps: (number | string)[];
+    /** Units for numeric timesteps */
+    timestepUnits?: 's' | 'min' | 'h' | 'd' | 'a';
+    /** Source rate per interval in neutrons/s */
+    sourceRates: number | number[];
+    /** Depletion chain XML */
+    chainFile?: string;
+    /** Photon transport time indices; undefined = all times with a decay source */
+    photonTimeIndices?: number[];
+    /** Score photon tallies per parent radionuclide (R2S) */
+    byParentNuclide?: boolean;
+    /** Directory containing the generated model XML */
+    workingDirectory?: string;
+    /** Root directory for the driver output tree */
+    outputDirectory?: string;
+    /** Cell bounding boxes for cell-based R2S; keyed by cell ID */
+    boundingBoxes?: Record<number, OpenMCShutdownDoseBoundingBox>;
+    /** Number of material-volume samples per mesh element */
+    matVolSamples?: number;
+    /** Project tallies copied into the photon model (R2S) or corrected (D1S) */
+    photonTallyIds?: number[];
+    /** D1S time index to correct (negative counts from the end) */
+    d1sTimeIndex?: number;
+    /** D1S: sum over parent nuclides after correction */
+    d1sSumNuclides?: boolean;
+    /** Run the neutron transport stage (R2S) */
+    runNeutron?: boolean;
+    /** Run the photon transport stage */
+    runPhoton?: boolean;
+    /** Persisted wizard page */
+    wizardStep?: OpenMCShutdownDoseWizardStep;
+    /** Tally created by the dose template (for highlighting) */
+    doseTallyId?: number;
+    /** Dose-response template settings */
+    doseTallyTemplate?: OpenMCShutdownDoseTallyTemplate;
+    /** Last completed run for results resumption */
+    lastRun?: OpenMCShutdownDoseLastRun;
+}
+
+// ============================================================================
 // Complete State
 // ============================================================================
 
@@ -1548,12 +2300,19 @@ export interface OpenMCState {
     settings: OpenMCSettings;
     /** Tallies */
     tallies: OpenMCTally[];
+    /**
+     * Analysis-only derived tallies. Optional so projects written before the
+     * feature load unchanged. Never emitted to simulation XML or Python.
+     */
+    derivedTallies?: OpenMCDerivedTally[];
     /** Meshes for tally filters */
     meshes: OpenMCMesh[];
     /** Variance reduction settings */
     varianceReduction?: OpenMCVarianceReduction;
     /** Depletion settings */
     depletion?: OpenMCDepletion;
+    /** Shutdown-dose (R2S / D1S) driver configuration */
+    shutdownDose?: OpenMCShutdownDoseConfig;
     /** Optimization settings */
     optimization?: OpenMCOptimizationState;
     /** Plots configuration (for OpenMC's built-in plotting) */
@@ -1588,6 +2347,19 @@ export interface OpenMCPlotConfig {
     colorBy: 'cell' | 'material' | 'temperature' | 'density';
     /** Whether to show mesh lines */
     meshlines?: boolean;
+    /** Background color for regions outside every cell, as [r, g, b] */
+    background?: [number, number, number];
+    /** Show only the listed cell/material domains (per {@link colorBy}) */
+    mask?: {
+        /** Cell or material IDs to keep visible */
+        components: number[];
+        /** Color applied to every masked-out domain, as [r, g, b] */
+        background?: [number, number, number];
+    };
+    /** Highlight overlapping regions (slice plots only) */
+    showOverlaps?: boolean;
+    /** Color applied to overlapping regions, as [r, g, b] (slice plots only) */
+    overlapColor?: [number, number, number];
     /** Camera position (ray-trace plots) */
     cameraPosition?: [number, number, number];
     /** Point the camera looks at (ray-trace plots) */
@@ -1659,6 +2431,24 @@ export interface OpenMCProjectFile {
 /** Project template types */
 export type OpenMCProjectTemplateType = 'pin-cell' | 'fuel-assembly' | 'full-core' | 'shielding' | 'criticallity-safety' | 'blank';
 
+/** One meaningful numeric parameter exposed by a project template. */
+export interface OpenMCProjectTemplateParameter {
+    /** Parameter key passed back to the template builder. */
+    key: string;
+    /** Field label. */
+    label: string;
+    /** Unit shown beside the input, if any. */
+    unit?: string;
+    /** Default value. */
+    default: number;
+    /** Minimum accepted value. */
+    min?: number;
+    /** Maximum accepted value. */
+    max?: number;
+    /** Input step. */
+    step?: number;
+}
+
 /** Project template */
 export interface OpenMCProjectTemplate {
     /** Template ID */
@@ -1671,6 +2461,14 @@ export interface OpenMCProjectTemplate {
     icon: string;
     /** Default state for this template */
     defaultState: Partial<OpenMCState>;
+    /** Short "what you get" bullet list shown on the template card. */
+    whatYouGet?: string[];
+    /** Meaningful template parameters (empty for blank/parameterless templates). */
+    parameters?: OpenMCProjectTemplateParameter[];
+    /** Data/environment requirement shown in the picker. */
+    requires?: string;
+    /** Whether the template is explicitly a simplified demonstration. */
+    demonstration?: boolean;
 }
 
 // ============================================================================
@@ -1678,4 +2476,4 @@ export interface OpenMCProjectTemplate {
 // ============================================================================
 
 /** Current schema version (for migration support; see openmc-state-migration.ts) */
-export const OPENMC_STATE_SCHEMA_VERSION = '1.1.0';
+export const OPENMC_STATE_SCHEMA_VERSION = '1.2.0';

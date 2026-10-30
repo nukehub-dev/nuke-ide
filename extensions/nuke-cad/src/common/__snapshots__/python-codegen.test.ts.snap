@@ -1,0 +1,181 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generatePythonScript > matches the snapshot for the representative document 1`] = `
+"# Generated from "Export fixture" by NukeIDE nuke-cad
+# This is a one-way export; it is NOT re-importable.
+
+import build123d as bd
+
+# Parameters
+blockHeight = 2
+pinRadius = 0.3
+pitch = 1.26
+
+# Datums
+datum_XY_datum_xy = bd.Plane.XY  # XY
+datum_Offset_datum_offset = bd.Plane.XY.offset(0.5)  # Offset
+# TODO(manual): datum "Face" is a face datum and cannot be exported automatically.
+# datum_Face_datum_face = bd.Plane(...)  # reference: face plane area=4 center=(0, 0, 1)
+
+# Sketches
+def sketch_Block_profile_sketch_a():
+    with bd.BuildSketch(datum_XY_datum_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+        # External geometry references (projected construction geometry)
+        # TODO(manual): edge line length=2
+    return sk.sketch
+
+def sketch_Pin_profile_sketch_b():
+    with bd.BuildSketch(datum_XY_datum_xy) as sk:
+        with bd.Locations((0, 0)):
+            bd.Circle(0.3)
+    return sk.sketch
+
+# Curves
+# No curves defined.
+
+# Bodies
+body_Block = None  # Block  # label: block
+body_Pin = None  # Pin  # label: pin
+
+# Features
+body_Block = body_Block + bd.extrude(sketch_Block_profile_sketch_a(), amount=2, dir=(0, 0, 1)) if body_Block is not None else bd.extrude(sketch_Block_profile_sketch_a(), amount=2, dir=(0, 0, 1))  # Base block
+body_Pin = body_Pin + bd.extrude(sketch_Pin_profile_sketch_b(), amount=2, dir=(0, 0, 1)) if body_Pin is not None else bd.extrude(sketch_Pin_profile_sketch_b(), amount=2, dir=(0, 0, 1))  # Pin
+body_Block = body_Block.cut(body_Pin)  # Cut pin
+# TODO(manual): fillet feature "Round edges"
+#   edges: [{"featureId":"pad_a","kind":"edge","fingerprint":{"curveType":"line","length":2,"start":[0,0,0],"end":[1,0,0]}}]
+#   radius: 0.1
+_tool_lin_pattern_1 = bd.extrude(sketch_Pin_profile_sketch_b(), amount=2, dir=(0, 0, 1))  # source: Pin
+for _k in range(1, 3):
+    body_Pin = body_Pin + _tool_lin_pattern_1.moved(bd.Location((1.5 * _k, 0 * _k, 0 * _k)))
+# Pattern pin
+# TODO(manual): hole feature "Mounting hole"
+#   face: {"featureId":"pad_a","kind":"face","fingerprint":{"surfaceType":"plane","area":4,"center":[0,0,1],"normal":[0,0,1]}}
+#   center: [0.5,0.5]
+#   diameter: 0.2
+
+# Final model
+model = bd.Compound(children=[shape for shape in [body_Block, body_Pin] if shape is not None])
+
+# -----------------------------------------------------------------------------
+# Features requiring manual repair before the exported script is runnable
+# -----------------------------------------------------------------------------
+# TODO(manual): datum "Face" (face datum)
+# TODO(manual): fillet "Round edges"
+# TODO(manual): hole "Mounting hole"
+"
+`;
+
+exports[`generatePythonScript loft/helicalSweep emission > matches the snapshot for the loft/helicalSweep document 1`] = `
+"# Generated from "loft helix export" by NukeIDE nuke-cad
+# This is a one-way export; it is NOT re-importable.
+
+import build123d as bd
+
+# Datums
+datum_XY_xy = bd.Plane.XY  # XY
+
+# Sketches
+def sketch_Loft_A_sk_lo_a():
+    with bd.BuildSketch(datum_XY_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+    return sk.sketch
+
+def sketch_Loft_B_sk_lo_b():
+    with bd.BuildSketch(datum_XY_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+    return sk.sketch
+
+def sketch_Spring_section_sk_sec():
+    with bd.BuildSketch(datum_XY_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (2, 0))
+            bd.Line((2, 0), (2, 1))
+            bd.Line((2, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+    return sk.sketch
+
+# Curves
+# No curves defined.
+
+# Bodies
+body_Transition = None  # Transition
+
+# Features
+body_Transition = body_Transition + bd.loft([sketch_Loft_A_sk_lo_a(), sketch_Loft_B_sk_lo_b()], ruled=True) if body_Transition is not None else bd.loft([sketch_Loft_A_sk_lo_a(), sketch_Loft_B_sk_lo_b()], ruled=True)  # Transition loft
+# TODO(manual): binormal-locked orientation — "Spring sweep" sweeps with a fixed binormal [0,0,1]; build123d's bd.sweep cannot lock the binormal directly.
+_helix_helix_1 = bd.Helix(pitch=2, height=6, radius=5, direction=(0, 0, 1), lefthand=False)
+_sweep_plane_helix_1 = bd.Plane(_helix_helix_1 @ 0, z_dir=_helix_helix_1.tangent_at(0))
+body_Transition = body_Transition + bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_1.location * datum_XY_xy.location.inverse), path=_helix_helix_1) if body_Transition is not None else bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_1.location * datum_XY_xy.location.inverse), path=_helix_helix_1)  # Spring sweep
+_helix_helix_frenet = bd.Helix(pitch=1, height=2, radius=2, direction=(0, 1, 0), lefthand=True)
+_sweep_plane_helix_frenet = bd.Plane(_helix_helix_frenet @ 0, z_dir=_helix_helix_frenet.tangent_at(0))
+body_Transition = body_Transition + bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_frenet.location * datum_XY_xy.location.inverse), path=_helix_helix_frenet) if body_Transition is not None else bd.sweep(sketch_Spring_section_sk_sec().moved(_sweep_plane_helix_frenet.location * datum_XY_xy.location.inverse), path=_helix_helix_frenet)  # Twisted sweep
+
+# Final model
+model = bd.Compound(children=[shape for shape in [body_Transition] if shape is not None])
+"
+`;
+
+exports[`generatePythonScript sweep/pipe emission > matches the snapshot for the sweep/pipe document 1`] = `
+"# Generated from "sweep export" by NukeIDE nuke-cad
+# This is a one-way export; it is NOT re-importable.
+
+import build123d as bd
+
+# Datums
+datum_XY_xy = bd.Plane.XY  # XY
+
+# Sketches
+def sketch_Square_sk_sq():
+    with bd.BuildSketch(datum_XY_xy) as sk:
+        with bd.BuildLine():
+            bd.Line((0, 0), (1, 0))
+            bd.Line((1, 0), (1, 1))
+            bd.Line((1, 1), (0, 1))
+            bd.Line((0, 1), (0, 0))
+        bd.make_face()
+    return sk.sketch
+
+# Curves
+# source: parametric x=cos(t) y=sin(t) z=t tStart=0 tEnd=1 sampleCount=8
+curve_Helix_points = [(1, 0, 0), (0, 1, 0.125), (-1, 0, 0.25), (0, -1, 0.375), (1, 0, 0.5)]
+curve_Helix = bd.Spline(*curve_Helix_points)  # Helix
+
+curve_W7X_coil_points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+curve_W7X_coil = bd.Spline(*curve_W7X_coil_points)  # W7X coil
+
+# Bodies
+body_Rail = None  # Rail
+
+# Features
+_sweep_plane_sw_1 = bd.Plane(curve_W7X_coil @ 0, z_dir=curve_W7X_coil.tangent_at(0))
+body_Rail = body_Rail + bd.sweep(sketch_Square_sk_sq().moved(_sweep_plane_sw_1.location * datum_XY_xy.location.inverse), path=curve_W7X_coil) if body_Rail is not None else bd.sweep(sketch_Square_sk_sq().moved(_sweep_plane_sw_1.location * datum_XY_xy.location.inverse), path=curve_W7X_coil)  # Rail sweep
+# TODO(manual): binormal-locked orientation — "Conduit" sweeps with a fixed binormal [0,0,1]; build123d's bd.sweep cannot lock the binormal directly.
+_sweep_plane_pp_1 = bd.Plane(curve_Helix @ 0, z_dir=curve_Helix.tangent_at(0))
+body_Rail = body_Rail + bd.sweep(bd.Circle(0.25).moved(_sweep_plane_pp_1.location), path=curve_Helix) if body_Rail is not None else bd.sweep(bd.Circle(0.25).moved(_sweep_plane_pp_1.location), path=curve_Helix)  # Conduit
+_sweep_plane_sw_1 = bd.Plane(curve_W7X_coil @ 0, z_dir=curve_W7X_coil.tangent_at(0))
+_tool_pat_1 = bd.sweep(sketch_Square_sk_sq().moved(_sweep_plane_sw_1.location * datum_XY_xy.location.inverse), path=curve_W7X_coil)  # source: Rail sweep
+for _k in range(1, 4):
+    body_Rail = body_Rail + _tool_pat_1.rotate(bd.Axis.Z, _k * 90)
+# Rail pattern
+
+# Final model
+model = bd.Compound(children=[shape for shape in [body_Rail] if shape is not None])
+"
+`;

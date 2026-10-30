@@ -27,7 +27,8 @@
 
 import * as React from 'react';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { OpenMCMesh } from '../../../../common/openmc-state-schema';
+import { OpenMCMesh, OpenMCMeshType } from '../../../../common/openmc-state-schema';
+import { getMeshElementCount, MESH_TYPE_LABELS, describeUnstructuredMesh } from '../../../../common/mesh-utils';
 
 /**
  * Props for the {@link MeshPanel} component.
@@ -56,7 +57,7 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({ meshes, selectedMeshId, on
         <div className="mesh-list-panel">
             <div className="panel-header">
                 <h3>
-                    <i className="codicon codicon-table"></i>
+                    <i className="codicon codicon-openmc-grid"></i>
                     Meshes ({meshes.length})
                 </h3>
                 <Tooltip content="Create a new mesh" position="bottom">
@@ -68,7 +69,7 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({ meshes, selectedMeshId, on
             <div className="list-container">
                 {meshes.length === 0 ? (
                     <div className="empty-state">
-                        <i className="codicon codicon-table"></i>
+                        <i className="codicon codicon-openmc-grid"></i>
                         <p>No meshes defined</p>
                         <p className="empty-hint">Click "Add" to create a new mesh</p>
                     </div>
@@ -85,7 +86,7 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({ meshes, selectedMeshId, on
                                     <span className="mesh-item-name">{mesh.name || `Mesh ${mesh.id}`}</span>
                                     <span className={`mesh-type-badge ${mesh.type}`}>
                                         <i className={`codicon ${getMeshIcon(mesh.type)}`}></i>
-                                        {mesh.type}
+                                        {MESH_TYPE_LABELS[mesh.type]}
                                     </span>
                                 </div>
                                 <div className="mesh-item-actions">
@@ -121,14 +122,18 @@ export const MeshPanel: React.FC<MeshPanelProps> = ({ meshes, selectedMeshId, on
  * @param type - Mesh coordinate system type.
  * @returns Codicon CSS class string.
  */
-function getMeshIcon(type: string): string {
+export function getMeshIcon(type: OpenMCMeshType): string {
     switch (type) {
         case 'regular':
             return 'codicon-table';
+        case 'rectilinear':
+            return 'codicon-list-unordered';
         case 'cylindrical':
             return 'codicon-circle-outline';
         case 'spherical':
             return 'codicon-globe';
+        case 'unstructured':
+            return 'codicon-file-binary';
         default:
             return 'codicon-symbol-misc';
     }
@@ -139,14 +144,22 @@ function getMeshIcon(type: string): string {
  * @param mesh - The mesh to describe.
  * @returns Description string.
  */
-function getMeshDescription(mesh: OpenMCMesh): string {
+export function getMeshDescription(mesh: OpenMCMesh): string {
     switch (mesh.type) {
         case 'regular':
             return `${mesh.dimension?.[0] || 0}×${mesh.dimension?.[1] || 0}×${mesh.dimension?.[2] || 0} cells`;
+        case 'rectilinear': {
+            const count = getMeshElementCount(mesh);
+            return count !== undefined
+                ? `${mesh.xGrid.length - 1}×${mesh.yGrid.length - 1}×${mesh.zGrid.length - 1} cells (${count})`
+                : 'Invalid grid';
+        }
         case 'cylindrical':
             return `Cylindrical (r, φ, z)`;
         case 'spherical':
             return `Spherical (r, θ, φ)`;
+        case 'unstructured':
+            return describeUnstructuredMesh(mesh);
         default:
             return 'Unknown mesh type';
     }

@@ -1,0 +1,6984 @@
+#!/usr/bin/env python3
+"""Feature builder for `.nuke-cad` documents.
+
+Executes a document's feature tree in topological order, maintaining one
+accumulated build123d shape per body. Boolean features (fuse/cut/common)
+combine bodies via OCP boolean operations. The final shape is a Compound of
+all non-consumed bodies in document body order.
+
+Fuzzy tolerance for boolean operations uses OCP defaults. The DAGMC export
+path no longer performs OCP boolean cuts (it uses gmsh fragment/merge
+instead), so there is no project-wide fuzzy-tolerance convention to align
+with on this code path.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+# Heavy imports are guarded so the module stays importable in the minimal pytest
+# profile (pytest + numpy only).
+try:
+    import build123d as bd
+
+    HAS_BUILD123D = True
+except Exception:
+    bd = None  # type: ignore
+    HAS_BUILD123D = False
+
+import curve_builder
+import exchange_reader
+import sketch_builder
+from reference_scoring import DEFAULT_TOLERANCE_SCALE
+from sketch_builder import build_sketch_faces
+
+# Thread tables are pure data (no OCP/build123d imports) so they stay usable
+# in the minimal pytest profile; modeled-hole-thread geometry still needs bd.
+try:
+    import fastener_data
+
+    HAS_FASTENER_DATA = True
+except Exception:
+    fastener_data = None  # type: ignore
+    HAS_FASTENER_DATA = False
+
+# Heavy imports are guarded so the module stays importable in the minimal pytest
+# profile (pytest + numpy only).
+try:
+    import reference_resolver as rr
+
+    HAS_REFERENCE_RESOLVER = True
+except Exception:
+    rr = None  # type: ignore
+    HAS_REFERENCE_RESOLVER = False
+
+
+class FeatureBuilderError(ValueError):
+    """Raised when the feature tree cannot be built."""
+
+
+_AXIS_VECTOR: dict[str, tuple[float, float, float]] = {
+    "x": (1.0, 0.0, 0.0),
+    "y": (0.0, 1.0, 0.0),
+    "z": (0.0, 0.0, 1.0),
+}
+
+_PLANE_MAP: dict[str, str] = {
+    "XY": "XY",
+    "YZ": "YZ",
+    "XZ": "XZ",
+}
+
+_BUILD_AXIS: dict[str, Any] = {}
+
+
+def _ensure_build_axis() -> None:
+    """Populate the build123d axis cache once imports are available."""
+    if bd is None:
+        return
+    if not _BUILD_AXIS:
+        _BUILD_AXIS["x"] = bd.Axis.X
+        _BUILD_AXIS["y"] = bd.Axis.Y
+        _BUILD_AXIS["z"] = bd.Axis.Z
+
+
+def _require_reference_resolver() -> None:
+    """Raise a clear error when the reference resolver is required but unavailable."""
+    if not HAS_REFERENCE_RESOLVER or rr is None:
+        raise FeatureBuilderError(
+            "Topological reference resolution requires OCP (cadquery-ocp/build123d)."
+        )
+
+
+def _normalized_vector(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Return a unit vector in the same direction as ``v``."""
+    length = math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+    if length == 0.0:
+        raise FeatureBuilderError("cannot use a zero-length direction vector")
+    return (v[0] / length, v[1] / length, v[2] / length)
+
+
+def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _extract_plane_normal(plane: Any) -> tuple[float, float, float]:
+    """Return the normal vector of a build123d ``Plane``."""
+    return (float(plane.z_dir.X), float(plane.z_dir.Y), float(plane.z_dir.Z))
+
+
+def _deterministic_x_dir(normal: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Return a deterministic in-plane x-direction for a face normal."""
+    nx, ny, nz = normal
+    # When the normal is close to world Z, use world X as the fallback so the
+    # cross product does not collapse to zero.
+    if abs(nz) < 0.999:
+        x_dir = (-ny, nx, 0.0)
+    else:
+        x_dir = (1.0, 0.0, 0.0)
+    return _normalized_vector(x_dir)
+
+
+def _face_centroid(topods_face: Any) -> tuple[float, float, float]:
+    """Return the centroid of a ``TopoDS_Face`` (the trimmed face's centre of mass)."""
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(topods_face, props)
+    cog = props.CentreOfMass()
+    return (float(cog.X()), float(cog.Y()), float(cog.Z()))
+
+
+def _workplane_from_face(topods_face: Any, offset: float = 0.0) -> Any:
+    """Build a build123d ``Plane`` from a planar ``TopoDS_Face``.
+
+    The origin is the face centroid so that ``[0, 0]`` in workplane coordinates
+    is always at the centre of the face, regardless of where the underlying
+    surface's reference point lies. ``offset`` shifts the origin along the face
+    normal. The normal follows the fingerprint convention (outward; REVERSED
+    faces flip the underlying plane axis), so hole ``[u, v]`` centers and
+    sketch-on-face coordinates agree with the frontend projection.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot build face workplane")
+    _require_reference_resolver()
+
+    origin = _face_centroid(topods_face)
+    _normal = rr.face_plane_origin_normal(topods_face)[1]
+    normal = _normalized_vector(_normal)
+    if offset:
+        origin = (
+            origin[0] + offset * normal[0],
+            origin[1] + offset * normal[1],
+            origin[2] + offset * normal[2],
+        )
+    x_dir = _deterministic_x_dir(normal)
+    return bd.Plane(origin=origin, x_dir=x_dir, z_dir=normal)
+
+
+def _feature_sketch_ids(feature: dict[str, Any]) -> list[str]:
+    """Sketch ids consumed by a feature: ``sketchId`` plus loft ``sectionSketchIds``.
+
+    Loft stores its ordered section sketches in params because the single
+    ``sketchId`` field cannot express ordering; both spellings name sketches
+    the feature's geometry depends on.
+    """
+    ids: list[str] = []
+    sketch_id = feature.get("sketchId")
+    if isinstance(sketch_id, str) and sketch_id:
+        ids.append(sketch_id)
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+    if feature.get("type") == "loft":
+        section_ids = params.get("sectionSketchIds")
+        if isinstance(section_ids, list):
+            for sid in section_ids:
+                if isinstance(sid, str) and sid and sid not in ids:
+                    ids.append(sid)
+    return ids
+
+
+def _collect_topology_refs(
+    feature: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    sketches: dict[str, dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Collect all ``TopologyRef`` dicts associated with a feature.
+
+    Returns a list of ``(path, ref_dict)`` tuples. The paths are stable
+    document locations so the frontend can map resolution status back to the
+    feature tree.
+    """
+    refs: list[tuple[str, dict[str, Any]]] = []
+    fid = feature.get("id", "<unknown>")
+
+    for sketch_id in _feature_sketch_ids(feature):
+        sketch = sketches.get(sketch_id)
+        if sketch is None:
+            continue
+        datum_id = sketch.get("datumId")
+        datum = datums.get(datum_id) if isinstance(datum_id, str) else None
+        if datum is not None and datum.get("kind") == "face":
+            ref = datum.get("reference")
+            if isinstance(ref, dict):
+                refs.append((f"datum.{datum_id}.reference", ref))
+        if datum is not None and datum.get("kind") == "midplane":
+            faces = datum.get("faces")
+            if isinstance(faces, list):
+                for i, ref in enumerate(faces):
+                    if isinstance(ref, dict):
+                        refs.append((f"datum.{datum_id}.faces[{i}]", ref))
+        external_refs = sketch.get("externalRefs", [])
+        if isinstance(external_refs, list):
+            for i, ref in enumerate(external_refs):
+                if isinstance(ref, dict):
+                    refs.append((f"sketch.{sketch_id}.externalRefs[{i}]", ref))
+
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+    up_to_face = params.get("upToFace")
+    if isinstance(up_to_face, dict):
+        refs.append((f"feature.{fid}.params.upToFace", up_to_face))
+
+    feature_type = feature.get("type")
+    if feature_type in ("fillet", "chamfer"):
+        edges = params.get("edges")
+        if isinstance(edges, list):
+            for i, ref in enumerate(edges):
+                if isinstance(ref, dict):
+                    refs.append((f"feature.{fid}.params.edges[{i}]", ref))
+    elif feature_type in ("draft", "shell", "defeature"):
+        faces = params.get("faces")
+        if isinstance(faces, list):
+            for i, ref in enumerate(faces):
+                if isinstance(ref, dict):
+                    refs.append((f"feature.{fid}.params.faces[{i}]", ref))
+        if feature_type == "draft":
+            neutral = params.get("neutralPlane")
+            if isinstance(neutral, dict):
+                refs.append((f"feature.{fid}.params.neutralPlane", neutral))
+    elif feature_type == "hole":
+        face_ref = params.get("face")
+        if isinstance(face_ref, dict):
+            refs.append((f"feature.{fid}.params.face", face_ref))
+    elif feature_type == "circularPattern":
+        axis_datum_id = params.get("axisDatumId")
+        if isinstance(axis_datum_id, str):
+            datum = datums.get(axis_datum_id)
+            if isinstance(datum, dict) and datum.get("kind") in ("face", "midplane"):
+                if datum.get("kind") == "face":
+                    ref = datum.get("reference")
+                    if isinstance(ref, dict):
+                        refs.append((f"datum.{axis_datum_id}.reference", ref))
+                else:
+                    faces = datum.get("faces")
+                    if isinstance(faces, list):
+                        for i, ref in enumerate(faces):
+                            if isinstance(ref, dict):
+                                refs.append((f"datum.{axis_datum_id}.faces[{i}]", ref))
+    elif feature_type == "linearPattern":
+        axis_datum_id = params.get("axisDatumId")
+        if isinstance(axis_datum_id, str):
+            datum = datums.get(axis_datum_id)
+            if isinstance(datum, dict) and datum.get("kind") in ("face", "midplane"):
+                if datum.get("kind") == "face":
+                    ref = datum.get("reference")
+                    if isinstance(ref, dict):
+                        refs.append((f"datum.{axis_datum_id}.reference", ref))
+                else:
+                    faces = datum.get("faces")
+                    if isinstance(faces, list):
+                        for i, ref in enumerate(faces):
+                            if isinstance(ref, dict):
+                                refs.append((f"datum.{axis_datum_id}.faces[{i}]", ref))
+    elif feature_type == "mirror":
+        plane_datum_id = params.get("planeDatumId")
+        if isinstance(plane_datum_id, str):
+            datum = datums.get(plane_datum_id)
+            if isinstance(datum, dict) and datum.get("kind") in ("face", "midplane"):
+                if datum.get("kind") == "face":
+                    ref = datum.get("reference")
+                    if isinstance(ref, dict):
+                        refs.append((f"datum.{plane_datum_id}.reference", ref))
+                else:
+                    faces = datum.get("faces")
+                    if isinstance(faces, list):
+                        for i, ref in enumerate(faces):
+                            if isinstance(ref, dict):
+                                refs.append((f"datum.{plane_datum_id}.faces[{i}]", ref))
+    elif feature_type == "primitive":
+        datum_id = params.get("datumId")
+        if isinstance(datum_id, str) and datum_id:
+            datum = datums.get(datum_id)
+            if isinstance(datum, dict) and datum.get("kind") == "face":
+                ref = datum.get("reference")
+                if isinstance(ref, dict):
+                    refs.append((f"datum.{datum_id}.reference", ref))
+            elif isinstance(datum, dict) and datum.get("kind") == "midplane":
+                faces = datum.get("faces")
+                if isinstance(faces, list):
+                    for i, ref in enumerate(faces):
+                        if isinstance(ref, dict):
+                            refs.append((f"datum.{datum_id}.faces[{i}]", ref))
+    elif feature_type == "lattice":
+        # The lattice plane datum resolves like a primitive placement datum
+        # (face/midplane refs against the referenced feature's history).
+        datum_id = params.get("datumId")
+        if isinstance(datum_id, str) and datum_id:
+            datum = datums.get(datum_id)
+            if isinstance(datum, dict) and datum.get("kind") == "face":
+                ref = datum.get("reference")
+                if isinstance(ref, dict):
+                    refs.append((f"datum.{datum_id}.reference", ref))
+            elif isinstance(datum, dict) and datum.get("kind") == "midplane":
+                faces = datum.get("faces")
+                if isinstance(faces, list):
+                    for i, ref in enumerate(faces):
+                        if isinstance(ref, dict):
+                            refs.append((f"datum.{datum_id}.faces[{i}]", ref))
+
+    return refs
+
+
+def _resolve_document_refs(
+    refs_with_paths: list[tuple[str, dict[str, Any]]],
+    feature_shapes: dict[str, Any],
+    *,
+    owner_feature_id: str,
+    tolerance_scale: float = DEFAULT_TOLERANCE_SCALE,
+    ambiguity_margin: float = 0.05,
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Resolve a heterogeneous list of document TopologyRefs.
+
+    References are grouped by the predecessor feature they point to and by
+    topological kind, then resolved in batches against that feature's current
+    B-rep. Returns ``(entities, results)`` aligned with the input list.
+
+    The ``featureId`` field in each result record identifies the owning feature
+    (the one being built), not the predecessor feature that produced the
+    geometry. The predecessor id is encoded in the ``path`` and in the reference
+    payload itself.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+
+    if not refs_with_paths:
+        return [], []
+
+    path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+    entities: list[Any] = [None] * len(refs_with_paths)
+    results: list[dict[str, Any]] = [
+        {
+            "featureId": owner_feature_id,
+            "path": path,
+            "kind": ref.get("kind", "face"),
+            "status": "unmatched",
+            "candidateId": None,
+            "score": 0.0,
+            "runnerUpScore": 0.0,
+            "candidates": None,
+        }
+        for path, ref in refs_with_paths
+    ]
+
+    groups: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
+    for path, ref in refs_with_paths:
+        feature_id = ref.get("featureId", "")
+        kind = ref.get("kind", "face")
+        groups.setdefault((feature_id, kind), []).append((path, ref))
+
+    for (feature_id, kind), items in groups.items():
+        shape = feature_shapes.get(feature_id)
+        if shape is None:
+            for path, _ref in items:
+                i = path_to_index[path]
+                results[i] = {
+                    "featureId": owner_feature_id,
+                    "path": path,
+                    "kind": kind,
+                    "status": "unmatched",
+                    "candidateId": None,
+                    "score": 0.0,
+                    "runnerUpScore": 0.0,
+                    "candidates": None,
+                }
+            continue
+
+        try:
+            fingerprints = [rr.topology_ref_to_fingerprint(ref) for _, ref in items]
+            match_result, entity_map = rr.resolve_references_with_entities(
+                fingerprints,
+                shape,
+                tolerance_scale=tolerance_scale,
+                ambiguity_margin=ambiguity_margin,
+            )
+        except Exception as exc:
+            for path, _ref in items:
+                i = path_to_index[path]
+                results[i] = {
+                    "featureId": owner_feature_id,
+                    "path": path,
+                    "kind": kind,
+                    "status": "unmatched",
+                    "candidateId": None,
+                    "score": 0.0,
+                    "runnerUpScore": 0.0,
+                    "candidates": None,
+                    "error": str(exc),
+                }
+            continue
+
+        for (path, _ref), match in zip(items, match_result.matches, strict=True):
+            i = path_to_index[path]
+            entity = entity_map.get(match.candidate_id) if match.candidate_id else None
+            entities[i] = entity
+            results[i] = {
+                "featureId": owner_feature_id,
+                "path": path,
+                "kind": kind,
+                "status": match.status,
+                "candidateId": match.candidate_id,
+                "score": match.score,
+                "runnerUpScore": match.runner_up_score,
+                "candidates": [c.to_dict() for c in match.candidates] if match.candidates else None,
+            }
+
+    return entities, results
+
+
+def _resolve_refs_against_shape(
+    refs_with_paths: list[tuple[str, dict[str, Any]]],
+    shape: Any,
+    *,
+    owner_feature_id: str,
+    tolerance_scale: float = DEFAULT_TOLERANCE_SCALE,
+    ambiguity_margin: float = 0.05,
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Resolve all ``TopologyRef`` objects against a single shape.
+
+    This is used by dress-up features whose references must resolve against the
+    current body state rather than the historical shape recorded at pick time.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+
+    if not refs_with_paths:
+        return [], []
+
+    try:
+        fingerprints = [rr.topology_ref_to_fingerprint(ref) for _, ref in refs_with_paths]
+        match_result, entity_map = rr.resolve_references_with_entities(
+            fingerprints,
+            shape,
+            tolerance_scale=tolerance_scale,
+            ambiguity_margin=ambiguity_margin,
+        )
+    except Exception as exc:
+        results = [
+            {
+                "featureId": owner_feature_id,
+                "path": path,
+                "kind": ref.get("kind", "face"),
+                "status": "unmatched",
+                "candidateId": None,
+                "score": 0.0,
+                "runnerUpScore": 0.0,
+                "candidates": None,
+                "error": str(exc),
+            }
+            for path, ref in refs_with_paths
+        ]
+        return [None] * len(refs_with_paths), results
+
+    entities: list[Any] = []
+    results: list[dict[str, Any]] = []
+    for (path, ref), match in zip(refs_with_paths, match_result.matches, strict=True):
+        entity = entity_map.get(match.candidate_id) if match.candidate_id else None
+        entities.append(entity)
+        results.append(
+            {
+                "featureId": owner_feature_id,
+                "path": path,
+                "kind": ref.get("kind", "face"),
+                "status": match.status,
+                "candidateId": match.candidate_id,
+                "score": match.score,
+                "runnerUpScore": match.runner_up_score,
+                "candidates": [c.to_dict() for c in match.candidates] if match.candidates else None,
+            }
+        )
+
+    return entities, results
+
+
+def _project_point_to_plane(
+    point: tuple[float, float, float],
+    plane: Any,
+) -> tuple[float, float]:
+    """Project a 3D point onto a build123d ``Plane`` and return 2D sketch coords."""
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot project geometry")
+    v = bd.Vector(point) - bd.Vector(plane.origin)
+    u = float(v.dot(plane.x_dir))
+    w = float(v.dot(plane.y_dir))
+    return (u, w)
+
+
+def _primitive_id(prefix: str, index: int) -> str:
+    return f"{prefix}_{index:04d}"
+
+
+def _project_edge_to_sketch(
+    topods_edge: Any,
+    plane: Any,
+    index: int,
+) -> list[dict[str, Any]]:
+    """Project a ``TopoDS_Edge`` into sketch-plane construction primitives.
+
+    Handles linear edges and circles/arcs that are parallel to the sketch plane.
+    Other curve types are approximated by a single construction line between the
+    projected endpoints.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot project geometry")
+
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+    curv = BRepAdaptor_Curve(topods_edge)
+    ctype = rr._curve_type_string(curv)
+    first = curv.FirstParameter()
+    last = curv.LastParameter()
+
+    def pnt_3d(param: float) -> tuple[float, float, float]:
+        pnt = curv.Value(param)
+        return (pnt.X(), pnt.Y(), pnt.Z())
+
+    def pnt_2d(param: float) -> tuple[float, float]:
+        return _project_point_to_plane(pnt_3d(param), plane)
+
+    if ctype == "line":
+        p1 = pnt_2d(first)
+        p2 = pnt_2d(last)
+        # Degenerate projection (edge perpendicular to plane) becomes a point.
+        if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) < 1e-9:
+            return []
+        pid = _primitive_id("ext_p", index)
+        lid = _primitive_id("ext_l", index)
+        return [
+            {"id": pid, "type": "point", "x": p1[0], "y": p1[1], "construction": True},
+            {"id": f"{pid}_2", "type": "point", "x": p2[0], "y": p2[1], "construction": True},
+            {
+                "id": lid,
+                "type": "line",
+                "p1_id": pid,
+                "p2_id": f"{pid}_2",
+                "construction": True,
+            },
+        ]
+
+    if ctype in ("circle", "ellipse"):
+        circ = curv.Circle() if ctype == "circle" else curv.Ellipse()
+        center_3d = (circ.Location().X(), circ.Location().Y(), circ.Location().Z())
+        normal_3d = (
+            circ.Axis().Direction().X(),
+            circ.Axis().Direction().Y(),
+            circ.Axis().Direction().Z(),
+        )
+        sketch_normal = _extract_plane_normal(plane)
+        # Only emit a true circle/arc when the source curve lies in a plane
+        # parallel to the sketch plane.
+        if abs(abs(_dot(normal_3d, sketch_normal)) - 1.0) < 1e-6:
+            radius = float(circ.Radius()) if ctype == "circle" else float(circ.MajorRadius())
+            center_2d = _project_point_to_plane(center_3d, plane)
+            pid = _primitive_id("ext_p", index)
+            cid = _primitive_id("ext_c", index)
+            return [
+                {
+                    "id": pid,
+                    "type": "point",
+                    "x": center_2d[0],
+                    "y": center_2d[1],
+                    "construction": True,
+                },
+                {"id": cid, "type": "circle", "c_id": pid, "radius": radius, "construction": True},
+            ]
+
+    # Fallback: chord from projected endpoints.
+    p1 = pnt_2d(first)
+    p2 = pnt_2d(last)
+    if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) < 1e-9:
+        return []
+    pid = _primitive_id("ext_p", index)
+    lid = _primitive_id("ext_l", index)
+    return [
+        {"id": pid, "type": "point", "x": p1[0], "y": p1[1], "construction": True},
+        {"id": f"{pid}_2", "type": "point", "x": p2[0], "y": p2[1], "construction": True},
+        {
+            "id": lid,
+            "type": "line",
+            "p1_id": pid,
+            "p2_id": f"{pid}_2",
+            "construction": True,
+        },
+    ]
+
+
+def _project_entity_to_sketch(
+    topods_entity: Any,
+    plane: Any,
+    index: int,
+) -> list[dict[str, Any]]:
+    """Project a resolved face or edge into sketch-plane construction primitives."""
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    shape_type = topods_entity.ShapeType()
+    if shape_type == TopAbs_FACE:
+        primitives: list[dict[str, Any]] = []
+        exp = TopExp_Explorer(topods_entity, TopAbs_EDGE)
+        edge_index = 0
+        while exp.More():
+            edge = TopoDS.Edge_s(exp.Current())
+            primitives.extend(_project_edge_to_sketch(edge, plane, index * 100 + edge_index))
+            edge_index += 1
+            exp.Next()
+        return primitives
+
+    if shape_type == TopAbs_EDGE:
+        return _project_edge_to_sketch(topods_entity, plane, index)
+
+    return []
+
+
+def _extrude_direction(
+    plane: Any,
+    axis: str | None,
+    feature_context: str,
+) -> Any:
+    """Return the build123d extrusion direction for a sketch plane.
+
+    The default direction is the sketch plane normal. If ``axis`` is supplied it
+    must be parallel to the plane normal (either direction); anything else is an
+    error because the schema does not yet support draft/extrude along
+    an arbitrary vector.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot compute extrude direction")
+
+    normal = _extract_plane_normal(plane)
+    if axis is None:
+        return bd.Vector(normal)
+
+    if axis not in _AXIS_VECTOR:
+        raise FeatureBuilderError(f"{feature_context}: unknown axis '{axis}'")
+    axis_vector = _AXIS_VECTOR[axis]
+    if abs(abs(_dot(normal, axis_vector)) - 1.0) > 1e-6:
+        raise FeatureBuilderError(
+            f"{feature_context}: extrude axis '{axis}' is not aligned with the sketch plane normal"
+        )
+    return bd.Vector(axis_vector)
+
+
+_END_CONDITIONS = ("blind", "upToFirst", "upToLast", "upToFace", "throughAll")
+
+
+def _extrude_end_mode(params: dict[str, Any], feature_id: str, feature_type: str) -> str:
+    """Return the validated end condition for a pad/pocket feature.
+
+    The default is ``blind``. Legacy documents carry ``upToFace`` without
+    an ``end`` key; those upgrade leniently to ``upToFace`` mode. An explicit
+    ``end`` always wins. ``symmetric``/``twoSided`` split ``length`` equally
+    both ways and therefore require the blind end.
+    """
+    raw_end = params.get("end", "blind")
+    if raw_end is None:
+        raw_end = "blind"
+    if raw_end not in _END_CONDITIONS:
+        raise FeatureBuilderError(f"feature '{feature_id}': unknown {feature_type} end '{raw_end}'")
+    end = str(raw_end)
+    if params.get("end") is None and isinstance(params.get("upToFace"), dict):
+        end = "upToFace"
+    if end != "blind":
+        if params.get("symmetric"):
+            raise FeatureBuilderError(f"feature '{feature_id}': symmetric requires the blind end")
+        if params.get("twoSided"):
+            raise FeatureBuilderError(f"feature '{feature_id}': twoSided requires the blind end")
+    return end
+
+
+def _is_up_to_extrude(feature: dict[str, Any]) -> bool:
+    """Return True when a pad/pocket feature uses a non-blind end condition.
+
+    This mirrors :func:`_extrude_end_mode` without validation (the tool build
+    validates first): up-to tools fuse into the body on combine instead of
+    going through the blind disjoint-regions guard.
+    """
+    if feature.get("type") not in ("pad", "pocket"):
+        return False
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+    raw_end = params.get("end")
+    if raw_end in ("upToFirst", "upToLast", "upToFace", "throughAll"):
+        return True
+    return raw_end is None and isinstance(params.get("upToFace"), dict)
+
+
+_REVOLVE_END_CONDITIONS = ("blind", "throughAll")
+
+
+def _revolve_end_mode(params: dict[str, Any], feature_id: str) -> str:
+    """Return the validated end condition for a revolve/groove feature.
+
+    The default is ``blind``. The full UpTo set stays pad/pocket-only: any
+    other ``end`` value is a validation error, never silently accepted. Pure
+    (no build123d) so minimal-profile tests can cover the contract.
+    """
+    raw_end = params.get("end", "blind")
+    if raw_end is None:
+        raw_end = "blind"
+    if raw_end not in _REVOLVE_END_CONDITIONS:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve end must be 'blind' or 'throughAll', got '{raw_end}'"
+        )
+    return str(raw_end)
+
+
+def _validate_revolve_params(params: dict[str, Any], feature_id: str) -> str:
+    """Validate revolve/groove params and return the end condition.
+
+    ``upToFace``/``upToBody`` are schema-accepted on pads/pockets only; on a
+    revolve/groove they fail explicitly instead of being silently ignored.
+    Pure (no build123d) so minimal-profile tests can cover the contract.
+    """
+    end = _revolve_end_mode(params, feature_id)
+    unsupported = [name for name in ("upToFace", "upToBody") if params.get(name) is not None]
+    if unsupported:
+        names = ", ".join(f"'{name}'" for name in unsupported)
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve parameter(s) {names} "
+            "are not yet supported; use a pad or pocket instead"
+        )
+    return end
+
+
+def _is_revolve_through_all(feature: dict[str, Any]) -> bool:
+    """Return True when a revolve feature uses the throughAll end condition.
+
+    This mirrors :func:`_is_up_to_extrude` without validation (the tool build
+    validates first): throughAll revolve tools fuse into the body on combine
+    instead of going through the blind disjoint-regions guard.
+    """
+    if feature.get("type") != "revolve":
+        return False
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+    return params.get("end") == "throughAll"
+
+
+def _bbox_span_along(
+    shape: Any, origin: tuple[float, float, float], direction: tuple[float, float, float]
+) -> tuple[float, float]:
+    """Return ``(t_min, t_max)`` of a shape's bbox projected along ``direction``."""
+    bbox = shape.bounding_box()
+    corners = (
+        (bbox.min.X, bbox.min.Y, bbox.min.Z),
+        (bbox.min.X, bbox.min.Y, bbox.max.Z),
+        (bbox.min.X, bbox.max.Y, bbox.min.Z),
+        (bbox.min.X, bbox.max.Y, bbox.max.Z),
+        (bbox.max.X, bbox.min.Y, bbox.min.Z),
+        (bbox.max.X, bbox.min.Y, bbox.max.Z),
+        (bbox.max.X, bbox.max.Y, bbox.min.Z),
+        (bbox.max.X, bbox.max.Y, bbox.max.Z),
+    )
+    projections = [
+        (c[0] - origin[0]) * direction[0]
+        + (c[1] - origin[1]) * direction[1]
+        + (c[2] - origin[2]) * direction[2]
+        for c in corners
+    ]
+    return (min(projections), max(projections))
+
+
+def _common_or_raise(body: Any, tool: Any, feature_id: str, feature_type: str) -> Any:
+    """Return ``body & tool`` or raise the standard does-not-intersect error."""
+    _require_build123d()
+    try:
+        common = body & tool
+    except ValueError as exc:
+        if "empty compound" in str(exc).lower():
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            ) from exc
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': failed to check {feature_type} intersection: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': failed to check {feature_type} intersection: {exc}"
+        ) from exc
+    if common is None or getattr(common, "volume", 0.0) <= 1e-9:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+        )
+    return common
+
+
+def _extrude_profiles_span(
+    faces: list[Any],
+    direction: Any,
+    amount_fwd: float,
+    amount_bwd: float,
+    feature_id: str,
+    feature_type: str,
+) -> Any:
+    """Extrude sketch faces over ``[−amount_bwd, +amount_fwd]`` along ``direction``.
+
+    Inner wires are subtracted over the same span, mirroring the blind-path
+    outer/inner-wire pairing. ``amount_bwd`` of 0 extrudes forward only.
+    """
+    _require_build123d()
+    assert bd is not None
+    back = bd.Vector((-direction.X, -direction.Y, -direction.Z))
+    profile_tools: list[Any] = []
+    for face in faces:
+        inner_wires = face.inner_wires()
+        try:
+            outer_face = bd.Face(face.outer_wire())
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': could not build outer face for {feature_type}"
+            ) from exc
+
+        def _span(wire_face: Any) -> Any:
+            try:
+                spanned = bd.extrude(wire_face, amount=amount_fwd, dir=direction, both=False)
+            except Exception as exc:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': {feature_type} extrusion failed"
+                ) from exc
+            if amount_bwd > 0:
+                try:
+                    behind = bd.extrude(wire_face, amount=amount_bwd, dir=back, both=False)
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} extrusion failed"
+                    ) from exc
+                try:
+                    spanned = spanned + behind
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} boolean union failed"
+                    ) from exc
+            return spanned
+
+        tool = _span(outer_face)
+        for hole_wire in inner_wires:
+            try:
+                hole_face = bd.Face(hole_wire)
+            except Exception as exc:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': could not build hole face for {feature_type}"
+                ) from exc
+            hole_solid = _span(hole_face)
+            try:
+                tool = tool - hole_solid
+            except Exception as exc:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': {feature_type} boolean subtraction failed"
+                ) from exc
+        profile_tools.append(tool)
+
+    if len(profile_tools) == 1:
+        return profile_tools[0]
+    return bd.Compound(children=profile_tools)
+
+
+def _extrude_span_for_end(
+    end: str,
+    plane: Any,
+    faces: list[Any],
+    direction: Any,
+    body_shape: Any | None,
+    up_to_face_entity: Any | None,
+    feature_id: str,
+    feature_type: str,
+) -> tuple[float, float]:
+    """Return ``(amount_fwd, amount_bwd)`` for a non-blind pad/pocket end.
+
+    First/Last measure the nearest/farthest intersection of the forward
+    profile prism with the target body's current B-rep; Face uses the named
+    face's centroid; ThroughAll spans the body's bbox along the direction. An
+    empty intersection raises the standard does-not-intersect error.
+    """
+    _require_build123d()
+    origin = plane.origin
+    p0 = (float(origin.X), float(origin.Y), float(origin.Z))
+    direction_t = _normalized_vector((float(direction.X), float(direction.Y), float(direction.Z)))
+
+    if end == "throughAll":
+        if body_shape is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        t_min, t_max = _bbox_span_along(body_shape, p0, direction_t)
+        fwd = max(t_max, 0.0)
+        bwd = max(-t_min, 0.0)
+        if fwd <= 1e-9 and bwd <= 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        return (fwd, bwd)
+
+    if end in ("upToFirst", "upToLast"):
+        if body_shape is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        diagonal = _body_bounding_box_diagonal(body_shape)
+        try:
+            center = body_shape.bounding_box().center()
+            dist = math.sqrt(
+                (center.X - p0[0]) ** 2 + (center.Y - p0[1]) ** 2 + (center.Z - p0[2]) ** 2
+            )
+        except Exception:
+            dist = diagonal
+        probe = _extrude_profiles_span(
+            faces, direction, dist + diagonal + 1.0, 0.0, feature_id, feature_type
+        )
+        common = _common_or_raise(body_shape, probe, feature_id, feature_type)
+        t_first, t_last = _bbox_span_along(common, p0, direction_t)
+        amount = t_first if end == "upToFirst" else t_last
+        if amount <= 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        return (amount, 0.0)
+
+    # upToFace
+    if up_to_face_entity is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} upToFace has no resolved face"
+        )
+    centroid = _face_centroid(up_to_face_entity)
+    t_face = (
+        (centroid[0] - p0[0]) * direction_t[0]
+        + (centroid[1] - p0[1]) * direction_t[1]
+        + (centroid[2] - p0[2]) * direction_t[2]
+    )
+    if t_face <= 1e-9:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} tool does not intersect the body "
+            "(upToFace target lies behind the sketch plane)"
+        )
+    return (t_face, 0.0)
+
+
+def _resolve_up_to_body_target(
+    params: dict[str, Any],
+    end: str,
+    feature_id: str,
+    feature_type: str,
+    body_id: str,
+    body_shapes: dict[str, Any] | None,
+    known_body_ids: list[str] | None,
+) -> Any | None:
+    """Return the B-rep a pad/pocket up-to extrusion measures against.
+
+    ``upToBody`` names the target body; omitted means the feature's own body
+    (today's upToFirst/Last behavior). ``end`` selects the extent
+    (nearest for upToFirst, farthest for upToLast) via the same ray-extent
+    machinery — only the target differs. An ``upToBody`` outside an
+    upToFirst/upToLast end, a non-string body reference, an unknown body id,
+    and a body with no geometry yet are all clear validation errors. Shapes
+    stay opaque so this is pure (no build123d) and minimal-profile testable.
+    """
+    up_to_body = params.get("upToBody")
+    if end not in ("upToFirst", "upToLast"):
+        if up_to_body is not None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} upToBody "
+                "requires end 'upToFirst' or 'upToLast'"
+            )
+        return None
+    shapes = body_shapes or {}
+    if up_to_body is None:
+        return shapes.get(body_id)
+    if not isinstance(up_to_body, str) or not up_to_body:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} upToBody must be a body id string"
+        )
+    if known_body_ids is not None and up_to_body not in known_body_ids:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} upToBody references "
+            f"unknown body '{up_to_body}'"
+        )
+    target = shapes.get(up_to_body)
+    if target is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} upToBody references "
+            f"body '{up_to_body}' which has no geometry yet"
+        )
+    return target
+
+
+def _require_build123d() -> None:
+    """Raise a clear error when build123d is required but unavailable."""
+    if bd is None or not HAS_BUILD123D:
+        raise FeatureBuilderError("build123d is not available; cannot build feature shapes")
+
+
+def _apply_fillet(body: Any, edges: list[Any], radius: float, feature_id: str) -> Any:
+    """Apply a fillet to ``edges`` of ``body`` with the given radius."""
+    _require_build123d()
+    if not edges:
+        raise FeatureBuilderError(f"feature '{feature_id}': fillet requires at least one edge")
+    try:
+        bd_edges = []
+        for edge in edges:
+            be = bd.Edge(edge)
+            be.topo_parent = body
+            bd_edges.append(be)
+        return bd.fillet(bd_edges, radius)
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': fillet failed: {exc}") from exc
+
+
+def _apply_chamfer(body: Any, edges: list[Any], params: dict[str, Any], feature_id: str) -> Any:
+    """Apply a chamfer to ``edges`` of ``body``.
+
+    Supports three mutually exclusive modes:
+      * symmetric: ``distance``
+      * two-distance: ``distances`` tuple
+      * distance+angle: ``distance`` + ``angle`` (angle in degrees)
+    """
+    _require_build123d()
+    if not edges:
+        raise FeatureBuilderError(f"feature '{feature_id}': chamfer requires at least one edge")
+
+    distance = params.get("distance")
+    distances = params.get("distances")
+    angle = params.get("angle")
+
+    try:
+        bd_edges = []
+        for edge in edges:
+            be = bd.Edge(edge)
+            be.topo_parent = body
+            bd_edges.append(be)
+        if isinstance(distances, (list, tuple)) and len(distances) == 2:
+            if distance is not None:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': chamfer cannot specify both distance and distances"
+                )
+            if angle is not None:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': chamfer cannot specify angle with distances"
+                )
+            return bd.chamfer(bd_edges, distances[0], distances[1])
+        if distance is not None and angle is not None:
+            return bd.chamfer(bd_edges, distance, angle=angle)
+        if distance is not None:
+            return bd.chamfer(bd_edges, distance)
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': chamfer requires distance, distances, or distance+angle"
+        )
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': chamfer failed: {exc}") from exc
+
+
+def _apply_draft(
+    body: Any,
+    faces: list[Any],
+    pull_direction: tuple[float, float, float],
+    angle: float,
+    feature_id: str,
+    neutral_plane: Any | None = None,
+) -> Any:
+    """Apply a draft angle to ``faces`` of ``body``.
+
+    Without ``neutral_plane`` the neutral plane for each face passes through
+    the face centroid and is perpendicular to ``pull_direction``. With
+    ``neutral_plane`` (a ``gp_Pln`` derived from the feature's ``neutralPlane``
+    face reference) every face drafts about that shared plane instead; the
+    pull direction is unchanged.
+    """
+    _require_build123d()
+    if not faces:
+        raise FeatureBuilderError(f"feature '{feature_id}': draft requires at least one face")
+
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.BRepGProp import BRepGProp
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_DraftAngle
+    from OCP.gp import gp_Dir, gp_Pln, gp_Pnt
+    from OCP.GProp import GProp_GProps
+
+    _require_reference_resolver()
+    assert rr is not None
+    direction = gp_Dir(*_normalized_vector(pull_direction))
+    shape = body.wrapped if hasattr(body, "wrapped") else body
+    draft = BRepOffsetAPI_DraftAngle(shape)
+    for face in faces:
+        surf = BRepAdaptor_Surface(face)
+        if rr._surface_type_string(surf) != "plane":
+            raise FeatureBuilderError(f"feature '{feature_id}': draft only supports planar faces")
+        if neutral_plane is not None:
+            neutral = neutral_plane
+        else:
+            props = GProp_GProps()
+            BRepGProp.SurfaceProperties_s(face, props)
+            com = props.CentreOfMass()
+            # Neutral plane is perpendicular to the pull direction and passes
+            # through the face centroid.
+            neutral = gp_Pln(gp_Pnt(com.X(), com.Y(), com.Z()), direction)
+        draft.Add(face, direction, math.radians(angle), neutral)
+        if not draft.AddDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': draft could not be applied to face")
+    draft.Build()
+    if not draft.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': draft operation failed")
+    return bd.Solid(draft.Shape())
+
+
+def _apply_shell(body: Any, faces: list[Any], thickness: float, feature_id: str) -> Any:
+    """Apply a shell operation to ``body``.
+
+    Positive ``thickness`` hollows inward; ``faces`` are the faces removed to
+    open the shell. An empty ``faces`` list produces a closed hollow solid.
+    """
+    _require_build123d()
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    from OCP.TopAbs import TopAbs_SHELL
+    from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_ListOfShape
+
+    try:
+        removed = TopTools_ListOfShape()
+        for face in faces:
+            removed.Append(face)
+        shell = BRepOffsetAPI_MakeThickSolid()
+        shape = body.wrapped if hasattr(body, "wrapped") else body
+        # Negative offset grows material inward for a positive user thickness.
+        shell.MakeThickSolidByJoin(shape, removed, -thickness, 1e-6)
+        shell.Build()
+        if not shell.IsDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': shell operation failed")
+        result = shell.Shape()
+
+        # When no faces are removed, OCCT returns a closed Shell. Convert it
+        # to a Solid so downstream solid-count invariants hold.
+        if result.ShapeType() == TopAbs_SHELL:
+            shell_shape = TopoDS.Shell_s(result)
+            maker = BRepBuilderAPI_MakeSolid(shell_shape)
+            result = maker.Solid()
+        return bd.Solid(result)
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': shell failed: {exc}") from exc
+
+
+try:
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Defeaturing as _DefeaturingOp
+
+    HAS_DEFEATURING = True
+except Exception:
+    _DefeaturingOp = None  # type: ignore
+    HAS_DEFEATURING = False
+
+
+def _require_defeaturing() -> None:
+    """Raise a clear error when face removal is not exposed by this OCP build."""
+    if not HAS_DEFEATURING or _DefeaturingOp is None:
+        raise FeatureBuilderError(
+            "defeature is not supported with this OCP build "
+            "(BRepAlgoAPI_Defeaturing is unavailable)"
+        )
+
+
+def _apply_defeature(body: Any, faces: list[Any], feature_id: str) -> Any:
+    """Remove ``faces`` from ``body`` via OCP defeaturing.
+
+    The binding availability check runs first so environments whose OCP does
+    not expose ``BRepAlgoAPI_Defeaturing`` fail with a clear error instead of
+    an import traceback.
+    """
+    _require_defeaturing()
+    _require_build123d()
+    assert bd is not None
+    if not faces:
+        raise FeatureBuilderError(f"feature '{feature_id}': defeature requires at least one face")
+
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    try:
+        shape = body.wrapped if hasattr(body, "wrapped") else body
+        operation = _DefeaturingOp()
+        operation.SetShape(shape)
+        for face in faces:
+            operation.AddFaceToRemove(face)
+        operation.Build()
+        if not operation.IsDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': defeature operation failed")
+        result = operation.Shape()
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': defeature failed: {exc}") from exc
+
+    solids: list[Any] = []
+    explorer = TopExp_Explorer(result, TopAbs_SOLID)
+    while explorer.More():
+        solids.append(bd.Solid(TopoDS.Solid_s(explorer.Current())))
+        explorer.Next()
+    if not solids:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': defeature removed all material from the body"
+        )
+    if len(solids) == 1:
+        return solids[0]
+    return bd.Compound(children=solids)
+
+
+def _apply_translate(body: Any, vector: Any, feature_id: str) -> Any:
+    """Rigidly move ``body`` by ``vector`` [dx, dy, dz] (document units, applied 1:1)."""
+    _require_build123d()
+    assert bd is not None
+    if (
+        not isinstance(vector, (list, tuple))
+        or len(vector) != 3
+        or any(
+            isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+            for v in vector
+        )
+    ):
+        raise FeatureBuilderError(f"feature '{feature_id}': translate requires vector [dx, dy, dz]")
+    try:
+        return body.moved(bd.Location((float(vector[0]), float(vector[1]), float(vector[2]))))
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': translate failed: {exc}") from exc
+
+
+def _neutral_plane_from_face(face_entity: Any, feature_id: str) -> Any:
+    """Return the ``gp_Pln`` of a planar neutral-plane face."""
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    try:
+        surface = BRepAdaptor_Surface(face_entity)
+        planar = rr._surface_type_string(surface) == "plane"
+    except Exception:
+        planar = False
+    if not planar:
+        raise FeatureBuilderError(f"feature '{feature_id}': draft neutralPlane face is not planar")
+    return surface.Plane()
+
+
+def _is_sketch_based_solid(feature_type: str) -> bool:
+    """Return True for solid features backed by one or more document sketches.
+
+    Loft is included even though it carries no ``sketchId``: its ordered
+    section sketches live in ``params.sectionSketchIds``.
+    """
+    return feature_type in ("pad", "pocket", "revolve", "groove", "sweep", "loft", "helicalSweep")
+
+
+def _is_solid_producer(feature_type: str) -> bool:
+    """Return True for features whose tool shape is a solid usable as a pattern/mirror source.
+
+    Unlike :func:`_is_sketch_based_solid` this includes ``pipe``, which has no
+    sketch (its section is the schema-level circle) but still produces a solid,
+    ``primitive``, which is an additive datum-placed solid with pad-like
+    body semantics, and ``import``, whose tool shape is the selected external
+    B-rep. ``lattice`` is included so downstream patterns/mirrors can
+    replicate a built lattice (its tool shape is the translated instance set);
+    a lattice never takes a lattice/pattern/mirror source itself.
+    """
+    return _is_sketch_based_solid(feature_type) or feature_type in (
+        "pipe",
+        "coilSweep",
+        "primitive",
+        "lattice",
+        "import",
+    )
+
+
+def _valid_source_feature(
+    feature_id: str,
+    source_id: str,
+    feature_type: str,
+    body_id: str,
+    feature_map: dict[str, dict[str, Any]],
+    order_index: dict[str, int],
+) -> dict[str, Any]:
+    """Validate a pattern/mirror source feature and return it."""
+    source = feature_map.get(source_id)
+    if source is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': source '{source_id}' not found")
+    if order_index.get(source_id, -1) >= order_index.get(feature_id, -1):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' must be earlier in the feature tree"
+        )
+    source_type = source.get("type")
+    if not _is_solid_producer(source_type):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' must be a solid-producing feature "
+            "(pad, pocket, revolve, groove, sweep, pipe, loft, helicalSweep, coilSweep, "
+            "primitive, lattice, or import)"
+        )
+    if source.get("body") != body_id:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' must target the same body"
+        )
+    if feature_id == source_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': source cannot be the feature itself")
+    return source
+
+
+def _as_point3(value: Any, context: str) -> tuple[float, float, float]:
+    """Return ``value`` as a 3D point tuple or raise ``FeatureBuilderError``."""
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != 3
+        or any(
+            not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v)
+            for v in value
+        )
+    ):
+        raise FeatureBuilderError(f"{context} must be a finite [x, y, z] point, got {value!r}")
+    return (float(value[0]), float(value[1]), float(value[2]))
+
+
+def _datum_points(
+    datum: dict[str, Any], count: int, feature_id: str
+) -> list[tuple[float, float, float]]:
+    """Return the raw ``points`` of a threePoint/line2Point datum."""
+    datum_id = datum.get("id", "<unknown>")
+    points = datum.get("points")
+    if not isinstance(points, (list, tuple)) or len(points) != count:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': datum '{datum_id}' requires exactly {count} points"
+        )
+    return [_as_point3(p, f"datum '{datum_id}' point") for p in points]
+
+
+def _three_point_frame(
+    points: list[tuple[float, float, float]], feature_id: str, datum_id: str
+) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    """Return ``(origin, x_dir, normal)`` for a plane through three points.
+
+    The origin is the first point, the x-direction follows p1 -> p2, and the
+    normal is the normalized cross product. Points that are collinear (triangle
+    area at or below 1e-9) or coincident do not define a plane and raise
+    ``FeatureBuilderError``.
+    """
+    (ax, ay, az), (bx, by, bz), (cx, cy, cz) = points
+    ab = (bx - ax, by - ay, bz - az)
+    ac = (cx - ax, cy - ay, cz - az)
+    ab_len = math.sqrt(ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2)
+    ac_len = math.sqrt(ac[0] ** 2 + ac[1] ** 2 + ac[2] ** 2)
+    if ab_len == 0.0 or ac_len == 0.0:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': datum '{datum_id}' has coincident points"
+        )
+    cross = (
+        ab[1] * ac[2] - ab[2] * ac[1],
+        ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0],
+    )
+    area = 0.5 * math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2)
+    if area <= 1e-9:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': datum '{datum_id}' points are collinear"
+        )
+    normal = _normalized_vector(cross)
+    x_dir = _normalized_vector(ab)
+    return ((ax, ay, az), x_dir, normal)
+
+
+def _midplane_frame_from_normals(
+    center1: tuple[float, float, float],
+    normal1: tuple[float, float, float],
+    center2: tuple[float, float, float],
+    normal2: tuple[float, float, float],
+    feature_id: str,
+    datum_id: str,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Return ``(origin, normal)`` of the plane midway between two planar faces.
+
+    The faces must be parallel within a 1-degree dihedral tolerance; the normal
+    is the normalized average of the two outward normals (flipping the second
+    when the faces oppose each other, as parallel counterparts do), oriented
+    from the first face toward the second so sketch placement is deterministic.
+    """
+    n1 = _normalized_vector(normal1)
+    n2 = _normalized_vector(normal2)
+    alignment = abs(_dot(n1, n2))
+    if alignment < math.cos(math.radians(1.0)):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': datum '{datum_id}' faces are not parallel"
+        )
+    if _dot(n1, n2) < 0.0:
+        n2 = (-n2[0], -n2[1], -n2[2])
+    normal = _normalized_vector(
+        ((n1[0] + n2[0]) / 2.0, (n1[1] + n2[1]) / 2.0, (n1[2] + n2[2]) / 2.0)
+    )
+    to_second = (
+        center2[0] - center1[0],
+        center2[1] - center1[1],
+        center2[2] - center1[2],
+    )
+    if _dot(normal, to_second) < 0.0:
+        normal = (-normal[0], -normal[1], -normal[2])
+    origin = (
+        (center1[0] + center2[0]) / 2.0,
+        (center1[1] + center2[1]) / 2.0,
+        (center1[2] + center2[2]) / 2.0,
+    )
+    return origin, normal
+
+
+def _midplane_from_faces(face1: Any, face2: Any, feature_id: str, datum_id: str) -> Any:
+    """Return a build123d ``Plane`` midway between two resolved planar faces."""
+    _require_build123d()
+    assert bd is not None
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    for index, face in enumerate((face1, face2)):
+        try:
+            parallel = BRepAdaptor_Surface(face)
+            planar = rr._surface_type_string(parallel) == "plane"
+        except Exception:
+            planar = False
+        if not planar:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': datum '{datum_id}' face {index + 1} is not planar"
+            )
+    center1 = _face_centroid(face1)
+    center2 = _face_centroid(face2)
+    normal1 = rr.face_plane_origin_normal(face1)[1]
+    normal2 = rr.face_plane_origin_normal(face2)[1]
+    origin, normal = _midplane_frame_from_normals(
+        center1, normal1, center2, normal2, feature_id, datum_id
+    )
+    x_dir = _deterministic_x_dir(normal)
+    return bd.Plane(origin=origin, x_dir=x_dir, z_dir=normal)
+
+
+def _datum_midplane_faces(datum: dict[str, Any], feature_id: str) -> list[dict[str, Any]]:
+    """Return the two face refs of a midplane datum or raise ``FeatureBuilderError``."""
+    datum_id = datum.get("id", "<unknown>")
+    faces = datum.get("faces")
+    if (
+        not isinstance(faces, (list, tuple))
+        or len(faces) != 2
+        or not all(isinstance(f, dict) for f in faces)
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': datum '{datum_id}' requires exactly 2 face references"
+        )
+    return [f for f in faces if isinstance(f, dict)]
+
+
+def _lookup_midplane_entities(
+    datum: dict[str, Any],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+    feature_id: str,
+    prefix: str = "datum.",
+) -> tuple[Any, Any]:
+    """Return the two resolved face entities of a midplane datum."""
+    _datum_midplane_faces(datum, feature_id)
+    datum_id = datum.get("id", "<unknown>")
+    try:
+        return (
+            entities[ref_path_to_index[f"{prefix}{datum_id}.faces[0]"]],
+            entities[ref_path_to_index[f"{prefix}{datum_id}.faces[1]"]],
+        )
+    except KeyError as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}' has unresolved topological references: {exc}"
+        ) from exc
+
+
+def _plane_from_datum(
+    datum: dict[str, Any],
+    feature_id: str,
+    entity: Any | None = None,
+    midplane_entities: tuple[Any, Any] | None = None,
+) -> Any:
+    """Return a build123d Plane from a datum definition.
+
+    Coordinate datums use their canonical plane. Face datums require the
+    resolved face entity. ``threePoint`` datums build a plane through their
+    three raw points; ``midplane`` datums require both resolved face entities
+    via ``midplane_entities``. ``line2Point`` datums are axes, not planes, and
+    raise a clear build error when used as a plane.
+    """
+    _require_build123d()
+    assert bd is not None
+    kind = datum.get("kind")
+    datum_id = datum.get("id", "<unknown>")
+    if kind == "XY":
+        return bd.Plane.XY
+    if kind == "YZ":
+        return bd.Plane.YZ
+    if kind == "XZ":
+        return bd.Plane.XZ
+    if kind == "offset":
+        offset = datum.get("offset", 0.0)
+        if not isinstance(offset, (int, float)) or isinstance(offset, bool):
+            offset = 0.0
+        return bd.Plane.XY.offset(offset)
+    if kind == "face":
+        if entity is None:
+            raise FeatureBuilderError(f"feature '{feature_id}': face datum has no resolved face")
+        offset = datum.get("offset", 0.0)
+        if not isinstance(offset, (int, float)) or isinstance(offset, bool):
+            offset = 0.0
+        return _workplane_from_face(entity, offset)
+    if kind == "threePoint":
+        origin, x_dir, normal = _three_point_frame(
+            _datum_points(datum, 3, feature_id), feature_id, datum_id
+        )
+        return bd.Plane(origin=origin, x_dir=x_dir, z_dir=normal)
+    if kind == "midplane":
+        if midplane_entities is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': midplane datum '{datum_id}' has no resolved faces"
+            )
+        return _midplane_from_faces(
+            midplane_entities[0], midplane_entities[1], feature_id, datum_id
+        )
+    if kind == "line2Point":
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': datum '{datum_id}' is a line and cannot be used as a plane"
+        )
+    raise FeatureBuilderError(f"feature '{feature_id}': unsupported datum kind '{kind}'")
+
+
+def _axis_from_two_points(
+    p1: tuple[float, float, float], p2: tuple[float, float, float], feature_id: str, datum_id: str
+) -> Any:
+    """Return a build123d Axis through two distinct points."""
+    _require_build123d()
+    assert bd is not None
+    direction = (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
+    length = math.sqrt(direction[0] ** 2 + direction[1] ** 2 + direction[2] ** 2)
+    if length <= 1e-9:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': datum '{datum_id}' points must be distinct"
+        )
+    unit = (direction[0] / length, direction[1] / length, direction[2] / length)
+    return bd.Axis(p1, unit)
+
+
+def _datum_entities_for_axis_or_plane(
+    datum_id: str,
+    datums: dict[str, dict[str, Any]],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+    feature_id: str,
+    prefix: str = "datum.",
+) -> tuple[dict[str, Any], Any | None, tuple[Any, Any] | None]:
+    """Return ``(datum, face_entity, midplane_entities)`` for a pattern datum.
+
+    ``prefix`` namespaces the reference paths: the single-pattern build path
+    collects datum refs as ``datum.<id>...`` while multiTransform collects its
+    sources' datum refs under its own feature-scoped prefix.
+    """
+    _require_build123d()
+    assert bd is not None
+    datum = datums.get(datum_id)
+    if not isinstance(datum, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}': unknown datum '{datum_id}'")
+    entity: Any | None = None
+    midplane_entities: tuple[Any, Any] | None = None
+    if datum.get("kind") == "face":
+        entity = entities[ref_path_to_index[f"{prefix}{datum_id}.reference"]]
+    elif datum.get("kind") == "midplane":
+        midplane_entities = (
+            entities[ref_path_to_index[f"{prefix}{datum_id}.faces[0]"]],
+            entities[ref_path_to_index[f"{prefix}{datum_id}.faces[1]"]],
+        )
+    return datum, entity, midplane_entities
+
+
+def _resolve_circular_pattern_axis(
+    pattern_params: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+    feature_id: str,
+    prefix: str = "datum.",
+) -> Any:
+    """Return the rotation axis for a circular pattern (datum or coordinate axis)."""
+    _require_build123d()
+    assert bd is not None
+    axis_datum_id = pattern_params.get("axisDatumId")
+    if isinstance(axis_datum_id, str) and axis_datum_id:
+        datum, entity, midplane_entities = _datum_entities_for_axis_or_plane(
+            axis_datum_id, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        return _axis_from_datum(datum, feature_id, entity, midplane_entities)
+    axis_name = str(pattern_params.get("axis", "z"))
+    if axis_name not in _AXIS_VECTOR:
+        raise FeatureBuilderError(f"feature '{feature_id}': unknown axis '{axis_name}'")
+    vector = _AXIS_VECTOR[axis_name]
+    return bd.Axis((0, 0, 0), vector)
+
+
+def _resolve_mirror_plane(
+    mirror_params: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+    feature_id: str,
+    prefix: str = "datum.",
+) -> Any:
+    """Return the mirror plane for a mirror feature (datum or coordinate plane)."""
+    _require_build123d()
+    assert bd is not None
+    plane_datum_id = mirror_params.get("planeDatumId")
+    if isinstance(plane_datum_id, str) and plane_datum_id:
+        datum, entity, midplane_entities = _datum_entities_for_axis_or_plane(
+            plane_datum_id, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        return _plane_from_datum(datum, feature_id, entity, midplane_entities)
+    plane_name = str(mirror_params.get("plane", "XY"))
+    if plane_name not in _PLANE_MAP:
+        raise FeatureBuilderError(f"feature '{feature_id}': unknown mirror plane '{plane_name}'")
+    return getattr(bd.Plane, _PLANE_MAP[plane_name])
+
+
+def _pattern_copy_operations(
+    pattern_feature: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+    feature_id: str,
+    prefix: str = "datum.",
+) -> list[Any]:
+    """Return the non-identity copy operations of a pattern/mirror feature.
+
+    Each operation maps a shape to one transformed (and per-instance scaled)
+    copy. Applying them to the pattern's source tool reproduces the single
+    pattern build path; applying the second pattern's operations to the first
+    pattern's full instance set builds the multiTransform cartesian product.
+    """
+    _require_build123d()
+    assert bd is not None
+    pattern_params = (
+        pattern_feature.get("params", {}) if isinstance(pattern_feature.get("params"), dict) else {}
+    )
+    pattern_type = pattern_feature.get("type")
+    scale = _pattern_scale(pattern_params, feature_id)
+    if pattern_type == "linearPattern":
+        count = int(pattern_params.get("count", 1))
+        spacing = float(pattern_params.get("spacing", 0.0))
+        direction = _resolve_linear_pattern_direction(
+            pattern_params, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        offsets = _linear_pattern_offsets_along(count, spacing, direction)[1:]
+        return [
+            (
+                lambda shape, offset=offset: _scaled_about_center(
+                    shape.moved(bd.Location(offset)), scale
+                )
+            )
+            for offset in offsets
+        ]
+    if pattern_type == "circularPattern":
+        count = int(pattern_params.get("count", 1))
+        angle = float(pattern_params.get("angle", 360.0))
+        pattern_axis = _resolve_circular_pattern_axis(
+            pattern_params, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        angles = _circular_pattern_angles(count, angle)[1:]
+        return [
+            (
+                lambda shape, step_angle=step_angle: _scaled_about_center(
+                    shape.rotate(pattern_axis, step_angle), scale
+                )
+            )
+            for step_angle in angles
+        ]
+    if pattern_type == "mirror":
+        mirror_plane = _resolve_mirror_plane(
+            pattern_params, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        return [lambda shape: _scaled_about_center(_mirror_shape(shape, mirror_plane), scale)]
+    raise FeatureBuilderError(
+        f"feature '{feature_id}': '{pattern_type}' is not a pattern or mirror feature"
+    )
+
+
+def _valid_multitransform_reference(
+    feature_id: str,
+    other_id: Any,
+    role: str,
+    body_id: str,
+    feature_map: dict[str, dict[str, Any]],
+    order_index: dict[str, int],
+) -> dict[str, Any]:
+    """Validate one multiTransform source (a pattern/mirror feature) and return it."""
+    if not isinstance(other_id, str) or not other_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': multiTransform '{role}' is required")
+    other = feature_map.get(other_id)
+    if other is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': '{role}' feature '{other_id}' not found"
+        )
+    if order_index.get(other_id, -1) >= order_index.get(feature_id, -1):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': '{role}' feature '{other_id}' must be earlier "
+            "in the feature tree"
+        )
+    if other.get("type") not in ("linearPattern", "circularPattern", "mirror"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': '{role}' feature '{other_id}' must be a pattern "
+            "or mirror feature"
+        )
+    if other.get("body") != body_id:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': '{role}' feature '{other_id}' must target the same body"
+        )
+    if feature_id == other_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': multiTransform cannot reference itself")
+    return other
+
+
+def _multitransform_datum_refs(
+    role: str,
+    role_feature: dict[str, Any],
+    owner_id: str,
+    datums: dict[str, dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Collect the face/midplane datum refs of a multiTransform source pattern."""
+    refs: list[tuple[str, dict[str, Any]]] = []
+    role_params = (
+        role_feature.get("params", {}) if isinstance(role_feature.get("params"), dict) else {}
+    )
+    for key in ("axisDatumId", "planeDatumId"):
+        datum_id = role_params.get(key)
+        if not isinstance(datum_id, str) or not datum_id:
+            continue
+        datum = datums.get(datum_id)
+        if not isinstance(datum, dict):
+            continue
+        if datum.get("kind") == "face":
+            ref = datum.get("reference")
+            if isinstance(ref, dict):
+                refs.append((f"feature.{owner_id}.params.{role}.datum.{datum_id}.reference", ref))
+        elif datum.get("kind") == "midplane":
+            faces = datum.get("faces")
+            if isinstance(faces, list):
+                for i, ref in enumerate(faces):
+                    if isinstance(ref, dict):
+                        refs.append(
+                            (
+                                f"feature.{owner_id}.params.{role}.datum.{datum_id}.faces[{i}]",
+                                ref,
+                            )
+                        )
+    return refs
+
+
+_PRIMITIVE_ARITY: dict[str, int] = {
+    "box": 3,
+    "cylinder": 2,
+    "sphere": 1,
+    "cone": 2,
+    "torus": 2,
+}
+
+
+def _build_primitive_tool(
+    feature: dict[str, Any],
+    params: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    sketches: dict[str, dict[str, Any]],
+    feature_shapes: dict[str, Any],
+    tool_shapes: dict[str, Any],
+    reference_results: list[dict[str, Any]],
+) -> Any:
+    """Build the additive tool shape of a primitive feature on a datum workplane.
+
+    Box dimensions ``[dx, dy, dz]`` center the box on the datum origin (x/y in
+    the workplane, z along the normal); cylinder/cone ``[r, h]`` stand on the
+    plane along the normal with their base in the plane; sphere ``[r]`` sits at
+    the origin; torus ``[R, r]`` lies in the plane. A missing ``datumId``
+    falls back to the first XY datum. Body and dependency semantics match pad.
+    """
+    _require_build123d()
+    assert bd is not None
+    feature_id = feature["id"]
+
+    shape_name = params.get("shape")
+    if shape_name not in _PRIMITIVE_ARITY:
+        raise FeatureBuilderError(f"feature '{feature_id}': unknown primitive shape '{shape_name}'")
+    dimensions = params.get("dimensions")
+    arity = _PRIMITIVE_ARITY[str(shape_name)]
+    if (
+        not isinstance(dimensions, (list, tuple))
+        or len(dimensions) != arity
+        or any(
+            not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v) or v <= 0
+            for v in dimensions
+        )
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': primitive '{shape_name}' requires {arity} positive dimensions"
+        )
+    values = [float(v) for v in dimensions]
+
+    datum_id = params.get("datumId")
+    if isinstance(datum_id, str) and datum_id:
+        datum = datums.get(datum_id)
+        if not isinstance(datum, dict):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}' references unknown datum '{datum_id}'"
+            )
+    else:
+        datum = next((d for d in datums.values() if d.get("kind") == "XY"), None)
+        if datum is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': primitive requires a datum "
+                "(no datumId given and no XY datum found)"
+            )
+        datum_id = datum.get("id", "<unknown>")
+
+    refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+    entities, ref_results = _resolve_document_refs(
+        refs_with_paths, feature_shapes, owner_feature_id=feature_id
+    )
+    reference_results.extend(ref_results)
+    broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+    if broken:
+        details = "; ".join(
+            f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+        )
+        raise FeatureBuilderError(
+            f"feature '{feature_id}' has unresolved topological references: {details}"
+        )
+    ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+
+    kind = datum.get("kind")
+    if kind == "face":
+        if not isinstance(datum.get("reference"), dict):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': face datum '{datum_id}' has no reference"
+            )
+        entity = entities[ref_path_to_index[f"datum.{datum_id}.reference"]]
+        plane = _plane_from_datum(datum, feature_id, entity)
+    elif kind == "midplane":
+        midplane_entities = _lookup_midplane_entities(
+            datum, entities, ref_path_to_index, feature_id
+        )
+        plane = _plane_from_datum(datum, feature_id, None, midplane_entities)
+    else:
+        plane = _plane_from_datum(datum, feature_id)
+
+    try:
+        if shape_name == "box":
+            dx, dy, dz = values
+            solid = bd.Solid.make_box(dx, dy, dz).moved(
+                bd.Location((-dx / 2.0, -dy / 2.0, -dz / 2.0))
+            )
+        elif shape_name == "cylinder":
+            radius, height = values
+            solid = bd.Solid.make_cylinder(radius, height)
+        elif shape_name == "sphere":
+            (radius,) = values
+            solid = bd.Solid.make_sphere(radius)
+        elif shape_name == "cone":
+            radius, height = values
+            solid = bd.Solid.make_cone(radius, 0.0, height)
+        else:  # torus
+            major, minor = values
+            solid = bd.Solid.make_torus(major, minor)
+        tool_shape = plane.location * solid
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': primitive '{shape_name}' build failed: {exc}"
+        ) from exc
+    tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
+def _resolve_import_source_path(source_path: str, document_dir: Path | None) -> Path:
+    """Resolve a document-relative import source path to an absolute path.
+
+    Relative paths resolve against ``document_dir`` (the directory of the
+    owning ``.nuke-cad`` document); with no document directory they keep the
+    legacy working-directory fallback. Absolute paths pass through unchanged.
+    """
+    candidate = Path(source_path).expanduser()
+    if not candidate.is_absolute() and document_dir is not None:
+        candidate = Path(document_dir) / candidate
+    return candidate.resolve()
+
+
+def _apply_import_placement(shape: Any, placement: Any, feature_id: str) -> Any:
+    """Apply an import placement (intrinsic XYZ rotation, then translation)."""
+    _require_build123d()
+    assert bd is not None
+    if placement is None:
+        return shape
+    if not isinstance(placement, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}': placement must be an object")
+    rotate = placement.get("rotateDegrees")
+    if rotate is not None:
+        angles = _as_point3(rotate, f"feature '{feature_id}': placement.rotateDegrees")
+        axes = (bd.Axis.X, bd.Axis.Y, bd.Axis.Z)
+        try:
+            # Successive world-axis rotations left-multiply into Rz·Ry·Rx,
+            # i.e. the intrinsic XYZ sequence the schema documents.
+            for axis, angle in zip(axes, angles, strict=True):
+                if angle != 0.0:
+                    shape = shape.rotate(axis, angle)
+        except FeatureBuilderError:
+            raise
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import rotateDegrees failed: {exc}"
+            ) from exc
+    translate = placement.get("translate")
+    if translate is not None:
+        vector = _as_point3(translate, f"feature '{feature_id}': placement.translate")
+        try:
+            shape = shape.moved(bd.Location(vector))
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import translate failed: {exc}"
+            ) from exc
+    return shape
+
+
+def _build_import_tool(feature: dict[str, Any], params: dict[str, Any], state: _BuildState) -> Any:
+    """Build the tool shape of an ``import`` feature from an external source.
+
+    The source is read once per build configuration (path, unit override,
+    explicit format, solid cap) through :mod:`exchange_reader`, which resolves
+    units and enumerates explorer-order solids. The configured selection picks
+    the authored solids (index + faceCount/volume signature) and ``placement``
+    rigidly moves the result. The selected shape is stored in
+    ``state.tool_shapes`` so patterns/mirrors can replicate it.
+
+    ``params.sourceHash`` is the cache/identity anchor: the streamed source
+    digest must match it or the feature fails, so a stale source never builds
+    silently.
+    """
+    _require_build123d()
+    assert bd is not None
+    feature_id = feature["id"]
+
+    validation_error = exchange_reader.validate_import_params(params)
+    if validation_error is not None:
+        raise FeatureBuilderError(f"feature '{feature_id}': {validation_error}")
+
+    source_format = params.get("sourceFormat")
+    source_path = _resolve_import_source_path(params["sourcePath"], state.document_dir)
+    if not source_path.is_file():
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': import source not found: {params['sourcePath']}"
+        )
+    if source_format is None:
+        source_format = exchange_reader.source_format_for_path(source_path)
+        if source_format is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': unsupported import source "
+                f"'{params['sourcePath']}'; expected STEP/IGES/BREP"
+            )
+
+    source_unit = params.get("sourceUnit")
+    max_solids = params.get("maxSolids")
+    if max_solids is None:
+        max_solids = exchange_reader.DEFAULT_MAX_SOLIDS
+    # One read per distinct source configuration per build; the tuple keeps a
+    # stricter maxSolids/format override from silently reusing a looser read.
+    cache_key = (source_path, source_unit, source_format, max_solids)
+    source = state.import_sources.get(cache_key)
+    if source is None:
+        try:
+            source = exchange_reader.read_import_source(
+                source_path,
+                source_unit=source_unit,
+                target_unit=state.document_units,
+                max_solids=max_solids,
+                source_format=source_format,
+            )
+        except exchange_reader.ExchangeReadError as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import source "
+                f"'{params['sourcePath']}' could not be read: {exc}"
+            ) from exc
+        except ValueError as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import source "
+                f"'{params['sourcePath']}' has invalid units: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': import source "
+                f"'{params['sourcePath']}' could not be read: {exc}"
+            ) from exc
+        state.import_sources[cache_key] = source
+
+    if source.digest != params["sourceHash"]:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source hash mismatch for "
+            f"'{params['sourcePath']}' (expected {params['sourceHash']}, "
+            f"found {source.digest}); the source file changed, refresh the import"
+        )
+
+    try:
+        selected = exchange_reader.select_solids(source, params["selection"])
+    except exchange_reader.ExchangeReadError as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': import selection failed: {exc}"
+        ) from exc
+
+    try:
+        if len(selected) == 1:
+            tool_shape: Any = bd.Solid(selected[0])
+        else:
+            tool_shape = bd.Compound(children=[bd.Solid(solid) for solid in selected])
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': import selection could not be assembled: {exc}"
+        ) from exc
+
+    tool_shape = _apply_import_placement(tool_shape, params.get("placement"), feature_id)
+    state.tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
+def _axis_from_datum(
+    datum: dict[str, Any],
+    feature_id: str,
+    entity: Any | None = None,
+    midplane_entities: tuple[Any, Any] | None = None,
+) -> Any:
+    """Return a build123d Axis from a datum definition.
+
+    Plane datums yield their normal through the plane origin; ``line2Point``
+    datums yield the axis through their two points (for
+    ``circularPattern.axisDatumId`` only — ``planeDatumId`` and sketch
+    placement stay plane-only).
+    """
+    _require_build123d()
+    assert bd is not None
+    if datum.get("kind") == "line2Point":
+        datum_id = datum.get("id", "<unknown>")
+        p1, p2 = _datum_points(datum, 2, feature_id)
+        return _axis_from_two_points(p1, p2, feature_id, datum_id)
+    plane = _plane_from_datum(datum, feature_id, entity, midplane_entities)
+    return bd.Axis(plane.origin, plane.z_dir)
+
+
+def _direction_from_datum(
+    datum: dict[str, Any],
+    feature_id: str,
+    entity: Any | None = None,
+    midplane_entities: tuple[Any, Any] | None = None,
+) -> tuple[float, float, float]:
+    """Return a unit direction vector from a datum definition.
+
+    ``line2Point`` datums yield the normalized two-point direction (pure, no
+    build123d); plane datums yield their normal through the same plane
+    derivation :func:`_axis_from_datum` uses.
+    """
+    if datum.get("kind") == "line2Point":
+        p1, p2 = _datum_points(datum, 2, feature_id)
+        return _normalized_vector((p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]))
+    _require_build123d()
+    assert bd is not None
+    plane = _plane_from_datum(datum, feature_id, entity, midplane_entities)
+    return _normalized_vector((float(plane.z_dir.X), float(plane.z_dir.Y), float(plane.z_dir.Z)))
+
+
+def _resolve_linear_pattern_direction(
+    pattern_params: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+    feature_id: str,
+    prefix: str = "datum.",
+) -> tuple[float, float, float]:
+    """Return the unit direction of a linear pattern (datum or coordinate axis).
+
+    ``axisDatumId`` is mutually exclusive with ``axis`` (same error wording as
+    the document schema validator); the datum resolves via the line-datum
+    two-point path with plane-datum normals also accepted, mirroring the
+    circular pattern axis. An absent axis keeps the historical ``z`` default.
+    The exclusivity check is pure and runs before any build123d use.
+    """
+    axis = pattern_params.get("axis")
+    axis_datum_id = pattern_params.get("axisDatumId")
+    # Only an explicitly authored axis counts: an absent axis keeps the
+    # historical ``z`` default and never conflicts with a datum.
+    has_axis = isinstance(axis, str) and axis in _AXIS_VECTOR
+    has_datum = isinstance(axis_datum_id, str) and bool(axis_datum_id)
+    if has_axis and has_datum:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': axis and axisDatumId are mutually exclusive"
+        )
+    if has_datum:
+        assert isinstance(axis_datum_id, str)
+        datum, entity, midplane_entities = _datum_entities_for_axis_or_plane(
+            axis_datum_id, datums, entities, ref_path_to_index, feature_id, prefix
+        )
+        return _direction_from_datum(datum, feature_id, entity, midplane_entities)
+    key = axis if isinstance(axis, str) else "z"
+    return _AXIS_VECTOR.get(key, (0.0, 0.0, 1.0))
+
+
+def _linear_pattern_instances(
+    tool: Any,
+    count: int,
+    spacing: float,
+    axis: str,
+    direction: tuple[float, float, float] | None = None,
+) -> list[Any]:
+    """Return transformed copies of ``tool`` for a linear pattern.
+
+    Instance k (1 <= k < count) is at k*spacing along the axis. A resolved
+    datum ``direction`` overrides the coordinate ``axis`` name.
+    """
+    _require_build123d()
+    assert bd is not None
+    if direction is not None:
+        offsets = _linear_pattern_offsets_along(count, spacing, direction)
+    else:
+        offsets = _linear_pattern_offsets(count, spacing, axis)
+    return [tool.moved(bd.Location(offset)) for offset in offsets[1:]]
+
+
+def _circular_pattern_instances(
+    tool: Any,
+    count: int,
+    angle: float,
+    axis: Any,
+) -> list[Any]:
+    """Return rotated copies of ``tool`` for a circular pattern.
+
+    Instance k (1 <= k < count) is rotated by k*step around ``axis``. A count of
+    one is a no-op and returns no instances.
+    """
+    _require_build123d()
+    assert bd is not None
+    angles = _circular_pattern_angles(count, angle)
+    return [tool.rotate(axis, step_angle) for step_angle in angles[1:]]
+
+
+def _mirror_shape(tool: Any, plane: Any) -> Any:
+    """Return the mirror of ``tool`` across ``plane``."""
+    _require_build123d()
+    return tool.mirror(plane)
+
+
+def _pattern_scale(params: dict[str, Any], feature_id: str) -> float:
+    """Return the validated per-instance scale factor for a pattern/mirror feature.
+
+    The default is 1 (today's geometry exactly). Each transformed instance is
+    scaled about its own bounding-box center after its transform; the original
+    already merged into the body is never rescaled.
+    """
+    scale = params.get("scale", 1.0)
+    if scale is None:
+        return 1.0
+    if (
+        not isinstance(scale, (int, float))
+        or isinstance(scale, bool)
+        or not math.isfinite(scale)
+        or scale <= 0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': pattern scale must be a positive finite number"
+        )
+    return float(scale)
+
+
+def _scaled_about_center(shape: Any, scale: float) -> Any:
+    """Return ``shape`` scaled about its own bounding-box center.
+
+    A scale of 1 returns the shape unchanged so the unscaled path stays
+    byte-identical to today's geometry.
+    """
+    _require_build123d()
+    assert bd is not None
+    if scale == 1.0:
+        return shape
+    bbox = shape.bounding_box()
+    center = (
+        (bbox.min.X + bbox.max.X) / 2.0,
+        (bbox.min.Y + bbox.max.Y) / 2.0,
+        (bbox.min.Z + bbox.max.Z) / 2.0,
+    )
+    return (
+        shape.moved(bd.Location((-center[0], -center[1], -center[2])))
+        .scale(scale)
+        .moved(bd.Location(center))
+    )
+
+
+def _linear_pattern_offsets(
+    count: int, spacing: float, axis: str
+) -> list[tuple[float, float, float]]:
+    """Return per-instance offsets for a linear pattern, including the identity.
+
+    Instance k sits at ``k * spacing`` along the axis; index 0 is the original.
+    This is pure (no build123d) so minimal-profile tests can cover the layout.
+    """
+    vector = _AXIS_VECTOR.get(axis, (0.0, 0.0, 1.0))
+    return _linear_pattern_offsets_along(count, spacing, vector)
+
+
+def _linear_pattern_offsets_along(
+    count: int, spacing: float, direction: tuple[float, float, float]
+) -> list[tuple[float, float, float]]:
+    """Return per-instance offsets along an explicit direction, identity first.
+
+    Pure (no build123d); backs both the coordinate-axis layout and datum-axis
+    linear patterns (whose resolved unit direction is passed in).
+    """
+    return [
+        (direction[0] * spacing * k, direction[1] * spacing * k, direction[2] * spacing * k)
+        for k in range(count)
+    ]
+
+
+def _circular_pattern_angles(count: int, angle: float) -> list[float]:
+    """Return per-instance rotation angles for a circular pattern, including 0.
+
+    A 360-degree sweep steps ``360 / count`` (the last copy stops one step
+    short of a full turn); a partial sweep distributes ``count`` instances over
+    ``angle``. Pure (no build123d); mirrors :func:`_circular_pattern_instances`.
+    """
+    if count <= 1:
+        return [0.0]
+    if angle == 360.0:
+        step = 360.0 / count
+    else:
+        step = angle / (count - 1)
+    return [step * k for k in range(count)]
+
+
+def _bboxes_strictly_disjoint(a_bbox: Any, b_bbox: Any) -> bool:
+    """Return True iff two build123d ``BoundBox`` instances are strictly disjoint.
+
+    This is the exact complement of :func:`_bbox_overlaps_3d`: boxes that merely
+    touch (shared face/edge/point) still overlap within tolerance and count as
+    intersecting, so the caller takes the conservative boolean path.
+    """
+    return not _bbox_overlaps_3d(a_bbox, b_bbox)
+
+
+def _pattern_instances_are_disjoint(body: Any, instances: list[Any]) -> bool:
+    """Return True iff the body and every pattern/mirror instance are pairwise disjoint.
+
+    Only bounding boxes are compared (no booleans), so this stays cheap even
+    for large instance counts. Both body-vs-instance and instance-vs-instance
+    pairs are checked: the union of pairwise-disjoint solids equals their plain
+    compound exactly, so the caller may skip the boolean fuse.
+
+    Boxes are computed lazily and each new box is compared against every
+    earlier box immediately, so an overlapping pair bails out after only a few
+    box computations instead of boxing every instance first (pattern instances
+    arrive in document order, so neighbours — the pairs most likely to
+    overlap — meet early). The verdict matches the boxes-first formulation
+    exactly: False on the first overlapping pair, True only after every pair
+    is compared. Touching still counts as intersecting (conservative fuse).
+    """
+    boxes = [body.bounding_box()]
+    for instance in instances:
+        box = instance.bounding_box()
+        for earlier in boxes:
+            if not _bboxes_strictly_disjoint(earlier, box):
+                return False
+        boxes.append(box)
+    return True
+
+
+def _pattern_parallel_fuse(body: Any, instances: list[Any]) -> Any:
+    """Fuse ``body`` with all ``instances`` in a single parallel GFOP call.
+
+    Arguments=[body], Tools=[instances] with ``SetRunParallel(True)`` and
+    ``SetNonDestructive(True)`` (inputs are referenced elsewhere, e.g. stored
+    tool shapes, and must never be mutated). The fused ``TopoDS`` result is
+    exploded into solids and returned as a flat ``Compound`` of wrapped solids
+    (mirrors the ``bd.Solid(TopoDS)`` wrapping used by ``_pipe_shell_result``).
+    Any failure raises so the caller can fall back to the sequential loop.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_ListOfShape
+
+    body_wrapped = body.wrapped if hasattr(body, "wrapped") else body
+    arguments = TopTools_ListOfShape()
+    arguments.Append(body_wrapped)
+    tools = TopTools_ListOfShape()
+    for instance in instances:
+        wrapped = instance.wrapped if hasattr(instance, "wrapped") else instance
+        tools.Append(wrapped)
+    operation = BRepAlgoAPI_Fuse()
+    operation.SetArguments(arguments)
+    operation.SetTools(tools)
+    operation.SetRunParallel(True)
+    operation.SetNonDestructive(True)
+    operation.Build()
+    if not operation.IsDone():
+        raise FeatureBuilderError("parallel pattern fuse did not complete")
+    fused = operation.Shape()
+    solids: list[Any] = []
+    explorer = TopExp_Explorer(fused, TopAbs_SOLID)
+    while explorer.More():
+        solids.append(bd.Solid(TopoDS.Solid_s(explorer.Current())))
+        explorer.Next()
+    if not solids:
+        raise FeatureBuilderError("parallel pattern fuse produced no solids")
+    return bd.Compound(children=solids)
+
+
+def _apply_pattern_or_mirror(
+    body: Any,
+    source_tool: Any,
+    source_type: str,
+    instances: list[Any],
+    feature_id: str,
+    source_subtractive: bool = False,
+) -> Any:
+    """Apply pattern/mirror instances to a body.
+
+    Additive sources merge instances into the body with a boolean union so that
+    overlapping pattern instances fuse into a single solid rather than being
+    rejected by the same-body additive overlap guard. When the body and every
+    instance are pairwise bbox-disjoint the union equals the plain compound of
+    their solids exactly, so the (expensive) sequential fuse is skipped in favor
+    of a flat ``Compound`` of ``body.solids() + all instance solids``.
+    Otherwise a single parallel GFOP fuse is tried first, falling back to the
+    sequential pairwise loop on any failure. Subtractive sources (pocket/groove
+    always; primitive/helicalSweep with ``subtractive: true``) cut each
+    instance from the body, always sequentially:
+    each cut mutates the body, so skipping is unsound there.
+    """
+    _require_build123d()
+    assert bd is not None
+    # ``lattice`` joins the additive set: a lattice tool replicates its source
+    # array, so pattern/mirror application over it merges exactly like any
+    # other additive source (subtractive lattices cut via ``source_subtractive``).
+    if source_type in (
+        "pad",
+        "revolve",
+        "sweep",
+        "pipe",
+        "loft",
+        "helicalSweep",
+        "coilSweep",
+        "primitive",
+        "lattice",
+        "import",
+    ):
+        if not source_subtractive:
+            if _pattern_instances_are_disjoint(body, instances):
+                # ``Compound(children=[...])`` is the supported spelling on
+                # build123d 0.9.1 (also used by ``_combine_additive``).
+                solids: list[Any] = list(body.solids())
+                for instance in instances:
+                    solids.extend(instance.solids())
+                return bd.Compound(children=solids)
+            try:
+                return _pattern_parallel_fuse(body, instances)
+            except Exception:
+                pass
+            result = body
+            for instance in instances:
+                result = result + instance
+            return result
+    # pocket / groove / subtractive primitive / subtractive helicalSweep
+    result = body
+    for instance in instances:
+        result = result - instance
+    return result
+
+
+def _solid_feature_is_subtractive(feature: dict[str, Any]) -> bool:
+    """Return True when a solid feature cuts from its body instead of adding.
+
+    Pockets and grooves are always subtractive; primitives and helicalSweeps
+    cut only with ``subtractive: true`` (default false). Pure (no build123d).
+    """
+    feature_type = feature.get("type")
+    if feature_type in ("pocket", "groove"):
+        return True
+    if feature_type in ("primitive", "helicalSweep"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        return bool(params.get("subtractive", False))
+    return False
+
+
+def _pattern_source_is_subtractive(source: dict[str, Any]) -> bool:
+    """Return True when a pattern/mirror source feature cuts (pocket/groove or
+    a primitive/helicalSweep with ``subtractive: true``). Pure (no build123d)."""
+    return _solid_feature_is_subtractive(source)
+
+
+def _body_bounding_box_diagonal(shape: Any) -> float:
+    """Return a safe diagonal length for a body bounding box."""
+    try:
+        bbox = shape.bounding_box()
+        return float(
+            math.sqrt(
+                (bbox.max.X - bbox.min.X) ** 2
+                + (bbox.max.Y - bbox.min.Y) ** 2
+                + (bbox.max.Z - bbox.min.Z) ** 2
+            )
+        )
+    except Exception:
+        return 1e6
+
+
+def _inward_normal(
+    body: Any,
+    face_entity: Any,
+    outward_normal: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Return the face normal that points into the given solid body.
+
+    The test point is sampled from the face centroid rather than the surface's
+    reference point, which can lie on a vertex or edge and mislead the solid
+    classifier.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    from OCP.TopAbs import TopAbs_IN
+
+    shape = body.wrapped if hasattr(body, "wrapped") else body
+    centroid = _face_centroid(face_entity)
+    nx, ny, nz = _normalized_vector(outward_normal)
+    # Scale the probe offset with the body size so tiny models do not vanish
+    # into classifier tolerance and large models still probe well inside.
+    offset = max(1e-4, _body_bounding_box_diagonal(body) * 1e-4)
+    test = (centroid[0] + nx * offset, centroid[1] + ny * offset, centroid[2] + nz * offset)
+    classifier = BRepClass3d_SolidClassifier(shape, gp_Pnt(*test), 1e-6)
+    if classifier.State() == TopAbs_IN:
+        return (nx, ny, nz)
+    return (-nx, -ny, -nz)
+
+
+def _orient_along_inward(solid: Any, inward: tuple[float, float, float]) -> Any:
+    """Rotate a +Z-aligned solid so its axis points along ``inward``.
+
+    This factors the orientation block used by the hole tool builder; existing
+    call sites keep their inline copies so long-standing geometry is untouched.
+    """
+    _require_build123d()
+    assert bd is not None
+    target = bd.Vector(inward)
+    source = bd.Vector(0, 0, 1)
+    dot = source.dot(target)
+    cross = source.cross(target)
+    if cross.length > 1e-9:
+        angle = math.degrees(math.atan2(cross.length, dot))
+        solid = solid.rotate(bd.Axis((0, 0, 0), cross), angle)
+    elif dot < 0:
+        # 180-degree rotation around world X.
+        solid = solid.rotate(bd.Axis((0, 0, 0), (1, 0, 0)), 180)
+    return solid
+
+
+def _validate_hole_expansion(
+    feature_id: str,
+    counterbore_diameter: float | None,
+    counterbore_depth: float | None,
+    countersink_diameter: float | None,
+    countersink_angle: float | None,
+    counterdrill_diameter: float | None,
+    counterdrill_depth: float | None,
+    taper_angle: float | None,
+    drill_point_angle: float | None,
+) -> None:
+    """Validate the hole expansion parameters (counterdrill/taper/drill-point).
+
+    Counterbore, countersink, and counterdrill are mutually exclusive. The
+    taper half-angle must lie in (0, 45] degrees and the drill-point full angle
+    in (0, 180) degrees. ``thread`` ``'none'``/``'cosmetic'`` need no geometry
+    (cosmetic stays stored-only); ``'modeled'`` is validated separately by
+    :func:`_validate_modeled_thread` and cut by :func:`_build_modeled_thread_tool`.
+    """
+    complete = 0
+    if counterbore_diameter is not None and counterbore_depth is not None:
+        complete += 1
+    if countersink_diameter is not None and countersink_angle is not None:
+        complete += 1
+    if counterdrill_diameter is not None and counterdrill_depth is not None:
+        complete += 1
+    if complete > 1:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': counterbore, countersink, and counterdrill "
+            "are mutually exclusive"
+        )
+    if taper_angle is not None:
+        if (
+            not isinstance(taper_angle, (int, float))
+            or isinstance(taper_angle, bool)
+            or not math.isfinite(taper_angle)
+            or taper_angle <= 0
+            or taper_angle > 45
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': taperAngle must be in (0, 45] degrees"
+            )
+    if drill_point_angle is not None:
+        if (
+            not isinstance(drill_point_angle, (int, float))
+            or isinstance(drill_point_angle, bool)
+            or not math.isfinite(drill_point_angle)
+            or drill_point_angle <= 0
+            or drill_point_angle >= 180
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': drillPointAngle must be in (0, 180) degrees"
+            )
+
+
+def _find_top_rim_edge(
+    tool: Any, center: tuple[float, float, float], axis: tuple[float, float, float]
+) -> Any:
+    """Find the rim edge of a cylinder tool that lies nearest the top face.
+
+    The top face is the end of the cylinder in the positive axis direction.
+    """
+    _require_reference_resolver()
+    assert rr is not None
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    wrapped = tool.wrapped if hasattr(tool, "wrapped") else tool
+    ax, ay, az = axis
+    cx, cy, cz = center
+
+    best_edge = None
+    best_score = -1e18
+    exp = TopExp_Explorer(wrapped, TopAbs_EDGE)
+    while exp.More():
+        edge = TopoDS.Edge_s(exp.Current())
+        try:
+            from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+            adaptor = BRepAdaptor_Curve(edge)
+            curve = rr._curve_type_string(adaptor)
+        except Exception:
+            curve = "other"
+        if curve != "circle":
+            exp.Next()
+            continue
+        try:
+            circ = adaptor.Circle()
+            ec = circ.Location()
+            edge_center = (ec.X(), ec.Y(), ec.Z())
+            radius = float(circ.Radius())
+        except Exception:
+            exp.Next()
+            continue
+        # Project edge center onto axis from center point.
+        dx = edge_center[0] - cx
+        dy = edge_center[1] - cy
+        dz = edge_center[2] - cz
+        along = dx * ax + dy * ay + dz * az
+        perp_sq = dx * dx + dy * dy + dz * dz - along * along
+        if perp_sq > 1e-4 or radius < 1e-4:
+            exp.Next()
+            continue
+        if along > best_score:
+            best_score = along
+            best_edge = edge
+        exp.Next()
+    if best_edge is None:
+        raise FeatureBuilderError("could not find top rim edge for countersink")
+    return best_edge
+
+
+def _hole_mouth_frame(
+    plane: Any,
+    center: tuple[float, float],
+    body: Any,
+    face_entity: Any,
+    feature_id: str,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Return ``(center_3d, inward)`` for a hole placed at ``[u, v]`` on ``plane``.
+
+    ``center_3d`` is the mouth center in world coordinates; ``inward`` is the
+    unit face normal pointing into ``body`` (via the solid classifier, so the
+    hole cuts into the material regardless of the face orientation). Shared by
+    the hole tool builder and the modeled-thread cutter so both agree on the
+    hole axis. This factors the orientation block used by the hole tool
+    builder; existing call sites keep their inline copies so long-standing
+    geometry is untouched.
+    """
+    origin = plane.origin
+    x_dir = plane.x_dir
+    y_dir = plane.y_dir
+    center_3d = (
+        origin.X + center[0] * x_dir.X + center[1] * y_dir.X,
+        origin.Y + center[0] * x_dir.Y + center[1] * y_dir.Y,
+        origin.Z + center[0] * x_dir.Z + center[1] * y_dir.Z,
+    )
+    z_dir = plane.z_dir
+    axis = (float(z_dir.X), float(z_dir.Y), float(z_dir.Z))
+    return center_3d, _inward_normal(body, face_entity, axis)
+
+
+def _validate_modeled_thread(feature_id: str, params: dict[str, Any]) -> Any | None:
+    """Validate a hole ``thread`` value and return the thread spec when modeled.
+
+    Returns ``None`` for ``'none'``/``'cosmetic'`` (cosmetic stays stored-only,
+    byte-identical geometry). ``'modeled'`` requires a blind simple hole —
+    counterbore/countersink/counterdrill (any half of the pair set, mirroring
+    the schema validator) and ``taperAngle`` fail with a clear error, as do
+    through-holes (no usable depth), holes too shallow for one full turn, and
+    diameters matching no ISO metric coarse designation. The designation is
+    derived from the hole diameter (nominal = major); pitch and tap-drill come
+    from :mod:`fastener_data`, so no designation crosses the document schema.
+    Pure (no build123d) apart from the table lookup, so minimal-profile tests
+    can cover every rejection.
+    """
+    thread = params.get("thread", "none")
+    if thread is None:
+        thread = "none"
+    if thread not in ("none", "cosmetic", "modeled"):
+        raise FeatureBuilderError(f"feature '{feature_id}': unknown hole thread '{thread}'")
+    if thread != "modeled":
+        return None
+    depth = params.get("depth")
+    if (
+        not isinstance(depth, (int, float))
+        or isinstance(depth, bool)
+        or not math.isfinite(depth)
+        or depth <= 0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread requires a blind hole (depth must be set)"
+        )
+    if any(
+        params.get(key) is not None
+        for key in (
+            "counterboreDiameter",
+            "counterboreDepth",
+            "countersinkDiameter",
+            "countersinkAngle",
+            "counterdrillDiameter",
+            "counterdrillDepth",
+        )
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread is only supported on simple holes "
+            "(no counterbore/countersink/counterdrill)"
+        )
+    if params.get("taperAngle") is not None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread is only supported on simple holes "
+            "(taperAngle must be omitted)"
+        )
+    diameter = params.get("diameter")
+    if (
+        not isinstance(diameter, (int, float))
+        or isinstance(diameter, bool)
+        or not math.isfinite(diameter)
+        or diameter <= 0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread requires a positive hole diameter"
+        )
+    spec = _coarse_thread_for_diameter(float(diameter), feature_id)
+    turns = math.floor(float(depth) / spec.pitch_mm)
+    if turns < 1:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread depth {float(depth):g} fits no full "
+            f"turn of pitch {spec.pitch_mm:g} ({spec.designation})"
+        )
+    return spec
+
+
+def _coarse_thread_for_diameter(diameter: float, feature_id: str) -> Any:
+    """Return the ISO metric coarse spec whose nominal matches ``diameter``.
+
+    Pure apart from the data-table lookup. Raises a clear error (naming the
+    supported range) when the diameter matches no coarse nominal — modeled
+    threads derive pitch from the hole diameter, so fine/UNC designations
+    have no selector on the document schema and stay unsupported.
+    """
+    if not HAS_FASTENER_DATA or fastener_data is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread requires the fastener tables"
+        )
+    for spec in fastener_data.THREAD_TABLE.values():
+        if spec.family != fastener_data.METRIC_COARSE:
+            continue
+        if abs(diameter - spec.diameter_mm) <= 1e-6 * max(1.0, spec.diameter_mm):
+            return spec
+    raise FeatureBuilderError(
+        f"feature '{feature_id}': modeled thread diameter {diameter:g} matches no ISO "
+        "metric coarse designation (M1-M64); modeled threads derive pitch from "
+        "the hole diameter"
+    )
+
+
+def _modeled_thread_section(
+    tap_radius: float,
+    nominal_radius: float,
+    pitch: float,
+) -> list[tuple[float, float]]:
+    """Return the thread-groove section corners in ``(radial, axial)`` coordinates.
+
+    The section is the ISO internal-thread groove approximation: 60-degree
+    flanks (half-angle 30 degrees from radial) between a P/4 root flat at the
+    tap radius and the crest at the nominal radius, with a small radial
+    overshoot (5% of the pitch each side) so the cut breaks through the hole
+    wall cleanly. Pure (no build123d) so minimal-profile tests can pin the
+    profile numbers.
+    """
+    overshoot = 0.05 * pitch
+    inner = tap_radius - overshoot
+    outer = nominal_radius + overshoot
+    inner_half = 3.0 * pitch / 8.0
+    outer_half = pitch / 8.0 + (outer - inner) * math.tan(math.radians(30.0))
+    return [(inner, -inner_half), (inner, inner_half), (outer, outer_half), (outer, -outer_half)]
+
+
+def _build_modeled_thread_tool(
+    center_3d: tuple[float, float, float],
+    inward: tuple[float, float, float],
+    depth: float,
+    spec: Any,
+    feature_id: str,
+) -> Any:
+    """Build the helical cut tool of a modeled hole thread.
+
+    The ISO groove section (:func:`_modeled_thread_section`, radial extent
+    tap-to-nominal from the spec's tap-drill and nominal diameter) sweeps a
+    right-hand helix of the spec pitch at mid-flank radius, starting at the
+    hole mouth and spanning ``floor(depth / pitch)`` full turns (at least one;
+    validated by :func:`_validate_modeled_thread`). The sweep runs
+    ``fixedBinormal`` locked to the hole axis so the section never rolls, and
+    open-helix construction reuses the sweep machinery (curvature pre-check
+    included) exactly like ``helicalSweep``.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon
+    from OCP.gp import gp_Pnt
+
+    pitch = float(spec.pitch_mm)
+    tap_radius = float(spec.tap_drill_mm) / 2.0
+    nominal_radius = float(spec.diameter_mm) / 2.0
+    turns = max(1, math.floor(depth / pitch))
+    axis = _normalized_vector(inward)
+    # Right-hand helix frame: e1 is a deterministic radial direction, e2
+    # completes the right-handed basis with the hole axis.
+    e1 = _deterministic_x_dir(axis)
+    e2 = _normalized_vector(
+        (
+            axis[1] * e1[2] - axis[2] * e1[1],
+            axis[2] * e1[0] - axis[0] * e1[2],
+            axis[0] * e1[1] - axis[1] * e1[0],
+        )
+    )
+    flank_radius = (tap_radius + nominal_radius) / 2.0
+
+    sample_count = max(64, math.ceil(turns * 128))
+    points: list[tuple[float, float, float]] = []
+    for i in range(sample_count):
+        theta = 2.0 * math.pi * turns * i / (sample_count - 1)
+        radial = flank_radius
+        axial = pitch * theta / (2.0 * math.pi)
+        points.append(
+            (
+                center_3d[0]
+                + radial * math.cos(theta) * e1[0]
+                + radial * math.sin(theta) * e2[0]
+                + axial * axis[0],
+                center_3d[1]
+                + radial * math.cos(theta) * e1[1]
+                + radial * math.sin(theta) * e2[1]
+                + axial * axis[1],
+                center_3d[2]
+                + radial * math.cos(theta) * e1[2]
+                + radial * math.sin(theta) * e2[2]
+                + axial * axis[2],
+            )
+        )
+    try:
+        fit = curve_builder._fit_curve(feature_id, "thread", {"kind": "parametric"}, points)
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread helix fit failed: {exc}"
+        ) from exc
+    spine_wire = fit.get("wire")
+    if spine_wire is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': modeled thread helix fit produced no wire"
+        )
+
+    # Section quad at the helix start: u is radial (e1 is perpendicular to the
+    # start tangent by construction), v is the axial remainder perpendicular
+    # to the tangent.
+    start = points[0]
+    tangent = _normalized_vector(
+        (
+            points[1][0] - points[0][0],
+            points[1][1] - points[0][1],
+            points[1][2] - points[0][2],
+        )
+    )
+    axial_along = _dot(axis, tangent)
+    v_raw = (
+        axis[0] - axial_along * tangent[0],
+        axis[1] - axial_along * tangent[1],
+        axis[2] - axial_along * tangent[2],
+    )
+    v_len = math.sqrt(v_raw[0] ** 2 + v_raw[1] ** 2 + v_raw[2] ** 2)
+    if v_len < 1e-9:
+        raise FeatureBuilderError(f"feature '{feature_id}': modeled thread start frame degenerated")
+    v_dir = (v_raw[0] / v_len, v_raw[1] / v_len, v_raw[2] / v_len)
+    corners = _modeled_thread_section(tap_radius, nominal_radius, pitch)
+    polygon = BRepBuilderAPI_MakePolygon()
+    for radial, axial in corners:
+        polygon.Add(
+            gp_Pnt(
+                start[0] + (radial - flank_radius) * e1[0] + axial * v_dir[0],
+                start[1] + (radial - flank_radius) * e1[1] + axial * v_dir[1],
+                start[2] + (radial - flank_radius) * e1[2] + axial * v_dir[2],
+            )
+        )
+    polygon.Close()
+    if not polygon.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': modeled thread section failed to build")
+    section_face = BRepBuilderAPI_MakeFace(polygon.Wire()).Face()
+    reach = _section_reach([section_face])
+    return _pipe_shell_solid(
+        spine_wire,
+        [section_face],
+        {"orientation": "fixedBinormal", "binormal": list(axis)},
+        feature_id,
+        reach,
+    )
+
+
+def _build_hole_tool(
+    plane: Any,
+    center: tuple[float, float],
+    diameter: float,
+    depth: float | None,
+    body: Any,
+    face_entity: Any,
+    feature_id: str,
+    counterbore_diameter: float | None = None,
+    counterbore_depth: float | None = None,
+    countersink_diameter: float | None = None,
+    countersink_angle: float | None = None,
+    counterdrill_diameter: float | None = None,
+    counterdrill_depth: float | None = None,
+    taper_angle: float | None = None,
+    drill_point_angle: float | None = None,
+) -> Any:
+    """Build the subtractive tool shape for the hole wizard.
+
+    When none of the expansion parameters (counterdrill/taper/drill-point) are
+    present the construction below is exactly the long-standing one, so
+    existing hole geometry is unchanged. A counterdrill is a stepped cut with
+    a flat seat — the same construction as a counterbore, hence the same
+    volume for equal dimensions. A taper replaces the main cylinder with a
+    conical frustum whose bottom (deep end) keeps the nominal diameter and
+    whose mouth widens at ``taper_angle`` (half-angle). A drill point fuses a
+    cone tip below the main cylinder of blind holes (full angle
+    ``drill_point_angle``, tip height ``radius / tan(angle / 2)``); it is
+    ignored for through-holes.
+    """
+    _require_build123d()
+    assert bd is not None
+
+    _validate_hole_expansion(
+        feature_id,
+        counterbore_diameter,
+        counterbore_depth,
+        countersink_diameter,
+        countersink_angle,
+        counterdrill_diameter,
+        counterdrill_depth,
+        taper_angle,
+        drill_point_angle,
+    )
+
+    center_3d, inward = _hole_mouth_frame(plane, center, body, face_entity, feature_id)
+
+    blind = depth is not None and depth > 0
+    if not blind:
+        cut_length = _body_bounding_box_diagonal(body) * 1.1
+    else:
+        cut_length = depth
+
+    radius = diameter / 2.0
+    # Build the main cylinder along the inward direction.
+    cylinder = bd.Cylinder(radius=radius, height=cut_length)
+    # Align cylinder so its central axis points along the inward normal.
+    # Cylinder defaults to Z; rotate to inward axis.
+    target = bd.Vector(inward)
+    source = bd.Vector(0, 0, 1)
+    dot = source.dot(target)
+    cross = source.cross(target)
+    if cross.length > 1e-9:
+        angle = math.degrees(math.atan2(cross.length, dot))
+        cylinder = cylinder.rotate(bd.Axis((0, 0, 0), cross), angle)
+    elif dot < 0:
+        # 180-degree rotation around world X.
+        cylinder = cylinder.rotate(bd.Axis((0, 0, 0), (1, 0, 0)), 180)
+    cylinder = cylinder.moved(
+        bd.Location(
+            (
+                center_3d[0] + inward[0] * cut_length / 2.0,
+                center_3d[1] + inward[1] * cut_length / 2.0,
+                center_3d[2] + inward[2] * cut_length / 2.0,
+            )
+        )
+    )
+
+    if taper_angle is not None:
+        # Conical cut: the deep end keeps the nominal diameter, the mouth
+        # widens at the taper half-angle. make_cone spans local z 0..height
+        # with the base radius at z=0; orienting +Z along inward puts local
+        # z=0 at the move point, so the wide base lands on the mouth.
+        top_radius = radius + cut_length * math.tan(math.radians(float(taper_angle)))
+        cone = bd.Solid.make_cone(top_radius, radius, cut_length)
+        cone = _orient_along_inward(cone, inward)
+        cone = cone.moved(bd.Location(center_3d))
+        cylinder = cone
+
+    if drill_point_angle is not None and blind:
+        # Cone tip below the main cylinder. make_cone spans local z 0..height
+        # with the base radius at z=0, so the base lands on the cylinder's
+        # deep end and the apex points further inward.
+        half = math.radians(float(drill_point_angle) / 2.0)
+        tip_height = radius / math.tan(half)
+        tip = bd.Solid.make_cone(radius, 0.0, tip_height)
+        tip = _orient_along_inward(tip, inward)
+        tip = tip.moved(
+            bd.Location(
+                (
+                    center_3d[0] + inward[0] * cut_length,
+                    center_3d[1] + inward[1] * cut_length,
+                    center_3d[2] + inward[2] * cut_length,
+                )
+            )
+        )
+        cylinder = cylinder + tip
+
+    stepped_diameter = None
+    stepped_depth = None
+    if counterbore_diameter is not None and counterbore_depth is not None:
+        stepped_diameter = counterbore_diameter
+        stepped_depth = counterbore_depth
+    elif counterdrill_diameter is not None and counterdrill_depth is not None:
+        stepped_diameter = counterdrill_diameter
+        stepped_depth = counterdrill_depth
+    if stepped_diameter is not None and stepped_depth is not None:
+        cb_radius = stepped_diameter / 2.0
+        cb_depth = stepped_depth
+        counterbore = bd.Cylinder(radius=cb_radius, height=cb_depth)
+        target = bd.Vector(inward)
+        source = bd.Vector(0, 0, 1)
+        dot = source.dot(target)
+        cross = source.cross(target)
+        if cross.length > 1e-9:
+            angle = math.degrees(math.atan2(cross.length, dot))
+            counterbore = counterbore.rotate(bd.Axis((0, 0, 0), cross), angle)
+        elif dot < 0:
+            counterbore = counterbore.rotate(bd.Axis((0, 0, 0), (1, 0, 0)), 180)
+        cb_center = (
+            center_3d[0] + inward[0] * cb_depth / 2.0,
+            center_3d[1] + inward[1] * cb_depth / 2.0,
+            center_3d[2] + inward[2] * cb_depth / 2.0,
+        )
+        counterbore = counterbore.moved(bd.Location(cb_center))
+        return cylinder + counterbore
+
+    if countersink_diameter is not None and countersink_angle is not None:
+        # Chamfer the top rim edge to create the countersink cone.
+        edge = _find_top_rim_edge(cylinder, center_3d, inward)
+        be = bd.Edge(edge)
+        be.topo_parent = cylinder
+        # distance along the cylinder wall.
+        delta_radius = (countersink_diameter - diameter) / 2.0
+        if delta_radius <= 0:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': countersinkDiameter must exceed diameter"
+            )
+        angle_rad = math.radians(countersink_angle)
+        if angle_rad <= 0:
+            raise FeatureBuilderError(f"feature '{feature_id}': countersinkAngle must be positive")
+        distance = delta_radius / math.tan(angle_rad)
+        return bd.chamfer(be, distance, angle=countersink_angle)
+
+    return cylinder
+
+
+def _path_start_frame(spine_wire: Any) -> tuple[Any, Any]:
+    """Return ``(start_point, start_tangent)`` of a spine wire."""
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.gp import gp_Dir, gp_Pnt, gp_Vec
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    exp = TopExp_Explorer(spine_wire, TopAbs_EDGE)
+    if not exp.More():
+        raise FeatureBuilderError("path curve has no edges")
+    edge = TopoDS.Edge_s(exp.Current())
+    curve = BRepAdaptor_Curve(edge)
+    pnt = gp_Pnt()
+    vec = gp_Vec()
+    curve.D1(curve.FirstParameter(), pnt, vec)
+    if vec.Magnitude() < 1e-12:
+        raise FeatureBuilderError("path curve has a zero start tangent")
+    start = gp_Pnt(pnt.X(), pnt.Y(), pnt.Z())
+    tangent = gp_Dir(vec.X(), vec.Y(), vec.Z())
+    return start, tangent
+
+
+def _position_sections_at_path_start(
+    faces: list[Any],
+    plane: Any,
+    start: Any,
+    tangent: Any,
+) -> list[Any]:
+    """Move sketch-coordinate section faces to the path start frame.
+
+    The sketch-plane origin lands on the path start point and the sketch
+    normal aligns with the path start tangent; in-plane geometry relative to
+    the sketch origin is preserved. This is the SolidWorks-style
+    auto-positioning behavior: there is no requirement that the sketch plane
+    be perpendicular to the path.
+    """
+    from OCP.gp import gp_Ax3, gp_Dir, gp_Pnt, gp_Trsf
+    from OCP.TopLoc import TopLoc_Location
+
+    origin = plane.origin
+    source = gp_Ax3(
+        gp_Pnt(origin.X, origin.Y, origin.Z),
+        gp_Dir(plane.z_dir.X, plane.z_dir.Y, plane.z_dir.Z),
+        gp_Dir(plane.x_dir.X, plane.x_dir.Y, plane.x_dir.Z),
+    )
+    x_dir = _deterministic_x_dir((tangent.X(), tangent.Y(), tangent.Z()))
+    target = gp_Ax3(start, tangent, gp_Dir(*x_dir))
+    transformation = gp_Trsf()
+    transformation.SetTransformation(target, source)
+    location = TopLoc_Location(transformation)
+    return [face.wrapped.Moved(location) for face in faces]
+
+
+def _spine_min_radius(spine_wire: Any, samples: int = 200) -> float:
+    """Return the minimum radius of curvature of the spine wire.
+
+    Straight sections (curvature ~0) are skipped. Returns ``inf`` for a
+    perfectly straight spine.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.BRepLProp import BRepLProp_CLProps
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    best = math.inf
+    exp = TopExp_Explorer(spine_wire, TopAbs_EDGE)
+    while exp.More():
+        edge = TopoDS.Edge_s(exp.Current())
+        curve = BRepAdaptor_Curve(edge)
+        first = curve.FirstParameter()
+        last = curve.LastParameter()
+        for i in range(samples):
+            param = first + (last - first) * i / (samples - 1)
+            try:
+                props = BRepLProp_CLProps(curve, param, 2, 1e-9)
+                curvature = props.Curvature()
+            except Exception:
+                continue
+            if curvature > 1e-12:
+                best = min(best, 1.0 / curvature)
+        exp.Next()
+    return best
+
+
+def _section_reach(section_faces: list[Any]) -> float:
+    """Return the max distance from a section face's centroid to its boundary vertices."""
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.TopAbs import TopAbs_VERTEX
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    reach = 0.0
+    for face in section_faces:
+        props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, props)
+        cog = props.CentreOfMass()
+        exp = TopExp_Explorer(face, TopAbs_VERTEX)
+        while exp.More():
+            vertex = TopoDS.Vertex_s(exp.Current())
+            pnt = BRep_Tool.Pnt_s(vertex)
+            distance = math.sqrt(
+                (pnt.X() - cog.X()) ** 2 + (pnt.Y() - cog.Y()) ** 2 + (pnt.Z() - cog.Z()) ** 2
+            )
+            reach = max(reach, distance)
+            exp.Next()
+    return reach
+
+
+def _sweep_params_or_raise(
+    params: dict[str, Any], feature_id: str
+) -> tuple[str, tuple[float, float, float] | None]:
+    """Validate sweep/pipe orientation params and return ``(orientation, binormal)``."""
+    orientation = params.get("orientation", "frenet")
+    if orientation not in ("frenet", "fixedBinormal"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': orientation must be 'frenet' or 'fixedBinormal'"
+        )
+    binormal = params.get("binormal")
+    if orientation == "fixedBinormal":
+        if (
+            not isinstance(binormal, (list, tuple))
+            or len(binormal) != 3
+            or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                for v in binormal
+            )
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': fixedBinormal requires a finite binormal [x, y, z]"
+            )
+        return orientation, _normalized_vector(
+            (float(binormal[0]), float(binormal[1]), float(binormal[2]))
+        )
+    return orientation, None
+
+
+def _pipe_shell_solid(
+    spine_wire: Any,
+    section_faces: list[Any],
+    params: dict[str, Any],
+    feature_id: str,
+    reach: float,
+) -> Any:
+    """Sweep the section faces along the spine wire into a single solid.
+
+    Uses ``BRepOffsetAPI_MakePipeShell`` with a round-corner transition. The
+    section is swept from its current position; callers position it at the
+    path start first. A fast curvature pre-check rejects sections whose reach
+    meets or exceeds the spine's minimum radius of curvature, which would
+    self-intersect. All OCP failures are wrapped in ``FeatureBuilderError``.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
+    from OCP.gp import gp_Dir
+
+    orientation, binormal = _sweep_params_or_raise(params, feature_id)
+    closed_spine = BRep_Tool.IsClosed_s(spine_wire)
+
+    min_radius = _spine_min_radius(spine_wire)
+    if math.isfinite(min_radius) and reach >= min_radius:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': path curve is too tightly curved "
+            f"(minimum radius {min_radius:.6g}) for the section reach {reach:.6g}; "
+            "the sweep would self-intersect"
+        )
+
+    try:
+        profile_solids: list[Any] = []
+        for section_face in section_faces:
+            face = bd.Face(section_face)
+            wires = [face.outer_wire().wrapped] + [w.wrapped for w in face.inner_wires()]
+            swept_wires: list[Any] = []
+            for wire in wires:
+                builder = BRepOffsetAPI_MakePipeShell(spine_wire)
+                builder.SetTransitionMode(BRepBuilderAPI_RoundCorner)
+                if orientation == "fixedBinormal":
+                    assert binormal is not None
+                    builder.SetMode(gp_Dir(*binormal))
+                else:
+                    builder.SetMode(True)
+                builder.Add(wire, False, False)
+                builder.Build()
+                if not builder.IsDone():
+                    raise FeatureBuilderError(f"feature '{feature_id}': sweep operation failed")
+                if closed_spine:
+                    swept_wires.append(
+                        _closed_spine_sweep_solid(builder, spine_wire, wire, feature_id)
+                    )
+                else:
+                    swept_wires.append(_pipe_shell_result(builder, feature_id))
+            outer = bd.Solid(swept_wires[0])
+            for inner in swept_wires[1:]:
+                outer = outer.cut(bd.Solid(inner))
+            profile_solids.append(outer)
+        tool_shape = (
+            profile_solids[0] if len(profile_solids) == 1 else bd.Compound(children=profile_solids)
+        )
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': sweep failed: {exc}") from exc
+
+    if _solid_count(tool_shape) != 1:
+        raise FeatureBuilderError(f"feature '{feature_id}': sweep did not produce a single solid")
+    # Wrap in a Compound so the tool behaves like a pad/revolve tool shape in
+    # boolean combinations (``Solid + Solid`` returns a ShapeList in build123d,
+    # which the additive/pattern paths cannot consume).
+    return bd.Compound(children=[tool_shape])
+
+
+def _pipe_shell_result(builder: Any, feature_id: str) -> Any:
+    """Return the solid produced by a PipeShell builder on an open spine.
+
+    ``MakeSolid`` caps the ends of an open spine. If that fails, the raw shell
+    must be repaired before it becomes a solid: ``MakePipeShell`` can leave the
+    lateral faces' seam edges unglued, so an unglued shell makes an invalid
+    solid whose STEP round-trip degrades to bare faces — the DAGMC export
+    pipeline then finds no volume in the exported STEP. ``ShapeFix_Shape``
+    re-glues the seams (sewing alone leaves the solid invalid). Valid
+    ``MakeSolid`` results return unchanged. Closed spines never reach this
+    repair: they are rebuilt by ``_closed_spine_sweep_solid`` instead.
+    """
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.ShapeFix import ShapeFix_Shape
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+    from OCP.TopoDS import TopoDS
+
+    try:
+        builder.MakeSolid()
+        made = builder.Shape()
+        if made.ShapeType() == TopAbs_SOLID and BRepCheck_Analyzer(made).IsValid():
+            return made
+    except Exception:
+        pass
+
+    raw = builder.Shape()
+    if raw.ShapeType() not in (TopAbs_SHELL, TopAbs_SOLID):
+        raise FeatureBuilderError(f"feature '{feature_id}': sweep failed to produce a solid")
+
+    fixed = ShapeFix_Shape(raw)
+    fixed.Perform()
+    repaired = fixed.Shape()
+    if repaired.ShapeType() == TopAbs_SOLID:
+        return repaired
+    if repaired.ShapeType() != TopAbs_SHELL:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': sweep shell repair did not produce a shell"
+        )
+    maker = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(repaired))
+    return maker.Solid()
+
+
+def _closed_spine_sweep_solid(
+    builder: Any, spine_wire: Any, profile_wire: Any, feature_id: str
+) -> Any:
+    """Rebuild a closed-spine sweep as a watertight, STEP-durable solid.
+
+    ``BRepOffsetAPI_MakePipeShell`` on a closed spine emits the correct lateral
+    faces plus tiny inward sliver faces at the periodic seam, and leaves seam
+    edges carrying tolerances of up to ~0.5 m. A solid sewn from those surfaces
+    is valid in memory but degrades on STEP round-trip (bare faces, zero
+    volume), so the DAGMC export pipeline finds no volumes. The lateral faces
+    are exact sweep iso-curves, so the tube is rebuilt as a station loft
+    through corner polygons sampled from the lateral faces' shared edges — the
+    loft preserves the sweep's twist and uses fresh, default-tolerance
+    geometry. Sections without lateral corners (circular pipes) instead fall
+    back to a loft through fresh circle stations, which is exact for a circular
+    section regardless of twist.
+    """
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+
+    raw = builder.Shape()
+    if raw.ShapeType() not in (TopAbs_SHELL, TopAbs_SOLID):
+        raise FeatureBuilderError(f"feature '{feature_id}': closed-path sweep produced no shell")
+    lateral: list[Any] = []
+    try:
+        lateral = _lateral_sweep_faces(raw, feature_id)
+    except FeatureBuilderError:
+        pass
+    profile_edges = _wire_edge_count(profile_wire)
+    spine_edges = _wire_edge_count(spine_wire)
+    if spine_edges == 1 and len(lateral) >= 3 and len(lateral) == profile_edges:
+        ring = _lateral_long_edge_ring(lateral, feature_id)
+        if ring is not None:
+            return _corner_station_loft(ring, feature_id)
+    radius = _circular_section_radius(profile_wire)
+    if spine_edges == 1 and radius is not None:
+        return _circle_station_loft(spine_wire, radius, feature_id)
+    raise FeatureBuilderError(
+        f"feature '{feature_id}': closed-path sweep of this section shape is not supported"
+    )
+
+
+def _circular_section_radius(profile_wire: Any) -> float | None:
+    """Return the radius when the section is a single full-circle edge."""
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.GeomAbs import GeomAbs_CurveType
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    edges = []
+    exp = TopExp_Explorer(profile_wire, TopAbs_EDGE)
+    while exp.More():
+        edges.append(TopoDS.Edge_s(exp.Current()))
+        exp.Next()
+    if len(edges) != 1:
+        return None
+    curve = BRepAdaptor_Curve(edges[0])
+    if curve.GetType() != GeomAbs_CurveType.GeomAbs_Circle:
+        return None
+    return float(curve.Circle().Radius())
+
+
+def _wire_edge_count(wire: Any) -> int:
+    """Return the number of edges in a wire."""
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+
+    count = 0
+    exp = TopExp_Explorer(wire, TopAbs_EDGE)
+    while exp.More():
+        count += 1
+        exp.Next()
+    return count
+
+
+def _lateral_sweep_faces(raw: Any, feature_id: str) -> list[Any]:
+    """Split a closed-spine PipeShell shell into lateral faces and seam slivers.
+
+    Seam slivers are inward-facing faces with a small fraction of the largest
+    lateral face's area. Structural guards in the caller (edge count vs. the
+    profile, ring-walk checks) catch any misclassification instead of letting
+    it silently change the section shape.
+    """
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    faces = []
+    exp = TopExp_Explorer(raw, TopAbs_FACE)
+    while exp.More():
+        faces.append(TopoDS.Face_s(exp.Current()))
+        exp.Next()
+    if len(faces) < 3:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweep produced a degenerate shell"
+        )
+    areas = []
+    for face in faces:
+        props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, props)
+        areas.append(props.Mass())
+    largest = max(areas)
+    return [face for face, area in zip(faces, areas, strict=True) if area >= 0.2 * largest]
+
+
+def _lateral_long_edge_ring(lateral: list[Any], feature_id: str) -> list[Any] | None:
+    """Order the long (spine-parallel) edges of the lateral faces into a ring.
+
+    A long edge is shared by exactly two lateral faces; walking the lateral
+    faces via their shared long edges yields the corner order around the
+    section. Returns ``None`` when the topology does not form a single ring.
+    """
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    face_edges = []
+    for face in lateral:
+        edges = []
+        exp = TopExp_Explorer(face, TopAbs_EDGE)
+        while exp.More():
+            edges.append(TopoDS.Edge_s(exp.Current()))
+            exp.Next()
+        face_edges.append(edges)
+
+    long_edges: list[Any] = []
+    owners: list[list[int]] = []
+    for face_index, edges in enumerate(face_edges):
+        for edge in edges:
+            shared = {face_index}
+            for other_index, other_edges in enumerate(face_edges):
+                if other_index != face_index and any(edge.IsSame(o) for o in other_edges):
+                    shared.add(other_index)
+            if len(shared) >= 2 and face_index == min(shared):
+                long_edges.append(edge)
+                owners.append(sorted(shared))
+    if len(long_edges) != len(lateral):
+        return None
+
+    # pairs[face] = the two long-edge indices bounding that lateral face
+    pairs: list[list[int]] = [[] for _ in lateral]
+    for edge_index, faces_shared in enumerate(owners):
+        if len(faces_shared) < 2:
+            return None
+        for face_index in faces_shared[:2]:
+            pairs[face_index].append(edge_index)
+    if any(len(pair) != 2 for pair in pairs):
+        return None
+    pairs_typed = [tuple(pair) for pair in pairs]
+
+    order = [0]
+    used = {0}
+    while len(order) < len(pairs_typed):
+        last = set(pairs_typed[order[-1]])
+        nxt = None
+        for face_index, pair in enumerate(pairs_typed):
+            if face_index in used:
+                continue
+            if any(i in last for i in pair):
+                nxt = face_index
+                break
+        if nxt is None:
+            return None
+        used.add(nxt)
+        order.append(nxt)
+    pairs_ordered = [pairs_typed[i] for i in order]
+    ring_indices = [pairs_ordered[0][0], pairs_ordered[0][1]]
+    for pair in pairs_ordered[1:]:
+        prev = ring_indices[-1]
+        ring_indices.append(pair[0] if pair[1] == prev else pair[1])
+    ring_indices = ring_indices[:-1]
+    if len(ring_indices) != len(long_edges) or len(set(ring_indices)) != len(ring_indices):
+        return None
+    return [long_edges[i] for i in ring_indices]
+
+
+def _corner_station_loft(ring: list[Any], feature_id: str) -> Any:
+    """Loft a fresh solid through corner polygons sampled along the long edges.
+
+    The long edges are exact sweep iso-curves parameterized by the spine
+    parameter, so evaluating all of them at the same fraction yields a section
+    corner polygon at that station. A smoothing ThruSections loft through the
+    stations rebuilds the tube with the sweep's own twist; the end stations
+    are trimmed slightly off the periodic seam, where the raw shell's sliver
+    faces leave the corner curves unreliable. Accuracy is approximately 1% in
+    volume for the W7-X coil model (measured -1.2% at these settings).
+
+    Stations stay numerous (480) and uniform in curve parameter: arc-length
+    spacing at 120 stations measured -2.7% volume drift AND introduced
+    sliver-prone UV parameterization, so neither accuracy nor mesh quality
+    benefits from fewer stations.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.gp import gp_Pnt
+
+    stations = 480
+    trim = 0.02
+
+    def corner_polygon(t: float) -> list[Any]:
+        points = []
+        for edge in ring:
+            curve = BRepAdaptor_Curve(edge)
+            point = gp_Pnt()
+            curve.D0(
+                curve.FirstParameter() + (curve.LastParameter() - curve.FirstParameter()) * t,
+                point,
+            )
+            points.append(point)
+        return points
+
+    wires = []
+    for i in range(stations):
+        t = trim + (1.0 - 2.0 * trim) * i / stations
+        points = corner_polygon(t)
+        maker = BRepBuilderAPI_MakeWire()
+        for k, point in enumerate(points):
+            nxt = points[(k + 1) % len(points)]
+            maker.Add(BRepBuilderAPI_MakeEdge(point, nxt).Edge())
+        wires.append(maker.Wire())
+    loft = BRepOffsetAPI_ThruSections(True, False, 1e-4)
+    loft.SetSmoothing(True)
+    for wire in wires:
+        loft.AddWire(wire)
+    loft.AddWire(wires[0])
+    loft.Build()
+    if not loft.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': closed-path sweep loft failed to build")
+    return _require_single_valid_solid(loft.Shape(), feature_id)
+
+
+def _require_single_valid_solid(shape: Any, feature_id: str) -> Any:
+    """Return the single valid solid in a loft shape or raise a clear error."""
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    solids = []
+    exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    while exp.More():
+        solids.append(TopoDS.Solid_s(exp.Current()))
+        exp.Next()
+    if len(solids) != 1:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweep did not produce a single solid"
+        )
+    solid = solids[0]
+    if not BRepCheck_Analyzer(solid).IsValid():
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweep produced an invalid solid"
+        )
+    return solid
+
+
+def _circle_station_loft(spine_wire: Any, radius: float, feature_id: str) -> Any:
+    """Rebuild a circular-section closed-spine sweep as a station loft.
+
+    Fallback for sections without lateral corners (circular pipes): fresh
+    circle wires are built at stations along the spine and lofted. The twist
+    of a circular section is irrelevant, so no frame transport is needed.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.GC import GC_MakeCircle
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Vec
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    spine_edges = []
+    exp = TopExp_Explorer(spine_wire, TopAbs_EDGE)
+    while exp.More():
+        spine_edges.append(TopoDS.Edge_s(exp.Current()))
+        exp.Next()
+    if len(spine_edges) != 1:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': closed-path sweeps require a single-edge path curve"
+        )
+    curve = BRepAdaptor_Curve(spine_edges[0])
+    first, last = curve.FirstParameter(), curve.LastParameter()
+
+    stations = 96
+    wires = []
+    for i in range(stations):
+        t = first + (last - first) * i / stations
+        pnt = gp_Pnt()
+        vec = gp_Vec()
+        curve.D1(t, pnt, vec)
+        if vec.Magnitude() < 1e-12:
+            raise FeatureBuilderError(f"feature '{feature_id}': path curve has a zero tangent")
+        circle = GC_MakeCircle(gp_Ax2(pnt, gp_Dir(vec.X(), vec.Y(), vec.Z())), radius).Value()
+        edge = BRepBuilderAPI_MakeEdge(circle).Edge()
+        wires.append(BRepBuilderAPI_MakeWire(edge).Wire())
+
+    loft = BRepOffsetAPI_ThruSections(True, True, 1e-6)
+    for wire in wires:
+        loft.AddWire(wire)
+    loft.AddWire(wires[0])
+    loft.Build()
+    if not loft.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': closed-path sweep loft failed to build")
+    return _require_single_valid_solid(loft.Shape(), feature_id)
+
+
+def _build_sweep_tool(
+    faces: list[Any],
+    curve_entry: dict[str, Any],
+    params: dict[str, Any],
+    plane: Any,
+    feature_id: str,
+) -> Any:
+    """Build the tool shape of a sweep feature: sketch section along a curve path."""
+    spine_wire = curve_entry.get("wire")
+    if spine_wire is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': path curve has no wire")
+    start, tangent = _path_start_frame(spine_wire)
+    sections = _position_sections_at_path_start(faces, plane, start, tangent)
+    reach = _section_reach(sections)
+    return _pipe_shell_solid(spine_wire, sections, params, feature_id, reach)
+
+
+def _build_loft_tool(
+    section_faces: list[Any],
+    ruled: bool,
+    feature_id: str,
+) -> Any:
+    """Loft single-profile section faces into a single solid.
+
+    Sections are used as positioned in world space and added in document
+    order to ``BRepOffsetAPI_ThruSections``. Ruled lofts between incompatible
+    profiles fail at ``Build()``; the error points at ``ruled=false`` as the
+    smooth alternative. All OCP failures are wrapped in ``FeatureBuilderError``
+    naming the feature. The result is wrapped in a ``Compound`` so the tool
+    behaves like a pad/revolve tool shape in boolean combinations.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+    from OCP.TopoDS import TopoDS
+
+    try:
+        builder = BRepOffsetAPI_ThruSections(True, ruled, 1e-6)
+        for face in section_faces:
+            builder.AddWire(face.outer_wire().wrapped)
+        builder.Build()
+        if not builder.IsDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': loft operation failed")
+        shape = builder.Shape()
+        if shape.ShapeType() == TopAbs_SHELL:
+            shape = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(shape)).Solid()
+        if shape.ShapeType() != TopAbs_SOLID:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': loft did not produce a single solid"
+            )
+        tool_shape = bd.Compound(children=[bd.Solid(shape)])
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        hint = "; ruled loft requires compatible profiles; try ruled=false" if ruled else ""
+        raise FeatureBuilderError(f"feature '{feature_id}': loft failed: {exc}{hint}") from exc
+    return tool_shape
+
+
+_HELICAL_AXIS_INDEX: dict[str, int] = {"X": 0, "Y": 1, "Z": 2}
+_HELICAL_AXIS_UNIT: dict[str, tuple[float, float, float]] = {
+    "X": (1.0, 0.0, 0.0),
+    "Y": (0.0, 1.0, 0.0),
+    "Z": (0.0, 0.0, 1.0),
+}
+
+
+def _helical_sweep_positive_param(params: dict[str, Any], name: str, feature_id: str) -> float:
+    value = params.get(name)
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep requires a positive {name}"
+        )
+    return float(value)
+
+
+def _build_helix_wire(params: dict[str, Any], feature_id: str) -> Any:
+    """Sample the analytic helix described by helicalSweep params and fit a wire.
+
+    The helix winds around the origin-aligned axis (theta in [0, 2*pi*turns],
+    ``max(64, ceil(turns * 128))`` samples, the axial coordinate rising by
+    ``pitch`` per turn, the winding sign flipped for ``leftHanded``). The
+    samples are fitted by reusing :func:`curve_builder._fit_curve`'s
+    interpolation path; the wire is open. The helix is derived from params and
+    never stored as a document curve.
+    """
+    axis_name = params.get("axis")
+    if axis_name not in _HELICAL_AXIS_INDEX:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep requires axis 'X', 'Y', or 'Z'"
+        )
+    start_radius = _helical_sweep_positive_param(params, "startRadius", feature_id)
+    pitch = _helical_sweep_positive_param(params, "pitch", feature_id)
+    turns = _helical_sweep_positive_param(params, "turns", feature_id)
+
+    sample_count = max(64, math.ceil(turns * 128))
+    axis_index = _HELICAL_AXIS_INDEX[axis_name]
+    circular_axes = [i for i in range(3) if i != axis_index]
+    hand = -1.0 if params.get("leftHanded", False) else 1.0
+    points: list[tuple[float, float, float]] = []
+    for i in range(sample_count):
+        theta = 2.0 * math.pi * turns * i / (sample_count - 1)
+        angle = hand * theta
+        coords = [0.0, 0.0, 0.0]
+        coords[circular_axes[0]] = start_radius * math.cos(angle)
+        coords[circular_axes[1]] = start_radius * math.sin(angle)
+        coords[axis_index] = pitch * theta / (2.0 * math.pi)
+        points.append((coords[0], coords[1], coords[2]))
+
+    try:
+        fit = curve_builder._fit_curve(feature_id, "helix", {"kind": "parametric"}, points)
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep helix fit failed: {exc}"
+        ) from exc
+    wire = fit.get("wire")
+    if wire is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': helicalSweep helix fit produced no wire"
+        )
+    return wire
+
+
+def _helical_sweep_effective_params(params: dict[str, Any], feature_id: str) -> dict[str, Any]:
+    """Return sweep params for the helix path with helicalSweep defaults applied.
+
+    The default orientation is ``fixedBinormal`` locked to the helix axis unit
+    vector (spring-like, no roll); ``frenet`` is available for twisted
+    sections. An explicit binormal always wins.
+    """
+    orientation = params.get("orientation", "fixedBinormal")
+    if orientation not in ("frenet", "fixedBinormal"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': orientation must be 'frenet' or 'fixedBinormal'"
+        )
+    effective = dict(params)
+    effective["orientation"] = orientation
+    if orientation == "fixedBinormal" and effective.get("binormal") is None:
+        axis_name = params.get("axis")
+        unit = _HELICAL_AXIS_UNIT.get(axis_name, (0.0, 0.0, 1.0))
+        effective["binormal"] = list(unit)
+    return effective
+
+
+def _build_pipe_tool(
+    feature: dict[str, Any],
+    params: dict[str, Any],
+    curve_results: dict[str, dict[str, Any]],
+    tool_shapes: dict[str, Any],
+) -> Any:
+    """Build the tool shape of a pipe feature: circle section along a curve path."""
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCP.GC import GC_MakeCircle
+    from OCP.gp import gp_Ax2
+
+    feature_id = feature["id"]
+    path_curve_id = params.get("pathCurveId")
+    if not isinstance(path_curve_id, str) or not path_curve_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': pipe requires a pathCurveId")
+    curve_entry = curve_results.get(path_curve_id)
+    if curve_entry is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': path curve '{path_curve_id}' is unavailable"
+        )
+    radius = params.get("radius")
+    if (
+        not isinstance(radius, (int, float))
+        or isinstance(radius, bool)
+        or not math.isfinite(radius)
+        or radius <= 0
+    ):
+        raise FeatureBuilderError(f"feature '{feature_id}': pipe requires a positive radius")
+
+    spine_wire = curve_entry.get("wire")
+    if spine_wire is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': path curve has no wire")
+    start, tangent = _path_start_frame(spine_wire)
+    circle = GC_MakeCircle(gp_Ax2(start, tangent), float(radius)).Value()
+    section_wire = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(circle).Edge()).Wire()
+    section_face = BRepBuilderAPI_MakeFace(section_wire).Face()
+    tool_shape = _pipe_shell_solid(spine_wire, [section_face], params, feature_id, float(radius))
+    tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
+def _coil_sweep_positive(params: dict[str, Any], name: str, feature_id: str) -> float:
+    """Return a positive finite coilSweep dimension or raise. Pure (no OCP)."""
+    value = params.get(name)
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep requires a positive {name}")
+    return float(value)
+
+
+def _coil_sweep_params(params: dict[str, Any], feature_id: str) -> dict[str, Any]:
+    """Validate coilSweep params and apply defaults.
+
+    Pure (no OCP/build123d) so the minimal pytest profile covers the contract:
+    non-empty path curve id, positive finite width/height, tilt in [-89, 89],
+    finite twist, and an integer station count in [8, 720].
+    """
+    if not isinstance(params, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep params must be an object")
+    path_curve_id = params.get("pathCurveId")
+    if not isinstance(path_curve_id, str) or not path_curve_id:
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep requires a pathCurveId")
+    width = _coil_sweep_positive(params, "width", feature_id)
+    height = _coil_sweep_positive(params, "height", feature_id)
+    tilt = params.get("tiltDeg", 0.0)
+    if (
+        not isinstance(tilt, (int, float))
+        or isinstance(tilt, bool)
+        or not math.isfinite(tilt)
+        or tilt < -89.0
+        or tilt > 89.0
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep tiltDeg must be a finite number in [-89, 89] degrees"
+        )
+    twist = params.get("twistDeg", 0.0)
+    if not isinstance(twist, (int, float)) or isinstance(twist, bool) or not math.isfinite(twist):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep twistDeg must be a finite number"
+        )
+    stations = params.get("stations", 60)
+    if (
+        not isinstance(stations, int)
+        or isinstance(stations, bool)
+        or stations < 8
+        or stations > 720
+    ):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep stations must be an integer in [8, 720]"
+        )
+    return {
+        "pathCurveId": path_curve_id,
+        "width": width,
+        "height": height,
+        "tiltDeg": float(tilt),
+        "twistDeg": float(twist),
+        "stations": stations,
+    }
+
+
+def _coil_sweep_cross(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def _coil_sweep_add(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+
+def _coil_sweep_sub(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _coil_sweep_scale(a: tuple[float, float, float], factor: float) -> tuple[float, float, float]:
+    return (a[0] * factor, a[1] * factor, a[2] * factor)
+
+
+def _coil_sweep_norm(a: tuple[float, float, float]) -> float:
+    return math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+
+
+def _coil_sweep_unit(
+    vector: tuple[float, float, float], feature_id: str, context: str
+) -> tuple[float, float, float]:
+    length = _coil_sweep_norm(vector)
+    if length < 1e-12:
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep {context} is degenerate")
+    return (vector[0] / length, vector[1] / length, vector[2] / length)
+
+
+def _coil_sweep_rotate(
+    vector: tuple[float, float, float],
+    axis: tuple[float, float, float],
+    angle: float,
+) -> tuple[float, float, float]:
+    """Rodrigues rotation of ``vector`` around the unit ``axis`` by ``angle`` radians."""
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    return _coil_sweep_add(
+        _coil_sweep_add(
+            _coil_sweep_scale(vector, cosine),
+            _coil_sweep_scale(_coil_sweep_cross(axis, vector), sine),
+        ),
+        _coil_sweep_scale(axis, _dot(axis, vector) * (1.0 - cosine)),
+    )
+
+
+def _coil_sweep_stations(
+    wire: Any, stations: int, feature_id: str
+) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]]]:
+    """Sample a path wire at ``stations`` arc-length-uniform points with tangents.
+
+    ``GCPnts_UniformAbscissa`` gives true arc-length stations when available;
+    the fallback samples uniformly in the wire parameter and is only reached on
+    an OCP failure. Degenerate (zero-tangent or duplicate) stations are
+    rejected with the feature id.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_CompCurve
+    from OCP.GCPnts import GCPnts_UniformAbscissa
+    from OCP.gp import gp_Pnt, gp_Vec
+
+    adaptor = BRepAdaptor_CompCurve(wire, False)
+    first = float(adaptor.FirstParameter())
+    last = float(adaptor.LastParameter())
+    if not math.isfinite(first) or not math.isfinite(last) or last <= first:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep path curve has an empty parameter range"
+        )
+
+    parameters: list[float] | None = None
+    try:
+        distribution = GCPnts_UniformAbscissa(adaptor, stations)
+        if distribution.IsDone() and distribution.NbPoints() == stations:
+            parameters = [float(distribution.Parameter(i)) for i in range(1, stations + 1)]
+    except Exception:
+        parameters = None
+    if parameters is None:
+        parameters = [first + (last - first) * i / (stations - 1) for i in range(stations)]
+
+    points: list[tuple[float, float, float]] = []
+    tangents: list[tuple[float, float, float]] = []
+    for parameter in parameters:
+        point = gp_Pnt()
+        vector = gp_Vec()
+        adaptor.D1(parameter, point, vector)
+        points.append((float(point.X()), float(point.Y()), float(point.Z())))
+        tangents.append(
+            _coil_sweep_unit(
+                (float(vector.X()), float(vector.Y()), float(vector.Z())),
+                feature_id,
+                "path tangent",
+            )
+        )
+    for index in range(1, len(points)):
+        if _coil_sweep_norm(_coil_sweep_sub(points[index], points[index - 1])) < 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': coilSweep path has degenerate stations at "
+                f"{index - 1} and {index}"
+            )
+    return points, tangents
+
+
+def _coil_sweep_frames(
+    tangents: list[tuple[float, float, float]],
+    closed: bool,
+    feature_id: str,
+) -> tuple[list[tuple[float, float, float]], float]:
+    """Build rotation-minimizing frames and the closed-loop holonomy angle.
+
+    The first x axis is ``global Z x tangent`` (global X fallback); every later
+    x projects the previous x onto the new tangent-normal plane. For a closed
+    path the residual angle between the transported x at the seam and the
+    initial x is returned so the caller can distribute it linearly.
+    """
+    frames: list[tuple[float, float, float]] = []
+    for index, tangent in enumerate(tangents):
+        if index == 0:
+            x_axis = _coil_sweep_cross((0.0, 0.0, 1.0), tangent)
+            if _coil_sweep_norm(x_axis) < 1e-9:
+                x_axis = _coil_sweep_cross((1.0, 0.0, 0.0), tangent)
+        else:
+            previous = frames[-1]
+            x_axis = _coil_sweep_sub(previous, _coil_sweep_scale(tangent, _dot(previous, tangent)))
+            if _coil_sweep_norm(x_axis) < 1e-9:
+                x_axis = _coil_sweep_cross((0.0, 0.0, 1.0), tangent)
+                if _coil_sweep_norm(x_axis) < 1e-9:
+                    x_axis = _coil_sweep_cross((1.0, 0.0, 0.0), tangent)
+        frames.append(_coil_sweep_unit(x_axis, feature_id, "rotation-minimizing frame"))
+
+    holonomy = 0.0
+    if closed:
+        tangent = tangents[0]
+        x_axis = frames[0]
+        y_axis = _coil_sweep_cross(tangent, x_axis)
+        projected = _coil_sweep_sub(
+            frames[-1], _coil_sweep_scale(tangent, _dot(frames[-1], tangent))
+        )
+        if _coil_sweep_norm(projected) >= 1e-9:
+            projected = _coil_sweep_unit(projected, feature_id, "closed-loop frame")
+            holonomy = math.atan2(_dot(projected, y_axis), _dot(projected, x_axis))
+    return frames, holonomy
+
+
+def _coil_sweep_section_wire(
+    point: tuple[float, float, float],
+    x_axis: tuple[float, float, float],
+    tangent: tuple[float, float, float],
+    width: float,
+    height: float,
+    tilt: float,
+    twist: float,
+    feature_id: str,
+) -> Any:
+    """Build one rectangular section wire centered on ``point``.
+
+    ``tilt`` rotates the section plane away from the tangent-normal plane
+    about the local width axis (so a tilted section presents a projected area
+    of ``width * height * cos(tilt)``); ``twist`` then rotates both section axes
+    around the tangent.
+    """
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCP.gp import gp_Pnt
+
+    y_axis = _coil_sweep_cross(tangent, x_axis)
+    if tilt != 0.0:
+        y_axis = _coil_sweep_rotate(y_axis, x_axis, tilt)
+    if twist != 0.0:
+        x_axis = _coil_sweep_rotate(x_axis, tangent, twist)
+        y_axis = _coil_sweep_rotate(y_axis, tangent, twist)
+
+    half_width = _coil_sweep_scale(x_axis, width / 2.0)
+    half_height = _coil_sweep_scale(y_axis, height / 2.0)
+    corners = [
+        _coil_sweep_add(_coil_sweep_add(point, half_width), half_height),
+        _coil_sweep_add(_coil_sweep_sub(point, half_width), half_height),
+        _coil_sweep_sub(_coil_sweep_sub(point, half_width), half_height),
+        _coil_sweep_sub(_coil_sweep_add(point, half_width), half_height),
+    ]
+    maker = BRepBuilderAPI_MakeWire()
+    for index, corner in enumerate(corners):
+        nxt = corners[(index + 1) % len(corners)]
+        maker.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(*corner), gp_Pnt(*nxt)).Edge())
+    if not maker.IsDone():
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep section wire failed to build")
+    return maker.Wire()
+
+
+def _build_coil_sweep_tool(
+    feature: dict[str, Any],
+    params: dict[str, Any],
+    state: _BuildState,
+) -> Any:
+    """Build a rectangular-section coil sweep along a document curve.
+
+    Unlike ``sweep`` this feature owns its section (no sketch): stations are
+    sampled uniformly by arc length, a rotation-minimizing frame transports the
+    section, the closed-loop holonomy is distributed linearly so the frame
+    closes at the seam, and the station wires are lofted into one solid. The
+    first section is never appended again; the open station list produces the
+    closed solid with two seam caps.
+    """
+    _require_build123d()
+    assert bd is not None
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    feature_id = feature["id"]
+    effective = _coil_sweep_params(params, feature_id)
+    curve_id = effective["pathCurveId"]
+    curve_entry = state.curve_results.get(curve_id)
+    if curve_entry is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep path curve '{curve_id}' is unavailable"
+        )
+    wire = curve_entry.get("wire")
+    if wire is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': coilSweep path curve '{curve_id}' has no wire"
+        )
+
+    stations = int(effective["stations"])
+    points, tangents = _coil_sweep_stations(wire, stations, feature_id)
+    frames, holonomy = _coil_sweep_frames(tangents, bool(BRep_Tool.IsClosed_s(wire)), feature_id)
+    tilt = math.radians(float(effective["tiltDeg"]))
+    twist = math.radians(float(effective["twistDeg"]))
+
+    try:
+        sections = [
+            _coil_sweep_section_wire(
+                point,
+                x_axis,
+                tangent,
+                float(effective["width"]),
+                float(effective["height"]),
+                tilt,
+                (twist - holonomy) * (index / (stations - 1)),
+                feature_id,
+            )
+            for index, (point, tangent, x_axis) in enumerate(
+                zip(points, tangents, frames, strict=True)
+            )
+        ]
+        loft = BRepOffsetAPI_ThruSections(True, False, 1e-6)
+        for section in sections:
+            loft.AddWire(section)
+        loft.Build()
+        if not loft.IsDone():
+            raise FeatureBuilderError(f"feature '{feature_id}': coilSweep loft failed to build")
+        shape = loft.Shape()
+        if shape.ShapeType() == TopAbs_SHELL:
+            shape = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(shape)).Solid()
+        solids = []
+        explorer = TopExp_Explorer(shape, TopAbs_SOLID)
+        while explorer.More():
+            solids.append(TopoDS.Solid_s(explorer.Current()))
+            explorer.Next()
+        if len(solids) != 1:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': coilSweep did not produce a single solid"
+            )
+        solid = solids[0]
+        if not BRepCheck_Analyzer(solid).IsValid():
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': coilSweep produced an invalid solid"
+            )
+        tool_shape = bd.Compound(children=[bd.Solid(solid)])
+    except FeatureBuilderError:
+        raise
+    except Exception as exc:
+        raise FeatureBuilderError(f"feature '{feature_id}': coilSweep failed: {exc}") from exc
+    state.tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
+def _build_feature_shape(
+    feature: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+    sketches: dict[str, dict[str, Any]],
+    feature_shapes: dict[str, Any],
+    tool_shapes: dict[str, Any],
+    reference_results: list[dict[str, Any]],
+    curve_results: dict[str, dict[str, Any]] | None = None,
+    body_shape: Any | None = None,
+    body_shapes: dict[str, Any] | None = None,
+    known_body_ids: list[str] | None = None,
+) -> Any:
+    """Build the tool shape produced by a single sketch-based feature.
+
+    Returns a build123d ``Shape`` (typically a ``Solid`` or ``Part``). The
+    tool shape is also stored in ``tool_shapes`` so pattern/mirror features
+    can transform copies of it without rebuilding the source sketch.
+    ``body_shape`` is the target body's current B-rep (before this feature);
+    pad/pocket end conditions (First/Last/ThroughAll) and ``upToFace`` measure
+    against it, while ``upToBody`` resolves its named target body through
+    ``body_shapes``/``known_body_ids`` (the live per-body accumulators).
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot build feature shapes")
+
+    _ensure_build_axis()
+    feature_id = feature["id"]
+    feature_type = feature["type"]
+    params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+
+    if feature_type not in ("pad", "pocket", "revolve", "groove", "sweep", "loft", "helicalSweep"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': type '{feature_type}' is not supported yet"
+        )
+
+    # Revolve/groove end conditions validate before any topology resolution so
+    # a stray pad-only end fails with the revolve-specific message rather than
+    # an unrelated reference error.
+    revolve_end = (
+        _validate_revolve_params(params, feature_id)
+        if feature_type in ("revolve", "groove")
+        else "blind"
+    )
+
+    if feature_type == "loft":
+        # Loft leaves FeatureDef.sketchId unset; the ordered section sketches
+        # live in params and every entry must reference an existing sketch.
+        section_sketch_ids = params.get("sectionSketchIds")
+        if (
+            not isinstance(section_sketch_ids, list)
+            or len(section_sketch_ids) < 2
+            or not all(isinstance(s, str) and s for s in section_sketch_ids)
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}' (loft) requires at least 2 section sketches"
+            )
+        for section_sketch_id in section_sketch_ids:
+            if section_sketch_id not in sketches:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}' references unknown sketch '{section_sketch_id}'"
+                )
+    else:
+        sketch_id = feature.get("sketchId")
+        if not isinstance(sketch_id, str) or not sketch_id:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}' ({feature_type}) requires a sketchId"
+            )
+        if sketch_id not in sketches:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}' references unknown sketch '{sketch_id}'"
+            )
+        section_sketch_ids = [sketch_id]
+
+    refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+    # An upToFace pad/pocket resolves its target face like a dress-up face:
+    # against the target body's current B-rep when one exists, otherwise
+    # against the referenced predecessor feature's historical shape.
+    up_to_face_path = f"feature.{feature_id}.params.upToFace"
+    wants_up_to_face = (
+        feature_type in ("pad", "pocket")
+        and (
+            params.get("end") == "upToFace"
+            or (params.get("end") is None and isinstance(params.get("upToFace"), dict))
+        )
+        and any(path == up_to_face_path for path, _ref in refs_with_paths)
+    )
+    if wants_up_to_face:
+        up_to_face_refs = [(path, ref) for path, ref in refs_with_paths if path == up_to_face_path]
+        refs_with_paths = [(path, ref) for path, ref in refs_with_paths if path != up_to_face_path]
+    else:
+        up_to_face_refs = []
+    entities, ref_results = _resolve_document_refs(
+        refs_with_paths, feature_shapes, owner_feature_id=feature_id
+    )
+    reference_results.extend(ref_results)
+
+    up_to_face_entity: Any | None = None
+    if wants_up_to_face:
+        if body_shape is not None:
+            up_to_face_entities, up_to_face_results = _resolve_refs_against_shape(
+                up_to_face_refs, body_shape.wrapped, owner_feature_id=feature_id
+            )
+        else:
+            up_to_face_entities, up_to_face_results = _resolve_document_refs(
+                up_to_face_refs, feature_shapes, owner_feature_id=feature_id
+            )
+        reference_results.extend(up_to_face_results)
+        ref_results = ref_results + up_to_face_results
+        up_to_face_entity = up_to_face_entities[0]
+
+    broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+    if broken:
+        details = "; ".join(
+            f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+        )
+        raise FeatureBuilderError(
+            f"feature '{feature_id}' has unresolved topological references: {details}"
+        )
+
+    ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+
+    def build_section(section_sketch_id: str) -> tuple[Any, list[Any]]:
+        """Build one section's sketch plane and faces through the sketch pipeline.
+
+        Face and midplane datums use their resolved faces; threePoint datums
+        and other coordinate kinds are handled by the sketch builder. External
+        geometry is projected into the sketch plane as construction primitives.
+        """
+        section_sketch = sketches[section_sketch_id]
+        plane: Any | None = None
+        sketch_datum_id = section_sketch.get("datumId")
+        sketch_datum = datums.get(sketch_datum_id) if isinstance(sketch_datum_id, str) else None
+        if sketch_datum is not None and sketch_datum.get("kind") == "face":
+            datum_ref_path = f"datum.{sketch_datum_id}.reference"
+            entity = entities[ref_path_to_index[datum_ref_path]]
+            offset = sketch_datum.get("offset", 0.0)
+            if (
+                not isinstance(offset, (int, float))
+                or isinstance(offset, bool)
+                or not math.isfinite(offset)
+            ):
+                offset = 0.0
+            plane = _workplane_from_face(entity, offset)
+        elif sketch_datum is not None and sketch_datum.get("kind") == "midplane":
+            midplane_entities = _lookup_midplane_entities(
+                sketch_datum, entities, ref_path_to_index, feature_id
+            )
+            plane = _plane_from_datum(sketch_datum, feature_id, None, midplane_entities)
+
+        extra_primitives: list[dict[str, Any]] = []
+        for path, _ref in refs_with_paths:
+            if path.startswith(f"sketch.{section_sketch_id}.externalRefs["):
+                idx = int(path[path.index("[") + 1 : path.index("]")])
+                entity = entities[ref_path_to_index[path]]
+                # Ensure we have a plane to project onto.
+                if plane is None:
+                    if sketch_datum is None:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': sketch '{section_sketch_id}' has no datum"
+                        )
+                    plane = sketch_builder._build_plane(sketch_datum)
+                extra_primitives.extend(_project_entity_to_sketch(entity, plane, idx))
+
+        plane, faces = build_sketch_faces(
+            section_sketch, datums, plane=plane, extra_primitives=extra_primitives
+        )
+        if not faces:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': sketch '{section_sketch_id}' produced no faces"
+            )
+        return plane, faces
+
+    if feature_type == "loft":
+        # Sections are used as positioned in world space (no auto-positioning,
+        # unlike sweep). Each section must be a single profile: one outer wire
+        # with no inner wires.
+        section_faces: list[Any] = []
+        for section_sketch_id in section_sketch_ids:
+            _section_plane, section = build_section(section_sketch_id)
+            if len(section) != 1:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': loft section sketch '{section_sketch_id}' must be a "
+                    "single profile; multi-profile sections are not supported"
+                )
+            section_face = section[0]
+            if section_face.inner_wires():
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': loft section sketch '{section_sketch_id}' has inner "
+                    "loops (holes); loft sections with holes are not supported"
+                )
+            section_faces.append(section_face)
+        tool_shape = _build_loft_tool(section_faces, bool(params.get("ruled", False)), feature_id)
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
+
+    plane, faces = build_section(section_sketch_ids[0])
+
+    if feature_type == "sweep":
+        path_curve_id = params.get("pathCurveId")
+        if not isinstance(path_curve_id, str) or not path_curve_id:
+            raise FeatureBuilderError(f"feature '{feature_id}': sweep requires a pathCurveId")
+        curve_entry = (curve_results or {}).get(path_curve_id)
+        if curve_entry is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': path curve '{path_curve_id}' is unavailable"
+            )
+        tool_shape = _build_sweep_tool(faces, curve_entry, params, plane, feature_id)
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
+
+    if feature_type == "helicalSweep":
+        # The helix is derived from params (never a document curve); the sweep
+        # machinery auto-positions the section at the helix start and applies
+        # the fixedBinormal/frenet orientation with the axis-unit default.
+        effective_params = _helical_sweep_effective_params(params, feature_id)
+        helix_wire = _build_helix_wire(params, feature_id)
+        tool_shape = _build_sweep_tool(
+            faces, {"wire": helix_wire}, effective_params, plane, feature_id
+        )
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
+
+    if feature_type in ("pad", "pocket"):
+        # angle is schema-accepted but unimplemented; reject explicitly instead
+        # of silently ignoring it. upToBody resolves its named target body
+        # (own body when omitted); upToFace is implemented below.
+        if params.get("angle") is not None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} parameter(s) 'angle' "
+                "are not yet supported; use a fixed length instead"
+            )
+        axis = params.get("axis")
+        direction = _extrude_direction(plane, axis, f"feature '{feature_id}'")
+        end = _extrude_end_mode(params, feature_id, feature_type)
+        # upToBody resolves (and validates) on every end so a stray upToBody
+        # outside First/Last fails instead of being silently ignored; the
+        # target is only measured for First/Last.
+        up_to_target = _resolve_up_to_body_target(
+            params,
+            end,
+            feature_id,
+            feature_type,
+            feature.get("body", ""),
+            body_shapes
+            if body_shapes is not None
+            else ({feature.get("body", ""): body_shape} if body_shape is not None else {}),
+            known_body_ids,
+        )
+        if end != "blind":
+            # FreeCAD-style end condition measured against the target body's
+            # current B-rep (or the named face / named body). Unlike blind pads,
+            # which keep the disjoint-regions guard so multi-region bodies stay
+            # separate, up-to tools fuse into the body on combine (see build loop).
+            target_shape = up_to_target if end in ("upToFirst", "upToLast") else body_shape
+            amount_fwd, amount_bwd = _extrude_span_for_end(
+                end,
+                plane,
+                faces,
+                direction,
+                target_shape,
+                up_to_face_entity,
+                feature_id,
+                feature_type,
+            )
+            tool_shape = _extrude_profiles_span(
+                faces, direction, amount_fwd, amount_bwd, feature_id, feature_type
+            )
+            tool_shapes[feature_id] = tool_shape
+            return tool_shape
+        length = params.get("length")
+        if (
+            not isinstance(length, (int, float))
+            or isinstance(length, bool)
+            or not math.isfinite(length)
+            or length <= 0
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': pad/pocket requires a positive length"
+            )
+        length = float(length)
+        symmetric = bool(params.get("symmetric", False))
+        two_sided = bool(params.get("twoSided", False))
+        if symmetric or two_sided:
+            amount = length / 2.0
+            both = True
+        else:
+            amount = length
+            both = False
+
+        # Profiles with inner wires (holes or islands) are built via boolean
+        # subtraction of each inner wire's extrusion from the outer profile's
+        # extrusion. This keeps shared cylindrical surfaces originating from the
+        # same underlying geometry so DAGMC imprint/merge can seal them exactly.
+        # Both pads and pockets use the same semantics: inner wires represent
+        # removed material relative to the outer profile.
+        profile_tools: list[Any] = []
+        for face in faces:
+            inner_wires = face.inner_wires()
+            if inner_wires:
+                try:
+                    outer_face = bd.Face(face.outer_wire())
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': could not build outer face for {feature_type}"
+                    ) from exc
+                try:
+                    tool = bd.extrude(outer_face, amount=amount, dir=direction, both=both)
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} extrusion failed"
+                    ) from exc
+                for hole_wire in inner_wires:
+                    try:
+                        hole_solid = bd.extrude(
+                            bd.Face(hole_wire), amount=amount, dir=direction, both=both
+                        )
+                    except Exception as exc:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': {feature_type} hole extrusion failed"
+                        ) from exc
+                    try:
+                        tool = tool - hole_solid
+                    except Exception as exc:
+                        raise FeatureBuilderError(
+                            f"feature '{feature_id}': {feature_type} boolean subtraction failed"
+                        ) from exc
+                profile_tools.append(tool)
+            else:
+                try:
+                    profile_tools.append(bd.extrude(face, amount=amount, dir=direction, both=both))
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} extrusion failed"
+                    ) from exc
+
+        if len(profile_tools) == 1:
+            tool_shape = profile_tools[0]
+        else:
+            tool_shape = bd.Compound(children=profile_tools)
+        tool_shapes[feature_id] = tool_shape
+        return tool_shape
+
+    # revolve / groove
+    axis = params.get("axis")
+    if axis not in _AXIS_VECTOR:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve/groove requires axis 'x', 'y', or 'z'"
+        )
+    angle = params.get("angle")
+    if (
+        not isinstance(angle, (int, float))
+        or isinstance(angle, bool)
+        or not math.isfinite(angle)
+        or angle <= 0
+        or angle > 360
+    ):
+        raise FeatureBuilderError(f"feature '{feature_id}': revolve angle must be in (0, 360]")
+
+    # The revolve axis must lie in the sketch plane; a non-planar axis would
+    # sweep the profile out of itself and produce an invalid or surprising solid.
+    plane_normal = _extract_plane_normal(plane)
+    axis_vector = _AXIS_VECTOR[axis]
+    if abs(_dot(plane_normal, axis_vector)) > 1e-6:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve/groove axis '{axis}' must lie in the sketch plane"
+        )
+
+    _ensure_build_axis()
+    try:
+        tool_shape = bd.revolve(faces, axis=_BUILD_AXIS[axis], revolution_arc=float(angle))
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': revolve/groove operation failed"
+        ) from exc
+    if revolve_end == "throughAll":
+        # The blind revolve unions a slab of the profile extruded along the
+        # sketch-plane normal over plus/minus the target body's bbox diagonal,
+        # so the tool spans the body in the normal direction (the pad
+        # throughAll span is body-relative; the diagonal is the
+        # orientation-independent bound). A missing or degenerate target body
+        # fails with the pad "does not intersect" error style.
+        if body_shape is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        diagonal = _body_bounding_box_diagonal(body_shape)
+        if diagonal <= 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            )
+        normal = _normalized_vector(_extract_plane_normal(plane))
+        slab = _extrude_profiles_span(
+            faces, bd.Vector(normal), diagonal, diagonal, feature_id, feature_type
+        )
+        try:
+            tool_shape = tool_shape + slab
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': revolve/groove boolean union failed"
+            ) from exc
+    tool_shapes[feature_id] = tool_shape
+    return tool_shape
+
+
+def topo_sort_features(features: list[dict[str, Any]]) -> list[str]:
+    """Return feature ids in topological order (dependencies first).
+
+    Raises ``FeatureBuilderError`` when a dependency cycle is detected, naming
+    the members of the cycle.
+    """
+    feature_map = {f["id"]: f for f in features}
+    missing = [
+        f"feature '{f['id']}' depends on unknown feature '{dep}'"
+        for f in features
+        for dep in f.get("dependsOn", [])
+        if dep not in feature_map
+    ]
+    if missing:
+        raise FeatureBuilderError("; ".join(missing))
+
+    in_degree: dict[str, int] = dict.fromkeys(feature_map, 0)
+    dependents: dict[str, list[str]] = {fid: [] for fid in feature_map}
+    for f in features:
+        fid = f["id"]
+        for dep in f.get("dependsOn", []):
+            in_degree[fid] += 1
+            dependents[dep].append(fid)
+
+    queue = sorted([fid for fid, degree in in_degree.items() if degree == 0])
+    sorted_ids: list[str] = []
+    while queue:
+        fid = queue.pop(0)
+        sorted_ids.append(fid)
+        for dependent in sorted(dependents[fid]):
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                queue.append(dependent)
+        queue.sort()
+
+    if len(sorted_ids) != len(feature_map):
+        cycle = _find_cycle(features)
+        raise FeatureBuilderError(f"feature dependency cycle detected: {' -> '.join(cycle)}")
+
+    return sorted_ids
+
+
+def _find_cycle(features: list[dict[str, Any]]) -> list[str]:
+    """Return a readable cycle from the feature dependency graph."""
+    feature_map = {f["id"]: f for f in features}
+    state: dict[str, str] = dict.fromkeys(feature_map, "unvisited")
+    path: list[str] = []
+
+    def dfs(fid: str) -> list[str] | None:
+        state[fid] = "visiting"
+        path.append(fid)
+        for dep in feature_map[fid].get("dependsOn", []):
+            if dep not in state:
+                continue
+            if state[dep] == "visiting":
+                start = path.index(dep)
+                return path[start:] + [dep]
+            if state[dep] == "unvisited":
+                result = dfs(dep)
+                if result:
+                    return result
+        path.pop()
+        state[fid] = "visited"
+        return None
+
+    for fid in sorted(feature_map):
+        if state[fid] == "unvisited":
+            cycle = dfs(fid)
+            if cycle:
+                return cycle
+    return list(feature_map.keys())[:1] or ["<unknown>"]
+
+
+def _selector_indices_for_tool(
+    tool_shape: Any,
+    previous_solid_count: int,
+) -> list[int]:
+    """Return the 1-based indices of solids added by ``tool_shape``.
+
+    Additive features are accumulated as a ``Compound`` so that distinct solids
+    (e.g. concentric pincell regions) remain separate. The new solids are always
+    appended after the existing ones, so the indices are a simple contiguous
+    range.
+    """
+    new_count = len(tool_shape.solids()) if tool_shape is not None else 0
+    return list(range(previous_solid_count + 1, previous_solid_count + new_count + 1))
+
+
+def _bbox_overlaps_3d(a_bbox: Any, b_bbox: Any, tolerance: float = 1e-6) -> bool:
+    """Return True if two build123d ``BoundBox`` instances overlap."""
+    return (
+        a_bbox.min.X <= b_bbox.max.X + tolerance
+        and a_bbox.max.X >= b_bbox.min.X - tolerance
+        and a_bbox.min.Y <= b_bbox.max.Y + tolerance
+        and a_bbox.max.Y >= b_bbox.min.Y - tolerance
+        and a_bbox.min.Z <= b_bbox.max.Z + tolerance
+        and a_bbox.max.Z >= b_bbox.min.Z - tolerance
+    )
+
+
+def _require_cut_intersection(body: Any, tool: Any, feature_id: str, feature_type: str) -> None:
+    """Raise when a subtractive tool is disjoint from the body.
+
+    A boolean cut with a disjoint tool silently returns the unchanged body; the
+    pocket/groove/hole contract is that the feature removes material, so a miss
+    is a build error rather than a no-op success.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot check cut intersection")
+    if not _bbox_overlaps_3d(body.bounding_box(), tool.bounding_box()):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+        )
+    try:
+        common = body & tool
+    except ValueError as exc:
+        if "empty compound" in str(exc).lower():
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+            ) from exc
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': failed to check {feature_type} intersection: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': failed to check {feature_type} intersection: {exc}"
+        ) from exc
+    if common is None or getattr(common, "volume", 0.0) <= 1e-9:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': {feature_type} tool does not intersect the body"
+        )
+
+
+def _combine_additive(a: Any, b: Any, feature_id: str = "<unknown>") -> Any:
+    """Combine two additive tool shapes into a single ``Compound``.
+
+    Using ``Compound(children=[...])`` instead of the ``+`` boolean union keeps
+    touching-but-separate regions (e.g. fuel/clad/moderator) as distinct solids
+    so they can be labeled independently.
+
+    Overlapping additive tools would create non-manifold or duplicate-volume
+    geometry, so a bbox prefilter plus boolean-common volume check raises
+    ``FeatureBuilderError`` if the two solids occupy the same space. Cross-body
+    overlaps are caught separately by the final overlap gate in
+    ``build_document_shape``.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot combine additive shapes")
+
+    # Fast bbox rejection before invoking a boolean operation.
+    if _bbox_overlaps_3d(a.bounding_box(), b.bounding_box()):
+        try:
+            common = a & b
+        except Exception as exc:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': failed to check overlap between additive bodies: {exc}"
+            ) from exc
+        if common is not None and getattr(common, "volume", 0.0) > 1e-9:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': additive body overlaps an existing solid body"
+            )
+
+    children: list[Any] = []
+    for shape in (a, b):
+        # ``Part`` subclasses ``Compound`` but represents a single fused body;
+        # do not decompose it. Boolean results may also be ``Compound`` objects
+        # that carry solids without populated ``children``; keep those whole too.
+        if isinstance(shape, bd.Compound) and not isinstance(shape, bd.Part):
+            sub_children = list(shape.children)
+            if sub_children:
+                children.extend(sub_children)
+                continue
+        children.append(shape)
+    return bd.Compound(children=children)
+
+
+def _body_tip_feature_id(
+    features: list[dict[str, Any]], body_id: str, before_index: int
+) -> str | None:
+    """Return the most recent feature targeting ``body_id`` before ``before_index``.
+
+    The tip is the last feature in document order that references the body,
+    regardless of suppression. Suppressed tips make dependent features stale
+    during the build loop.
+    """
+    for i in range(before_index - 1, -1, -1):
+        if features[i].get("body") == body_id:
+            return features[i]["id"]
+    return None
+
+
+def _datum_topology_dependency_ids(datum: dict[str, Any]) -> list[str]:
+    """Feature ids a datum's topology references: its face/midplane refs."""
+    ids: list[str] = []
+    if not isinstance(datum, dict):
+        return ids
+    if datum.get("kind") == "face":
+        ref = datum.get("reference")
+        if isinstance(ref, dict) and isinstance(ref.get("featureId"), str):
+            ids.append(ref["featureId"])
+    elif datum.get("kind") == "midplane":
+        faces = datum.get("faces")
+        if isinstance(faces, list):
+            for ref in faces:
+                if isinstance(ref, dict) and isinstance(ref.get("featureId"), str):
+                    ids.append(ref["featureId"])
+    return ids
+
+
+def _sketch_topology_dependency_ids(
+    sketch: dict[str, Any],
+    datums: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Feature ids a sketch's topology references: its face/midplane datum and external refs."""
+    ids: list[str] = []
+    datum_id = sketch.get("datumId")
+    datum = datums.get(datum_id) if isinstance(datum_id, str) else None
+    if isinstance(datum, dict):
+        ids.extend(_datum_topology_dependency_ids(datum))
+    external_refs = sketch.get("externalRefs", [])
+    if isinstance(external_refs, list):
+        for ref in external_refs:
+            if isinstance(ref, dict) and isinstance(ref.get("featureId"), str):
+                ids.append(ref["featureId"])
+    return ids
+
+
+def _compute_implied_dependencies(
+    features: list[dict[str, Any]],
+    sketches: dict[str, dict[str, Any]] | None = None,
+    datums: dict[str, dict[str, Any]] | None = None,
+) -> list[tuple[str, str]]:
+    """Return implied dependency edges derived from body semantics.
+
+    Edges are returned as ``(dependent_id, dependency_id)`` tuples. The caller
+    injects them into each feature's ``dependsOn`` before topological sorting.
+
+    Rules:
+      * A feature depends on the previous feature (in document order) targeting
+        the same body.
+      * A boolean feature depends on the current tip feature of every tool body.
+        The target body's tip is the same as the same-body previous feature, so
+        it is not duplicated.
+      * A loft depends on the features its section sketches reference through
+        topology (face/midplane datums and external geometry), so the sections'
+        backing geometry is built (and kept fresh) before the loft — the same
+        staleness discipline a sketch-based pad enjoys through its ``sketchId``.
+      * A pad/pocket with ``upToFace`` depends on the referenced feature so the
+        target face is built before the extrusion resolves it.
+      * A pad/pocket with ``upToBody`` depends on the target body's tip feature
+        so the other body's B-rep exists before the extrusion measures it.
+      * A pattern/mirror/primitive that names a face/midplane datum depends on
+        the features that datum's references point to.
+      * A lattice depends on its replicated ``source`` and on the features
+        behind a face/midplane lattice-plane ``datumId``, like a pattern.
+      * A multiTransform depends on both its ``first`` and ``second`` pattern
+        features (plus their datum references), so both instance sets exist
+        before the cartesian product is built.
+    """
+    edges: list[tuple[str, str]] = []
+    body_last_index: dict[str, int] = {}
+    feature_by_id = {feature["id"]: feature for feature in features}
+    datum_map = datums or {}
+
+    def _depend_on_datum_refs(feature_id: str, datum_id: Any) -> None:
+        if not isinstance(datum_id, str) or not datum_id:
+            return
+        datum = datum_map.get(datum_id)
+        if datum is None:
+            return
+        for dependency_id in _datum_topology_dependency_ids(datum):
+            if dependency_id != feature_id:
+                edges.append((feature_id, dependency_id))
+
+    for i, feature in enumerate(features):
+        body_id = feature.get("body")
+        if isinstance(body_id, str) and body_id:
+            prev_index = body_last_index.get(body_id)
+            if prev_index is not None:
+                edges.append((feature["id"], features[prev_index]["id"]))
+            body_last_index[body_id] = i
+
+    for i, feature in enumerate(features):
+        feature_type = feature.get("type")
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+            tool_bodies = params.get("toolBodies")
+            if isinstance(tool_bodies, list):
+                for tool_body in tool_bodies:
+                    if not isinstance(tool_body, str):
+                        continue
+                    tip = _body_tip_feature_id(features, tool_body, i)
+                    if tip is not None and tip != feature["id"]:
+                        edges.append((feature["id"], tip))
+        if feature_type in ("linearPattern", "circularPattern", "mirror"):
+            source = params.get("source")
+            if isinstance(source, str) and source != feature["id"]:
+                edges.append((feature["id"], source))
+            _depend_on_datum_refs(feature["id"], params.get("axisDatumId"))
+            _depend_on_datum_refs(feature["id"], params.get("planeDatumId"))
+        if feature_type == "lattice":
+            # A lattice depends on its replicated source and on the features
+            # behind a face/midplane lattice-plane datum, like a pattern.
+            source = params.get("source")
+            if isinstance(source, str) and source != feature["id"]:
+                edges.append((feature["id"], source))
+            _depend_on_datum_refs(feature["id"], params.get("datumId"))
+        if feature_type in ("pad", "pocket"):
+            up_to_face = params.get("upToFace")
+            if isinstance(up_to_face, dict) and isinstance(up_to_face.get("featureId"), str):
+                if up_to_face["featureId"] != feature["id"]:
+                    edges.append((feature["id"], up_to_face["featureId"]))
+            up_to_body = params.get("upToBody")
+            if isinstance(up_to_body, str) and up_to_body and up_to_body != feature.get("body"):
+                tip = _body_tip_feature_id(features, up_to_body, i)
+                if tip is not None and tip != feature["id"]:
+                    edges.append((feature["id"], tip))
+        if feature_type == "primitive":
+            _depend_on_datum_refs(feature["id"], params.get("datumId"))
+        if feature_type == "multiTransform":
+            for key in ("first", "second"):
+                other_id = params.get(key)
+                if isinstance(other_id, str) and other_id and other_id != feature["id"]:
+                    edges.append((feature["id"], other_id))
+                    other = feature_by_id.get(other_id)
+                    if other is not None:
+                        other_params = (
+                            other.get("params", {}) if isinstance(other.get("params"), dict) else {}
+                        )
+                        _depend_on_datum_refs(feature["id"], other_params.get("axisDatumId"))
+                        _depend_on_datum_refs(feature["id"], other_params.get("planeDatumId"))
+        if feature_type == "loft" and sketches is not None:
+            sketch_map = sketches
+            datum_map = datums or {}
+            section_sketch_ids = params.get("sectionSketchIds")
+            if isinstance(section_sketch_ids, list):
+                for sketch_id in section_sketch_ids:
+                    section_sketch = (
+                        sketch_map.get(sketch_id) if isinstance(sketch_id, str) else None
+                    )
+                    if section_sketch is None:
+                        continue
+                    for dependency_id in _sketch_topology_dependency_ids(section_sketch, datum_map):
+                        if dependency_id != feature["id"]:
+                            edges.append((feature["id"], dependency_id))
+    return edges
+
+
+def _boolean_operation(target: Any, tools: list[Any], op: str) -> Any:
+    """Apply an OCP boolean operation between a target and a list of tools."""
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot apply boolean operations")
+    if not tools:
+        raise FeatureBuilderError("boolean operation requires at least one tool body")
+
+    combined_tool = tools[0]
+    for tool in tools[1:]:
+        combined_tool = combined_tool + tool
+
+    try:
+        if op == "booleanFuse":
+            return target + combined_tool
+        if op == "booleanCut":
+            return target - combined_tool
+        if op == "booleanCommon":
+            return target & combined_tool
+    except Exception as exc:
+        raise FeatureBuilderError(f"boolean {op} failed: {exc}") from exc
+    raise FeatureBuilderError(f"unknown boolean operation '{op}'")
+
+
+def _solid_count(shape: Any) -> int:
+    """Return the number of solids in a build123d shape."""
+    if shape is None:
+        return 0
+    try:
+        return len(shape.solids())
+    except Exception:
+        pass
+    # Fall back to an OCP explorer for shapes that build123d does not expose
+    # as solids (e.g., hollow shells produced by BRepOffsetAPI_MakeThickSolid).
+    try:
+        from OCP.TopAbs import TopAbs_SOLID
+        from OCP.TopExp import TopExp_Explorer
+
+        wrapped = shape.wrapped if hasattr(shape, "wrapped") else shape
+        count = 0
+        exp = TopExp_Explorer(wrapped, TopAbs_SOLID)
+        while exp.More():
+            count += 1
+            exp.Next()
+        return count
+    except Exception:
+        return 0
+
+
+def _shape_volume(shape: Any) -> float:
+    """Return the volume of a build123d shape, falling back to OCP."""
+    if shape is None:
+        return 0.0
+    try:
+        vol = getattr(shape, "volume", None)
+        if isinstance(vol, (int, float)) and vol > 0:
+            return float(vol)
+    except Exception:
+        pass
+    try:
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+
+        wrapped = shape.wrapped if hasattr(shape, "wrapped") else shape
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(wrapped, props)
+        return float(props.Mass())
+    except Exception:
+        return 0.0
+
+
+def _body_overlap_signatures(
+    document: Mapping[str, Any], keys: Mapping[str, str]
+) -> dict[str, str]:
+    """Per-body content signature from the feature cache keys that shape it.
+
+    A body's geometry is fully determined by the cache keys of the features
+    that write it (booleans write their ``targetBody``; everything else writes
+    ``body``) because each key already folds in upstream features, sketch
+    inputs, and the builder/OCP versions. Two equal signatures therefore mean
+    byte-equal geometry, which is what makes cached overlap verdicts sound.
+    """
+    import hashlib
+    import json
+
+    features = document.get("features")
+    if not isinstance(features, list):
+        return {}
+    per_body: dict[str, list[list[str]]] = {}
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        feature_id = feature.get("id")
+        if not isinstance(feature_id, str):
+            continue
+        key = keys.get(feature_id)
+        if not isinstance(key, str) or not key:
+            continue
+        bodies: list[str] = []
+        body_id = feature.get("body")
+        if isinstance(body_id, str) and body_id:
+            bodies.append(body_id)
+        params = feature.get("params")
+        if isinstance(params, dict):
+            target = params.get("targetBody")
+            if isinstance(target, str) and target and target not in bodies:
+                bodies.append(target)
+        for body in bodies:
+            per_body.setdefault(body, []).append([feature_id, key])
+    signatures: dict[str, str] = {}
+    for body_id, entries in per_body.items():
+        entries.sort()
+        payload = json.dumps(entries, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        signatures[body_id] = hashlib.sha256(payload).hexdigest()
+    return signatures
+
+
+def _boolean_result_volume(result: Any) -> float:
+    """Volume of a boolean result, summing disjoint components.
+
+    ``build123d`` returns a single ``Part``/``Shape`` for overlapping bodies
+    that were built in this process, but a ``ShapeList`` of disjoint
+    intersection components when the operands include cache-restored
+    ``Solid`` wrappers. Reading ``getattr(result, "volume", 0.0)`` silently
+    reports 0 for the list case, which would drop real overlap warnings after
+    any restore — sum the components instead.
+    """
+    if result is None:
+        return 0.0
+    volume = getattr(result, "volume", None)
+    if isinstance(volume, (int, float)):
+        return float(volume)
+    try:
+        components = list(result)
+    except TypeError:
+        return 0.0
+    total = 0.0
+    for component in components:
+        value = getattr(component, "volume", 0.0)
+        if isinstance(value, (int, float)):
+            total += float(value)
+    return total
+
+
+def _check_cross_body_overlap(
+    bodies: list[Any],
+    body_ids: list[str],
+    cached: Mapping[str, Mapping[str, Any]] | None = None,
+    signatures: Mapping[str, str] | None = None,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Detect non-consumed bodies that overlap in space and return warnings.
+
+    Overlapping parts are valid in pure CAD assemblies (for example the tokamak
+    demo model, where toroidal coils intentionally share space with poloidal
+    coils in the STEP source). The builder therefore reports overlaps as
+    warnings instead of failing, so callers that need a sealed model (DAGMC)
+    can inspect them without blocking the B-rep build.
+
+    ``cached`` maps ``"<idA>|<idB>"`` to ``{"a", "b", "volume"}`` from the
+    previous build and ``signatures`` maps body id to its content signature.
+    A pair whose two signatures match reuses the cached volume (exact booleans
+    over whole bodies are by far the most expensive part of assembly, O(n²)),
+    so a partial edit only re-checks the pairs touching a changed body. The
+    returned verdict map is the new complete set for the active bodies, ready
+    to be stored back.
+    """
+    warnings: list[str] = []
+    verdicts: dict[str, dict[str, Any]] = {}
+    if bd is None:
+        return warnings, verdicts
+    cached_map = cached if isinstance(cached, Mapping) else {}
+    signature_map = signatures if isinstance(signatures, Mapping) else {}
+    for i in range(len(bodies)):
+        for j in range(i + 1, len(bodies)):
+            id_a = body_ids[i]
+            id_b = body_ids[j]
+            # Pair identity is order-independent: reordering bodies in the
+            # document must not invalidate a verdict.
+            first, second = (id_a, id_b) if id_a <= id_b else (id_b, id_a)
+            signature_first = signature_map.get(first, "")
+            signature_second = signature_map.get(second, "")
+            pair = f"{first}|{second}"
+            overlap_volume: float | None = None
+            if signature_first and signature_second:
+                entry = cached_map.get(pair)
+                if (
+                    isinstance(entry, Mapping)
+                    and entry.get("a") == signature_first
+                    and entry.get("b") == signature_second
+                ):
+                    try:
+                        overlap_volume = float(entry.get("volume", 0.0))
+                    except (TypeError, ValueError):
+                        overlap_volume = None
+            if overlap_volume is None:
+                a = bodies[i]
+                b = bodies[j]
+                if a is None or b is None:
+                    continue
+                if not _bbox_overlaps_3d(a.bounding_box(), b.bounding_box()):
+                    overlap_volume = 0.0
+                else:
+                    try:
+                        common = a & b
+                    except ValueError as exc:
+                        if "empty compound" in str(exc).lower():
+                            overlap_volume = 0.0
+                        else:
+                            raise FeatureBuilderError(
+                                f"failed to check overlap between bodies '{id_a}' and '{id_b}': {exc}"
+                            ) from exc
+                    except Exception as exc:
+                        raise FeatureBuilderError(
+                            f"failed to check overlap between bodies '{id_a}' and '{id_b}': {exc}"
+                        ) from exc
+                    else:
+                        overlap_volume = _boolean_result_volume(common)
+            if signature_first and signature_second:
+                verdicts[pair] = {
+                    "a": signature_first,
+                    "b": signature_second,
+                    "volume": overlap_volume,
+                }
+            if overlap_volume > 1e-9:
+                warnings.append(
+                    f"bodies '{id_a}' and '{id_b}' overlap "
+                    f"(volume {overlap_volume:.6g} mm³) but are not merged by a boolean"
+                )
+    return warnings, verdicts
+
+
+class _BuildState:
+    """Mutable per-build state threaded through single-feature execution.
+
+    Holds the document-derived maps (``datums``, ``sketches``, ``feature_map``,
+    ``order``, ``body_ids``, ``body_labels``, ``curve_results``,
+    ``overlap_check``) together with the accumulators the feature loop mutates
+    (per-body B-reps, per-feature historical shapes, pattern source tools,
+    result records, the stale/failed set, and the boolean-consumed body set). Both the full build and the
+    partial (result-cache) builds drive the same :func:`_execute_feature` against
+    this state; the partial path additionally hydrates entries from cached
+    B-rep blobs before executing the dirty closure.
+    """
+
+    def __init__(
+        self,
+        *,
+        datums: dict[str, dict[str, Any]],
+        sketches: dict[str, dict[str, Any]],
+        features: list[dict[str, Any]],
+        feature_map: dict[str, dict[str, Any]],
+        order: list[str],
+        body_ids: list[str],
+        body_labels: dict[str, str],
+        curve_results: dict[str, dict[str, Any]],
+        document_dir: Path | None = None,
+        document_units: str | None = None,
+        overlap_check: bool = True,
+    ) -> None:
+        self.datums = datums
+        self.sketches = sketches
+        self.features = features
+        self.feature_map = feature_map
+        self.order = order
+        self.body_ids = body_ids
+        self.body_labels = body_labels
+        self.curve_results = curve_results
+        self.document_dir = document_dir
+        self.document_units = document_units
+        # Document-level `overlapCheck` gate (absent = True). False skips the
+        # exact O(n^2) cross-body booleans for a known-valid large assembly.
+        self.overlap_check = overlap_check
+        self.accumulators: dict[str, Any] = {}
+        self.selector_map: dict[str, list[int]] = {}
+        self.feature_results: list[dict[str, Any]] = []
+        self.reference_results: list[dict[str, Any]] = []
+        self.stale_or_failed: set[str] = set()
+        self.feature_shapes: dict[str, Any] = {}
+        self.tool_shapes: dict[str, Any] = {}
+        self.consumed_bodies: set[str] = set()
+        self.warnings: list[str] = []
+        # One exchange-source read per (resolved path, unit override, explicit
+        # format, solid cap) per build; every import feature naming the same
+        # configuration shares the result.
+        self.import_sources: dict[
+            tuple[Path, str | None, str | None, int], exchange_reader.ImportSource
+        ] = {}
+
+
+def build_document_shape(
+    document: dict[str, Any],
+    curve_results: dict[str, dict[str, Any]] | None = None,
+    *,
+    document_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Build the shape described by a ``.nuke-cad`` document.
+
+    ``curve_results`` maps curve ids to the fitted-wire result dicts from
+    ``curve_builder.build_curves``; sweep/pipe/coilSweep features read their path
+    wires from it. Direct callers may omit it (treated as an empty mapping).
+
+    ``document_dir`` is the containing directory of the document (its parent);
+    ``import`` features resolve document-relative ``sourcePath`` values
+    against it. Omitted/None keeps the working-directory fallback.
+
+    Returns a dict with:
+
+        ``shape``
+            The assembled build123d shape, or ``None`` if no additive feature
+            succeeded.
+        ``selectorMap``
+            Mapping from body label to sorted 1-based solid indices.
+        ``featureResults``
+            List of ``{featureId, status, bodyId, error?, consumedBodyIds?}``
+            records in build order.
+        ``referenceResults``
+            List of per-reference resolution status records.
+        ``consumedBodies``
+            Set of body ids consumed by boolean operations.
+        ``warnings``
+            Non-fatal issues, e.g. cross-body overlaps reported by
+            ``_check_cross_body_overlap`` (overlap volume included); empty for
+            overlap warnings when the document sets ``overlapCheck: false``.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot build document shape")
+
+    state = _prepare_build_state(document, curve_results, document_dir)
+
+    for feature_id in state.order:
+        _execute_feature(state, feature_id)
+
+    return _assemble_final_shape(state)
+
+
+def _prepare_build_state(
+    document: dict[str, Any],
+    curve_results: dict[str, dict[str, Any]] | None = None,
+    document_dir: str | Path | None = None,
+) -> _BuildState:
+    """Parse a ``.nuke-cad`` document into an empty :class:`_BuildState`.
+
+    Injects implied body/boolean/datum dependencies and computes the
+    topological order (via :func:`topo_sort_features`). Shared verbatim by the
+    full build and the partial build so both plan the same execution order.
+    ``document_dir``/``units`` ride on the state for ``import`` features;
+    ``overlapCheck: false`` rides along as the cross-body warning gate.
+    """
+    curve_results = curve_results or {}
+
+    datums = {
+        d["id"]: d
+        for d in document.get("datums", [])
+        if isinstance(d, dict) and isinstance(d.get("id"), str)
+    }
+    sketches = {
+        s["id"]: s
+        for s in document.get("sketches", [])
+        if isinstance(s, dict) and isinstance(s.get("id"), str)
+    }
+    raw_features = document.get("features", [])
+    features = [
+        dict(f) for f in raw_features if isinstance(f, dict) and isinstance(f.get("id"), str)
+    ]
+
+    # Inject implied dependencies so the topological sort respects body order
+    # and boolean tool-body tips.
+    implied = _compute_implied_dependencies(features, sketches, datums)
+    feature_map = {f["id"]: f for f in features}
+    for dependent_id, dependency_id in implied:
+        feature = feature_map.get(dependent_id)
+        if feature is None or dependency_id in feature.get("dependsOn", []):
+            continue
+        feature.setdefault("dependsOn", []).append(dependency_id)
+
+    order = topo_sort_features(features)
+
+    bodies = document.get("bodies", [])
+    body_ids = [b["id"] for b in bodies if isinstance(b, dict) and isinstance(b.get("id"), str)]
+    body_labels = {
+        b["id"]: b.get("label")
+        for b in bodies
+        if isinstance(b, dict)
+        and isinstance(b.get("id"), str)
+        and isinstance(b.get("label"), str)
+        and b["label"]
+    }
+
+    units = document.get("units")
+    return _BuildState(
+        datums=datums,
+        sketches=sketches,
+        features=features,
+        feature_map=feature_map,
+        order=order,
+        body_ids=body_ids,
+        body_labels=body_labels,
+        curve_results=curve_results,
+        document_dir=Path(document_dir).resolve() if document_dir is not None else None,
+        document_units=units if isinstance(units, str) and units else None,
+        overlap_check=document.get("overlapCheck") is not False,
+    )
+
+
+def _execute_feature(state: _BuildState, feature_id: str) -> None:
+    """Execute one feature against the predecessor shapes in ``state``.
+
+    Single-feature step shared by the full build and the partial build.
+    Predecessor inputs (body accumulators, historical ``feature_shapes``,
+    pattern source ``tool_shapes``) may come from live execution or from
+    cached B-rep blobs deserialized into ``state`` — execution itself is
+    identical either way. Suppression and stale/failed propagation follow the
+    existing contract: suppressed features and dependents of stale/failed
+    dependencies are marked ``stale`` without building; features targeting a
+    boolean-consumed body are likewise ``stale``. Exactly one
+    ``feature_results`` record is appended per call.
+    """
+    feature_map = state.feature_map
+    order = state.order
+    datums = state.datums
+    sketches = state.sketches
+    curve_results = state.curve_results
+    accumulators = state.accumulators
+    feature_results = state.feature_results
+    reference_results = state.reference_results
+    stale_or_failed = state.stale_or_failed
+    feature_shapes = state.feature_shapes
+    tool_shapes = state.tool_shapes
+    consumed_bodies = state.consumed_bodies
+    body_ids = state.body_ids
+    feature = feature_map[feature_id]
+    body_id = feature.get("body", "")
+
+    if feature.get("suppressed"):
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+        stale_or_failed.add(feature_id)
+        return
+
+    dependency_status = (
+        "stale" if any(dep in stale_or_failed for dep in feature.get("dependsOn", [])) else None
+    )
+    if dependency_status:
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+        stale_or_failed.add(feature_id)
+        return
+
+    feature_type = feature["type"]
+
+    if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        target_body = params.get("targetBody", "")
+        tool_bodies = params.get("toolBodies", [])
+        keep_tools = bool(params.get("keepTools", False))
+        error: str | None = None
+
+        if not isinstance(target_body, str) or not target_body:
+            error = f"feature '{feature_id}': boolean requires a targetBody"
+        elif not isinstance(tool_bodies, list) or not tool_bodies:
+            error = f"feature '{feature_id}': boolean requires at least one tool body"
+        elif target_body not in accumulators:
+            error = f"feature '{feature_id}': target body '{target_body}' has no geometry"
+        elif any(tool not in accumulators for tool in tool_bodies):
+            missing = [tool for tool in tool_bodies if tool not in accumulators]
+            error = f"feature '{feature_id}': tool bodies have no geometry: {', '.join(missing)}"
+        elif any(tool not in body_ids for tool in tool_bodies):
+            missing = [tool for tool in tool_bodies if tool not in body_ids]
+            error = f"feature '{feature_id}': unknown tool bodies: {', '.join(missing)}"
+
+        if error is not None:
+            feature_results.append(
+                {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": error}
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        target_shape = accumulators[target_body]
+        boolean_tool_shapes = [accumulators[t] for t in tool_bodies]
+        try:
+            result_shape = _boolean_operation(target_shape, boolean_tool_shapes, feature_type)
+        except Exception as exc:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        accumulators[target_body] = result_shape
+        feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+        consumed = [] if keep_tools else list(tool_bodies)
+        if not keep_tools:
+            consumed_bodies.update(tool_bodies)
+        feature_results.append(
+            {
+                "featureId": feature_id,
+                "bodyId": body_id,
+                "status": "built",
+                "consumedBodyIds": consumed,
+            }
+        )
+        return
+
+    if feature_type in ("fillet", "chamfer", "draft", "shell", "defeature", "translate"):
+        if body_id in consumed_bodies:
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+            stale_or_failed.add(feature_id)
+            return
+        previous_body = accumulators.get(body_id)
+        if previous_body is None:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+        entities, ref_results = _resolve_refs_against_shape(
+            refs_with_paths, previous_body.wrapped, owner_feature_id=feature_id
+        )
+        reference_results.extend(ref_results)
+        broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+        if broken:
+            details = "; ".join(
+                f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+            )
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}' has unresolved topological references: {details}",
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        try:
+            if feature_type == "fillet":
+                radius = params.get("radius")
+                if (
+                    not isinstance(radius, (int, float))
+                    or isinstance(radius, bool)
+                    or not math.isfinite(radius)
+                    or radius <= 0
+                ):
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': fillet requires a positive radius"
+                    )
+                result_shape = _apply_fillet(previous_body, entities, float(radius), feature_id)
+            elif feature_type == "chamfer":
+                result_shape = _apply_chamfer(previous_body, entities, params, feature_id)
+            elif feature_type == "draft":
+                pull_direction = params.get("pullDirection")
+                if not isinstance(pull_direction, (list, tuple)) or len(pull_direction) != 3:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': draft requires pullDirection [x, y, z]"
+                    )
+                angle = params.get("angle")
+                if (
+                    not isinstance(angle, (int, float))
+                    or isinstance(angle, bool)
+                    or not math.isfinite(angle)
+                ):
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': draft requires a finite angle"
+                    )
+                neutral_path = f"feature.{feature_id}.params.neutralPlane"
+                neutral_plane = None
+                if neutral_path in ref_path_to_index:
+                    neutral_plane = _neutral_plane_from_face(
+                        entities[ref_path_to_index[neutral_path]], feature_id
+                    )
+                # The neutralPlane reference resolves alongside the draft
+                # faces but is not itself a drafted face.
+                draft_faces = [
+                    entity
+                    for path, entity in zip([p for p, _ in refs_with_paths], entities, strict=True)
+                    if path != neutral_path
+                ]
+                result_shape = _apply_draft(
+                    previous_body,
+                    draft_faces,
+                    tuple(pull_direction),
+                    float(angle),
+                    feature_id,
+                    neutral_plane,
+                )
+            elif feature_type == "shell":
+                thickness = params.get("thickness")
+                if (
+                    not isinstance(thickness, (int, float))
+                    or isinstance(thickness, bool)
+                    or not math.isfinite(thickness)
+                    or thickness <= 0
+                ):
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': shell requires a positive thickness"
+                    )
+                result_shape = _apply_shell(previous_body, entities, float(thickness), feature_id)
+            elif feature_type == "defeature":
+                result_shape = _apply_defeature(previous_body, entities, feature_id)
+            elif feature_type == "translate":
+                result_shape = _apply_translate(previous_body, params.get("vector"), feature_id)
+            else:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': type '{feature_type}' is not supported yet"
+                )
+        except Exception as exc:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        accumulators[body_id] = result_shape
+        feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
+        return
+
+    if feature_type in (
+        "linearPattern",
+        "circularPattern",
+        "mirror",
+        "hole",
+        "multiTransform",
+        "lattice",
+    ):
+        if body_id in consumed_bodies:
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+            stale_or_failed.add(feature_id)
+            return
+        previous_body = accumulators.get(body_id)
+        if previous_body is None:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}': {feature_type} requires an existing solid body",
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        if feature_type == "multiTransform":
+            # Cartesian product of the second pattern's transforms over the
+            # first pattern's full instance set, merged through the single
+            # union/skip path. Datum references resolve against the
+            # referenced features' historical shapes, like the sketch path.
+            multi_params = (
+                feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            )
+            try:
+                multi_order = {fid: idx for idx, fid in enumerate(order)}
+                first = _valid_multitransform_reference(
+                    feature_id,
+                    multi_params.get("first"),
+                    "first",
+                    body_id,
+                    feature_map,
+                    multi_order,
+                )
+                second = _valid_multitransform_reference(
+                    feature_id,
+                    multi_params.get("second"),
+                    "second",
+                    body_id,
+                    feature_map,
+                    multi_order,
+                )
+                first_params = (
+                    first.get("params", {}) if isinstance(first.get("params"), dict) else {}
+                )
+                second_params = (
+                    second.get("params", {}) if isinstance(second.get("params"), dict) else {}
+                )
+                first_source_tool = tool_shapes.get(first_params.get("source"))
+                if first_source_tool is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': first pattern '{first['id']}' "
+                        "tool shape is unavailable"
+                    )
+                second_source = feature_map.get(second_params.get("source", ""))
+                if second_source is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': second pattern '{second['id']}' "
+                        "source tool shape is unavailable"
+                    )
+                role_refs = _multitransform_datum_refs(
+                    "first", first, feature_id, datums
+                ) + _multitransform_datum_refs("second", second, feature_id, datums)
+                role_entities, role_results = _resolve_document_refs(
+                    role_refs, feature_shapes, owner_feature_id=feature_id
+                )
+                reference_results.extend(role_results)
+                role_broken = [r for r in role_results if r["status"] in ("unmatched", "ambiguous")]
+                if role_broken:
+                    details = "; ".join(
+                        f"{r['path']} is {r['status']} (score {r['score']:.3f})"
+                        for r in role_broken
+                    )
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}' has unresolved topological references: {details}"
+                    )
+                role_index = {path: i for i, (path, _) in enumerate(role_refs)}
+                first_ops = _pattern_copy_operations(
+                    first,
+                    datums,
+                    role_entities,
+                    role_index,
+                    feature_id,
+                    prefix=f"feature.{feature_id}.params.first.datum.",
+                )
+                second_ops = _pattern_copy_operations(
+                    second,
+                    datums,
+                    role_entities,
+                    role_index,
+                    feature_id,
+                    prefix=f"feature.{feature_id}.params.second.datum.",
+                )
+                first_shapes = [first_source_tool] + [op(first_source_tool) for op in first_ops]
+                product = [op(shape) for shape in first_shapes for op in second_ops]
+                result_shape = _apply_pattern_or_mirror(
+                    previous_body,
+                    None,
+                    second_source.get("type", ""),
+                    product,
+                    feature_id,
+                    source_subtractive=_pattern_source_is_subtractive(second_source),
+                )
+                accumulators[body_id] = result_shape
+                feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+                feature_results.append(
+                    {"featureId": feature_id, "bodyId": body_id, "status": "built"}
+                )
+            except Exception as exc:
+                feature_results.append(
+                    {
+                        "featureId": feature_id,
+                        "bodyId": body_id,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+                stale_or_failed.add(feature_id)
+            return
+
+        refs_with_paths = _collect_topology_refs(feature, datums, sketches)
+        # Datum references (pattern axis / mirror plane) resolve against the
+        # referenced feature's historical shape, like the sketch path; the
+        # hole placement face resolves against the body's current B-rep.
+        datum_slots = [
+            i for i, (path, _ref) in enumerate(refs_with_paths) if path.startswith("datum.")
+        ]
+        body_slots = [i for i in range(len(refs_with_paths)) if i not in datum_slots]
+        entities: list[Any] = [None] * len(refs_with_paths)
+        resolved_results: list[dict[str, Any] | None] = [None] * len(refs_with_paths)
+        if datum_slots:
+            datum_entities, datum_results = _resolve_document_refs(
+                [refs_with_paths[i] for i in datum_slots],
+                feature_shapes,
+                owner_feature_id=feature_id,
+            )
+            for slot, entity, result in zip(
+                datum_slots, datum_entities, datum_results, strict=True
+            ):
+                entities[slot] = entity
+                resolved_results[slot] = result
+        if body_slots:
+            body_entities, body_results = _resolve_refs_against_shape(
+                [refs_with_paths[i] for i in body_slots],
+                previous_body.wrapped,
+                owner_feature_id=feature_id,
+            )
+            for slot, entity, result in zip(body_slots, body_entities, body_results, strict=True):
+                entities[slot] = entity
+                resolved_results[slot] = result
+        ref_results = [r for r in resolved_results if r is not None]
+        reference_results.extend(ref_results)
+        broken = [r for r in ref_results if r["status"] in ("unmatched", "ambiguous")]
+        if broken:
+            details = "; ".join(
+                f"{r['path']} is {r['status']} (score {r['score']:.3f})" for r in broken
+            )
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": f"feature '{feature_id}' has unresolved topological references: {details}",
+                }
+            )
+            stale_or_failed.add(feature_id)
+            return
+
+        ref_path_to_index = {path: i for i, (path, _) in enumerate(refs_with_paths)}
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+
+        try:
+            if feature_type == "lattice":
+                result_shape = _build_lattice_result(
+                    state, feature, params, entities, ref_path_to_index
+                )
+            elif feature_type in ("linearPattern", "circularPattern", "mirror"):
+                source_id = params.get("source")
+                if not isinstance(source_id, str) or not source_id:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': source feature id is required"
+                    )
+                order_index = {fid: idx for idx, fid in enumerate(order)}
+                source = _valid_source_feature(
+                    feature_id, source_id, feature_type, body_id, feature_map, order_index
+                )
+                source_tool = tool_shapes.get(source_id)
+                if source_tool is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': source '{source_id}' tool shape is unavailable"
+                    )
+
+                if feature_type == "linearPattern":
+                    count = int(params.get("count", 1))
+                    spacing = float(params.get("spacing", 0.0))
+                    axis = str(params.get("axis", "z"))
+                    scale = _pattern_scale(params, feature_id)
+                    pattern_direction = _resolve_linear_pattern_direction(
+                        params, datums, entities, ref_path_to_index, feature_id
+                    )
+                    instances = [
+                        _scaled_about_center(instance, scale)
+                        for instance in _linear_pattern_instances(
+                            source_tool, count, spacing, axis, pattern_direction
+                        )
+                    ]
+                    result_shape = _apply_pattern_or_mirror(
+                        previous_body,
+                        source_tool,
+                        source["type"],
+                        instances,
+                        feature_id,
+                        source_subtractive=_pattern_source_is_subtractive(source),
+                    )
+                elif feature_type == "circularPattern":
+                    count = int(params.get("count", 1))
+                    angle = float(params.get("angle", 360.0))
+                    scale = _pattern_scale(params, feature_id)
+                    pattern_axis = _resolve_circular_pattern_axis(
+                        params,
+                        datums,
+                        entities,
+                        ref_path_to_index,
+                        feature_id,
+                    )
+                    instances = [
+                        _scaled_about_center(instance, scale)
+                        for instance in _circular_pattern_instances(
+                            source_tool, count, angle, pattern_axis
+                        )
+                    ]
+                    result_shape = _apply_pattern_or_mirror(
+                        previous_body,
+                        source_tool,
+                        source["type"],
+                        instances,
+                        feature_id,
+                        source_subtractive=_pattern_source_is_subtractive(source),
+                    )
+                else:  # mirror
+                    scale = _pattern_scale(params, feature_id)
+                    mirror_plane = _resolve_mirror_plane(
+                        params,
+                        datums,
+                        entities,
+                        ref_path_to_index,
+                        feature_id,
+                    )
+                    mirrored = _scaled_about_center(_mirror_shape(source_tool, mirror_plane), scale)
+                    result_shape = _apply_pattern_or_mirror(
+                        previous_body,
+                        source_tool,
+                        source["type"],
+                        [mirrored],
+                        feature_id,
+                        source_subtractive=_pattern_source_is_subtractive(source),
+                    )
+            else:  # hole
+                face_path = f"feature.{feature_id}.params.face"
+                face_entity = entities[ref_path_to_index[face_path]]
+                hole_plane = _workplane_from_face(face_entity)
+                center = params.get("center")
+                if not isinstance(center, (list, tuple)) or len(center) != 2:
+                    raise FeatureBuilderError(f"feature '{feature_id}': hole center must be [u, v]")
+                # Thread validation runs before any OCP work so modeled-thread
+                # misuse (combos, through-holes, unknown values) fails with the
+                # thread-specific message even where the hole tool builder
+                # would raise its own error first.
+                thread_spec = _validate_modeled_thread(feature_id, params)
+                tool = _build_hole_tool(
+                    plane=hole_plane,
+                    center=(float(center[0]), float(center[1])),
+                    diameter=float(params.get("diameter", 0.0)),
+                    depth=params.get("depth"),
+                    body=previous_body,
+                    face_entity=face_entity,
+                    feature_id=feature_id,
+                    counterbore_diameter=params.get("counterboreDiameter"),
+                    counterbore_depth=params.get("counterboreDepth"),
+                    countersink_diameter=params.get("countersinkDiameter"),
+                    countersink_angle=params.get("countersinkAngle"),
+                    counterdrill_diameter=params.get("counterdrillDiameter"),
+                    counterdrill_depth=params.get("counterdrillDepth"),
+                    taper_angle=params.get("taperAngle"),
+                    drill_point_angle=params.get("drillPointAngle"),
+                )
+                _require_cut_intersection(previous_body, tool, feature_id, feature_type)
+                result_shape = previous_body - tool
+                if thread_spec is not None:
+                    mouth_center, inward = _hole_mouth_frame(
+                        hole_plane,
+                        (float(center[0]), float(center[1])),
+                        previous_body,
+                        face_entity,
+                        feature_id,
+                    )
+                    thread_tool = _build_modeled_thread_tool(
+                        mouth_center,
+                        inward,
+                        float(params.get("depth")),
+                        thread_spec,
+                        feature_id,
+                    )
+                    _require_cut_intersection(result_shape, thread_tool, feature_id, feature_type)
+                    result_shape = result_shape - thread_tool
+                    # Modeled threads explode facet counts (one helical groove
+                    # per turn); warn through the standard warnings channel so
+                    # callers can compare against the display-triangle budget.
+                    state.warnings.append(
+                        f"feature '{feature_id}': modeled thread '{thread_spec.designation}' "
+                        "adds a helical cut; expect a large display-triangle count "
+                        "(see the nukeCad.maxDisplayTriangles budget)"
+                    )
+
+            accumulators[body_id] = result_shape
+            feature_shapes[feature_id] = getattr(result_shape, "wrapped", result_shape)
+            feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
+        except Exception as exc:
+            feature_results.append(
+                {
+                    "featureId": feature_id,
+                    "bodyId": body_id,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            stale_or_failed.add(feature_id)
+        return
+
+    # Sketch-based solid feature (pad/pocket/revolve/groove/sweep/loft/
+    # helicalSweep), pipe, coilSweep, or primitive.
+    if body_id in consumed_bodies:
+        # The body was consumed by a boolean feature; adding to it would be
+        # silently excluded from the final assembly.
+        feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "stale"})
+        stale_or_failed.add(feature_id)
+        return
+
+    try:
+        if feature_type == "pipe":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_pipe_tool(feature, params, curve_results, tool_shapes)
+        elif feature_type == "coilSweep":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_coil_sweep_tool(feature, params, state)
+        elif feature_type == "primitive":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_primitive_tool(
+                feature,
+                params,
+                datums,
+                sketches,
+                feature_shapes,
+                tool_shapes,
+                reference_results,
+            )
+        elif feature_type == "import":
+            params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+            tool_shape = _build_import_tool(feature, params, state)
+        else:
+            tool_shape = _build_feature_shape(
+                feature,
+                datums,
+                sketches,
+                feature_shapes,
+                tool_shapes,
+                reference_results,
+                curve_results,
+                accumulators.get(body_id),
+                accumulators,
+                body_ids,
+            )
+    except Exception as exc:
+        feature_results.append(
+            {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+        )
+        stale_or_failed.add(feature_id)
+        return
+
+    previous_body = accumulators.get(body_id)
+    up_to_fuse = (feature_type == "pad" and _is_up_to_extrude(feature)) or (
+        feature_type == "revolve" and _is_revolve_through_all(feature)
+    )
+
+    try:
+        if feature_type in (
+            "pad",
+            "revolve",
+            "sweep",
+            "pipe",
+            "loft",
+            "helicalSweep",
+            "coilSweep",
+            "primitive",
+            "import",
+        ):
+            if _solid_feature_is_subtractive(feature):
+                # Subtractive primitive / helicalSweep: cut needs an existing
+                # body and a disjoint tool fails exactly like a pocket.
+                if previous_body is None:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} requires an existing solid body"
+                    )
+                _require_cut_intersection(previous_body, tool_shape, feature_id, feature_type)
+                accumulators[body_id] = previous_body - tool_shape
+            elif previous_body is None:
+                accumulators[body_id] = tool_shape
+            elif up_to_fuse:
+                # Up-to tools terminate on the body by construction, so
+                # they overlap or touch it; fuse instead of going through
+                # the blind disjoint-regions guard.
+                try:
+                    accumulators[body_id] = previous_body + tool_shape
+                except Exception as exc:
+                    raise FeatureBuilderError(
+                        f"feature '{feature_id}': {feature_type} boolean union failed: {exc}"
+                    ) from exc
+            else:
+                accumulators[body_id] = _combine_additive(previous_body, tool_shape, feature_id)
+        elif feature_type in ("pocket", "groove"):
+            if previous_body is None:
+                raise FeatureBuilderError(
+                    f"feature '{feature_id}': {feature_type} requires an existing solid body"
+                )
+            _require_cut_intersection(previous_body, tool_shape, feature_id, feature_type)
+            accumulators[body_id] = previous_body - tool_shape
+        else:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': type '{feature_type}' is not supported yet"
+            )
+    except Exception as exc:
+        feature_results.append(
+            {"featureId": feature_id, "bodyId": body_id, "status": "failed", "error": str(exc)}
+        )
+        stale_or_failed.add(feature_id)
+        return
+
+    current_body = accumulators[body_id]
+    feature_shapes[feature_id] = getattr(current_body, "wrapped", current_body)
+    feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "built"})
+
+
+def _assemble_final_shape(
+    state: _BuildState,
+    overlap_cached: Mapping[str, Mapping[str, Any]] | None = None,
+    overlap_signatures: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Assemble the final Compound from the state's non-consumed bodies.
+
+    Shared by the full build and the partial build: a ``Compound`` of
+    non-consumed body accumulators in document body order, plus the body-label
+    ``selectorMap``, per-solid body ids, cross-body overlap warnings, and the
+    accumulated feature/reference records. ``overlap_cached`` /
+    ``overlap_signatures`` let the partial path reuse exact overlap verdicts
+    for body pairs whose content signatures did not change; the fresh verdict
+    map rides back on ``overlapCache``. A document-level ``overlapCheck:
+    false`` skips the whole pairwise pass and returns no verdicts, so a
+    validated large assembly keeps its build cost down.
+    """
+    body_ids = state.body_ids
+    consumed_bodies = state.consumed_bodies
+    accumulators = state.accumulators
+    body_labels = state.body_labels
+    selector_map = state.selector_map
+    feature_results = state.feature_results
+    reference_results = state.reference_results
+    overlap_warnings: list[str] = []
+    overlap_verdicts: dict[str, dict[str, Any]] = {}
+    # Final assembly: Compound of non-consumed bodies in document body order.
+    final_children: list[Any] = []
+    active_body_ids: list[str] = []
+    active_body_shapes: list[Any] = []
+    body_index_offset: dict[str, int] = {}
+    current_solid_count = 0
+
+    for body_id in body_ids:
+        if body_id in consumed_bodies:
+            continue
+        shape = accumulators.get(body_id)
+        if shape is None:
+            continue
+        body_index_offset[body_id] = current_solid_count
+        count = _solid_count(shape)
+        current_solid_count += count
+        final_children.append(shape)
+        active_body_ids.append(body_id)
+        active_body_shapes.append(shape)
+
+    if not final_children:
+        return {
+            "shape": None,
+            "selectorMap": selector_map,
+            "featureResults": feature_results,
+            "referenceResults": reference_results,
+            "consumedBodies": sorted(consumed_bodies),
+            "solidBodyIds": [],
+            "warnings": list(state.warnings),
+        }
+
+    if state.overlap_check:
+        overlap_warnings, overlap_verdicts = _check_cross_body_overlap(
+            active_body_shapes, active_body_ids, overlap_cached, overlap_signatures
+        )
+
+    assembled = (
+        final_children[0] if len(final_children) == 1 else bd.Compound(children=final_children)
+    )
+
+    # Build selector map from body labels to 1-based solid indices in the final compound.
+    solid_body_ids: list[str] = []
+    for body_id in active_body_ids:
+        label = body_labels.get(body_id)
+        offset = body_index_offset[body_id]
+        count = _solid_count(accumulators[body_id])
+        indices = list(range(offset + 1, offset + count + 1))
+        solid_body_ids.extend([body_id] * count)
+        if label and indices:
+            existing = selector_map.setdefault(label, [])
+            for idx in indices:
+                if idx not in existing:
+                    existing.append(idx)
+            existing.sort()
+
+    # Lattice per-cell entries resolve body-local cell indices to the final
+    # compound numbering (append-only lattice seam; body entries above are
+    # untouched).
+    _flush_lattice_selector_entries(state, selector_map, body_index_offset)
+
+    result: dict[str, Any] = {
+        "shape": assembled,
+        "selectorMap": selector_map,
+        "featureResults": feature_results,
+        "referenceResults": reference_results,
+        "consumedBodies": sorted(consumed_bodies),
+        "solidBodyIds": solid_body_ids,
+        "warnings": list(state.warnings) + overlap_warnings,
+    }
+    if overlap_verdicts:
+        result["overlapCache"] = overlap_verdicts
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Result-cache seam + partial execution.
+#
+# Trust boundary: the TS orchestrator owns the dirty
+# plan and cache validity. Per-feature content-hash keys are recomputed from
+# the doc JSON on the TS side (``FeatureGraph.markDirty``/``recomputePlan``);
+# the backend never re-validates keys. A clean predecessor's blob is restored
+# as-is, and a missing/unreadable blob degrades to executing that feature (a
+# safe, slightly fuller rebuild) — never to a crash. Cache IO is best-effort
+# throughout: a failed write is skipped silently so the build result is never
+# held hostage by the sidecar.
+#
+# Result-cache seam (``doc_cache.py`` single-zip sidecar).
+#
+# Key-system split (do not "fix" by merging): the TS side computes its own
+# keys for the in-session memory cache; Python computes zip keys via
+# ``doc_cache.compute_document_keys``. The grammars differ and are NEVER
+# compared across the boundary — each flow passes the keys it computed to
+# the calls below, so both sides stay self-consistent.
+#
+# ``cache_path`` is the ``<stem>.nuke-cache.zip`` file path (or None to
+# disable); the geometry service composes it from the TS-provided cache dir
+# + document stem. All cache IO is best-effort: misses execute, failed
+# writes are skipped, and the build result never depends on the sidecar.
+# ---------------------------------------------------------------------------
+
+try:
+    import doc_cache as _doc_cache
+
+    HAS_DOC_CACHE = True
+except Exception:
+    _doc_cache = None  # type: ignore
+    HAS_DOC_CACHE = False
+
+try:
+    from ocp_compat import brep_tools_read as _brep_tools_read
+    from ocp_compat import brep_tools_write as _brep_tools_write
+
+    HAS_OCP_COMPAT_IO = True
+except Exception:
+    _brep_tools_read = None  # type: ignore
+    _brep_tools_write = None  # type: ignore
+    HAS_OCP_COMPAT_IO = False
+
+
+def _shape_fingerprint(topods_shape: Any) -> str:
+    """Content fingerprint of a B-rep shape for cache change detection.
+
+    Canonical JSON of the sorted face-fingerprint dicts (the same extraction
+    the repair UI uses), hashed with SHA-256. Face order from the explorer is
+    normalized by sorting, so the fingerprint is stable across processes for
+    identical geometry. Best-effort: any failure yields ``""`` (the input-key
+    match remains the real gate; the fingerprint is belt-and-braces metadata).
+    """
+    import hashlib
+    import json
+
+    try:
+        if not HAS_REFERENCE_RESOLVER or rr is None:
+            return ""
+        faces = rr.extract_face_fingerprints(topods_shape)
+        dicts = sorted(
+            json.dumps(f.to_dict(), sort_keys=True, separators=(",", ":")) for f in faces
+        )
+        return hashlib.sha256("\n".join(dicts).encode("utf-8")).hexdigest()
+    except Exception:
+        return ""
+
+
+def _shape_to_brep_bytes(shape: Any) -> bytes | None:
+    """Serialize a build123d shape to native BREP bytes (lossless round-trip).
+
+    Returns ``None`` for a ``None`` shape or when serialization fails; callers
+    treat ``None`` as "nothing to cache" and skip the write.
+    """
+    if shape is None:
+        return None
+    _require_build123d()
+    if not HAS_OCP_COMPAT_IO or _brep_tools_write is None:
+        return None
+    import os
+    import tempfile
+
+    from OCP.BRepTools import BRepTools
+
+    wrapped = getattr(shape, "wrapped", shape)
+    fd, path = tempfile.mkstemp(prefix="nuke_feat_", suffix=".brep")
+    os.close(fd)
+    try:
+        if not _brep_tools_write(BRepTools, wrapped, path):
+            return None
+        with open(path, "rb") as fh:
+            return fh.read()
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _shape_from_brep_bytes(data: bytes | bytearray) -> Any:
+    """Deserialize BREP bytes to a build123d shape.
+
+    A single solid restores as a ``bd.Solid`` (preserving the single-tool
+    wrapper type the sketch-solid path produces); several solids restore as a
+    flat ``bd.Compound`` of wrapped solids (mirroring ``_apply_defeature``).
+    Raises ``FeatureBuilderError`` when the blob holds no solids.
+    """
+    _require_build123d()
+    assert bd is not None
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        raise FeatureBuilderError("cached feature blob is empty")
+    if not HAS_OCP_COMPAT_IO or _brep_tools_read is None:
+        raise FeatureBuilderError("cached feature blobs require OCP BREP IO")
+    import os
+    import tempfile
+
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepTools import BRepTools
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS, TopoDS_Shape
+
+    fd, path = tempfile.mkstemp(prefix="nuke_feat_", suffix=".brep")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(bytes(data))
+        shape = TopoDS_Shape()
+        builder = BRep_Builder()
+        if not _brep_tools_read(BRepTools, shape, builder, path):
+            raise FeatureBuilderError("cached feature blob failed BREP IO")
+        solids: list[Any] = []
+        explorer = TopExp_Explorer(shape, TopAbs_SOLID)
+        while explorer.More():
+            solids.append(bd.Solid(TopoDS.Solid_s(explorer.Current())))
+            explorer.Next()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if not solids:
+        raise FeatureBuilderError("cached feature blob contains no solids")
+    if len(solids) == 1:
+        return solids[0]
+    return bd.Compound(children=solids)
+
+
+def _open_cache(cache_path: str | None, size_cap_bytes: int | None = None) -> Any | None:
+    """Open the zip sidecar for a build, or ``None`` when caching is off/broken.
+
+    ``cache_path`` is the ``<stem>.nuke-cache.zip`` file path the caller
+    resolved (the geometry service composes it from the cache dir + document
+    stem). ``size_cap_bytes`` overrides the default LRU cap (None = default).
+    Never raises: without a path, without the result-cache module, or on any IO error
+    the build simply proceeds uncached.
+    """
+    if not cache_path or not HAS_DOC_CACHE or _doc_cache is None:
+        return None
+    try:
+        if size_cap_bytes is None:
+            return _doc_cache.DocCache(cache_path)
+        return _doc_cache.DocCache(cache_path, size_cap_bytes=size_cap_bytes)
+    except Exception:
+        return None
+
+
+def _cache_read_feature(
+    cache: Any | None, feature_id: str, input_key: str
+) -> tuple[bytes | None, bytes | None, dict[str, Any]]:
+    """Read one feature's cached blobs: ``(body_bytes, tool_bytes, meta)``.
+
+    A miss — no cache, no entry, key mismatch, malformed entry, or any IO
+    error — returns ``(None, None, {})``. Never raises.
+    """
+    if cache is None:
+        return None, None, {}
+    try:
+        entry = cache.lookup(feature_id, input_key)
+    except Exception:
+        return None, None, {}
+    if entry is None:
+        return None, None, {}
+    body = entry.brep_bytes
+    tool = entry.tool_bytes
+    meta = entry.meta if isinstance(entry.meta, dict) else {}
+    if body is None and tool is None:
+        return None, None, {}
+    return body, tool, meta
+
+
+def _cache_write_feature(
+    cache: Any | None,
+    feature_id: str,
+    input_key: str,
+    body_bytes: bytes | None,
+    tool_bytes: bytes | None,
+    meta: dict[str, Any],
+    shape_fingerprint: str,
+) -> bool:
+    """Persist one feature's blobs via the result-cache interface. Never raises.
+
+    Returns True when the write landed; False (no cache, any error) means
+    the caller carries on without a cache entry.
+    """
+    if cache is None:
+        return False
+    try:
+        cache.store(
+            feature_id,
+            input_key=input_key,
+            shape_fingerprint=shape_fingerprint,
+            brep_bytes=body_bytes,
+            tool_bytes=tool_bytes,
+            meta=dict(meta or {}),
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _restore_cached_feature(
+    state: _BuildState, feature: dict[str, Any], cache: Any | None, input_key: str
+) -> bool:
+    """Restore a clean predecessor's state from its cached blobs.
+
+    Hydrates the body accumulator snapshot, the historical ``feature_shapes``
+    entry (for TopologyRef resolution by later dirty features), the pattern
+    source ``tool_shapes`` entry when present, and the boolean consumed-body
+    set from ``meta``. Appends a ``cached`` feature record. Returns False on
+    any miss or inconsistency so the caller falls back to executing.
+    """
+    feature_id = feature["id"]
+    feature_type = feature.get("type", "")
+    if feature_type == "lattice":
+        # Lattice per-cell selector entries live only in build state (they are
+        # resolved against live solid counts at assembly); a cache blob cannot
+        # carry them, so lattices always re-execute instead of restoring.
+        return False
+    body_bytes, tool_bytes, meta = _cache_read_feature(cache, feature_id, input_key)
+    if body_bytes is None:
+        return False
+    consumed: list[str] = []
+    if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        target_body = params.get("targetBody", "")
+        if not isinstance(target_body, str) or not target_body:
+            return False
+        if meta.get("target", target_body) != target_body:
+            return False
+        raw_consumed = meta.get("consumed")
+        if not isinstance(raw_consumed, list) or not all(isinstance(c, str) for c in raw_consumed):
+            return False
+        body_id = target_body
+        consumed = list(raw_consumed)
+    else:
+        body_id = feature.get("body", "")
+        if not isinstance(body_id, str) or not body_id:
+            return False
+    try:
+        body_shape = _shape_from_brep_bytes(body_bytes)
+        tool_shape = _shape_from_brep_bytes(tool_bytes) if tool_bytes is not None else None
+    except Exception:
+        return False
+    state.accumulators[body_id] = body_shape
+    state.feature_shapes[feature_id] = getattr(body_shape, "wrapped", body_shape)
+    if tool_shape is not None:
+        state.tool_shapes[feature_id] = tool_shape
+    state.consumed_bodies.update(consumed)
+    state.feature_results.append({"featureId": feature_id, "bodyId": body_id, "status": "cached"})
+    return True
+
+
+def _write_back_feature(
+    state: _BuildState, feature: dict[str, Any], cache: Any | None, input_key: str
+) -> bool:
+    """Write one freshly executed feature's blobs back through the result-cache interface.
+
+    Only ``built`` executions are cached (``stale``/``failed`` leave no blobs,
+    so a later restore can never resurrect them). Booleans additionally store
+    ``meta`` with the target body and the ``consumedBodyIds`` of this
+    execution. Best-effort: returns False instead of raising, and the build
+    result never depends on it.
+    """
+    if cache is None:
+        return False
+    feature_id = feature["id"]
+    if not state.feature_results:
+        return False
+    record = state.feature_results[-1]
+    if record.get("featureId") != feature_id or record.get("status") != "built":
+        return False
+    feature_type = feature.get("type", "")
+    meta: dict[str, Any] = {}
+    if feature_type in ("booleanFuse", "booleanCut", "booleanCommon"):
+        params = feature.get("params", {}) if isinstance(feature.get("params"), dict) else {}
+        target_body = params.get("targetBody", "")
+        if not isinstance(target_body, str) or not target_body:
+            return False
+        body_shape = state.accumulators.get(target_body)
+        consumed = record.get("consumedBodyIds", [])
+        meta = {
+            "target": target_body,
+            "consumed": list(consumed) if isinstance(consumed, list) else [],
+        }
+    else:
+        body_id = feature.get("body", "")
+        if not isinstance(body_id, str) or not body_id:
+            return False
+        body_shape = state.accumulators.get(body_id)
+    if body_shape is None:
+        return False
+    tool_shape = state.tool_shapes.get(feature_id)
+    try:
+        body_bytes = _shape_to_brep_bytes(body_shape)
+        tool_bytes = _shape_to_brep_bytes(tool_shape) if tool_shape is not None else None
+    except Exception:
+        return False
+    if body_bytes is None:
+        return False
+    fingerprint = _shape_fingerprint(getattr(body_shape, "wrapped", body_shape))
+    return _cache_write_feature(
+        cache, feature_id, input_key, body_bytes, tool_bytes, meta, fingerprint
+    )
+
+
+def _must_execute_partial(state: _BuildState, feature: dict[str, Any]) -> bool:
+    """Return True when a non-dirty feature cannot be restored from cache.
+
+    Mirrors the staleness guards inside :func:`_execute_feature` so the
+    partial walk reproduces the full build's stale propagation exactly:
+    suppressed features, dependents of stale/failed features, and non-boolean
+    features targeting a boolean-consumed body always execute (and land
+    ``stale`` without building, as today).
+    """
+    if feature.get("suppressed"):
+        return True
+    if any(dep in state.stale_or_failed for dep in feature.get("dependsOn", [])):
+        return True
+    if feature.get("type") not in ("booleanFuse", "booleanCut", "booleanCommon"):
+        if feature.get("body", "") in state.consumed_bodies:
+            return True
+    return False
+
+
+def build_document_shape_partial(
+    document: dict[str, Any],
+    dirty_feature_ids: list[str],
+    curve_results: dict[str, dict[str, Any]] | None = None,
+    cache_path: str | None = None,
+    size_cap_bytes: int | None = None,
+    cache: Any | None = None,
+    *,
+    document_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Build only the dirty closure of a document, restoring the rest from cache.
+
+    ``dirty_feature_ids`` is the TS-planned dirty closure (``FeatureGraph``
+    ``markDirty``/``recomputePlan`` output): those features execute in
+    topological order (via :func:`topo_sort_features`, same order as the full
+    build) while every other feature restores its clean-predecessor inputs —
+    body accumulator, historical shape, pattern source tool, boolean consumed
+    set — from cached B-rep blobs deserialized through the result-cache interface. Each
+    successful execution writes its fresh blobs back. A cache miss on a clean
+    feature degrades to executing it, so with an empty cache this is exactly
+    the full build. Unknown feature ids are a hard error.
+
+    ``cache`` lets the caller inject an already-open cache handle (the
+    geometry service passes its ``DocCache`` batch so restore + write-back
+    share one archive load and one commit); when ``None`` the handle is opened
+    from ``cache_path`` as before. Builder semantics are unchanged either way.
+
+    Pattern fast path: a dirty pattern whose source is
+    clean reuses the CACHED source tool shape, transforming it ×N through the
+    unchanged :func:`_apply_pattern_or_mirror` — pairwise bbox-disjoint
+    layouts skip the booleans entirely (zero fuse, flat ``Compound``), while
+    overlapping (fused) layouts keep the GFOP-first call with the sequential
+    loop as fallback, verbatim. Suppression interplay follows the existing
+    contract (suppressed features and their dependents go ``stale``).
+
+    Returns the same dict shape as :func:`build_document_shape`, except clean
+    features carry the ``cached`` status in ``featureResults``.
+    """
+    if bd is None:
+        raise FeatureBuilderError("build123d is not available; cannot build document shape")
+
+    state = _prepare_build_state(document, curve_results, document_dir)
+
+    dirty = set(dirty_feature_ids or [])
+    unknown = sorted(fid for fid in dirty if fid not in state.feature_map)
+    if unknown:
+        raise FeatureBuilderError(f"partial build names unknown features: {', '.join(unknown)}")
+
+    # Content keys are computed once from the doc JSON (no OCP): the restore
+    # path looks entries up by key and the write-back path stores under the
+    # same key, so the two sides stay consistent without comparing anything
+    # across the TS/Python boundary. Key failure degrades to a full execute.
+    cache = cache if cache is not None else _open_cache(cache_path, size_cap_bytes)
+    try:
+        keys = _content_keys_for_document(document) if cache is not None else {}
+    except Exception:
+        cache = None
+        keys = {}
+
+    # Exact cross-body overlap checks are O(n²) booleans over whole bodies and
+    # dominate assembly on multi-body documents. Reuse the previous verdicts
+    # for pairs whose bodies' content signatures did not change (a partial
+    # edit re-checks only the pairs touching a changed body); the fresh map is
+    # written back so the next build can reuse it too.
+    overlap_cached: Mapping[str, Mapping[str, Any]] | None = None
+    overlap_signatures: Mapping[str, str] | None = None
+    if cache is not None and keys:
+        overlap_signatures = _body_overlap_signatures(document, keys)
+        read_verdicts = getattr(cache, "overlap_verdicts", None)
+        if callable(read_verdicts):
+            try:
+                overlap_cached = read_verdicts()
+            except Exception:
+                overlap_cached = None
+
+    for feature_id in state.order:
+        feature = state.feature_map[feature_id]
+        key = keys.get(feature_id, "")
+        if feature_id in dirty or _must_execute_partial(state, feature):
+            _execute_feature(state, feature_id)
+            _write_back_feature(state, feature, cache, key)
+        elif not _restore_cached_feature(state, feature, cache, key):
+            _execute_feature(state, feature_id)
+            _write_back_feature(state, feature, cache, key)
+
+    result = _assemble_final_shape(state, overlap_cached, overlap_signatures)
+    verdicts = result.pop("overlapCache", None)
+    store_verdicts = getattr(cache, "store_overlap_verdicts", None)
+    if verdicts and callable(store_verdicts):
+        try:
+            store_verdicts(verdicts)
+        except Exception:
+            pass
+    return result
+
+
+def _content_keys_for_document(document: dict[str, Any]) -> dict[str, str]:
+    """Per-feature content keys for the zip sidecar, computed without OCP.
+
+    Uses the Python-side key scheme (self-consistent within Python: the write-back
+    path stores under these keys and the restore path looks them up).
+    Raises on dependency cycles or dangling references like the builder.
+    """
+    if not HAS_DOC_CACHE or _doc_cache is None:
+        raise FeatureBuilderError("result-cache backend is unavailable")
+    return _doc_cache.compute_document_keys(document, ocp_version=_doc_cache.current_ocp_version())
+
+
+# ---------------------------------------------------------------------------
+# Lattice (rectangular/hexagonal pin arrays).
+#
+# A ``lattice`` feature replicates one source solid feature on a planar grid.
+# New code only: the fuse path (``_apply_pattern_or_mirror`` with its
+# disjoint-check, parallel fuse, and sequential fallback) is reused verbatim.
+# Cells are labeled ``<prefix>_r<row>c<col>`` in odd-r offset coordinates and
+# feed per-cell ``selector_map`` entries (body-level entries are unchanged).
+# Nesting (lattice-of-lattice) and pattern/mirror sources are rejected; there
+# is no per-cell material variation (labels only).
+# ---------------------------------------------------------------------------
+
+#: Maximum cells per lattice feature; above this the build fails with a
+#: stepwise-build hint instead of attempting a giant fuse.
+LATTICE_MAX_CELLS = 2500
+
+
+def _lattice_int(value: Any, context: str) -> int:
+    """Return ``value`` as an int or raise ``FeatureBuilderError`` (bools rejected)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise FeatureBuilderError(f"{context} must be an integer, got {value!r}")
+    return value
+
+
+def _lattice_positive_number(value: Any, context: str) -> float:
+    """Return ``value`` as a positive finite float or raise ``FeatureBuilderError``."""
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise FeatureBuilderError(f"{context} must be a positive finite number, got {value!r}")
+    return float(value)
+
+
+def _lattice_cell_count(params: dict[str, Any]) -> int | None:
+    """Return the lattice cell count, or None when the extents are malformed.
+
+    Pure (no build123d) so minimal-profile tests can cover the layout.
+    """
+    rows = params.get("rows")
+    cols = params.get("cols")
+    rings = params.get("rings")
+    if (
+        isinstance(rows, int)
+        and not isinstance(rows, bool)
+        and isinstance(cols, int)
+        and not isinstance(cols, bool)
+    ):
+        if rows >= 1 and cols >= 1:
+            return rows * cols
+        return None
+    if isinstance(rings, int) and not isinstance(rings, bool) and rings >= 0:
+        return 1 + 3 * rings * (rings + 1)
+    return None
+
+
+def _validate_lattice_params(params: dict[str, Any], feature_id: str) -> dict[str, Any]:
+    """Validate lattice params and return the normalized layout.
+
+    ``rows``/``cols`` (rect grid or hex offset layout) are mutually exclusive
+    with ``rings`` (hex ring layout); ``pitchY`` is rectangular-only and
+    ``orientation`` is hexagonal-only. Pure (no build123d) so minimal-profile
+    tests can cover the contract.
+    """
+    if not isinstance(params, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}': lattice params must be an object")
+    source = params.get("source")
+    if not isinstance(source, str) or not source:
+        raise FeatureBuilderError(f"feature '{feature_id}': source feature id is required")
+    lattice_type = params.get("latticeType")
+    if lattice_type not in ("rectangular", "hexagonal"):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': latticeType must be 'rectangular' or 'hexagonal'"
+        )
+
+    has_grid = params.get("rows") is not None or params.get("cols") is not None
+    has_rings = params.get("rings") is not None
+    if has_grid and has_rings:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': rows/cols and rings are mutually exclusive"
+        )
+    rows = cols = rings = None
+    if has_grid:
+        if params.get("rows") is None or params.get("cols") is None:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': rows and cols are required together"
+            )
+        rows = _lattice_int(params.get("rows"), f"feature '{feature_id}': lattice rows")
+        cols = _lattice_int(params.get("cols"), f"feature '{feature_id}': lattice cols")
+        if rows < 1 or cols < 1:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice rows and cols must be integers >= 1"
+            )
+    elif has_rings:
+        rings = _lattice_int(params.get("rings"), f"feature '{feature_id}': lattice rings")
+        if rings < 0:
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice rings must be an integer >= 0"
+            )
+    else:
+        raise FeatureBuilderError(f"feature '{feature_id}': lattice requires rows/cols or rings")
+
+    pitch = _lattice_positive_number(params.get("pitch"), f"feature '{feature_id}': lattice pitch")
+    pitch_y: float | None = None
+    if params.get("pitchY") is not None:
+        if lattice_type != "rectangular":
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': pitchY is only valid for rectangular lattices"
+            )
+        pitch_y = _lattice_positive_number(
+            params.get("pitchY"), f"feature '{feature_id}': lattice pitchY"
+        )
+    orientation: str | None = None
+    if params.get("orientation") is not None:
+        if lattice_type != "hexagonal":
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': orientation is only valid for hexagonal lattices"
+            )
+        if params.get("orientation") not in ("flatTop", "pointyTop"):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice orientation must be 'flatTop' or 'pointyTop'"
+            )
+        orientation = str(params.get("orientation"))
+
+    datum_id = params.get("datumId")
+    if datum_id is not None and (not isinstance(datum_id, str) or not datum_id):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice datumId must be a non-empty string when present"
+        )
+    origin: tuple[float, float] = (0.0, 0.0)
+    if params.get("origin") is not None:
+        raw_origin = params.get("origin")
+        if (
+            not isinstance(raw_origin, (list, tuple))
+            or len(raw_origin) != 2
+            or any(
+                not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v)
+                for v in raw_origin
+            )
+        ):
+            raise FeatureBuilderError(
+                f"feature '{feature_id}': lattice origin must be a [x, y] pair of finite numbers"
+            )
+        origin = (float(raw_origin[0]), float(raw_origin[1]))
+    label_prefix = params.get("labelPrefix")
+    if label_prefix is not None and (not isinstance(label_prefix, str) or not label_prefix):
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice labelPrefix must be a non-empty string when present"
+        )
+    scale = _pattern_scale(params, feature_id)
+
+    count = _lattice_cell_count({"rows": rows, "cols": cols, "rings": rings})
+    if count is None:
+        raise FeatureBuilderError(f"feature '{feature_id}': lattice extents are invalid")
+    if count > LATTICE_MAX_CELLS:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice has {count} cells, above the "
+            f"{LATTICE_MAX_CELLS}-cell limit; build it stepwise "
+            "(multiple lattice features) instead"
+        )
+    return {
+        "source": source,
+        "latticeType": lattice_type,
+        "rows": rows,
+        "cols": cols,
+        "rings": rings,
+        "pitch": pitch,
+        "pitchY": pitch_y if pitch_y is not None else pitch,
+        "orientation": orientation if orientation is not None else "pointyTop",
+        "datumId": datum_id,
+        "origin": origin,
+        "labelPrefix": label_prefix,
+        "scale": scale,
+    }
+
+
+def _lattice_cell_offsets(
+    params: dict[str, Any],
+) -> list[tuple[tuple[float, float], tuple[int, int]]]:
+    """Return per-cell ``((dx, dy), (row, col))`` lattice offsets.
+
+    Centered on the source position (plus ``origin``); ``(row, col)`` are
+    odd-r offset coordinates for both layouts (hex rings convert axial to
+    odd-r). Rectangular grids enumerate row-major; rings enumerate axially and
+    are reported in ``(row, col)`` order. Pure (no build123d, OCP-free).
+    """
+    pitch = float(params.get("pitch", 0.0))
+    pitch_y = float(params.get("pitchY", pitch))
+    orientation = str(params.get("orientation", "pointyTop"))
+    raw_origin = params.get("origin", (0.0, 0.0))
+    origin = (float(raw_origin[0]), float(raw_origin[1]))
+    rows = params.get("rows")
+    cols = params.get("cols")
+    rings = params.get("rings")
+    lattice_type = params.get("latticeType", "rectangular")
+
+    cells: list[tuple[tuple[float, float], tuple[int, int]]] = []
+    if rings is not None:
+        count = int(rings)
+        axial: list[tuple[int, int]] = []
+        for q in range(-count, count + 1):
+            for r_axial in range(max(-count, -q - count), min(count, -q + count) + 1):
+                axial.append((q, r_axial))
+        for q, r_axial in axial:
+            col = q + (r_axial - (r_axial & 1)) // 2
+            row = r_axial
+            if orientation == "flatTop":
+                dx = pitch * 1.5 * q
+                dy = pitch * math.sqrt(3.0) * (r_axial + q / 2.0)
+            else:
+                dx = pitch * math.sqrt(3.0) * (q + r_axial / 2.0)
+                dy = pitch * 1.5 * r_axial
+            cells.append(((dx + origin[0], dy + origin[1]), (row, col)))
+        cells.sort(key=lambda cell: (cell[1][0], cell[1][1]))
+        return cells
+
+    row_count = int(rows)
+    col_count = int(cols)
+    for row in range(row_count):
+        for col in range(col_count):
+            if lattice_type == "hexagonal" and orientation == "flatTop":
+                dx = (col - (col_count - 1) / 2.0) * pitch * math.sqrt(3.0) / 2.0
+                dy = (row - (row_count - 1) / 2.0) * pitch + (pitch / 2.0 if col & 1 else 0.0)
+            elif lattice_type == "hexagonal":
+                dx = (col - (col_count - 1) / 2.0) * pitch + (pitch / 2.0 if row & 1 else 0.0)
+                dy = (row - (row_count - 1) / 2.0) * pitch * math.sqrt(3.0) / 2.0
+            else:
+                dx = (col - (col_count - 1) / 2.0) * pitch
+                dy = (row - (row_count - 1) / 2.0) * pitch_y
+            cells.append(((dx + origin[0], dy + origin[1]), (row, col)))
+    return cells
+
+
+def _lattice_label_prefix(
+    params: dict[str, Any], source: dict[str, Any], body_label: str | None
+) -> str:
+    """Return the cell label prefix: ``labelPrefix`` ?? body label ?? source name.
+
+    Pure (no build123d) so minimal-profile tests can cover the contract.
+    """
+    label_prefix = params.get("labelPrefix")
+    if isinstance(label_prefix, str) and label_prefix:
+        return label_prefix
+    if isinstance(body_label, str) and body_label:
+        return body_label
+    name = source.get("name")
+    if isinstance(name, str) and name:
+        return name
+    return str(source.get("id", "cell"))
+
+
+def _lattice_cell_labels(params: dict[str, Any], prefix: str) -> list[str]:
+    """Return per-cell ``<prefix>_r<row>c<col>`` labels in cell order.
+
+    Pure (no build123d) so minimal-profile tests can cover the contract.
+    """
+    return [f"{prefix}_r{row}c{col}" for _, (row, col) in _lattice_cell_offsets(params)]
+
+
+def _build_lattice_result(
+    state: _BuildState,
+    feature: dict[str, Any],
+    params: dict[str, Any],
+    entities: list[Any],
+    ref_path_to_index: dict[str, int],
+) -> Any:
+    """Build the lattice instances and merge them into the body.
+
+    Resolves ``source`` from ``tool_shapes`` (lattice-of-lattice and
+    pattern/mirror sources rejected), translates scaled copies onto the
+    lattice plane offsets, then delegates to the untouched disjoint-check,
+    parallel-fuse, and sequential-fallback path. Registers the instance set
+    as the lattice ``tool_shapes`` entry (downstream pattern/mirror sources)
+    and records the per-cell label/seam rows flushed at assembly.
+    """
+    _require_build123d()
+    assert bd is not None
+    feature_id = feature["id"]
+    body_id = feature.get("body", "")
+    layout = _validate_lattice_params(params, feature_id)
+    source_id = layout["source"]
+
+    source = state.feature_map.get(source_id)
+    if source is not None and source.get("type") == "lattice":
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice source '{source_id}' must not be a lattice "
+            "(nested lattices are not supported)"
+        )
+    order_index = {fid: idx for idx, fid in enumerate(state.order)}
+    resolved = _valid_source_feature(
+        feature_id, source_id, "lattice", body_id, state.feature_map, order_index
+    )
+    source_tool = state.tool_shapes.get(source_id)
+    if source_tool is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': source '{source_id}' tool shape is unavailable"
+        )
+
+    datum_id = layout["datumId"] or "datum-xy"
+    datum = state.datums.get(datum_id)
+    if not isinstance(datum, dict):
+        known_xy = next(
+            (d for d in state.datums.values() if d.get("kind") == "XY"),
+            None,
+        )
+        if layout["datumId"] is None and known_xy is not None:
+            datum_id = known_xy.get("id", datum_id)
+            datum = known_xy
+    if not isinstance(datum, dict):
+        raise FeatureBuilderError(f"feature '{feature_id}' references unknown datum '{datum_id}'")
+    if datum.get("kind") in ("face", "midplane"):
+        _datum, entity, midplane_entities = _datum_entities_for_axis_or_plane(
+            datum_id, state.datums, entities, ref_path_to_index, feature_id
+        )
+        plane = _plane_from_datum(_datum, feature_id, entity, midplane_entities)
+    else:
+        plane = _plane_from_datum(datum, feature_id)
+
+    x_dir = plane.x_dir
+    y_dir = plane.y_dir
+    # Cell offsets already include the in-plane ``origin`` (see
+    # ``_lattice_cell_offsets``); mapping them through the datum frame here
+    # must not add it a second time.
+    scale = layout["scale"]
+    source_solids = _solid_count(source_tool)
+    subtractive = _pattern_source_is_subtractive(resolved)
+    prefix = _lattice_label_prefix(layout, resolved, state.body_labels.get(body_id))
+    labels = _lattice_cell_labels(layout, prefix)
+    kept: list[tuple[str, Any]] = []
+    skipped_center: str | None = None
+    all_instances: list[Any] = []
+    cells = _lattice_cell_offsets(layout)
+    for label, (dx, dy) in zip(labels, [cell[0] for cell in cells], strict=True):
+        world = (
+            dx * float(x_dir.X) + dy * float(y_dir.X),
+            dx * float(x_dir.Y) + dy * float(y_dir.Y),
+            dx * float(x_dir.Z) + dy * float(y_dir.Z),
+        )
+        instance = _scaled_about_center(source_tool.moved(bd.Location(world)), scale)
+        all_instances.append(instance)
+        if scale == 1.0 and all(abs(w) <= 1e-9 for w in world):
+            # Exact reproduction of the source already in the body (odd grids
+            # and rings center a cell on the source position): fusing it would
+            # be an idempotent no-op, so it is attributed, not rebuilt.
+            skipped_center = label
+        else:
+            kept.append((label, instance))
+
+    previous_body = state.accumulators.get(body_id)
+    if previous_body is None:
+        raise FeatureBuilderError(
+            f"feature '{feature_id}': lattice requires an existing solid body"
+        )
+    prev_count = _solid_count(previous_body)
+    result_shape = _apply_pattern_or_mirror(
+        previous_body,
+        source_tool,
+        resolved.get("type", ""),
+        [instance for _, instance in kept],
+        feature_id,
+        source_subtractive=subtractive,
+    )
+
+    # The registered tool is the full translated array (including an attributed
+    # center cell) so downstream patterns replicate the whole lattice.
+    state.tool_shapes[feature_id] = (
+        all_instances[0] if len(all_instances) == 1 else bd.Compound(children=list(all_instances))
+    )
+    final_count = _solid_count(result_shape)
+    local: dict[str, list[int]] = {}
+    if (
+        not subtractive
+        and source_solids > 0
+        and final_count == prev_count + len(kept) * source_solids
+    ):
+        # Every kept cell contributed its own solids in order (the disjoint
+        # skip path appends body solids then instance solids verbatim; any
+        # fused union would hold fewer solids than the sum).
+        for i, (label, _instance) in enumerate(kept):
+            local[label] = [prev_count + i * source_solids + k + 1 for k in range(source_solids)]
+    if skipped_center is not None and not subtractive and prev_count == source_solids > 0:
+        # The body holds exactly the source: the attributed center cell is it.
+        local[skipped_center] = list(range(1, source_solids + 1))
+    records = getattr(state, "lattice_cells", None)
+    if records is None:
+        records = state.lattice_cells = []
+    records.append(
+        {
+            "body_id": body_id,
+            "labels": labels,
+            "local": local,
+            "prev_count": prev_count,
+            "final_count": final_count,
+            "subtractive": subtractive,
+        }
+    )
+    return result_shape
+
+
+def _flush_lattice_selector_entries(
+    state: _BuildState,
+    selector_map: dict[str, list[int]],
+    body_index_offset: dict[str, int],
+) -> None:
+    """Resolve pending lattice per-cell labels to final 1-based solid indices.
+
+    Runs at assembly when body offsets are known. Cells with exact body-local
+    indices (disjoint layouts, plus an attributed center cell on a
+    source-only body) globalize when later features left them in place;
+    every other cell falls back to the feature's new-solid range, and
+    subtractive lattices to the body's full range.
+    """
+    records = getattr(state, "lattice_cells", None) or []
+    for record in records:
+        body_id = record.get("body_id", "")
+        labels = record.get("labels", [])
+        if body_id not in body_index_offset or not labels:
+            continue
+        offset = body_index_offset[body_id]
+        current = state.accumulators.get(body_id)
+        current_count = _solid_count(current)
+        prev_count = int(record.get("prev_count", 0))
+        local = record.get("local", {})
+        if not isinstance(local, dict):
+            local = {}
+        if current_count > prev_count:
+            fallback = list(range(offset + prev_count + 1, offset + current_count + 1))
+        else:
+            fallback = list(range(offset + 1, offset + current_count + 1))
+        for label in labels:
+            exact = local.get(label)
+            if (
+                isinstance(exact, list)
+                and exact
+                and all(isinstance(i, int) and 1 <= i <= current_count for i in exact)
+            ):
+                indices = [offset + i for i in exact]
+            else:
+                indices = fallback
+            existing = selector_map.setdefault(label, [])
+            for idx in indices:
+                if idx not in existing:
+                    existing.append(idx)
+            existing.sort()

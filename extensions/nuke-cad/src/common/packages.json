@@ -1,0 +1,208 @@
+{
+  "core": [
+    {
+      "name": "numpy",
+      "required": true,
+      "condaSpec": "numpy"
+    }
+  ],
+  "cad": [
+    {
+      "name": "OCP",
+      "required": false,
+      "condaSpec": "ocp=7.9.3.1",
+      "pipSpec": "cadquery-ocp<7.9"
+    },
+    {
+      "name": "build123d",
+      "required": false,
+      "pipSpec": "build123d==0.9.1",
+      "pipArgs": ["--no-deps"]
+    },
+    {
+      "name": "cadquery",
+      "required": false,
+      "condaSpec": "cadquery"
+    },
+    {
+      "name": "gmsh",
+      "required": false,
+      "condaSpec": "python-gmsh"
+    },
+    {
+      "name": "meshio",
+      "required": false,
+      "condaSpec": "meshio"
+    },
+    {
+      "name": "netCDF4",
+      "required": false,
+      "condaSpec": "netcdf4"
+    },
+    {
+      "name": "netgen",
+      "required": false,
+      "condaSpec": "ngsolve",
+      "pipSpec": "ngsolve"
+    },
+    {
+      "name": "ngsolve",
+      "required": false,
+      "condaSpec": "ngsolve"
+    },
+    {
+      "name": "svgpathtools",
+      "required": false,
+      "condaSpec": "svgpathtools"
+    },
+    {
+      "name": "anytree",
+      "required": false,
+      "condaSpec": "anytree"
+    },
+    {
+      "name": "ezdxf",
+      "required": false,
+      "condaSpec": "ezdxf"
+    },
+    {
+      "name": "trianglesolver",
+      "required": false,
+      "condaSpec": "trianglesolver"
+    },
+    {
+      "name": "ocpsvg",
+      "required": false,
+      "pipSpec": "ocpsvg==0.6.0",
+      "pipArgs": ["--no-deps"]
+    },
+    {
+      "name": "py-lib3mf",
+      "required": false,
+      "pipSpec": "py-lib3mf"
+    },
+    {
+      "name": "ipython",
+      "required": false,
+      "condaSpec": "ipython<9"
+    },
+    {
+      "name": "svgelements",
+      "required": false,
+      "condaSpec": "svgelements"
+    }
+  ],
+  "dagmc": [
+    {
+      "name": "moab",
+      "required": false,
+      "extraIndexUrl": "https://shimwell.github.io/wheels"
+    },
+    {
+      "name": "h5py",
+      "required": false,
+      "condaSpec": "h5py"
+    }
+  ],
+  "health": [
+    {
+      "name": "numpy",
+      "required": true,
+      "condaSpec": "numpy"
+    },
+    {
+      "name": "OCP",
+      "required": true,
+      "condaSpec": "ocp=7.9.3.1",
+      "pipSpec": "cadquery-ocp<7.9"
+    },
+    {
+      "name": "build123d",
+      "required": true,
+      "pipSpec": "build123d==0.9.1",
+      "pipArgs": ["--no-deps"]
+    },
+    {
+      "name": "cadquery",
+      "required": false,
+      "condaSpec": "cadquery"
+    },
+    {
+      "name": "gmsh",
+      "required": true,
+      "condaSpec": "python-gmsh"
+    },
+    {
+      "name": "meshio",
+      "required": false,
+      "condaSpec": "meshio"
+    },
+    {
+      "name": "netCDF4",
+      "required": false,
+      "condaSpec": "netcdf4"
+    },
+    {
+      "name": "netgen",
+      "required": false,
+      "condaSpec": "ngsolve",
+      "pipSpec": "ngsolve"
+    },
+    {
+      "name": "ngsolve",
+      "required": false,
+      "condaSpec": "ngsolve"
+    },
+    {
+      "name": "moab",
+      "required": false,
+      "extraIndexUrl": "https://shimwell.github.io/wheels"
+    },
+    {
+      "name": "h5py",
+      "required": false,
+      "condaSpec": "h5py"
+    },
+    {
+      "name": "svgpathtools",
+      "required": true,
+      "condaSpec": "svgpathtools"
+    },
+    {
+      "name": "anytree",
+      "required": true,
+      "condaSpec": "anytree"
+    },
+    {
+      "name": "ezdxf",
+      "required": true,
+      "condaSpec": "ezdxf"
+    },
+    {
+      "name": "trianglesolver",
+      "required": true,
+      "condaSpec": "trianglesolver"
+    },
+    {
+      "name": "ocpsvg",
+      "required": true,
+      "pipSpec": "ocpsvg==0.6.0",
+      "pipArgs": ["--no-deps"]
+    },
+    {
+      "name": "py-lib3mf",
+      "required": true,
+      "pipSpec": "py-lib3mf"
+    },
+    {
+      "name": "ipython",
+      "required": true,
+      "condaSpec": "ipython<9"
+    },
+    {
+      "name": "svgelements",
+      "required": true,
+      "condaSpec": "svgelements"
+    }
+  ]
+}

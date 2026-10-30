@@ -55,11 +55,13 @@
 
 import * as path from 'path';
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { PackageInstallOptions } from '../../common/nuke-core-protocol';
+import { DependencyInstallCommand, PackageDependency, PackageInstallOptions } from '../../common/nuke-core-protocol';
 import { CondaResolver } from './environment/utils/conda-resolver';
 import { UvResolver } from './environment/utils/uv-resolver';
+import { getPythonInfo } from './environment/utils/python-info';
 import { EnvironmentService } from './environment/environment-service';
 import { CondaProvider } from './environment/providers/conda-provider';
+import { buildDependencyInstallPlan } from './dependency-install-planner';
 
 @injectable()
 export class PackageService {
@@ -165,5 +167,83 @@ export class PackageService {
         // Fall back to regular pip
         const args = ['-m', 'pip', 'install', ...packages, ...indexArgs, ...extraArgs];
         return { command: `"${targetPython}" ${args.join(' ')}`, cwd };
+    }
+
+    /**
+     * Build the ordered shell commands for installing structured package dependencies.
+     *
+     * Routes the entries through {@link buildDependencyInstallPlan} — a conda batch for
+     * `condaOnly`/`condaSpec` entries (conda envs only) plus one pip command per
+     * (`extraIndexUrl`, `pipArgs`) signature — then prepares each group with
+     * {@link prepareInstallPackagesCommand}, reusing its conda-prefix / uv / pip
+     * resolution and quoting. `condaOnly` entries in a non-conda env cannot be
+     * auto-installed and produce no command.
+     *
+     * @param defs - The {@link PackageDependency} entries to install (typically the missing ones)
+     * @param pythonPath - Optional explicit target Python (defaults to configured env → configured path → auto-detected)
+     * @returns A promise resolving to the ordered list of commands to execute (conda batch first, then pip groups)
+     * @throws Never throws; missing inputs fall back to sensible defaults
+     * @see {@link buildDependencyInstallPlan}
+     * @see {@link prepareInstallPackagesCommand}
+     */
+    async prepareDependencyInstallCommands(defs: PackageDependency[], pythonPath?: string): Promise<DependencyInstallCommand[]> {
+        const config = this.environmentService.getConfig();
+
+        // Resolve the target interpreter exactly like prepareInstallPackagesCommand
+        let targetPython = pythonPath;
+        let fromCondaConfig = false;
+        if (!targetPython) {
+            if (config.condaEnv) {
+                const condaProvider = new CondaProvider();
+                const envPath = await condaProvider.findEnvPath(config.condaEnv);
+                if (envPath) {
+                    targetPython = path.join(envPath, 'bin', 'python');
+                    fromCondaConfig = true;
+                }
+            } else if (config.pythonPath) {
+                targetPython = config.pythonPath;
+            }
+        }
+        if (!targetPython) {
+            targetPython = (await this.environmentService.getPythonCommand()) || 'python';
+        }
+
+        // Inspect the interpreter to detect a conda prefix (getPythonInfo reclassifies
+        // conda pythons discovered as bare system interpreters); fall back to the config
+        const info = await getPythonInfo(targetPython, 'system');
+        const isCondaEnv = info ? info.type === 'conda' : fromCondaConfig;
+
+        const plan = buildDependencyInstallPlan(defs, isCondaEnv);
+        const commands: DependencyInstallCommand[] = [];
+
+        if (plan.conda) {
+            const prepared = await this.prepareInstallPackagesCommand({
+                packages: plan.conda.specs,
+                pythonPath: targetPython,
+                useConda: true,
+                channels: plan.conda.channels
+            });
+            commands.push({
+                label: `Install (conda): ${plan.conda.specs.join(' ')}`,
+                command: prepared.command,
+                cwd: prepared.cwd
+            });
+        }
+
+        for (const group of plan.pip) {
+            const prepared = await this.prepareInstallPackagesCommand({
+                packages: group.specs,
+                pythonPath: targetPython,
+                extraArgs: group.args,
+                extraIndexUrl: group.extraIndexUrl
+            });
+            commands.push({
+                label: `Install (pip): ${group.specs.join(' ')}`,
+                command: prepared.command,
+                cwd: prepared.cwd
+            });
+        }
+
+        return commands;
     }
 }

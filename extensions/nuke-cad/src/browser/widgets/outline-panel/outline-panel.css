@@ -1,0 +1,1003 @@
+/* Model outline / region manifest panel. All colors come from Theia CSS
+   variables (case-preserved ids); the chrome mirrors openmc-studio's shared
+   patterns (.openmc-header, .category-header + .count-badge). */
+
+.cad-outline-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+}
+
+.cad-outline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.cad-outline-header .header-info {
+    min-width: 0;
+}
+
+.cad-outline-header .header-info h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cad-outline-header .header-info h2 i {
+    color: var(--theia-focusBorder);
+    flex-shrink: 0;
+}
+
+.cad-outline-header .cad-outline-body-count {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 7px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 16px;
+}
+
+.cad-outline-header .header-description {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cad-outline-header .header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.cad-outline-header .manifest-button {
+    min-width: 0;
+    margin-left: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+.cad-outline-header .view-toggle-button {
+    min-width: 0;
+    margin-left: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    font-size: 12px;
+}
+
+.cad-outline-content {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+}
+
+/* Collapsible group headers with row-count badges. One treatment for every
+   section: 11 px uppercase label, tight 2 px bottom margin, and nowrap label
+   text that never gets squeezed by count badges or header actions. */
+.cad-outline-panel .category-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.cad-outline-panel .category-header i {
+    color: var(--theia-focusBorder);
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.cad-outline-panel .category-header .category-header-label {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-outline-panel .category-header:hover {
+    color: var(--theia-foreground);
+}
+
+.cad-outline-panel .category-header .count-badge {
+    flex-shrink: 0;
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.outline-section {
+    margin-bottom: 10px;
+}
+
+.outline-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.outline-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.outline-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.outline-row.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+    border-color: var(--theia-focusBorder);
+}
+
+.outline-row.unmapped {
+    cursor: default;
+    opacity: 0.7;
+}
+
+.outline-row.hidden {
+    opacity: 0.45;
+}
+
+/* Per-row visibility actions: revealed on hover (or while hidden so the row
+   can be un-hidden without hunting for hover state). */
+.outline-row-actions {
+    display: inline-flex;
+    gap: 2px;
+    visibility: hidden;
+    flex-shrink: 0;
+}
+
+.outline-row:hover .outline-row-actions,
+.outline-row.hidden .outline-row-actions {
+    visibility: visible;
+}
+
+.outline-row-action {
+    min-width: 0;
+    margin-left: 0;
+    padding: 1px 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+}
+
+.outline-row-hidden-indicator {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.outline-row-label {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+}
+
+.outline-row-icon {
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
+.outline-row-label-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outline-row-detail {
+    font-size: 11px;
+    font-family: var(--theia-code-font-family);
+    color: var(--theia-descriptionForeground);
+}
+
+.outline-row.selected .outline-row-detail {
+    color: inherit;
+    opacity: 0.8;
+}
+
+.outline-tag {
+    font-size: 10px;
+    padding: 0 6px;
+    border-radius: 8px;
+    color: var(--theia-badge-foreground);
+    background: var(--theia-badge-background);
+}
+
+.outline-row-warning {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-outline-warning-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    background: var(--theia-inputValidation-warningBackground);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
+    border-radius: 6px;
+}
+
+.cad-outline-warning-box > i {
+    font-size: 16px;
+    color: var(--theia-inputValidation-warningBorder);
+    flex-shrink: 0;
+}
+
+.cad-outline-warning-box .warning-content strong {
+    display: block;
+    font-size: 12px;
+    color: var(--theia-inputValidation-warningBorder);
+    margin-bottom: 4px;
+}
+
+.cad-outline-warning-box .warning-content p {
+    margin: 0 0 2px;
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+/* Overlap warning line with its one-click booleanFuse auto-fix */
+.cad-outline-warning-box .warning-content .warning-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cad-outline-warning-box .warning-content .warning-line > span {
+    flex: 1;
+    min-width: 0;
+}
+
+.warning-fix-button {
+    min-width: 0;
+    margin-left: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.cad-outline-hint {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 12px;
+}
+
+.cad-outline-hint code {
+    font-family: var(--theia-code-font-family);
+}
+
+.cad-outline-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-outline-empty > i {
+    width: 32px;
+    height: 32px;
+    -webkit-mask-size: 32px 32px;
+    mask-size: 32px 32px;
+    opacity: 0.3;
+}
+
+.cad-outline-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.cad-outline-empty .empty-hint {
+    font-size: 12px;
+}
+
+/* V7: read-only properties of the selected (or pinned) solid */
+.properties-section {
+    margin-bottom: 10px;
+}
+
+.cad-outline-panel .properties-header {
+    cursor: default;
+}
+
+.pin-button {
+    margin-left: auto;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    padding: 1px 4px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.pin-button:hover {
+    color: var(--theia-foreground);
+}
+
+.pin-button.pinned {
+    color: var(--theia-focusBorder);
+}
+
+.properties-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 12px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.properties-grid .prop-label {
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.properties-grid .prop-value {
+    font-family: var(--theia-code-font-family);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.properties-units-hint {
+    margin: 6px 8px 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Document: compact document metadata above Named Views. */
+.document-settings-grid {
+    display: flex;
+    flex-direction: column;
+    padding: 2px 8px 4px;
+    font-size: 12px;
+}
+
+.document-settings-row {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    height: 24px;
+}
+
+.document-settings-label {
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.document-settings-value {
+    color: var(--theia-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.document-settings-subhead {
+    margin: 8px 0 2px;
+    padding: 0;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 14px;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.document-settings-units {
+    width: 120px;
+    max-width: 100%;
+    justify-self: start;
+}
+
+/* Full-width display row: the checkbox box keeps a 4 px inset so it lines up
+   with the label column instead of floating in the value column (which is too
+   narrow for the label at the default 200 px panel width). */
+.document-settings-row.document-settings-color-row {
+    grid-template-columns: minmax(0, 1fr);
+    padding-left: 4px;
+}
+
+.document-settings-color-by-material {
+    color: var(--theia-foreground);
+    white-space: nowrap;
+}
+
+/* Material legend behind the Color by material toggle: one muted 10 px swatch
+   + tag per distinct body material (max MATERIAL_LEGEND_LIMIT rows). */
+.document-settings-material-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 1px 0 2px;
+    padding: 1px 0 1px 6px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.document-settings-material-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 18px;
+}
+
+.document-settings-material-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.document-settings-material-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Two compact 0–6 precision fields sharing the 24 px document-settings row. */
+.document-settings-precision {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+.document-settings-precision-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    white-space: nowrap;
+}
+
+.document-settings-precision-sep {
+    opacity: 0.7;
+}
+
+.document-settings-precision-input {
+    width: 20px;
+    height: 18px;
+    box-sizing: border-box;
+    padding: 0 2px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-code-font-family);
+    font-size: 10px;
+    text-align: center;
+    appearance: textfield;
+}
+
+.document-settings-precision-input::-webkit-inner-spin-button,
+.document-settings-precision-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.document-settings-precision-input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+}
+
+/* Origin: a master switch above one compact row of axis chips. Chips keep the
+   same 26 px density as other compact outline controls; pressed chips use the
+   viewport triad colors (#e05252/#4caf50/#3b82f6). */
+.origin-axis-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 2px 0;
+}
+
+.origin-master-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 2px 8px;
+}
+
+.origin-master-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+}
+
+.origin-master-toggle {
+    margin-left: auto;
+}
+
+.origin-axis-chips {
+    display: flex;
+    gap: 6px;
+    padding: 2px 8px 6px;
+}
+
+/* The shared Tooltip wraps each chip in a fit-content span; make that wrapper
+   the equal-width flex item so the three chips split the row evenly. */
+.origin-axis-chips > span {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.origin-axis-chip {
+    --origin-axis-color: var(--theia-descriptionForeground);
+    flex: 1 1 0;
+    min-width: 0;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.origin-axis-chip-x {
+    --origin-axis-color: #e05252;
+}
+
+.origin-axis-chip-y {
+    --origin-axis-color: #4caf50;
+}
+
+.origin-axis-chip-z {
+    --origin-axis-color: #3b82f6;
+}
+
+/* Mini axis glyph: a 12 px line paired with the bold letter label. */
+.origin-axis-chip-glyph {
+    width: 12px;
+    height: 2px;
+    flex-shrink: 0;
+    border-radius: 1px;
+    background: var(--origin-axis-color);
+    opacity: 0.55;
+}
+
+.origin-axis-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.origin-axis-chip:not([aria-pressed='true']):hover:not(:disabled) {
+    border-color: var(--theia-panel-border);
+    background: var(--theia-toolbar-hoverBackground);
+    color: var(--theia-foreground);
+}
+
+.origin-axis-chip[aria-pressed='true'] {
+    border-color: var(--origin-axis-color);
+    color: var(--origin-axis-color);
+    background: color-mix(in srgb, var(--origin-axis-color) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--origin-axis-color) 30%, transparent);
+}
+
+.origin-axis-chip[aria-pressed='true'] .origin-axis-chip-glyph {
+    opacity: 1;
+}
+
+.origin-axis-chip[aria-pressed='true']:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--origin-axis-color) 18%, transparent);
+}
+
+.origin-axis-chip:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.origin-axis-chip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.origin-axis-chip[aria-pressed='true']:disabled {
+    color: color-mix(in srgb, var(--origin-axis-color) 65%, var(--theia-descriptionForeground));
+    border-color: color-mix(in srgb, var(--origin-axis-color) 50%, var(--theia-panel-border));
+}
+
+/* V10: spreadsheet table view */
+.outline-table {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 12px;
+    user-select: none;
+}
+
+.outline-table-head,
+.outline-table-tr {
+    display: grid;
+    grid-template-columns: 40px minmax(70px, 1.3fr) repeat(2, minmax(56px, 1fr)) 44px 44px;
+    gap: 8px;
+    align-items: center;
+    padding: 3px 8px;
+}
+
+.outline-table-head {
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.outline-table-th {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.outline-table-th:hover {
+    color: var(--theia-foreground);
+}
+
+.outline-table-th-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outline-table-tr {
+    cursor: pointer;
+}
+
+.outline-table-tr + .outline-table-tr {
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.outline-table-tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.outline-table-tr.selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.outline-table-cell {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.outline-table-cell.num {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    text-align: right;
+}
+
+.outline-table-empty {
+    padding: 10px 8px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Parameters spreadsheet section: sortable name/value/used-by rows with
+ * edit-in-place and an add row. Mirrors the table-view grid above. */
+.param-table {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 12px;
+}
+
+.param-table-head,
+.param-table-tr {
+    display: grid;
+    grid-template-columns: minmax(70px, 1.2fr) minmax(70px, 1fr) minmax(56px, 0.8fr) 40px 28px;
+    gap: 8px;
+    align-items: center;
+    padding: 3px 8px;
+}
+
+.param-table-head {
+    background: var(--theia-titleBar-activeBackground);
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.param-table-th {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.param-table-th:hover {
+    color: var(--theia-foreground);
+}
+
+.param-table-th.unit,
+.param-table-cell.unit {
+    cursor: default;
+    text-align: right;
+    color: var(--theia-descriptionForeground);
+}
+
+.param-table-th.actions {
+    cursor: default;
+}
+
+.param-table-th-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.param-table-tr + .param-table-tr {
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.param-table-tr:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.param-table-cell {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.param-table-cell.name {
+    font-weight: 600;
+}
+
+.param-table-cell.value {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+}
+
+.param-table-cell.value.editable {
+    cursor: text;
+}
+
+.param-table-cell.used-by {
+    color: var(--theia-descriptionForeground);
+}
+
+.param-table-cell.actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.param-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    padding: 2px 6px;
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+}
+
+.param-input:focus {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.param-table-empty {
+    padding: 10px 8px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.param-error {
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--theia-errorForeground);
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.param-add-row {
+    display: grid;
+    grid-template-columns: minmax(70px, 1.2fr) minmax(70px, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 8px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.param-add-button {
+    white-space: nowrap;
+}
+
+.param-hint {
+    margin: 6px 8px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Saved named views: one 24 px camera row per saved pose with a hover delete. */
+.named-views-section .named-view-add {
+    min-width: 0;
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 1px 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+}
+
+.named-view-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.named-view-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 24px;
+    padding-right: 2px;
+    border-radius: 4px;
+}
+
+.named-view-row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.named-view-restore {
+    flex: 1;
+    min-width: 0;
+    min-height: 24px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.named-view-restore:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.named-view-icon {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.named-view-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.named-view-delete {
+    min-width: 0;
+    margin-left: 0;
+    padding: 1px 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+    visibility: hidden;
+}
+
+.named-view-row:hover .named-view-delete,
+.named-view-row:focus-within .named-view-delete {
+    visibility: visible;
+}
+
+.named-view-empty {
+    margin: 4px 8px;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}

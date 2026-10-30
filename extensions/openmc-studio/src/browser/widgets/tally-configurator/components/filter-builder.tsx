@@ -26,9 +26,29 @@
 // *****************************************************************************
 
 import * as React from 'react';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
-import { OpenMCTallyFilter, OpenMCTallyFilterType, OpenMCMesh } from '../../../../common/openmc-state-schema';
-import { OPENMC_FILTERS, getFilterDescriptor, createDefaultFilter } from '../../../../common/filters-catalog';
+import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { OpenMCCell, OpenMCMaterial, OpenMCMesh, OpenMCTallyFilter, OpenMCTallyFilterType } from '../../../../common/openmc-state-schema';
+import { getFilterDescriptor, createDefaultFilter, getFiltersByGroup } from '../../../../common/filters-catalog';
+import { MESH_TYPE_LABELS } from '../../../../common/mesh-utils';
+import { DEFAULT_OPENMC_COMPAT } from '../../../../common/openmc-studio-protocol';
+import type { OpenMCCompat } from '../../../../common/openmc-studio-protocol';
+import {
+    flattenPairs,
+    getCellInstancePairs,
+    getMeshMaterialPairs,
+    getParticleFilterBins,
+    getParticleProductionTypes,
+    particleFilterLegacyBins
+} from '../../../../common/tally-filter-utils';
+import { ParticleTypeMultiSelector } from '../../shared/particle-type-selector';
+import { validateMusurfaceCompanions, validateTallyFilter } from '../../../../common/tally-filter-validation';
+import {
+    CellInstancePairsEditor,
+    MeshMaterialPairsEditor,
+    NuclideBinsEditor,
+    ParticleProductionEditor,
+    ReactionBinsEditor
+} from './filter-editors';
 
 /**
  * Props for the {@link FilterBuilder} component.
@@ -38,6 +58,22 @@ interface FilterBuilderProps {
     filters: OpenMCTallyFilter[];
     /** Available meshes for mesh filters */
     meshes: OpenMCMesh[];
+    /** Geometry cells for the cell-instance picker */
+    cells?: OpenMCCell[];
+    /** Materials for the mesh-material picker */
+    materials?: OpenMCMaterial[];
+    /** Tally scores (mu-surface companion validation) */
+    scores?: string[];
+    /** Whether the configured OpenMC supports mesh-filter rotation (0.16+) */
+    meshRotationSupported?: boolean;
+    /** Whether the configured OpenMC supports reaction filters (0.16+) */
+    reactionFilterSupported?: boolean;
+    /** Whether the configured OpenMC supports particle-production filters (0.16+) */
+    particleProductionFilterSupported?: boolean;
+    /** Whether the configured OpenMC accepts PDG-backed particles beyond neutron/photon/electron/positron (0.16+) */
+    generalizedParticlesSupported?: boolean;
+    /** Full probed compatibility descriptor for particle selectors. */
+    compat?: OpenMCCompat;
     /** Callback when filters are updated */
     onUpdate: (filters: OpenMCTallyFilter[]) => void;
 }
@@ -49,13 +85,32 @@ const DELAYED_GROUPS = [1, 2, 3, 4, 5, 6];
  * Interactive builder for OpenMC tally filters.
  *
  * Renders a parameter editor per filter type driven by the filter catalog
- * (see `src/common/filters-catalog.ts`): domain IDs, energy/angle/time bins,
- * mesh selection, delayed-group checkboxes, expansion orders, and the
- * energy-function response table.
+ * (see `src/common/filters-catalog.ts`), grouped into spatial, energy/angle,
+ * mesh, reaction/particle, and advanced add-filter sections. Structured pair
+ * filters (`cellinstance`, `meshmaterial`) keep their row order and mirror the
+ * flattened OpenMC bin list.
  *
  * @see {@link TallyEditor}
  */
-export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, onUpdate }) => {
+export const FilterBuilder: React.FC<FilterBuilderProps> = ({
+    filters,
+    meshes,
+    cells = [],
+    materials = [],
+    scores = [],
+    meshRotationSupported,
+    reactionFilterSupported,
+    particleProductionFilterSupported,
+    generalizedParticlesSupported,
+    compat,
+    onUpdate
+}) => {
+    const particleCompat =
+        compat ??
+        (generalizedParticlesSupported === undefined
+            ? undefined
+            : { ...DEFAULT_OPENMC_COMPAT, generalizedParticles: generalizedParticlesSupported });
+
     /** Add a new filter of the given type with catalog defaults. */
     const addFilter = (type: OpenMCTallyFilterType) => {
         onUpdate([...filters, createDefaultFilter(type, meshes.length > 0 ? meshes[0].id : undefined)]);
@@ -66,6 +121,17 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         onUpdate(filters.filter((_, i) => i !== index));
     };
 
+    /** Move a filter one position earlier/later, preserving every field. */
+    const moveFilter = (index: number, offset: number) => {
+        const target = index + offset;
+        if (target < 0 || target >= filters.length) {
+            return;
+        }
+        const next = [...filters];
+        [next[index], next[target]] = [next[target], next[index]];
+        onUpdate(next);
+    };
+
     /** Update the filter at the given index with partial changes. */
     const updateFilter = (index: number, updates: Partial<OpenMCTallyFilter>) => {
         const newFilters = [...filters];
@@ -74,8 +140,8 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
     };
 
     /** Render a space-separated numeric bins text input (float). */
-    const renderBinsInput = (filter: OpenMCTallyFilter, index: number, label: string, integer: boolean): React.ReactNode => {
-        const help = getFilterDescriptor(filter.type)?.binHelp ?? 'e.g. 1 2 3';
+    const renderBinsInput = (filter: OpenMCTallyFilter, index: number, label: string, integer: boolean, help?: string): React.ReactNode => {
+        const hint = help ?? getFilterDescriptor(filter.type)?.binHelp ?? 'e.g. 1 2 3';
         return (
             <div className="form-group">
                 <label>{label}</label>
@@ -85,35 +151,168 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                     onChange={(e) =>
                         updateFilter(index, {
                             bins: e.target.value
-                                .split(/\s+/)
-                                .map((v) => (integer ? parseInt(v, 10) : parseFloat(v)))
-                                .filter((v) => !isNaN(v))
+                                .split(/[\s,]+/)
+                                .map((value) => (integer ? parseInt(value, 10) : parseFloat(value)))
+                                .filter((value) => !isNaN(value))
                         })
                     }
-                    placeholder={help}
+                    placeholder={hint}
                 />
-                <p className="form-hint">{help}</p>
+                <Tooltip content={hint} position="top">
+                    <p className="form-hint">{hint}</p>
+                </Tooltip>
             </div>
         );
     };
 
-    /** Render the mesh selector for mesh-based filters. */
-    const renderMeshSelect = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
-        <div className="form-group">
-            <label>Mesh</label>
-            <select
-                value={filter.meshId}
-                onChange={(e) => updateFilter(index, { meshId: parseInt(e.target.value, 10), bins: [parseInt(e.target.value, 10)] })}
-            >
-                <option value={0}>Select Mesh</option>
-                {meshes.map((m) => (
-                    <option key={m.id} value={m.id}>
-                        {m.name || `Mesh ${m.id}`}
-                    </option>
-                ))}
-            </select>
-        </div>
-    );
+    /** Render the mesh selector and transform controls for mesh-based filters. */
+    const renderMeshSelect = (filter: OpenMCTallyFilter, index: number): React.ReactNode => {
+        const selectedMesh = meshes.find((mesh) => mesh.id === filter.meshId);
+        const missingMesh = (filter.meshId ?? 0) > 0 && !selectedMesh;
+        const isMeshMaterial = filter.type === 'meshmaterial';
+        return (
+            <>
+                <div className="form-group">
+                    <label>Mesh</label>
+                    <NukeSelect
+                        value={String(filter.meshId ?? 0)}
+                        options={[
+                            { value: '0', label: 'Select Mesh' },
+                            ...meshes.map((mesh) => ({
+                                value: String(mesh.id),
+                                label: `${mesh.name || `Mesh ${mesh.id}`} · ${MESH_TYPE_LABELS[mesh.type]}`
+                            }))
+                        ]}
+                        onChange={(value: string) => {
+                            const meshId = parseInt(value, 10);
+                            updateFilter(index, isMeshMaterial ? { meshId } : { meshId, bins: [meshId] });
+                        }}
+                        ariaLabel="Mesh"
+                    />
+                    {missingMesh && (
+                        <p className="validation-error">
+                            <i className="codicon codicon-error"></i>
+                            This filter references mesh {filter.meshId}, which no longer exists. Select another mesh or re-create it.
+                        </p>
+                    )}
+                </div>
+                {isMeshMaterial ? (
+                    <>
+                        <MeshMaterialPairsEditor
+                            pairs={getMeshMaterialPairs(filter)}
+                            materials={materials}
+                            mesh={selectedMesh}
+                            onChange={(pairs) => updateFilter(index, { pairs, bins: flattenPairs(pairs) })}
+                        />
+                        {renderMeshTransform(filter, index, false)}
+                    </>
+                ) : (
+                    renderMeshTransform(filter, index, true)
+                )}
+            </>
+        );
+    };
+
+    /** Render optional MeshFilter translation/rotation controls under Advanced. */
+    const renderMeshTransform = (filter: OpenMCTallyFilter, index: number, allowRotation: boolean): React.ReactNode => {
+        const translation = filter.meshTranslation;
+        const rotation = filter.meshRotation;
+        const updateVector = (field: 'meshTranslation' | 'meshRotation', component: number, value: string) => {
+            const base = (filter[field] ?? [0, 0, 0]) as [number, number, number];
+            const next = [...base] as [number, number, number];
+            const parsed = parseFloat(value);
+            next[component] = Number.isFinite(parsed) ? parsed : 0;
+            updateFilter(index, { [field]: next });
+        };
+        return (
+            <details className="mesh-transform">
+                <summary className="mesh-transform-summary">
+                    <span>
+                        <i className="codicon codicon-symbol-ruler"></i> Mesh transform
+                    </span>
+                    <span className="mesh-transform-summary-hint">
+                        {translation || rotation
+                            ? 'configured'
+                            : allowRotation
+                              ? 'optional translation / rotation'
+                              : 'optional translation'}
+                    </span>
+                </summary>
+                <div className="mesh-transform-body">
+                    <div className="mesh-transform-group">
+                        <label className="mesh-transform-toggle">
+                            <input
+                                type="checkbox"
+                                checked={!!translation}
+                                onChange={(e) => updateFilter(index, { meshTranslation: e.target.checked ? [0, 0, 0] : undefined })}
+                            />
+                            <span>Translate mesh (cm)</span>
+                        </label>
+                        {translation && (
+                            <div className="mesh-transform-fields">
+                                {(['X', 'Y', 'Z'] as const).map((axis, component) => (
+                                    <label key={axis}>
+                                        {axis}
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            aria-label={`Translation ${axis}`}
+                                            value={translation[component]}
+                                            onChange={(e) => updateVector('meshTranslation', component, e.target.value)}
+                                        />
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {allowRotation ? (
+                        <div className="mesh-transform-group">
+                            <label className="mesh-transform-toggle">
+                                <input
+                                    type="checkbox"
+                                    checked={!!rotation}
+                                    onChange={(e) => updateFilter(index, { meshRotation: e.target.checked ? [0, 0, 0] : undefined })}
+                                />
+                                <span>Rotate mesh (degrees)</span>
+                            </label>
+                            {rotation && (
+                                <>
+                                    <div className="mesh-transform-fields">
+                                        {(['phi', 'theta', 'psi'] as const).map((axis, component) => (
+                                            <label key={axis}>
+                                                {axis}
+                                                <input
+                                                    type="number"
+                                                    step="any"
+                                                    aria-label={`Rotation ${axis}`}
+                                                    value={rotation[component]}
+                                                    onChange={(e) => updateVector('meshRotation', component, e.target.value)}
+                                                />
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <p className="form-hint">
+                                        Intrinsic Tait-Bryan angles applied as Rz(psi) Ry(theta) Rx(phi), exactly as OpenMC's MeshFilter.
+                                    </p>
+                                    {meshRotationSupported === false && (
+                                        <p className="validation-warning">
+                                            <i className="codicon codicon-warning"></i>
+                                            Mesh rotation requires OpenMC 0.16 or newer. This environment does not support it, so the
+                                            rotation is omitted from generated XML. Remove the rotation or update the Python environment.
+                                        </p>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="form-hint">
+                            OpenMC's mesh-material filter supports translation only; element/material pairs stay fixed to the mesh grid.
+                        </p>
+                    )}
+                </div>
+            </details>
+        );
+    };
 
     /** Render the delayed-group checkbox list (groups 1-6). */
     const renderDelayedGroups = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
@@ -128,7 +327,7 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                             onChange={() =>
                                 updateFilter(index, {
                                     bins: filter.bins.includes(group)
-                                        ? filter.bins.filter((g) => g !== group)
+                                        ? filter.bins.filter((value) => value !== group)
                                         : [...filter.bins, group].sort((a, b) => a - b)
                                 })
                             }
@@ -140,29 +339,22 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         </div>
     );
 
-    /** Render the particle-type checkboxes (1=neutron, 2=photon). */
+    /** Render the multi-select particle bins (presets + custom PDG). */
     const renderParticleTypes = (filter: OpenMCTallyFilter, index: number): React.ReactNode => (
         <div className="form-group">
-            <label>Particle Types</label>
-            <div className="checkbox-row">
-                {[
-                    { id: 1, label: 'Neutron' },
-                    { id: 2, label: 'Photon' }
-                ].map((p) => (
-                    <label key={p.id} className="score-checkbox-label">
-                        <input
-                            type="checkbox"
-                            checked={filter.bins.includes(p.id)}
-                            onChange={() =>
-                                updateFilter(index, {
-                                    bins: filter.bins.includes(p.id) ? filter.bins.filter((b) => b !== p.id) : [...filter.bins, p.id]
-                                })
-                            }
-                        />
-                        <span>{p.label}</span>
-                    </label>
-                ))}
-            </div>
+            <ParticleTypeMultiSelector
+                value={getParticleFilterBins(filter)}
+                onChange={(particles) =>
+                    updateFilter(index, {
+                        particleBins: particles,
+                        bins: particleFilterLegacyBins(particles)
+                    })
+                }
+                scope="tally-filter"
+                compat={particleCompat}
+                ariaLabel="Particle filter bins"
+                label="Particle Types"
+            />
         </div>
     );
 
@@ -210,16 +402,18 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
             <div className="energy-function-editor">
                 <div className="form-group">
                     <label>Interpolation</label>
-                    <select
+                    <NukeSelect
                         value={filter.interpolation ?? 'linear-linear'}
-                        onChange={(e) => updateFilter(index, { interpolation: e.target.value as OpenMCTallyFilter['interpolation'] })}
-                    >
-                        <option value="histogram">Histogram</option>
-                        <option value="linear-linear">Linear-Linear</option>
-                        <option value="linear-log">Linear-Log</option>
-                        <option value="log-linear">Log-Linear</option>
-                        <option value="log-log">Log-Log</option>
-                    </select>
+                        options={[
+                            { value: 'histogram', label: 'Histogram' },
+                            { value: 'linear-linear', label: 'Linear-Linear' },
+                            { value: 'linear-log', label: 'Linear-Log' },
+                            { value: 'log-linear', label: 'Log-Linear' },
+                            { value: 'log-log', label: 'Log-Log' }
+                        ]}
+                        onChange={(value: string) => updateFilter(index, { interpolation: value as OpenMCTallyFilter['interpolation'] })}
+                        ariaLabel="Interpolation"
+                    />
                 </div>
                 {Array.from({ length: rowCount }, (_, row) => (
                     <div className="form-row" key={row}>
@@ -265,10 +459,60 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         switch (descriptor?.editor) {
             case 'mesh':
                 return renderMeshSelect(filter, index);
+            case 'mesh-material-pairs':
+                return renderMeshSelect(filter, index);
+            case 'cell-instance-pairs':
+                return (
+                    <CellInstancePairsEditor
+                        pairs={getCellInstancePairs(filter)}
+                        cells={cells}
+                        onChange={(pairs) => updateFilter(index, { pairs, bins: flattenPairs(pairs) })}
+                    />
+                );
+            case 'nuclide-names':
+                return (
+                    <NuclideBinsEditor
+                        values={filter.nuclideBins ?? []}
+                        onChange={(nuclideBins) => updateFilter(index, { nuclideBins, bins: [] })}
+                    />
+                );
+            case 'reaction-bins':
+                return (
+                    <ReactionBinsEditor
+                        values={filter.reactionBins ?? []}
+                        onChange={(reactionBins) => updateFilter(index, { reactionBins, bins: [] })}
+                    />
+                );
+            case 'particle-production':
+                return (
+                    <ParticleProductionEditor
+                        particles={getParticleProductionTypes(filter)}
+                        energies={filter.productionEnergyBins ?? []}
+                        supported={particleProductionFilterSupported}
+                        compat={particleCompat}
+                        onChange={(updates) => updateFilter(index, updates)}
+                    />
+                );
+            case 'domain-ids':
+                return renderBinsInput(
+                    filter,
+                    index,
+                    filter.type === 'materialfrom' ? 'Material IDs' : 'Bins (IDs, space-separated)',
+                    true
+                );
+            case 'integer-bins':
+                return renderBinsInput(filter, index, 'Collision Numbers', true, 'e.g. 1 2 3 (positive collision counts, ascending)');
+            case 'real-bins':
+                return renderBinsInput(filter, index, 'Weight Bin Edges', false, 'e.g. 0 0.5 1 2 (ascending, non-negative)');
             case 'energy-bins':
                 return renderBinsInput(filter, index, filter.type === 'energy' ? 'Energy Bins (eV)' : 'Outgoing Energy Bins (eV)', false);
             case 'mu-bins':
-                return renderBinsInput(filter, index, 'Cosine of Scattering Angle (-1 to 1)', false);
+                return renderBinsInput(
+                    filter,
+                    index,
+                    filter.type === 'musurface' ? 'Cosine Bin Edges (-1 to 1)' : 'Cosine of Scattering Angle (-1 to 1)',
+                    false
+                );
             case 'polar-bins':
                 return renderBinsInput(filter, index, 'Polar Angle Bins (radians, 0 to π)', false);
             case 'azimuthal-bins':
@@ -288,14 +532,16 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                             {renderOrderInput(filter, index, 'Expansion Order')}
                             <div className="form-group">
                                 <label>Axis</label>
-                                <select
+                                <NukeSelect
                                     value={filter.axis ?? 'z'}
-                                    onChange={(e) => updateFilter(index, { axis: e.target.value as 'x' | 'y' | 'z' })}
-                                >
-                                    <option value="x">X</option>
-                                    <option value="y">Y</option>
-                                    <option value="z">Z</option>
-                                </select>
+                                    options={[
+                                        { value: 'x', label: 'X' },
+                                        { value: 'y', label: 'Y' },
+                                        { value: 'z', label: 'Z' }
+                                    ]}
+                                    onChange={(value: string) => updateFilter(index, { axis: value as 'x' | 'y' | 'z' })}
+                                    ariaLabel="Axis"
+                                />
                             </div>
                         </div>
                         <div className="form-row">
@@ -326,13 +572,15 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
                         {renderOrderInput(filter, index, 'Expansion Order')}
                         <div className="form-group">
                             <label>Cosine Treatment</label>
-                            <select
+                            <NukeSelect
                                 value={filter.cosine ?? 'particle'}
-                                onChange={(e) => updateFilter(index, { cosine: e.target.value as 'scatter' | 'particle' })}
-                            >
-                                <option value="particle">Particle (direction)</option>
-                                <option value="scatter">Scatter (scattering angle)</option>
-                            </select>
+                                options={[
+                                    { value: 'particle', label: 'Particle (direction)' },
+                                    { value: 'scatter', label: 'Scatter (scattering angle)' }
+                                ]}
+                                onChange={(value: string) => updateFilter(index, { cosine: value as 'scatter' | 'particle' })}
+                                ariaLabel="Cosine treatment"
+                            />
                         </div>
                     </div>
                 );
@@ -390,38 +638,131 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({ filters, meshes, o
         }
     };
 
-    const midpoint = Math.ceil(OPENMC_FILTERS.length / 2);
+    const groups = getFiltersByGroup();
 
     return (
         <div className="filter-builder">
             <div className="filter-list">
-                {filters.map((filter, index) => (
-                    <div key={index} className="filter-item">
-                        <div className="filter-header">
-                            <span className="filter-type-badge">{filter.type}</span>
-                            <Tooltip content="Remove filter" position="top">
-                                <button className="remove-filter-btn" onClick={() => removeFilter(index)}>
-                                    <i className="codicon codicon-trash"></i>
-                                </button>
-                            </Tooltip>
+                {filters.map((filter, index) => {
+                    const descriptor = getFilterDescriptor(filter.type);
+                    const issues = validateTallyFilter(filter, { cells, materials, meshes });
+                    if (filter.type === 'musurface') {
+                        issues.push(...validateMusurfaceCompanions(filters, scores));
+                    }
+                    return (
+                        <div className="filter-item" key={index} data-filter-type={filter.type}>
+                            <div className="filter-header">
+                                <Tooltip content={descriptor?.tooltip ?? filter.type} position="top">
+                                    <span className="filter-type-badge" tabIndex={0}>
+                                        {filter.type}
+                                    </span>
+                                </Tooltip>
+                                <span className="filter-label">{descriptor?.label ?? filter.type}</span>
+                                {filter.type === 'mesh' && filter.meshRotation && (
+                                    <Tooltip
+                                        content="Mesh rotated with intrinsic Tait-Bryan angles (phi, theta, psi) applied as Rz(psi) Ry(theta) Rx(phi)"
+                                        position="top"
+                                    >
+                                        <span className="mesh-transform-badge">
+                                            <i className="codicon codicon-refresh"></i> rotated
+                                        </span>
+                                    </Tooltip>
+                                )}
+                                {(filter.type === 'mesh' || filter.type === 'meshborn') && filter.meshTranslation && (
+                                    <span className="mesh-transform-badge">
+                                        <i className="codicon codicon-move"></i> translated
+                                    </span>
+                                )}
+                                <div className="filter-actions">
+                                    <Tooltip content="Move filter earlier (changes bin order)" position="top">
+                                        <button
+                                            className="filter-move-btn"
+                                            aria-label="Move filter up"
+                                            disabled={index === 0}
+                                            onClick={() => moveFilter(index, -1)}
+                                        >
+                                            <i className="codicon codicon-arrow-up"></i>
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip content="Move filter later (changes bin order)" position="top">
+                                        <button
+                                            className="filter-move-btn"
+                                            aria-label="Move filter down"
+                                            disabled={index === filters.length - 1}
+                                            onClick={() => moveFilter(index, 1)}
+                                        >
+                                            <i className="codicon codicon-arrow-down"></i>
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip content="Remove filter" position="top">
+                                        <button
+                                            className="remove-filter-btn"
+                                            aria-label={`Remove ${descriptor?.label ?? filter.type} filter`}
+                                            onClick={() => removeFilter(index)}
+                                        >
+                                            <i className="codicon codicon-trash"></i>
+                                        </button>
+                                    </Tooltip>
+                                </div>
+                            </div>
+                            <p className="filter-summary">{descriptor?.tooltip}</p>
+                            <div className="filter-content">{renderFilterContent(filter, index)}</div>
+                            {issues.length > 0 && (
+                                <div className="filter-issues">
+                                    {issues.map((issue, issueIndex) => (
+                                        <p
+                                            key={issueIndex}
+                                            className={issue.severity === 'error' ? 'validation-error' : 'validation-warning'}
+                                        >
+                                            <i
+                                                className={`codicon ${issue.severity === 'error' ? 'codicon-error' : 'codicon-warning'}`}
+                                            ></i>
+                                            {issue.message}. {issue.fix}.
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                        <div className="filter-content">{renderFilterContent(filter, index)}</div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
-            {[OPENMC_FILTERS.slice(0, midpoint), OPENMC_FILTERS.slice(midpoint)].map((group, groupIndex) => (
-                <div className="add-filter-controls" key={groupIndex} style={groupIndex > 0 ? { marginTop: '8px' } : undefined}>
-                    {group.map((descriptor) => (
-                        <Tooltip key={descriptor.type} content={descriptor.tooltip} position="top">
-                            <button
-                                className="add-button"
-                                onClick={() => addFilter(descriptor.type)}
-                                disabled={descriptor.requiresMesh && meshes.length === 0}
-                            >
-                                + {descriptor.label}
-                            </button>
-                        </Tooltip>
-                    ))}
+            {groups.map((group) => (
+                <div className="add-filter-group" key={group.id}>
+                    <Tooltip content={group.tooltip} position="top">
+                        <div className="add-filter-group-label" tabIndex={0}>
+                            {group.label}
+                        </div>
+                    </Tooltip>
+                    <div className="add-filter-controls">
+                        {group.filters.map((descriptor) => {
+                            const compatUnsupported =
+                                (descriptor.requiresCompat === 'reactionFilter' && reactionFilterSupported === false) ||
+                                (descriptor.requiresCompat === 'particleProductionFilter' && particleProductionFilterSupported === false);
+                            const tooltip = [
+                                descriptor.tooltip,
+                                descriptor.requiresCompat ? 'Requires OpenMC 0.16 or newer.' : '',
+                                compatUnsupported
+                                    ? 'This environment cannot emit it; the filter is kept in the project but omitted from XML/Python.'
+                                    : ''
+                            ]
+                                .filter((part) => part.length > 0)
+                                .join(' ');
+                            return (
+                                <Tooltip key={descriptor.type} content={tooltip} position="top">
+                                    <button
+                                        className={`add-button${descriptor.requiresCompat ? ' add-filter-016' : ''}${
+                                            compatUnsupported ? ' add-filter-unsupported' : ''
+                                        }`}
+                                        onClick={() => addFilter(descriptor.type)}
+                                        disabled={descriptor.requiresMesh && meshes.length === 0}
+                                    >
+                                        + {descriptor.label}
+                                        {descriptor.requiresCompat && <span className="filter-add-compat">0.16</span>}
+                                    </button>
+                                </Tooltip>
+                            );
+                        })}
+                    </div>
                 </div>
             ))}
         </div>

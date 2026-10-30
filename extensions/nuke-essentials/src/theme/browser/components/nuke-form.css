@@ -1,0 +1,80 @@
+/* ============================================================================
+   NukeIDE Form primitives (section card + labelled row)
+   ============================================================================ */
+
+.nuke-section {
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: var(--nuke-radius-lg);
+    padding: var(--nuke-space-5);
+    margin-bottom: var(--nuke-space-5);
+    box-shadow: var(--nuke-shadow-sm);
+}
+
+.nuke-section-title {
+    margin: 0 0 var(--nuke-space-4) 0;
+    font-size: var(--theia-ui-font-size2);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: var(--nuke-space-2);
+    color: var(--theia-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.nuke-section-title .codicon {
+    color: var(--theia-focusBorder);
+}
+
+.nuke-form-row {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: var(--nuke-space-4);
+}
+
+.nuke-form-row-label {
+    display: block;
+    margin-bottom: var(--nuke-space-1);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.nuke-form-row-control {
+    display: flex;
+    align-items: center;
+    gap: var(--nuke-space-2);
+}
+
+.nuke-form-row-control input[type='text'],
+.nuke-form-row-control input[type='number'],
+.nuke-form-row-control select {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.nuke-form-row.checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--nuke-space-2);
+}
+
+.nuke-form-row.checkbox .nuke-form-row-label {
+    margin-bottom: 0;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: normal;
+    color: var(--theia-foreground);
+    cursor: pointer;
+}
+
+.nuke-form-row-hint {
+    display: block;
+    font-size: var(--theia-ui-font-size0);
+    color: var(--theia-descriptionForeground);
+    margin-top: var(--nuke-space-1);
+}

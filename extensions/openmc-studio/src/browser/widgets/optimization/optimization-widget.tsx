@@ -43,6 +43,7 @@ import { applyParameterByPath } from '../../../common/parameter-paths';
 import { STUDIO_CORE_PACKAGES } from '../../../common/packages';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
 import { PlotlyComponent } from 'nuke-visualizer/lib/browser/plotly/plotly-component';
+import { NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 
 /**
@@ -142,7 +143,7 @@ export class OptimizationWidget extends ReactWidget {
         this.title.label = OptimizationWidget.LABEL;
         this.title.caption = OptimizationWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-symbol-variable';
+        this.title.iconClass = 'codicon codicon-openmc-optimize';
 
         // Reset widget state for fresh instance
         this.resetWidgetState();
@@ -334,7 +335,7 @@ export class OptimizationWidget extends ReactWidget {
             <div className="optimization-header">
                 <div className="optimization-info">
                     <h2>
-                        <i className="codicon codicon-symbol-variable"></i>
+                        <i className="codicon codicon-openmc-optimize"></i>
                         Optimization Study
                     </h2>
                     <p className="optimization-description">
@@ -396,26 +397,28 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected renderTabs(): React.ReactNode {
         const tabs = [
-            { id: 'sweeps', label: 'Parameter Sweeps', icon: 'codicon-list-selection' },
-            { id: 'runner', label: 'Batch Runner', icon: 'codicon-play' },
-            { id: 'results', label: 'Results', icon: 'codicon-list-flat' },
-            { id: 'analysis', label: 'Analysis', icon: 'codicon-graph-line' }
+            { id: 'sweeps', label: 'Parameter Sweeps', icon: 'codicon-openmc-optimize' },
+            { id: 'runner', label: 'Batch Runner', icon: 'codicon-openmc-run' },
+            { id: 'results', label: 'Results', icon: 'codicon-openmc-tally' },
+            { id: 'analysis', label: 'Analysis', icon: 'codicon-openmc-plot' }
         ] as const;
 
         return (
             <div className="optimization-tabs">
                 {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.activeTab = tab.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon ${tab.icon}`}></i>
-                        {tab.label}
-                    </button>
+                    <Tooltip key={tab.id} content={tab.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.activeTab === tab.id ? 'active' : ''}`}
+                            aria-label={tab.label}
+                            onClick={() => {
+                                this.activeTab = tab.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon ${tab.icon}`}></i>
+                            <span className="tab-label">{tab.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -427,24 +430,26 @@ export class OptimizationWidget extends ReactWidget {
      */
     protected renderModeSelector(): React.ReactNode {
         const modes = [
-            { id: 'sweep', label: 'Parameter Sweep', icon: 'codicon-list-selection' },
-            { id: 'search', label: 'Criticality Search', icon: 'codicon-target' }
+            { id: 'sweep', label: 'Parameter Sweep', icon: 'codicon-openmc-optimize' },
+            { id: 'search', label: 'Criticality Search', icon: 'codicon-openmc-atom' }
         ] as const;
 
         return (
             <div className="optimization-tabs mode-selector">
                 {modes.map((mode) => (
-                    <button
-                        key={mode.id}
-                        className={`tab-button ${this.workspaceMode === mode.id ? 'active' : ''}`}
-                        onClick={() => {
-                            this.workspaceMode = mode.id;
-                            this.update();
-                        }}
-                    >
-                        <i className={`codicon ${mode.icon}`}></i>
-                        {mode.label}
-                    </button>
+                    <Tooltip key={mode.id} content={mode.label} position="bottom">
+                        <button
+                            className={`tab-button ${this.workspaceMode === mode.id ? 'active' : ''}`}
+                            aria-label={mode.label}
+                            onClick={() => {
+                                this.workspaceMode = mode.id;
+                                this.update();
+                            }}
+                        >
+                            <i className={`codicon ${mode.icon}`}></i>
+                            <span className="tab-label">{mode.label}</span>
+                        </button>
+                    </Tooltip>
                 ))}
             </div>
         );
@@ -453,21 +458,19 @@ export class OptimizationWidget extends ReactWidget {
     /**
      * Build the searchable-parameter options (same vocabulary as the sweep
      * parameter picker: material density/temperature/nuclide fraction).
-     * @returns Option elements grouped per material.
+     * @returns Flat select options (one row per parameter).
      */
-    private renderSearchParameterOptions(): React.ReactNode {
+    private searchParameterSelectOptions(): { value: string; label: string }[] {
         const state = this.stateManager.getState();
-        return state.materials.map((mat) => (
-            <optgroup key={`mat-${mat.id}`} label={`Material: ${mat.name}`}>
-                <option value={`${mat.name}.density`}>{mat.name}.density</option>
-                <option value={`${mat.name}.temperature`}>{mat.name}.temperature</option>
-                {mat.nuclides.map((nuc) => (
-                    <option key={`${mat.name}.${nuc.name}`} value={`${mat.name}.${nuc.name}`}>
-                        {mat.name}.{nuc.name} (fraction)
-                    </option>
-                ))}
-            </optgroup>
-        ));
+        const options: { value: string; label: string }[] = [];
+        state.materials.forEach((mat) => {
+            options.push({ value: `${mat.name}.density`, label: `${mat.name}.density` });
+            options.push({ value: `${mat.name}.temperature`, label: `${mat.name}.temperature` });
+            mat.nuclides.forEach((nuc) => {
+                options.push({ value: `${mat.name}.${nuc.name}`, label: `${mat.name}.${nuc.name} (fraction)` });
+            });
+        });
+        return options;
     }
 
     /**
@@ -484,7 +487,7 @@ export class OptimizationWidget extends ReactWidget {
                 <div className="sweep-card editing">
                     <div className="sweep-editor">
                         <h4>
-                            <i className="codicon codicon-target"></i> Criticality Search
+                            <i className="codicon codicon-openmc-atom"></i> Criticality Search
                         </h4>
                         <p className="section-description">
                             Find the parameter value that produces the target k-effective (openmc.search_for_keff). Each iteration is a full
@@ -492,17 +495,16 @@ export class OptimizationWidget extends ReactWidget {
                         </p>
                         <div className="editor-row">
                             <label>Parameter:</label>
-                            <select
+                            <NukeSelect
                                 value={this.searchParameter}
-                                onChange={(e) => {
-                                    this.searchParameter = e.target.value;
+                                options={[{ value: '', label: '-- Select parameter --' }, ...this.searchParameterSelectOptions()]}
+                                onChange={(value: string) => {
+                                    this.searchParameter = value;
                                     this.update();
                                 }}
                                 className={`theia-select ${!this.searchParameter ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                {this.renderSearchParameterOptions()}
-                            </select>
+                                ariaLabel="Search parameter"
+                            />
                         </div>
                         <div className="editor-row">
                             <label>Target k-eff:</label>
@@ -561,19 +563,21 @@ export class OptimizationWidget extends ReactWidget {
                                 {!bracketValid && <p className="validation-warning">Bracket low must be below bracket high.</p>}
                                 <div className="editor-row">
                                     <label>Method:</label>
-                                    <select
+                                    <NukeSelect
                                         value={this.searchMethod}
-                                        onChange={(e) => {
-                                            this.searchMethod = e.target.value as KeffSearchMethod;
+                                        options={[
+                                            { value: 'bisect', label: 'Bisect (robust)' },
+                                            { value: 'brentq', label: 'Brent-Q (fast)' },
+                                            { value: 'brenth', label: 'Brent-H' },
+                                            { value: 'ridder', label: 'Ridder' }
+                                        ]}
+                                        onChange={(value: string) => {
+                                            this.searchMethod = value as KeffSearchMethod;
                                             this.update();
                                         }}
                                         className="theia-select"
-                                    >
-                                        <option value="bisect">Bisect (robust)</option>
-                                        <option value="brentq">Brent-Q (fast)</option>
-                                        <option value="brenth">Brent-H</option>
-                                        <option value="ridder">Ridder</option>
-                                    </select>
+                                        ariaLabel="Search method"
+                                    />
                                 </div>
                             </>
                         ) : (
@@ -647,28 +651,30 @@ export class OptimizationWidget extends ReactWidget {
                                         </button>
                                     </div>
                                     {result.iterations.length > 0 && (
-                                        <table className="results-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>#</th>
-                                                    <th>Guess</th>
-                                                    <th>k-eff</th>
-                                                    <th>|k-eff − target|</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {result.iterations.map((iter) => (
-                                                    <tr key={iter.iteration}>
-                                                        <td>{iter.iteration}</td>
-                                                        <td>{iter.guess}</td>
-                                                        <td>
-                                                            {iter.keff.toFixed(5)} ± {(iter.keffStd ?? 0).toFixed(5)}
-                                                        </td>
-                                                        <td>{Math.abs(iter.keff - result.target).toFixed(5)}</td>
+                                        <div className="results-table-container">
+                                            <table className="results-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>#</th>
+                                                        <th>Guess</th>
+                                                        <th>k-eff</th>
+                                                        <th>|k-eff − target|</th>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                                </thead>
+                                                <tbody>
+                                                    {result.iterations.map((iter) => (
+                                                        <tr key={iter.iteration}>
+                                                            <td>{iter.iteration}</td>
+                                                            <td>{iter.guess}</td>
+                                                            <td>
+                                                                {iter.keff.toFixed(5)} ± {(iter.keffStd ?? 0).toFixed(5)}
+                                                            </td>
+                                                            <td>{Math.abs(iter.keff - result.target).toFixed(5)}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     )}
                                 </>
                             ) : (
@@ -803,7 +809,7 @@ export class OptimizationWidget extends ReactWidget {
 
                     {sweeps.length === 0 ? (
                         <div className="empty-state">
-                            <i className="codicon codicon-symbol-variable"></i>
+                            <i className="codicon codicon-openmc-optimize"></i>
                             <p>No parameter sweeps defined yet.</p>
                             <p className="empty-hint">Add a sweep to vary parameters across multiple simulations.</p>
                             <div className="empty-actions">
@@ -1006,137 +1012,132 @@ export class OptimizationWidget extends ReactWidget {
                     </div>
                     <div className="editor-row">
                         <label>Parameter Type:</label>
-                        <select
+                        <NukeSelect
                             value={data.parameterType}
-                            onChange={(e) => {
-                                const newType = e.target.value as OpenMCParameterSweep['parameterType'];
+                            options={[
+                                { value: 'material', label: 'Material' },
+                                { value: 'geometry', label: 'Geometry' },
+                                { value: 'settings', label: 'Settings' },
+                                { value: 'tally', label: 'Tally' }
+                            ]}
+                            onChange={(value: string) => {
+                                const newType = value as OpenMCParameterSweep['parameterType'];
                                 updateField('parameterType', newType);
                                 if (newType !== 'material') {
                                     updateField('parameterPath', '');
                                 }
                             }}
                             className="theia-select"
-                        >
-                            <option value="material">Material</option>
-                            <option value="geometry">Geometry</option>
-                            <option value="settings">Settings</option>
-                            <option value="tally">Tally</option>
-                        </select>
+                            ariaLabel="Parameter type"
+                        />
                     </div>
                     {data.parameterType === 'material' && (
                         <div className="editor-row">
                             <label>Parameter Path:</label>
-                            <select
+                            <NukeSelect
                                 value={data.parameterPath}
-                                onChange={(e) => {
-                                    updateField('parameterPath', e.target.value);
-                                    if (e.target.value) {
-                                        const parts = e.target.value.split('.');
+                                options={[
+                                    { value: '', label: '-- Select parameter --' },
+                                    ...(() => {
+                                        const state = this.stateManager.getState();
+                                        const options: { value: string; label: string }[] = [];
+                                        state.materials.forEach((mat) => {
+                                            options.push({ value: `${mat.name}.density`, label: `${mat.name}.density` });
+                                            options.push({ value: `${mat.name}.temperature`, label: `${mat.name}.temperature` });
+                                            mat.nuclides.forEach((nuc) => {
+                                                options.push({ value: `${mat.name}.${nuc.name}`, label: `${mat.name}.${nuc.name}` });
+                                            });
+                                        });
+                                        return options;
+                                    })()
+                                ]}
+                                onChange={(value: string) => {
+                                    updateField('parameterPath', value);
+                                    if (value) {
+                                        const parts = value.split('.');
                                         if (parts.length >= 2) {
                                             updateField('variable', parts[1]);
                                         }
                                     }
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                {(() => {
-                                    const state = this.stateManager.getState();
-                                    const options: React.JSX.Element[] = [];
-                                    state.materials.forEach((mat) => {
-                                        options.push(
-                                            <optgroup key={`mat-${mat.id}`} label={`Material: ${mat.name}`}>
-                                                <option key={`${mat.name}.density`} value={`${mat.name}.density`}>
-                                                    {mat.name}.density
-                                                </option>
-                                                <option key={`${mat.name}.temperature`} value={`${mat.name}.temperature`}>
-                                                    {mat.name}.temperature
-                                                </option>
-                                                {mat.nuclides.map((nuc) => (
-                                                    <option key={`${mat.name}.${nuc.name}`} value={`${mat.name}.${nuc.name}`}>
-                                                        {mat.name}.{nuc.name}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        );
-                                    });
-                                    return options;
-                                })()}
-                            </select>
+                                ariaLabel="Parameter path"
+                            />
                         </div>
                     )}
                     {data.parameterType === 'geometry' && (
                         <div className="editor-row">
                             <label>Parameter Path:</label>
-                            <select
+                            <NukeSelect
                                 value={data.parameterPath}
-                                onChange={(e) => {
-                                    updateField('parameterPath', e.target.value);
-                                    if (e.target.value) {
-                                        const parts = e.target.value.split('.');
+                                options={[
+                                    { value: '', label: '-- Select parameter --' },
+                                    ...(() => {
+                                        const state = this.stateManager.getState();
+                                        const options: { value: string; label: string }[] = [];
+                                        if (state.geometry && state.geometry.cells) {
+                                            state.geometry.cells.forEach((cell) => {
+                                                options.push({
+                                                    value: `${cell.name}.temperature`,
+                                                    label: `${cell.name}.temperature`
+                                                });
+                                            });
+                                        }
+                                        return options;
+                                    })()
+                                ]}
+                                onChange={(value: string) => {
+                                    updateField('parameterPath', value);
+                                    if (value) {
+                                        const parts = value.split('.');
                                         if (parts.length >= 2) {
                                             updateField('variable', parts[1]);
                                         }
                                     }
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                {(() => {
-                                    const state = this.stateManager.getState();
-                                    const options: React.JSX.Element[] = [];
-                                    if (state.geometry && state.geometry.cells) {
-                                        state.geometry.cells.forEach((cell) => {
-                                            options.push(
-                                                <optgroup key={`cell-${cell.id}`} label={`Cell: ${cell.name}`}>
-                                                    <option key={`${cell.name}.temperature`} value={`${cell.name}.temperature`}>
-                                                        {cell.name}.temperature
-                                                    </option>
-                                                </optgroup>
-                                            );
-                                        });
-                                    }
-                                    return options;
-                                })()}
-                            </select>
+                                ariaLabel="Parameter path"
+                            />
                         </div>
                     )}
                     {data.parameterType === 'settings' && (
                         <div className="editor-row">
                             <label>Parameter Path:</label>
-                            <select
+                            <NukeSelect
                                 value={data.parameterPath}
-                                onChange={(e) => {
-                                    updateField('parameterPath', e.target.value);
-                                    if (e.target.value) {
-                                        const parts = e.target.value.split('.');
+                                options={[
+                                    { value: '', label: '-- Select parameter --' },
+                                    { value: 'settings.particles', label: 'particles' },
+                                    { value: 'settings.inactive', label: 'inactive' },
+                                    { value: 'settings.batches', label: 'batches' },
+                                    { value: 'settings.seed', label: 'seed' }
+                                ]}
+                                onChange={(value: string) => {
+                                    updateField('parameterPath', value);
+                                    if (value) {
+                                        const parts = value.split('.');
                                         if (parts.length >= 2) {
                                             updateField('variable', parts[1]);
                                         }
                                     }
                                 }}
                                 className={`theia-select ${!data.parameterPath ? 'invalid' : ''}`}
-                            >
-                                <option value="">-- Select parameter --</option>
-                                <optgroup label="Settings">
-                                    <option value="settings.particles">particles</option>
-                                    <option value="settings.inactive">inactive</option>
-                                    <option value="settings.batches">batches</option>
-                                    <option value="settings.seed">seed</option>
-                                </optgroup>
-                            </select>
+                                ariaLabel="Parameter path"
+                            />
                         </div>
                     )}
                     <div className="editor-row">
                         <label>Range Type:</label>
-                        <select
+                        <NukeSelect
                             value={data.rangeType}
-                            onChange={(e) => updateField('rangeType', e.target.value as 'linear' | 'logarithmic')}
+                            options={[
+                                { value: 'linear', label: 'Linear' },
+                                { value: 'logarithmic', label: 'Logarithmic' }
+                            ]}
+                            onChange={(value: string) => updateField('rangeType', value as 'linear' | 'logarithmic')}
                             className="theia-select"
-                        >
-                            <option value="linear">Linear</option>
-                            <option value="logarithmic">Logarithmic</option>
-                        </select>
+                            ariaLabel="Range type"
+                        />
                     </div>
                     {data.parameterPath?.startsWith('settings.') && (
                         <div className="editor-row validation-warning">
@@ -1362,9 +1363,11 @@ export class OptimizationWidget extends ReactWidget {
                             <div className="validation-header">
                                 <i className={`codicon ${hasErrors ? 'codicon-error' : 'codicon-warning'}`}></i>
                                 <span>{hasErrors ? 'Configuration Issues Found' : 'Configuration Warnings'}</span>
-                                <button className="validation-close" onClick={() => this.toggleValidationDetails()} title="Hide details">
-                                    <i className="codicon codicon-chevron-up"></i>
-                                </button>
+                                <Tooltip content="Hide details" position="top">
+                                    <button className="validation-close" onClick={() => this.toggleValidationDetails()}>
+                                        <i className="codicon codicon-chevron-up"></i>
+                                    </button>
+                                </Tooltip>
                             </div>
                             <div className="validation-content">
                                 {this.runnerValidation.errors.map((error, idx) => (
@@ -1402,7 +1405,7 @@ export class OptimizationWidget extends ReactWidget {
 
                     {sweeps.length === 0 && (
                         <div className="runner-empty-state">
-                            <i className="codicon codicon-list-selection"></i>
+                            <i className="codicon codicon-openmc-run"></i>
                             <p>No sweeps enabled</p>
                             <span>
                                 Enable at least one sweep in the <strong>Parameter Sweeps</strong> tab to start a batch run.
@@ -2164,7 +2167,7 @@ export class OptimizationWidget extends ReactWidget {
         if (runs.length === 0) {
             return (
                 <div className="empty-state">
-                    <i className="codicon codicon-graph"></i>
+                    <i className="codicon codicon-openmc-plot"></i>
                     <p>No completed runs to analyze.</p>
                     <p className="empty-hint">Complete an optimization run to see analysis plots.</p>
                 </div>
@@ -2186,7 +2189,7 @@ export class OptimizationWidget extends ReactWidget {
         if (results.length === 0) {
             return (
                 <div className="empty-state">
-                    <i className="codicon codicon-graph"></i>
+                    <i className="codicon codicon-openmc-plot"></i>
                     <p>No valid results to display.</p>
                     <p className="empty-hint">Run optimization with valid k-eff values.</p>
                 </div>
@@ -2297,20 +2300,16 @@ export class OptimizationWidget extends ReactWidget {
                 <div className="analysis-header">
                     <h3>Results Analysis</h3>
                     <Tooltip content="Select a run to analyze" position="bottom">
-                        <select
-                            className="run-selector"
+                        <NukeSelect
                             value={this.analysisRunId || selectedRun.id}
-                            onChange={(e) => {
-                                this.analysisRunId = e.target.value;
+                            options={[...runs.map((run) => ({ value: run.id, label: run.name }))]}
+                            onChange={(value: string) => {
+                                this.analysisRunId = value;
                                 this.update();
                             }}
-                        >
-                            {runs.map((run) => (
-                                <option key={run.id} value={run.id}>
-                                    {run.name}
-                                </option>
-                            ))}
-                        </select>
+                            className="run-selector"
+                            ariaLabel="Analysis run"
+                        />
                     </Tooltip>
                 </div>
 
@@ -2449,6 +2448,9 @@ export class OptimizationWidget extends ReactWidget {
                     this.stateManager.setProjectPath(uri.path.toString());
                     this.stateManager.markClean();
                     this.messageService.info(`Opened project: ${result.project.state.metadata.name}`);
+                    for (const warning of result.warnings ?? []) {
+                        this.messageService.warn(warning);
+                    }
                     this.update();
                 } else {
                     this.messageService.error(`Failed to open project: ${result.error}`);

@@ -120,6 +120,7 @@ class OpenMCMaterialsParser:
             if density_elem is not None:
                 # Get density value
                 value_str = density_elem.get("value", "0")
+                special_sum = False
                 try:
                     material.density = float(value_str)
                 except ValueError:
@@ -127,12 +128,13 @@ class OpenMCMaterialsParser:
                     if value_str.lower() == "sum":
                         material.density = 0.0
                         material.density_unit = "sum"
+                        special_sum = True
                     else:
                         material.density = 0.0
 
-                # Get density unit
-                units = density_elem.get("units", "g/cm3")
-                material.density_unit = units
+                # A "sum" density defaults to the sum unit, but keeps an
+                # explicit units attribute when the file provides one.
+                material.density_unit = density_elem.get("units", "sum" if special_sum else "g/cm3")
 
             # Parse nuclides
             for nuclide_elem in elem.findall("nuclide"):

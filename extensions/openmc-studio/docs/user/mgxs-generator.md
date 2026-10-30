@@ -8,7 +8,7 @@ The MGXS Generator produces a multi-group cross-section library (`mgxs.h5`) from
 
 ## Opening
 
-- **Command Palette:** `Ctrl+Shift+P` → **"OpenMC Studio: MGXS Generator"**
+- **Command Palette:** `Ctrl+Shift+P` → **`OpenMC/View: MGXS Generator`**
 - **Menu:** `Tools → OpenMC Studio → Advanced → MGXS Generator`
 
 The generator has two modes, selected at the top of the window.

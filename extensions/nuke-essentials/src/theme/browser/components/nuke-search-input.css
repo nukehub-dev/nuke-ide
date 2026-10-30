@@ -1,0 +1,59 @@
+/* ============================================================================
+   NukeIDE Search Input (replaces filter inputs across the IDE)
+   Real search input (typing + fill() free) with codicon magnifier and a
+   clear button while non-empty, on Theia input tokens.
+   ============================================================================ */
+
+.nuke-search-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.nuke-search-input-icon {
+    flex-shrink: 0;
+    color: var(--theia-focusBorder);
+}
+
+.nuke-search-input-field {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: var(--nuke-radius-sm);
+    padding: 2px 6px;
+    font-size: 12px;
+    outline: none;
+}
+
+.nuke-search-input-field:focus {
+    border-color: var(--theia-focusBorder);
+}
+
+.nuke-search-input-field::placeholder {
+    color: var(--theia-input-placeholderForeground);
+}
+
+.nuke-search-clear {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 4px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--theia-descriptionForeground);
+    cursor: pointer;
+}
+
+.nuke-search-clear:hover {
+    color: var(--theia-foreground);
+    background: var(--theia-list-hoverBackground);
+}
+
+.nuke-search-clear .codicon {
+    font-size: 13px;
+}

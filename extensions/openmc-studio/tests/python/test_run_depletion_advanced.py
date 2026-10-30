@@ -31,9 +31,11 @@ class _FakeIndependentOperator:
 class _FakeDeplete:
     MicroXS = _FakeMicroXS
     IndependentOperator = _FakeIndependentOperator
+    last_run_kwargs = None
 
-    @staticmethod
-    def get_microxs_and_flux(model, domains, chain_file=None):
+    @classmethod
+    def get_microxs_and_flux(cls, model, domains, chain_file=None, run_kwargs=None):
+        cls.last_run_kwargs = run_kwargs
         return (["flux", len(domains)], ["micro", len(domains)])
 
 
@@ -124,6 +126,21 @@ class TestBuildIndependentOperator:
         assert op.chain == "chain"
         assert op.kwargs["normalization_mode"] == "source-rate"
         assert op.kwargs["fission_q"] == {"U235": 2.0e8}
+        assert _FakeDeplete.last_run_kwargs is None
+
+    def test_generate_microxs_passes_threads(self, monkeypatch):
+        """--threads is forwarded to the MicroXS transport solve."""
+        fake = _FakeOpenMC()
+        monkeypatch.setitem(sys.modules, "openmc", fake)
+        mats = [_FakeMaterial(1)]
+        run_depletion.build_independent_operator(
+            _args(generate_microxs=True, threads=3),
+            model="model",
+            materials=mats,
+            chain="chain",
+            fission_q=None,
+        )
+        assert _FakeDeplete.last_run_kwargs == {"threads": 3}
 
 
 class TestMainArgparseAdvanced:
@@ -202,6 +219,26 @@ class TestMainArgparseAdvanced:
 
 
 class TestOpenMCIntegration:
+    def test_capability_probes_match_the_installed_openmc(self):
+        """Depletion gates introspect the installed API, never a version string."""
+        deplete = pytest.importorskip("openmc.deplete")
+        import inspect
+
+        from openmc.deplete.abc import Integrator
+
+        params = inspect.signature(Integrator.__init__).parameters
+        assert run_depletion.supports_integrator_option("substeps") == ("substeps" in params)
+        assert run_depletion.supports_integrator_option("continue_timesteps") == (
+            "continue_timesteps" in params
+        )
+        assert run_depletion.supports_integrator_method("add_keff_search_control") == hasattr(
+            Integrator, "add_keff_search_control"
+        )
+        assert run_depletion.supports_integrator_method("add_external_source_rate") == hasattr(
+            Integrator, "add_external_source_rate"
+        )
+        assert hasattr(deplete, "Results")
+
     def test_operator_signatures_accept_new_kwargs(self):
         """The real operator constructors accept the kwargs the script passes."""
         # importorskip on the submodule: plain `import openmc` does not expose openmc.deplete

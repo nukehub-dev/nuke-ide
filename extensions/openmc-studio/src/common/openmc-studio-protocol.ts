@@ -42,10 +42,15 @@ import {
     OpenMCCell,
     OpenMCPlotConfig,
     OpenMCTransferRate,
+    OpenMCReactivityControl,
+    OpenMCExternalSourceRate,
     OpenMCCmfdSettings,
+    OpenMCShutdownDoseConfig,
+    OpenMCDerivedTally,
     OPENMC_STATE_SCHEMA_VERSION,
     DAGMCInfo
 } from './openmc-state-schema';
+import type { OpenMCParticleValue } from './particle-types';
 
 export { OPENMC_STATE_SCHEMA_VERSION };
 
@@ -363,6 +368,18 @@ export interface DepletionRunSettings {
     generateFromModel?: boolean;
     /** External transfer rates between materials */
     transferRates?: OpenMCTransferRate[];
+    /** Substeps per depletion interval (CRAM solve, OpenMC 0.16+) */
+    substeps?: number;
+    /** Zero-based indices of decay-only (zero-power) steps */
+    decayOnlySteps?: number[];
+    /** Reactivity (keff search) control (driver-only, OpenMC 0.16+) */
+    reactivityControl?: OpenMCReactivityControl;
+    /** External feed/removal rates (driver-only, OpenMC 0.15.3+) */
+    externalSourceRates?: OpenMCExternalSourceRate[];
+    /** Previous depletion results file for restart/continuation */
+    continueFromResults?: string;
+    /** Continue the previous schedule instead of appending steps */
+    continueTimesteps?: boolean;
 }
 
 // ============================================================================
@@ -423,21 +440,52 @@ export interface XMLGenerationRequest {
 /**
  * OpenMC version compatibility, detected at runtime per python environment
  * (never version parsing). Covers the settings.xml format skew between
- * release 0.15.3 and post-0.15.3 dev plus feature support gates.
+ * OpenMC 0.15.3 and 0.16.0+ plus feature support gates.
  */
 export interface OpenMCCompat {
     /**
-     * ray_source emission: `direct` = release 0.15.3 (`<random_ray><source>`);
-     * `wrapper` = post-0.15.3 dev (`<ray_source><source>`,
+     * ray_source emission: `direct` = OpenMC 0.15.3 (`<random_ray><source>`);
+     * `wrapper` = OpenMC 0.16.0+ (`<ray_source><source>`,
      * settings.py:2006+ / src/settings.cpp:284-289)
      */
     raySourceFormat: 'direct' | 'wrapper';
-    /** Whether the environment supports `<adjoint_source>` (post-0.15.3 only) */
+    /** Whether the environment supports `<adjoint_source>` (0.16.0+) */
     adjointSource: boolean;
-    /** Whether `openmc.TokamakSource` exists (0.15.4+) */
+    /** Whether `openmc.TokamakSource` exists (0.16.0+) */
     tokamakSource: boolean;
+    /** Whether `openmc.stats.DecaySpectrum` exists (0.16.0+) */
+    decaySpectrum?: boolean;
     /** Whether random ray `sample_method: 's2'` is accepted */
     s2SampleMethod: boolean;
+    /** Whether `Integrator(..., substeps=...)` is accepted (0.16.0+) */
+    depletionSubsteps: boolean;
+    /** Whether `Integrator.add_keff_search_control` exists (0.16.0+) */
+    depletionKeffSearch: boolean;
+    /** Whether `Integrator.add_external_source_rate` exists (0.15.3+) */
+    depletionExternalSourceRate: boolean;
+    /** Whether `continue_timesteps` and restart results are available (0.15.1+) */
+    depletionContinuation: boolean;
+    /** Whether `Settings.shared_secondary_bank` / `<shared_secondary_bank>` exists (0.16.0+) */
+    sharedSecondaryBank?: boolean;
+    /** Whether surface-grazing cutoffs exist (0.16.0+) */
+    surfaceGrazing?: boolean;
+    /**
+     * Whether `openmc.MeshFilter.rotation` exists and accepts Euler angles
+     * (0.16.0+). MeshFilter translation is supported by every release.
+     */
+    meshFilterRotation?: boolean;
+    /** Whether source distributions accept a `bias` argument / `<bias>` XML child (0.16.0+) */
+    sourceBias?: boolean;
+    /** Whether `openmc.ReactionFilter` exists and accepts string/MT bins (0.16.0+). */
+    reactionFilter?: boolean;
+    /** Whether `openmc.ParticleProductionFilter` exists (0.16.0+). */
+    particleProductionFilter?: boolean;
+    /**
+     * Whether `openmc.ParticleType` is the PDG-backed class (0.16.0+), which
+     * accepts arbitrary particles such as `He4`/`U235`. The 0.15.3 `IntEnum`
+     * only accepts neutron/photon/electron/positron.
+     */
+    generalizedParticles?: boolean;
 }
 
 /** Release-compatible default (stable releases are the common case). */
@@ -445,7 +493,19 @@ export const DEFAULT_OPENMC_COMPAT: OpenMCCompat = {
     raySourceFormat: 'direct',
     adjointSource: false,
     tokamakSource: false,
-    s2SampleMethod: false
+    decaySpectrum: false,
+    s2SampleMethod: false,
+    depletionSubsteps: false,
+    depletionKeffSearch: false,
+    depletionExternalSourceRate: true,
+    depletionContinuation: true,
+    sharedSecondaryBank: false,
+    surfaceGrazing: false,
+    meshFilterRotation: false,
+    sourceBias: false,
+    reactionFilter: false,
+    particleProductionFilter: false,
+    generalizedParticles: false
 };
 
 /** Result of XML generation */
@@ -512,6 +572,36 @@ export interface XMLImportResult {
     errors: string[];
     /** Warnings during import */
     warnings: string[];
+    /** Structured report of what was imported, ignored, or needs attention */
+    report?: XMLImportReport;
+}
+
+/** Counts of model objects reconstructed by an XML import. */
+export interface XMLImportCounts {
+    materials: number;
+    surfaces: number;
+    cells: number;
+    universes: number;
+    lattices: number;
+    tallies: number;
+    meshes: number;
+    plots: number;
+    sources: number;
+}
+
+/**
+ * Import report shown after XML import. Every parse warning is classified so
+ * unsupported or lossy constructs are never silently dropped.
+ */
+export interface XMLImportReport {
+    /** XML files that were present and parsed. */
+    files: string[];
+    /** Reconstructed object counts. */
+    imported: XMLImportCounts;
+    /** Constructs that were deliberately ignored, with the reason. */
+    ignored: string[];
+    /** Constructs that need review before running (missing files, references, environment gates). */
+    needsAttention: string[];
 }
 
 // ============================================================================
@@ -529,6 +619,11 @@ export interface SimulationRunRequest {
     /** Working directory containing XML files */
     workingDirectory: string;
     openmcPath?: string;
+    /**
+     * OpenMP threads per OpenMC process (CLI `-s N`; per MPI rank). Omitted
+     * means OpenMC's default (all hardware threads / OMP_NUM_THREADS).
+     */
+    threads?: number;
     /** MPI configuration */
     mpi?: {
         enabled: boolean;
@@ -789,6 +884,8 @@ export interface ProjectLoadResult {
     success: boolean;
     /** Loaded project file */
     project?: OpenMCProjectFile;
+    /** Non-fatal load/migration warnings (retired fields, dropped settings) */
+    warnings?: string[];
     /** Error message if failed */
     error?: string;
 }
@@ -845,7 +942,7 @@ export interface WWINPImportResult {
         lowerBound: number | number[];
         upperBound?: number | number[];
         energyBounds?: number[];
-        particleType?: 'neutron' | 'photon';
+        particleType?: OpenMCParticleValue;
     };
     /** Error message if failed */
     error?: string;
@@ -861,7 +958,7 @@ export interface WWINPExportRequest {
         lowerBound: number | number[];
         upperBound?: number | number[];
         survivalWeight?: number;
-        particleType?: 'neutron' | 'photon';
+        particleType?: OpenMCParticleValue;
         energyBounds?: number[];
     };
     /** Available meshes for dimension info */
@@ -873,6 +970,213 @@ export interface WWINPExportResult {
     /** Whether export was successful */
     success: boolean;
     /** Error message if failed */
+    error?: string;
+}
+
+// ============================================================================
+// Shutdown Dose (R2S / D1S)
+// ============================================================================
+
+/** Request to validate a shutdown-dose configuration before running. */
+export interface ShutdownDoseValidationRequest {
+    /** Current project state (tallies, geometry, settings). */
+    state: OpenMCState;
+    /** Configuration to validate. */
+    config: OpenMCShutdownDoseConfig;
+}
+
+/** One validation finding from the backend. */
+export interface ShutdownDoseValidationIssue {
+    /** Blocking or advisory */
+    severity: 'error' | 'warning';
+    /** Configuration field */
+    field: string;
+    /** What is wrong */
+    message: string;
+    /** How to fix it */
+    suggestion: string;
+}
+
+/** Result of backend-side shutdown-dose validation. */
+export interface ShutdownDoseValidationResult {
+    success: boolean;
+    ready: boolean;
+    issues: ShutdownDoseValidationIssue[];
+    error?: string;
+}
+
+/** Run a shutdown-dose workflow (R2S or D1S). */
+export interface StartShutdownDoseRequest {
+    /** Directory containing the generated model XML. */
+    workingDirectory: string;
+    /** Driver configuration persisted in the project. */
+    config: OpenMCShutdownDoseConfig;
+    /** Extra environment variables for the driver. */
+    env?: Record<string, string>;
+}
+
+/** Progress stages emitted by the shutdown-dose drivers. */
+export type ShutdownDoseStep = 'neutron' | 'activation' | 'source' | 'photon' | 'd1s' | 'done';
+
+/** Progress update for a running shutdown-dose workflow. */
+export interface ShutdownDoseProgress {
+    /** Current stage */
+    step: ShutdownDoseStep;
+    /** Human-readable status */
+    message: string;
+    /** Optional completion fraction in [0, 1] */
+    fraction?: number;
+}
+
+/** Compact photon tally payload for result charts. */
+export interface ShutdownDoseTallySummary {
+    /** Photon time index (R2S) or undefined (D1S) */
+    timeIndex?: number;
+    /** Tally ID */
+    tallyId: number;
+    /** Tally name */
+    name?: string;
+    /** Scores */
+    scores: string[];
+    /** Number of tally bins */
+    bins: number;
+    /** Mean values (capped for very large tallies) */
+    mean: number[];
+    /** Standard deviation values when available */
+    stdDev?: number[];
+    /** Minimum finite mean */
+    min?: number;
+    /** Maximum finite mean */
+    max?: number;
+    /** Sum of finite means */
+    sum?: number;
+    /** Parent-nuclide bins when present */
+    parentNuclides?: string[];
+    /** Whether a D1S correction summed over the parent nuclides */
+    summedOverParents?: boolean;
+}
+
+/** Activity summary derived from the activation results. */
+export interface ShutdownDoseActivitySummary {
+    /** Times in seconds */
+    timesSeconds: number[];
+    /** Total activity over all activation regions in Bq */
+    totalBq: number[];
+    /** Per-region activity in Bq */
+    byRegion?: Array<{ region: string; totalBq: number[] }>;
+}
+
+/** Decay-heat summary derived from the activation results. */
+export interface ShutdownDoseDecayHeatSummary {
+    /** Times in seconds */
+    timesSeconds: number[];
+    /** Total decay heat over all activation regions in W */
+    totalW: number[];
+}
+
+/** Machine-readable result summary written by the drivers. */
+export interface ShutdownDoseSummary {
+    /** Analysis method */
+    method: 'r2s' | 'd1s';
+    /** Schedule values (as configured) */
+    timesteps: (number | string)[];
+    /** Source rates per interval */
+    sourceRates: number[];
+    /** Photon time indices actually transported */
+    photonTimeIndices?: number[];
+    /** Number of activation regions */
+    activationRegions?: number;
+    /** Number of photon tallies */
+    photonTallies?: number;
+    /** Photon tally data */
+    photonTallySummaries?: ShutdownDoseTallySummary[];
+    /** Number of neutron tallies scored during R2S neutron transport */
+    neutronTallies?: number;
+    /** Neutron tally data (R2S only, non-photon tallies) */
+    neutronTallySummaries?: ShutdownDoseTallySummary[];
+    /** Peak/mean response of the selected dose tally */
+    dose?: { tallyId: number; timeIndex?: number; peak: number; mean: number };
+    /** Activation activity */
+    activity?: ShutdownDoseActivitySummary;
+    /** Activation decay heat */
+    decayHeat?: ShutdownDoseDecayHeatSummary;
+    /** D1S time correction factor per parent nuclide at the selected time */
+    timeCorrectionFactors?: Record<string, number>;
+    /** Non-fatal warnings (e.g. times without a decay source) */
+    warnings?: string[];
+}
+
+/** Final result of a shutdown-dose run. */
+export interface ShutdownDoseResult {
+    /** Whether the driver completed successfully */
+    success: boolean;
+    /** Directory containing the run output tree */
+    outputDirectory?: string;
+    /** Parsed summary */
+    summary?: ShutdownDoseSummary;
+    /** Files produced by the run */
+    files?: string[];
+    /** Path to the final photon statepoint (R2S) or transport statepoint (D1S) */
+    statepoint?: string;
+    /** Error message */
+    error?: string;
+}
+
+/** Immediate response when a run is launched. */
+export interface ShutdownDoseStartResponse {
+    /** Backend process identifier for progress and cancellation */
+    processId: string;
+    /** Whether the process started */
+    success: boolean;
+    /** Error message when the process could not start */
+    error?: string;
+}
+
+/** Streamed progress event (result is present on the terminal event). */
+export interface ShutdownDoseProgressEvent {
+    /** Backend process identifier */
+    processId: string;
+    /** Stage update */
+    progress: ShutdownDoseProgress;
+    /** Final result when the process exits */
+    result?: ShutdownDoseResult;
+}
+
+/** Read a previously written summary (used to resume the results page). */
+export interface ReadShutdownDoseSummaryRequest {
+    /** Driver output directory */
+    outputDirectory: string;
+}
+
+/** Result of reading a shutdown-dose summary. */
+export interface ReadShutdownDoseSummaryResult {
+    success: boolean;
+    result?: ShutdownDoseResult;
+    error?: string;
+}
+
+/** Request dose-response coefficients from OpenMC's shipped dose tables. */
+export interface DoseCoefficientsRequest {
+    /** Incident particle (currently photon) */
+    particle?: 'photon';
+    /** ICRP data source */
+    dataSource: 'icrp74' | 'icrp116';
+    /** Dose quantity */
+    doseQuantity: 'effective' | 'ambient';
+    /** Irradiation geometry (effective dose) */
+    geometry: 'AP' | 'PA' | 'LLAT' | 'RLAT' | 'ROT' | 'ISO';
+}
+
+/** Dose-response table returned by the backend. */
+export interface DoseCoefficientsResult {
+    success: boolean;
+    /** Energy grid in eV */
+    energy?: number[];
+    /** Response values (pSv cm² for photons) */
+    response?: number[];
+    /** Units label */
+    units?: string;
+    /** Error message */
     error?: string;
 }
 
@@ -910,6 +1214,13 @@ export interface OpenMCStudioBackendService {
      * random ray adjoint / s2 sampling) before XML generation.
      */
     getOpenMCCompat(): Promise<OpenMCCompat>;
+
+    /**
+     * Check a local file for the mesh editor's missing-file hint.
+     * @param filePath - Absolute path to check.
+     * @returns Existence, size in bytes, and a diagnostic on failure.
+     */
+    checkFileExists(filePath: string): Promise<{ exists: boolean; size?: number; error?: string }>;
 
     // === XML Generation ===
 
@@ -973,6 +1284,23 @@ export interface OpenMCStudioBackendService {
     /** Build a custom depletion chain XML (subset or ENDF mode, blocking) */
     buildChain(request: ChainBuildRequest): Promise<ChainBuildResult>;
 
+    // === Shutdown Dose (R2S / D1S) ===
+
+    /** Validate a shutdown-dose configuration (pure state checks + filesystem). */
+    validateShutdownDose(request: ShutdownDoseValidationRequest): Promise<ShutdownDoseValidationResult>;
+
+    /** Launch an R2S or D1S driver; progress streams through {@link OpenMCStudioClient.onShutdownDoseProgress}. */
+    startShutdownDose(request: StartShutdownDoseRequest): Promise<ShutdownDoseStartResponse>;
+
+    /** Cancel a running shutdown-dose driver. */
+    cancelShutdownDose(processId: string): Promise<boolean>;
+
+    /** Read a driver summary JSON from an output directory. */
+    readShutdownDoseSummary(request: ReadShutdownDoseSummaryRequest): Promise<ReadShutdownDoseSummaryResult>;
+
+    /** Read photon dose-response coefficients from OpenMC's shipped ICRP tables. */
+    getDoseCoefficients(request: DoseCoefficientsRequest): Promise<DoseCoefficientsResult>;
+
     // === Validation ===
 
     /** Validate simulation state */
@@ -1013,6 +1341,9 @@ export interface OpenMCStudioBackendService {
 
     /** Read a single statepoint file and extract data */
     readStatepoint(request: ReadStatepointRequest): Promise<ReadStatepointResult>;
+
+    /** Evaluate persisted derived-tally expressions against a statepoint (analysis-only) */
+    evaluateDerivedTallies(request: EvaluateDerivedTalliesRequest): Promise<EvaluateDerivedTalliesResult>;
 
     /** Compare multiple statepoint files */
     compareStatepoints(request: CompareStatepointsRequest): Promise<CompareStatepointsResult>;
@@ -1066,6 +1397,9 @@ export interface OpenMCStudioBackendService {
         faceCount: number;
         bounds?: { min: [number, number, number]; max: [number, number, number] };
     }>;
+
+    /** Import a DAGMC model produced by nuke-cad into the OpenMC project */
+    importNukeCAD(request: NukeCADImportRequest): Promise<NukeCADImportResult>;
 
     // === DAGMC Editor ===
 
@@ -1383,6 +1717,62 @@ export interface CADImportResult {
     dagmcInfo?: DAGMCInfo;
 }
 
+/** Nuke-cad import request */
+export interface NukeCADImportRequest {
+    /** Path to the DAGMC .h5m file produced by nuke-cad */
+    h5mPath: string;
+    /** Optional explicit path to the nuke-cad region manifest (.regions.json) */
+    manifestPath?: string;
+}
+
+/** Physical-model link from a nuke-cad region manifest volume. */
+export interface NukeCADMaterialLink {
+    selector: string;
+    name?: string;
+    material?: string;
+    materialId?: string;
+    parentId?: string;
+    /** True when inherited from the manifest's default entry. */
+    fromDefault?: boolean;
+}
+
+/** Nuke-cad import result */
+export interface NukeCADImportResult {
+    /** Whether import was successful */
+    success: boolean;
+    /** Error message if failed */
+    error?: string;
+    /** Warning messages */
+    warnings?: string[];
+    /** Absolute path to the imported DAGMC file */
+    dagmcFile?: string;
+    /** DAGMC model information */
+    dagmcInfo?: DAGMCInfo;
+    /** Parsed nuke-cad region manifest, if found */
+    manifest?: {
+        version: number;
+        volumes: Array<{
+            selector: string;
+            name?: string;
+            material?: string;
+            materialId?: string;
+            parentId?: string;
+            default?: boolean;
+            tags?: string[];
+            meshSize?: number;
+        }>;
+        surfaces: Array<{
+            selector: string;
+            name?: string;
+            role?: string;
+        }>;
+    };
+    /** Material names extracted from the manifest or DAGMC file */
+    materialNames?: string[];
+    /** Physical-model links from the manifest (additive; nuclear sidecar stays keyed by material name). */
+    materialLinks?: NukeCADMaterialLink[];
+}
+
 // ============================================================================
 // Statepoint Comparison
 // ============================================================================
@@ -1444,6 +1834,59 @@ export interface StatepointInfo {
     date?: string;
     entropy?: number[];
     sourceParticles?: number;
+}
+
+/** One result filter axis from a derived tally, with OpenMC bin values. */
+export interface OpenMCDerivedTallyAxis {
+    /** OpenMC filter type (`cell`, `energy`, `mesh`, ...). */
+    type: string;
+    /** Logical filter bins (numbers, `[lo, hi]` pairs, or mesh indices). */
+    bins: unknown[];
+}
+
+/** Evaluated derived-tally result (analysis-only; never a simulation input). */
+export interface OpenMCDerivedTallyResult {
+    id: number;
+    name: string;
+    description?: string;
+    /** Canonical formula, e.g. `T1[flux] / T2[fission]`. */
+    formula: string;
+    unit?: string;
+    color?: string;
+    /** Flattened filter-major mean values (`filter bins x nuclides x 1 score`). */
+    mean: number[];
+    /** Flattened standard deviations in the same order as {@link mean}. */
+    stdDev: number[];
+    totalBins: number;
+    filters: OpenMCDerivedTallyAxis[];
+    scores: string[];
+    nuclides: string[];
+    shape: { filterBins: number; nuclides: number; scores: number };
+    warnings?: string[];
+}
+
+/** One derived tally that failed to evaluate against a statepoint. */
+export interface OpenMCDerivedTallyEvaluationError {
+    id?: number;
+    name?: string;
+    error: string;
+    traceback?: string;
+}
+
+/** Request to evaluate persisted derived tallies against a statepoint. */
+export interface EvaluateDerivedTalliesRequest {
+    statepointPath: string;
+    derivedTallies: OpenMCDerivedTally[];
+}
+
+/** Result of evaluating derived tallies against a statepoint. */
+export interface EvaluateDerivedTalliesResult {
+    success: boolean;
+    statepoint?: string;
+    derivedTallies: OpenMCDerivedTallyResult[];
+    errors: OpenMCDerivedTallyEvaluationError[];
+    error?: string;
+    traceback?: string;
 }
 
 /** Request to read a statepoint file */
@@ -1818,4 +2261,6 @@ export interface OpenMCStudioClient {
     onOptimizationProgress?(event: OptimizationProgressEvent): void;
     /** Optimization iteration complete */
     onOptimizationIterationComplete?(runId: string, result: OptimizationIterationResult): void;
+    /** Shutdown-dose progress / terminal result */
+    onShutdownDoseProgress?(event: ShutdownDoseProgressEvent): void;
 }

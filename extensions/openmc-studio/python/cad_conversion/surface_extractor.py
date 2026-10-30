@@ -12,9 +12,16 @@ from .core import SurfaceFitResult, is_axis_aligned
 from .ocp_compat import topods_face
 from .surface_fitter import classify_and_fit
 
-# Optional OCP/CadQuery import for exact parameter extraction
+# CadQuery is optional (user-installed); OCP is the bundled CAD kernel.
 try:
     import cadquery as cq
+
+    HAS_CADQUERY = True
+except (ImportError, AttributeError):
+    cq = None  # type: ignore
+    HAS_CADQUERY = False
+
+try:
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import (
         GeomAbs_Cone,
@@ -27,12 +34,40 @@ try:
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopoDS import TopoDS
 
-    HAS_CADQUERY = True
+    HAS_OCP = True
 except (ImportError, AttributeError):
-    # AttributeError can be raised by incompatible OCP/CadQuery builds
-    # (e.g. missing TopoDS.Vertex). Treat a broken OCCT stack as unavailable
-    # and fall back to gmsh sampling + fitting.
-    HAS_CADQUERY = False
+    # AttributeError can be raised by incompatible OCP builds (e.g. missing
+    # TopoDS.Vertex). Treat a broken OCCT stack as unavailable and fall back
+    # to gmsh sampling + fitting.
+    HAS_OCP = False
+
+
+def _read_step_with_ocp(file_path: str):
+    """Read a STEP file into a TopoDS_Shape with OCP (no CadQuery)."""
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPControl import STEPControl_Reader
+
+    reader = STEPControl_Reader()
+    if reader.ReadFile(str(file_path)) != IFSelect_RetDone:
+        return None
+    reader.TransferRoots()
+    shape = reader.OneShape()
+    if shape is None or getattr(shape, "IsNull", lambda: False)():
+        return None
+    return shape
+
+
+def _read_brep_with_ocp(file_path: str):
+    """Read a native BREP file into a TopoDS_Shape with OCP."""
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepTools import BRepTools
+    from OCP.TopoDS import TopoDS_Shape
+
+    shape = TopoDS_Shape()
+    builder = BRep_Builder()
+    if not BRepTools.Read_s(shape, str(file_path), builder):
+        return None
+    return shape
 
 
 # Cache for OCCT exact parameters per file
@@ -40,13 +75,13 @@ _occ_cache: dict[str, list[SurfaceFitResult | None]] = {}
 
 
 def _load_occ_params(file_path: str) -> list[SurfaceFitResult | None] | None:
-    """Load exact surface parameters from OCCT via CadQuery.
+    """Load exact surface parameters from OCCT via OCP (or CadQuery).
 
     Returns a list indexed by gmsh face tag (1-based) of SurfaceFitResult
-    or None for each face.  Returns None if CadQuery is unavailable or
+    or None for each face.  Returns None if no CAD kernel is available or
     the file format is not supported.
     """
-    if not HAS_CADQUERY:
+    if not HAS_OCP:
         return None
 
     ext = Path(file_path).suffix.lower()
@@ -54,14 +89,19 @@ def _load_occ_params(file_path: str) -> list[SurfaceFitResult | None] | None:
         return None
 
     try:
-        if ext in (".step", ".stp"):
-            result = cq.importers.importStep(file_path)
-        elif ext in (".brep", ".brp"):
-            result = cq.importers.importBrep(file_path)
+        if HAS_CADQUERY:
+            if ext in (".step", ".stp"):
+                result = cq.importers.importStep(file_path)
+            else:
+                result = cq.importers.importBrep(file_path)
+            compound = result.val().wrapped
+        elif ext in (".step", ".stp"):
+            compound = _read_step_with_ocp(file_path)
         else:
+            compound = _read_brep_with_ocp(file_path)
+        if compound is None:
             return None
 
-        compound = result.val().wrapped
         explorer = TopExp_Explorer(compound, TopAbs_FACE)
 
         params: list[SurfaceFitResult | None] = [None]  # index 0 unused

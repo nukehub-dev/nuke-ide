@@ -10,24 +10,26 @@ Nuke Visualizer requires a Python environment with scientific computing packages
 
 ### Base Visualizer (3D Mesh Viewer)
 
-| Package           | Required? | Notes                                 |
-| ----------------- | --------- | ------------------------------------- |
-| `trame`           | Yes       | Web UI framework for Python           |
-| `paraview`        | Yes       | Usually installed via conda           |
-| `pydagmc`         | No        | For advanced DAGMC features           |
-| `moab` / `pymoab` | No        | For DAGMC .h5m file conversion        |
-| `gmsh`            | No        | For STEP/STP/BREP CAD file conversion |
+| Package   | Required?        | Notes                                                                  |
+| --------- | ---------------- | ---------------------------------------------------------------------- |
+| `vtk`     | Yes              | VTK conversion, export, mesh quality, and line-profile probing         |
+| `pydagmc` | For `.h5m` files | DAGMC model and volume inspection; it imports `pymoab`                 |
+| `moab`    | For `.h5m` files | Provides `pymoab` for pydagmc and DAGMC conversion                     |
+| `gmsh`    | For `.msh` files | Gmsh mesh import; also meshes STEP/BREP when opened in Nuke Visualizer |
 
 ### OpenMC Plugin
 
-| Package  | Required? | Notes                             |
-| -------- | --------- | --------------------------------- |
-| `openmc` | Yes       | Monte Carlo simulation toolkit    |
-| `h5py`   | Yes       | For reading HDF5 statepoint files |
-| `numpy`  | Yes       | Array processing                  |
+| Package  | Required? | Notes                                         |
+| -------- | --------- | --------------------------------------------- |
+| `openmc` | Yes       | Monte Carlo simulation toolkit                |
+| `h5py`   | Yes       | For reading HDF5 statepoint files             |
+| `numpy`  | Yes       | Array processing                              |
+| `vtk`    | Yes       | 3D mesh tally, overlay, and output conversion |
 
-> **Tip:** The easiest way to get everything is via conda:  
-> `conda install -c conda-forge openmc paraview trame`
+> **Tip:** The easiest way to get the core OpenMC stack is via conda:
+> `conda install -c conda-forge openmc vtk h5py numpy`
+>
+> For `.h5m` files, add `pydagmc` and `moab`; the Visualizer health check offers the pinned install for both.
 
 ---
 
@@ -72,10 +74,13 @@ If the health check reports missing packages, you can install them directly:
 
 1. In the Explorer sidebar, **click** any of these file types:
    - `.h5m` — DAGMC geometry
-   - `.step`, `.stp`, `.brep` — CAD geometry
-   - `.vtk`, `.vtu`, `.vtp` — VTK data
+   - `.msh` — Gmsh mesh
+   - `.vtk`, `.vtu`, `.vtp`, `.vti` — VTK data
+   - `.e`, `.exo*` — Exodus time series
    - `.stl`, `.ply`, `.obj` — Surface meshes
-2. The **Visualizer** panel opens with an interactive 3D view.
+2. The **Visualizer** tab opens with an interactive 3D view.
+
+> **STEP / STP / BREP:** With Nuke CAD installed, these files open in the Nuke CAD viewport by default. To view one in Nuke Visualizer, use **Open With… → Open in Nuke Visualizer** (the CAD viewport's **Open CAD Model…** action opens it as a CAD document instead).
 
 ### OpenMC Statepoint
 

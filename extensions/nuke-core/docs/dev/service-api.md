@@ -67,10 +67,10 @@ const result = await this.nukeCore.detectPythonWithRequirements({
   requiredPackages: [
     { name: 'openmc', required: true },
     { name: 'numpy', required: true, minVersion: '1.20.0' },
-    { name: 'paraview', condaOnly: true }
+    { name: 'mpi4py', condaOnly: true }
   ],
   // Optional: prefer these environment names if multiple match
-  autoDetectEnvs: ['openmc', 'nuke-ide'],
+  autoDetectEnvs: ['openmc', 'ide'],
   // Also search for venvs in the workspace
   searchWorkspaceVenvs: true
 });
@@ -115,7 +115,7 @@ await this.nukeCore.switchToEnvironment(environments[0]);
 
 ### `ensurePackages`
 
-The easiest way to guarantee required packages are available in the **configured** environment. This checks dependencies, prompts the user if anything is missing, installs via a live terminal, and re-checks.
+The easiest way to guarantee required packages are available in the selected environment. This checks dependencies, prompts the user if anything is missing, installs via a live terminal, and re-checks.
 
 ```typescript
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
@@ -140,7 +140,7 @@ export class MyExtension {
     } else if (result.installed === false) {
       console.log('User declined installation');
     } else if (!result.environment) {
-      console.log('No configured environment');
+      console.log('No selected environment');
     } else {
       console.log('Failed to install:', result.missingPackages);
     }
@@ -150,15 +150,15 @@ export class MyExtension {
 
 **What `ensurePackages` does:**
 
-1. Gets the **configured** environment (never a fallback).
+1. Gets the **selected** environment via `getSelectedEnvironment()` — the active configured environment when one exists, otherwise the first discovered environment (so an unconfigured workspace can fall back to a usable interpreter).
 2. Runs `checkDependencies()` directly on that environment's Python path.
 3. If all packages exist → returns success immediately.
 4. If packages are missing → shows a Theia notification with an **Install** action.
-5. If the user clicks **Install** → launches a live terminal and installs into the configured environment.
+5. If the user clicks **Install** → launches a live terminal and installs into the selected environment.
 6. Re-checks dependencies to verify.
 7. Returns the final result.
 
-> **Important:** `ensurePackages` checks **only** the configured environment. It does **not** search other environments or return fallbacks. If you need discovery across all envs, use `detectPythonWithRequirements` instead.
+> **Important:** `ensurePackages` checks **only** the selected environment. It does **not** search other environments for a better match. If you need discovery across all envs, use `detectPythonWithRequirements` instead.
 
 ### `installPackages`
 
@@ -225,14 +225,14 @@ Set global defaults in **Settings → Nuke Utils**, or override per-package in `
 const result = await this.nukeCore.detectPythonWithRequirements({
   requiredPackages: [
     { name: 'pytorch', channels: ['pytorch', 'nvidia'] },
-    { name: 'paraview', condaOnly: true },
+    { name: 'mpi4py', condaOnly: true },
     { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
-    { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc@<pinned-commit>' }
+    { name: 'pydagmc', pipSpec: 'git+https://github.com/svalinn/pydagmc@<pinned-commit>' }
   ]
 });
 ```
 
-Note: external `installCommand` URLs must be pinned to a commit or tag — never track a moving branch.
+Note: external `pipSpec` VCS URLs must be pinned to a commit or tag — never track a moving branch.
 
 Per-override at install time:
 
@@ -247,16 +247,21 @@ const result = await this.envActions.installPackages({
 
 ### `PackageDependency` Fields
 
-| Field            | Description                                                 |
-| ---------------- | ----------------------------------------------------------- |
-| `name`           | Package name to import                                      |
-| `submodule`      | Submodule for version check (e.g., `'app'` for `trame.app`) |
-| `required`       | Whether this package is required or optional                |
-| `minVersion`     | Minimum version required                                    |
-| `condaOnly`      | Use `conda install` instead of `pip` (e.g., `paraview`)     |
-| `channels`       | Conda channels for this package                             |
-| `extraIndexUrl`  | Extra pip index URL                                         |
-| `installCommand` | Explicit install command override (highest priority)        |
+| Field            | Description                                                                 |
+| ---------------- | --------------------------------------------------------------------------- |
+| `name`           | Package name to import                                                      |
+| `submodule`      | Submodule for version check (e.g., `'data'` for `openmc.data`)              |
+| `required`       | Whether this package is required or optional                                |
+| `minVersion`     | Minimum version required                                                    |
+| `condaOnly`      | Only installable via conda, never pip (e.g., `mpi4py`)                      |
+| `channels`       | Conda channels for this package                                             |
+| `extraIndexUrl`  | Extra pip index URL                                                         |
+| `pipSpec`        | Pip requirement spec or commit-pinned VCS URL (defaults to `name`)          |
+| `pipArgs`        | Extra pip arguments (e.g., `['--no-deps']`)                                 |
+| `condaSpec`      | Conda package spec when it differs from `name` (e.g., `python-gmsh`, `ocp`) |
+| `installCommand` | **Deprecated** — legacy hint-only override; use the structured spec fields  |
+
+Install routing (`buildDependencyInstallPlan`): in a conda environment entries with `condaOnly`/`condaSpec` install via conda (`condaSpec || name`, batched with a union of channels); everything else installs via pip (`pipSpec || name`, plus `pipArgs`/`extraIndexUrl`, grouped by identical index/args signature). In a non-conda environment `condaOnly` entries cannot be auto-installed.
 
 > **Where package lists live:** extensions declare their canonical requirements
 > in `extensions/<ext>/src/common/packages.json` and export them from
@@ -336,14 +341,14 @@ if (result.missingPackages) {
 
 ## Check Dependencies
 
-Check whether specific packages are installed in the currently configured environment:
+Check whether specific packages are installed in the active Python interpreter (configured path/env, falling back to system Python), or pass an explicit `pythonPath`:
 
 ```typescript
 const result = await this.nukeCore.checkDependencies([
   { name: 'openmc', required: true, minVersion: '0.14.0' },
   { name: 'numpy', required: true },
-  { name: 'trame', submodule: 'app', required: false },
-  { name: 'paraview', condaOnly: true, required: true }
+  { name: 'pydagmc', required: false },
+  { name: 'mpi4py', condaOnly: true, required: false }
 ]);
 
 if (result.available) {
@@ -367,8 +372,8 @@ const health = await this.nukeCore.healthCheck();
 // Health check with packages
 const health = await this.nukeCore.healthCheck([
   { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
-  { name: 'paraview', condaOnly: true },
-  { name: 'pydagmc', installCommand: 'pip install git+https://github.com/svalinn/pydagmc' }
+  { name: 'mpi4py', condaOnly: true },
+  { name: 'pydagmc', pipSpec: 'git+https://github.com/svalinn/pydagmc@<pinned-commit>' }
 ]);
 
 console.log('Healthy:', health.healthy);
@@ -391,11 +396,10 @@ for (const check of health.checks) {
 
 - Package availability for each specified package — checked against the **configured** environment, not fallbacks.
 - Missing required packages are reported as `error` severity; optional packages as `warning`.
-- Smart install suggestions based on `PackageDependency` metadata:
-  - `installCommand` → used as-is (highest priority)
-  - `condaOnly` → `conda install -c <channels> <pkg>`
-  - `extraIndexUrl` → `pip install --extra-index-url <url> <pkg>`
-  - fallback → `pip install <pkg>`
+- Smart install suggestions rendered from the `PackageDependency` spec fields:
+  - `condaOnly` → `conda install -c <channels> <condaSpec || name>`
+  - `condaSpec` (dual-manager) → conda command with the pip alternative
+  - otherwise → `pip install [pipArgs] [--extra-index-url <url>] <pipSpec || name>`
 
 > **Note:** Configuration validation is a separate API (`validateConfig()`). Call it independently if you need to check settings and paths.
 
@@ -525,7 +529,7 @@ export class MyExtension {
     // Detect Python with requirements
     const result = await this.backend.detectPythonWithRequirements({
       requiredPackages: [{ name: 'openmc' }],
-      autoDetectEnvs: ['openmc', 'nuke-ide'],
+      autoDetectEnvs: ['openmc', 'ide'],
       searchWorkspaceVenvs: true
     });
 

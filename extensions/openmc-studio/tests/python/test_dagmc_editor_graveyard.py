@@ -757,7 +757,7 @@ class TestStepToDagmcImprintedOcp:
 
 class TestRefacetImprint:
     def test_imprint_uses_imprinted_converter_with_bboxes(self, des, monkeypatch, tmp_path):
-        """imprint=True routes to the imprinted converter with old bboxes."""
+        """imprint=True falls back to the imprinted converter when nuke-cad is unavailable."""
         _install_fake_pymoab(monkeypatch)
         vols = [
             FakeVolume(1, material="fuel", surfaces=[FakeSurface([[0.0, 0, 0], [1, 1, 1]])]),
@@ -777,6 +777,7 @@ class TestRefacetImprint:
                 f.write(b"h5m")
             return (2, 9, 3)
 
+        monkeypatch.setattr(des, "_find_nuke_cad_dagmc_export", lambda: None)
         monkeypatch.setattr(des, "_step_to_dagmc_imprinted_ocp", fake_imprinted)
         monkeypatch.setattr(
             des,

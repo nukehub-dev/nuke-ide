@@ -1,0 +1,10 @@
+/* Converged viewer status-line pattern (nuke-cad viewport + native VTK
+   viewers): one muted treatment for every viewport status line. Hosts keep
+   their own layout classes (padding, borders, pill positioning) and add
+   this class for the text treatment, so the pattern can never drift apart
+   again. */
+
+.nuke-viewer-status-line {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}

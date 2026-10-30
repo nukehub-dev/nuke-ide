@@ -4,9 +4,9 @@ Welcome to NukeIDE! This guide will help you get up and running quickly.
 
 ## What You'll Need
 
-- **Node.js** >= 22
+- **Node.js** >= 22.13.0
 - **Yarn** >= 1.7.0 and < 2
-- **Python** >= 3.12 (for extensions that use Python backends)
+- **Python** 3.13 for the tested backend profile (OpenMC 0.16 also runs on Python 3.12; OpenMC 0.15.3 supports older interpreters)
 
 ## Installation
 
@@ -31,9 +31,11 @@ Welcome to NukeIDE! This guide will help you get up and running quickly.
    yarn download:plugins
    ```
 
-See the [Installation](./installation) page for detailed platform-specific instructions and troubleshooting.
+See the [Installation](installation.md) page for detailed platform-specific instructions and troubleshooting.
 
 ## Running NukeIDE
+
+![NukeIDE workbench with the Nuke Tools sidebar and an OpenMC Studio project](images/workbench.png)
 
 ### Browser Version
 
@@ -65,3 +67,4 @@ The repo ships a Playwright smoke suite for the browser UI (`tests/ui/`). One-ti
 - [Nuke Core User Guide](/nuke-core/user/getting-started) — Environment management and package installation
 - [Nuke Visualizer User Guide](/nuke-visualizer/user/getting-started) — Opening and visualizing nuclear data
 - [OpenMC Studio User Guide](/openmc-studio/user/getting-started) — Building and running simulations
+- [Nuke CAD User Guide](/nuke-cad/user/getting-started) — Parametric models, meshing, DAGMC export, and FEM

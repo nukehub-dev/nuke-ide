@@ -33,11 +33,14 @@ export const VisualizerBackendService = Symbol('VisualizerBackendService');
 /** Default package requirements for base visualizer (VTK/Paraview) operations */
 export const BASE_VISUALIZER_REQUIREMENTS: PackageDependency[] = packages.base;
 
-/** Package requirements for the DAGMC visualization server */
-export const DAGMC_SERVER_REQUIREMENTS: PackageDependency[] = packages.dagmcServer;
-
 /** Package requirements for STEP/STP/BREP conversion */
 export const STEP_REQUIREMENTS: PackageDependency[] = packages.step;
+
+/** Package requirements for direct Gmsh `.msh` mesh conversion */
+export const GMSH_REQUIREMENTS: PackageDependency[] = packages.gmsh;
+
+/** Package requirements for the headless Exodus-II series extractor (`base.exodus-series`) */
+export const EXODUS_REQUIREMENTS: PackageDependency[] = packages.exodus;
 
 export interface PythonConfig {
     pythonPath?: string;
@@ -47,59 +50,10 @@ export interface PythonConfig {
 export interface EnvironmentInfo {
     pythonPath: string;
     pythonVersion: string;
-    paraviewInstalled: boolean;
-    paraviewVersion?: string;
-    trameInstalled: boolean;
-    trameVersion?: string;
     moabInstalled: boolean;
     moabVersion?: string;
     warning?: string;
 }
-
-/**
- * Visualization state for interactive controls.
- * Mirrors the state in Python backend (server.py base.serve).
- */
-export interface VisualizationState {
-    /** Opacity value between 0.0 and 1.0 */
-    opacity: number;
-
-    /** Surface representation type */
-    representation: RepresentationType;
-
-    /** Field to color by, or 'Solid Color' */
-    colorBy: string;
-
-    /** Available data arrays for coloring */
-    availableArrays: string[];
-
-    /** Color map preset name */
-    colorMap: string;
-
-    /** Whether to show the scalar bar/legend */
-    showScalarBar: boolean;
-
-    /** Whether the clip plane is enabled */
-    clipEnabled: boolean;
-
-    /** Clip plane origin coordinates */
-    clipOrigin: [number, number, number];
-
-    /** Clip plane normal vector */
-    clipNormal: [number, number, number];
-
-    /** Whether to invert the clip */
-    clipInvert: boolean;
-
-    /** Background color [R, G, B] with values 0-1 */
-    backgroundColor: [number, number, number];
-}
-
-/** Surface representation types */
-export type RepresentationType = 'Surface' | 'Surface with Edges' | 'Wireframe' | 'Points';
-
-/** Camera preset views */
-export type CameraViewType = 'isometric' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
 /** Screenshot export options */
 export interface ScreenshotOptions {
@@ -111,18 +65,6 @@ export interface ScreenshotOptions {
 
     /** Use transparent background */
     transparent?: boolean;
-}
-
-/** Screenshot export result */
-export interface ScreenshotResult {
-    /** Base64 encoded image data */
-    base64?: string;
-
-    /** File path if saved to disk */
-    filePath?: string;
-
-    /** Error message if failed */
-    error?: string;
 }
 
 export interface ServerInfo {
@@ -177,6 +119,46 @@ export interface DagmcModelInfo {
     fileInfo: DagmcFileInfo;
 }
 
+/** One Exodus variable summary with its global range across all steps. */
+export interface ExodusSeriesArraySummary {
+    name: string;
+    location: string;
+    range: [number, number];
+}
+
+/** Per-step decimated mesh snapshot of an Exodus series. */
+export interface ExodusSeriesStepMesh {
+    nNodes: number;
+    nElements: number;
+    nodes: [number, number, number][];
+    blocks: { name: string; count: number }[];
+}
+
+/** Per-step summary of one Exodus variable (stats + decimated samples). */
+export interface ExodusSeriesValueSummary {
+    min: number;
+    max: number;
+    mean: number;
+    count: number;
+    samples: number[];
+}
+
+/** One time step of an Exodus series. */
+export interface ExodusSeriesStep {
+    index: number;
+    time: number;
+    mesh: ExodusSeriesStepMesh;
+    values: Record<string, ExodusSeriesValueSummary>;
+}
+
+/** Full `base.exodus-series` extractor payload for one Exodus file. */
+export interface ExodusSeries {
+    sourceFile: string;
+    nSteps: number;
+    arrays: ExodusSeriesArraySummary[];
+    steps: ExodusSeriesStep[];
+}
+
 /**
  * Backend RPC service for the base 3D mesh/DAGMC visualizer.
  *
@@ -187,18 +169,6 @@ export interface DagmcModelInfo {
  */
 export interface VisualizerBackendService {
     // === Server Management ===
-
-    /**
-     * Start a new Trame visualizer server for the given file.
-     * Spawns a Python process running `python/server.py base.serve`.
-     *
-     * @param filePath Path to file to visualize (VTK, H5M, STL, etc.)
-     * @param config Optional Python environment override
-     * @param theme UI theme — 'dark' or 'light', propagated to the Trame app
-     * @param colorBy Optional initial color-by selection ('Solid Color', 'Point: <name>', 'Cell: <name>')
-     * @returns Server info including allocated port and URL
-     */
-    startServer(filePath?: string, config?: PythonConfig, theme?: string, colorBy?: string): Promise<ServerInfo>;
 
     /**
      * Stop the visualizer server running on the given port.
@@ -217,6 +187,17 @@ export interface VisualizerBackendService {
     convertDagmc(filePath: string, volumeId?: number): Promise<string>;
 
     /**
+     * Convert a DAGMC H5M file to a multiblock `.vtm` (one block per volume)
+     * for the native DAGMC viewer (volume/material/group isolation).
+     * Runs `python server.py base.convert-dagmc-multiblock` via pydagmc/vtk
+     * with manifest caching.
+     *
+     * @param filePath Path to the H5M file
+     * @returns Path to the generated `.vtm` manifest
+     */
+    convertDagmcMultiblock(filePath: string): Promise<string>;
+
+    /**
      * Convert a STEP/STP/BREP CAD file to VTK format for visualization.
      * Runs `python server.py base.convert-step` via gmsh.
      *
@@ -224,6 +205,16 @@ export interface VisualizerBackendService {
      * @returns Path to the generated VTK file
      */
     convertStep(filePath: string): Promise<string>;
+
+    /**
+     * Convert a Gmsh `.msh` mesh to legacy ASCII VTK for visualization.
+     * Runs `python server.py base.convert-gmsh` via gmsh; the existing mesh
+     * is imported and exported as-is (no remeshing).
+     *
+     * @param filePath Path to the `.msh` file
+     * @returns Path to the generated VTK file
+     */
+    convertGmsh(filePath: string): Promise<string>;
 
     /**
      * Get DAGMC model metadata (volumes, materials, groups, surfaces).
@@ -235,18 +226,27 @@ export interface VisualizerBackendService {
     getDagmcInfo(filePath: string): Promise<DagmcModelInfo>;
 
     /**
-     * Start a DAGMC-specific visualization server with volume/material/group selection.
-     * Runs `python server.py dagmc.visualize` via pydagmc.
+     * Extract an Exodus-II time series to headless JSON (no server).
+     * Runs `python server.py base.exodus-series` via netCDF4 (or meshio fallback).
      *
-     * @param filePath Path to the .h5m file
-     * @param theme UI theme — 'dark' or 'light'
-     * @returns Server info including allocated port and URL
+     * @param filePath Path to the Exodus-II file (`.e`, `.exo*`)
+     * @param maxSteps Optional cap on extracted time steps (default: all)
+     * @param maxPoints Optional cap on decimated mesh nodes stored per step
+     * @returns Series payload (per-step mesh snapshots + variable summaries)
      */
-    startDagmcServer(filePath: string, theme?: string): Promise<ServerInfo>;
+    getExodusSeries(filePath: string, maxSteps?: number, maxPoints?: number): Promise<ExodusSeries>;
+
+    /**
+     * Run a whitelisted base-plugin headless command (`base.export`,
+     * `base.integrate`, `base.describe`, `base.mesh-quality`, `base.probe`)
+     * and return its JSON stdout. Used by viewer actions that need a one-shot
+     * analysis or export; never starts a server.
+     */
+    runBaseCommand(command: string, args: string[], timeoutMs?: number): Promise<unknown>;
 
     /**
      * Check the configured Python environment for base visualizer dependencies.
-     * Reports versions of trame, paraview, and moab if available.
+     * Reports Python and MOAB availability; rendering is native three.js.
      */
     checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
 
@@ -255,25 +255,6 @@ export interface VisualizerBackendService {
      * Called by the RPC framework when a frontend connects.
      */
     setClient(client: VisualizerClient): void;
-
-    // === Visualization Controls (Future API) ===
-
-    /** Get current visualization state from a running server. Placeholder for external control API. */
-    getVisualizationState(port: number): Promise<VisualizationState>;
-
-    /** Update visualization state (opacity, representation, etc.). Placeholder for external control API. */
-    updateVisualizationState(port: number, state: Partial<VisualizationState>): Promise<void>;
-
-    /** Reset camera to default position. Placeholder for external control API. */
-    resetCamera(port: number): Promise<boolean>;
-
-    /** Set camera to a preset view. Placeholder for external control API. */
-    setCameraView(port: number, viewType: CameraViewType): Promise<boolean>;
-
-    // === Export ===
-
-    /** Capture screenshot of current view. Placeholder for external control API. */
-    captureScreenshot(port: number, options: ScreenshotOptions): Promise<ScreenshotResult>;
 }
 
 /**
@@ -342,18 +323,3 @@ export const COLOR_MAP_PRESETS = [
     'Earth',
     'Ocean'
 ] as const;
-
-/** Default visualization state */
-export const DEFAULT_VISUALIZATION_STATE: VisualizationState = {
-    opacity: 1.0,
-    representation: 'Surface',
-    colorBy: 'Solid Color',
-    availableArrays: ['Solid Color'],
-    colorMap: 'Cool to Warm',
-    showScalarBar: true,
-    clipEnabled: false,
-    clipOrigin: [0, 0, 0],
-    clipNormal: [1, 0, 0],
-    clipInvert: false,
-    backgroundColor: [0.1, 0.1, 0.15]
-};

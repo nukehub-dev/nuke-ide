@@ -15,6 +15,7 @@
     color: var(--theia-editor-foreground);
     font-family: var(--theia-ui-font-family);
     animation: fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    container-type: inline-size;
 }
 
 @keyframes fade-in {
@@ -248,11 +249,18 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--theia-titleBar-activeBackground);
     border-bottom: 1px solid var(--theia-panel-border);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     animation: header-slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.optimization-widget .optimization-info {
+    flex: 1 1 240px;
+    min-width: 0;
 }
 
 .optimization-widget .optimization-info h2 {
@@ -263,6 +271,7 @@
     align-items: center;
     gap: 8px;
     color: var(--theia-foreground);
+    overflow-wrap: anywhere;
 }
 
 .optimization-widget .optimization-info h2 i {
@@ -274,6 +283,7 @@
     margin: 4px 0 0 0;
     font-size: 12px;
     color: var(--theia-descriptionForeground);
+    overflow-wrap: anywhere;
 }
 
 .optimization-widget .project-path {
@@ -295,6 +305,12 @@
     border-bottom: 1px solid var(--theia-panel-border);
     padding: 0 12px;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.optimization-widget .optimization-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .optimization-widget .tab-button {
@@ -305,6 +321,7 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -1853,7 +1870,7 @@
     background: var(--theia-editorWidget-background);
     border: 1px solid var(--theia-panel-border);
     border-radius: 8px;
-    overflow: hidden;
+    overflow: auto;
 }
 
 .optimization-widget .results-toolbar {
@@ -1999,14 +2016,6 @@
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-}
-
-.optimization-widget .run-selector {
-    padding: 6px 12px;
-    border: 1px solid var(--theia-input-border);
-    border-radius: 4px;
-    background: var(--theia-input-background);
-    color: var(--theia-input-foreground);
 }
 
 .optimization-widget .analysis-content {
@@ -2249,8 +2258,7 @@
 }
 
 .optimization-widget button:focus-visible,
-.optimization-widget input:focus-visible,
-.optimization-widget select:focus-visible {
+.optimization-widget input:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(243, 117, 36, 0.25);
 }
@@ -2314,8 +2322,7 @@
     font-weight: 500;
 }
 
-.optimization-widget .editor-row input,
-.optimization-widget .editor-row select {
+.optimization-widget .editor-row input {
     flex: 1;
     padding: 8px 12px;
     border: 1px solid var(--theia-input-border);
@@ -2325,21 +2332,23 @@
     font-size: 13px;
 }
 
-.optimization-widget .editor-row input.invalid,
-.optimization-widget .editor-row select.invalid {
+/* NukeSelect root keeps the editor-row layout contract (paint lives on the trigger). */
+.optimization-widget .editor-row .nuke-select {
+    flex: 1;
+}
+
+.optimization-widget .editor-row input.invalid {
     border-color: var(--theia-inputValidation-errorBorder);
     background: var(--theia-inputValidation-errorBackground);
 }
 
-.optimization-widget .editor-row input:focus,
-.optimization-widget .editor-row select:focus {
+.optimization-widget .editor-row input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
     box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.2);
 }
 
-.optimization-widget .editor-row input.invalid:focus,
-.optimization-widget .editor-row select.invalid:focus {
+.optimization-widget .editor-row input.invalid:focus {
     border-color: var(--theia-inputValidation-errorBorder);
     box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2);
 }
@@ -2362,4 +2371,58 @@
 
 .optimization-widget .search-workspace .results-table {
     margin-top: 12px;
+}
+
+/* Wide result tables scroll inside their card instead of widening the panel. */
+.optimization-widget .analysis-table-section {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* Narrow-panel layout: the widget is commonly docked beside the dashboard. */
+@container (max-width: 700px) {
+    .optimization-widget .optimization-header {
+        align-items: flex-start;
+        padding: 12px 14px;
+    }
+
+    .optimization-widget .optimization-widget-content {
+        padding: 14px;
+    }
+
+    .optimization-widget .editor-row {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .optimization-widget .editor-row label {
+        min-width: 100%;
+    }
+
+    .optimization-widget .editor-row input,
+    .optimization-widget .editor-row .nuke-select {
+        flex: 1 1 100%;
+    }
+
+    .optimization-widget .runner-header,
+    .optimization-widget .runner-actions,
+    .optimization-widget .runner-info {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+}
+
+@container (max-width: 520px) {
+    .optimization-widget .tab-label {
+        display: none;
+    }
+
+    .optimization-widget .tab-button {
+        padding: 12px 14px;
+    }
+
+    .optimization-widget .runner-actions button {
+        width: 100%;
+        min-width: 0;
+    }
 }

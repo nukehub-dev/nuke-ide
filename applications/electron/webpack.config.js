@@ -7,6 +7,17 @@ const path = require('path');
 
 // Add CopyWebpackPlugin to copy resources
 configs.forEach((config) => {
+    if (!config.resolve) {
+        config.resolve = {};
+    }
+    if (!config.resolve.fallback) {
+        config.resolve.fallback = {};
+    }
+    // The @salusoft89/planegcs WASM wrapper dynamically imports Node's 'module'
+    // package in its Node branch. The Electron renderer never executes that branch,
+    // so stubbing the polyfill lets webpack bundle the file without error.
+    config.resolve.fallback.module = false;
+
     if (!config.plugins) {
         config.plugins = [];
     }

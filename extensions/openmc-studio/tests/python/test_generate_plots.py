@@ -137,6 +137,16 @@ class TestBuildPlot:
         assert plot.opaque_domains == [1, 2]
         assert plot.filename == "plot_3.png"
 
+    def test_solid_raytrace_defaults_to_opaque_domains(self, fake_openmc_module):
+        """Missing opaqueIds must not produce an all-transparent blank render."""
+        materials = [_FakeMaterial(4), _FakeMaterial(5)]
+        plot = generate_plots.build_plot(
+            {"id": 7, "type": "solid-raytrace", "colorBy": "material"},
+            _FakeGeometry(),
+            materials,
+        )
+        assert plot.opaque_domains == [4, 5]
+
     def test_wireframe_raytrace_plot_resolves_domains(self, fake_openmc_module):
         """Wireframe domains resolve to actual cells from the geometry."""
         plot = generate_plots.build_plot(
@@ -177,6 +187,104 @@ class TestBuildPlot:
         """An unknown plot type raises ValueError."""
         with pytest.raises(ValueError, match="Unknown plot type"):
             generate_plots.build_plot({"id": 6, "type": "bogus"}, _FakeGeometry(), [])
+
+
+class TestPlotAppearance:
+    def test_slice_applies_background_mask_and_overlaps(self, fake_openmc_module, capsys):
+        """Slice appearance fields map to the OpenMC plot attributes."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 8,
+                "type": "slice",
+                "colorBy": "cell",
+                "background": [10, 20, 30],
+                "mask": {"components": [1, 99], "background": [200, 210, 220]},
+                "showOverlaps": True,
+                "overlapColor": [255, 0, 0],
+            },
+            _FakeGeometry(),
+            [],
+        )
+
+        assert plot.background == (10, 20, 30)
+        # OpenMC paints listed mask components with the mask background; the
+        # selected cell 1 stays visible, so cell 2 is the emitted component.
+        assert plot.mask_components == [2]
+        assert plot.mask_background == (200, 210, 220)
+        assert plot.show_overlaps is True
+        assert plot.overlap_color == (255, 0, 0)
+        assert "99" in capsys.readouterr().err
+
+    def test_voxel_ignores_display_only_appearance(self, fake_openmc_module, capsys):
+        """Voxel output stores IDs, so background/mask/overlap are not applied."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 9,
+                "type": "voxel",
+                "colorBy": "cell",
+                "background": [10, 20, 30],
+                "mask": {"components": [1]},
+                "showOverlaps": True,
+                "overlapColor": [255, 0, 0],
+            },
+            _FakeGeometry(),
+            [],
+        )
+
+        assert not hasattr(plot, "background")
+        assert not hasattr(plot, "mask_components")
+        assert not hasattr(plot, "show_overlaps")
+        assert not hasattr(plot, "overlap_color")
+        assert "voxel output" in capsys.readouterr().err.lower()
+
+    def test_raytrace_applies_background_and_mask_but_not_overlaps(
+        self, fake_openmc_module, capsys
+    ):
+        """Ray-traced plots use display colors but do not detect overlaps."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 10,
+                "type": "solid-raytrace",
+                "colorBy": "material",
+                "background": [1, 2, 3],
+                "mask": {"components": [4]},
+                "showOverlaps": True,
+                "overlapColor": [255, 0, 0],
+            },
+            _FakeGeometry(),
+            [_FakeMaterial(4), _FakeMaterial(5)],
+        )
+
+        assert plot.background == (1, 2, 3)
+        assert plot.mask_components == [5]
+        assert not hasattr(plot, "show_overlaps")
+        assert not hasattr(plot, "overlap_color")
+        assert "only to slice plots" in capsys.readouterr().err
+
+    def test_mask_selecting_every_domain_writes_no_mask(self, fake_openmc_module, capsys):
+        """A mask that shows every domain would hide nothing, so it is skipped."""
+        plot = generate_plots.build_plot(
+            {
+                "id": 12,
+                "type": "slice",
+                "colorBy": "cell",
+                "mask": {"components": [1, 2]},
+            },
+            _FakeGeometry(),
+            [],
+        )
+
+        assert not hasattr(plot, "mask_components")
+        assert "selects every domain" in capsys.readouterr().err
+
+    def test_invalid_color_raises_clear_error(self, fake_openmc_module):
+        """Malformed RGB values fail before OpenMC sees them."""
+        with pytest.raises(ValueError, match="background must be three RGB integers"):
+            generate_plots.build_plot(
+                {"id": 11, "type": "slice", "background": [300, 0, 0]},
+                _FakeGeometry(),
+                [],
+            )
 
 
 class TestMainArgparse:
@@ -239,9 +347,9 @@ class TestOpenMCIntegration:
         """The openmc plot classes accept the constructor args the script passes."""
         openmc = pytest.importorskip("openmc")
         if not hasattr(openmc, "SlicePlot"):
-            # Typed plot classes (SlicePlot/ray-trace) are post-0.15.3 additions;
+            # Typed plot classes were added in OpenMC 0.16.0;
             # release 0.15.3 only has the legacy openmc.Plot API.
-            pytest.skip("typed plot classes require post-0.15.3 OpenMC")
+            pytest.skip("typed plot classes require OpenMC 0.16.0+")
 
         slice_plot = openmc.SlicePlot(plot_id=1, name="test")
         slice_plot.basis = "xy"
@@ -373,6 +481,51 @@ class TestRunGeneratePlots:
 
         assert result["success"] is True
         assert result["files"] == []
+
+    def test_ppm_fallback_is_converted_to_png(self, monkeypatch, tmp_path):
+        """Builds without libpng write .png.ppm; convert so the IDE can preview it."""
+        pytest.importorskip("PIL", reason="PPM conversion uses Pillow")
+        fake = _fake_openmc_full(tmp_path)
+
+        def plot_geometry(cwd):
+            # 2x2 RGB PPM; this is what OpenMC emits without libpng.
+            (tmp_path / "plot_1.png.ppm").write_bytes(b"P6\n2 2\n255\n" + bytes([255, 0, 0] * 4))
+
+        fake.plot_geometry = plot_geometry
+        monkeypatch.setitem(sys.modules, "openmc", fake)
+        config = tmp_path / "plots.json"
+        config.write_text(json.dumps([{"id": 1, "type": "slice"}]))
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path), plots_config=str(config), convert_vtk=False
+        )
+
+        result = generate_plots.run_generate_plots(args)
+
+        assert result["success"] is True
+        assert result["files"] == [
+            {"plotId": 1, "type": "slice", "path": str(tmp_path / "plot_1.png"), "kind": "png"}
+        ]
+        assert (tmp_path / "plot_1.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+        assert not (tmp_path / "plot_1.png.ppm").exists()
+
+    def test_stale_outputs_are_removed_before_render(self, monkeypatch, tmp_path):
+        """An earlier run's plot files cannot masquerade as fresh output."""
+        stale = tmp_path / "plot_1.png"
+        stale.write_text("old")
+        fake = _fake_openmc_full(tmp_path)
+        fake.plot_geometry = lambda cwd: None  # this run produces nothing
+        monkeypatch.setitem(sys.modules, "openmc", fake)
+        config = tmp_path / "plots.json"
+        config.write_text(json.dumps([{"id": 1, "type": "slice"}]))
+        args = types.SimpleNamespace(
+            working_directory=str(tmp_path), plots_config=str(config), convert_vtk=False
+        )
+
+        result = generate_plots.run_generate_plots(args)
+
+        assert result["success"] is True
+        assert result["files"] == []
+        assert not stale.exists()
 
     def test_empty_config_array_raises(self, monkeypatch, tmp_path):
         """An empty JSON array is a clear ValueError before any openmc work."""

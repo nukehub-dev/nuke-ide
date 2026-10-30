@@ -2,137 +2,6 @@
 /* All classes are prefixed with 'openmc-geometry-tree' to avoid conflicts */
 
 /* ============================================================================
-   3D Geometry Viewer - STANDALONE (not scoped to openmc-geometry-tree)
-   These styles apply to the separate OpenMCGeometry3DWidget
-   ============================================================================ */
-
-/* 3D Geometry Viewer Container */
-.geometry-3d-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    width: 100%;
-    background: var(--theia-editor-background);
-    overflow: hidden;
-}
-
-.geometry-3d-container.loading,
-.geometry-3d-container.error,
-.geometry-3d-container.empty {
-    justify-content: center;
-    align-items: center;
-}
-
-.geometry-3d-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 10px;
-    background: var(--theia-titleBar-activeBackground);
-    border-bottom: 1px solid var(--theia-panel-border);
-    flex-shrink: 0;
-}
-
-.geometry-3d-header .file-name {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 500;
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.geometry-3d-header .file-name i {
-    font-size: 14px;
-    color: var(--theia-activityBar-foreground);
-}
-
-.highlight-badge {
-    background: var(--theia-charts-blue);
-    color: white;
-    padding: 1px 6px;
-    border-radius: 8px;
-    font-size: 10px;
-    font-weight: 500;
-}
-
-.geometry-3d-viewer {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-    min-height: 0;
-    display: flex;
-}
-
-.geometry-iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-    flex: 1;
-}
-
-.loading-spinner {
-    text-align: center;
-    color: var(--theia-descriptionForeground);
-}
-
-.loading-spinner i {
-    font-size: 40px;
-    margin-bottom: 12px;
-    display: block;
-    animation: openmc-geometry-tree-spin 1s linear infinite;
-}
-
-@keyframes openmc-geometry-tree-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.error-message {
-    text-align: center;
-    color: var(--theia-errorForeground);
-}
-
-.error-message i {
-    font-size: 40px;
-    margin-bottom: 12px;
-    display: block;
-}
-
-.empty-message {
-    text-align: center;
-    color: var(--theia-descriptionForeground);
-}
-
-.empty-message i {
-    font-size: 40px;
-    margin-bottom: 12px;
-    display: block;
-    opacity: 0.5;
-}
-
-/* Placeholder for loading/empty/error states - consistent with tally tree */
-.geometry-3d-container .placeholder {
-    text-align: center;
-    padding: 40px 20px;
-    color: var(--theia-descriptionForeground);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}
-
-.geometry-3d-container .placeholder i {
-    opacity: 0.5;
-}
-
-/* ============================================================================
    Geometry Tree Widget (scoped to .openmc-geometry-tree)
    ============================================================================ */
 
@@ -210,9 +79,11 @@
     white-space: nowrap;
 }
 
-.openmc-geometry-tree .file-name i {
-    font-size: 14px;
-    color: var(--theia-activityBar-foreground);
+.openmc-geometry-tree .file-name .file-name-icon {
+    display: block;
+    flex: 0 0 auto;
+    align-self: center;
+    color: inherit;
 }
 
 .openmc-geometry-tree .close-btn {

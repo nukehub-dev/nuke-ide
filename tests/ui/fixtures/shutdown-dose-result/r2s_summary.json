@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "outputDirectory": "../../tests/ui/fixtures/shutdown-dose-result",
+  "statepoint": "../../tests/ui/fixtures/shutdown-dose-result/statepoint.3.h5",
+  "files": ["statepoint.3.h5", "r2s_summary.json", "activation/depletion_results.h5"],
+  "summary": {
+    "method": "r2s",
+    "timesteps": [1],
+    "sourceRates": [1e15],
+    "photonTimeIndices": [1],
+    "activationRegions": 1,
+    "photonTallies": 1,
+    "photonTallySummaries": [
+      {
+        "tallyId": 1,
+        "name": "photon dose",
+        "scores": ["flux"],
+        "bins": 3,
+        "mean": [1, 2, 3],
+        "min": 1,
+        "max": 3,
+        "sum": 6,
+        "timeIndex": 1,
+        "parentNuclides": ["Co60", "Ni65"]
+      }
+    ],
+    "dose": { "tallyId": 1, "timeIndex": 1, "peak": 3, "mean": 2 },
+    "activity": {
+      "timesSeconds": [0, 86400],
+      "totalBq": [0, 10000000000],
+      "byRegion": [{ "region": "Cell 1", "totalBq": [0, 10000000000] }]
+    },
+    "decayHeat": { "timesSeconds": [0, 86400], "totalW": [0, 5] },
+    "warnings": ["Example warning from the driver"]
+  }
+}

@@ -6,21 +6,25 @@ The DAGMC Editor is a visual tool for inspecting and editing faceted CAD geometr
 
 ## Opening the Editor
 
-### Method 1: Click
+### Method 1: Menu
 
-Click any `.h5m` file in the Explorer.
+`Tools → OpenMC Studio → Geometry → DAGMC Editor`, then click **Open File** in the editor header.
 
 ### Method 2: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open DAGMC Editor"**
+`Ctrl+Shift+P` → **`OpenMC/View: Open DAGMC Editor`**
 
-### Method 3: Menu
+### Method 3: CSG Builder
 
-`Tools → OpenMC Studio → Geometry → DAGMC Editor`
+When the current project uses DAGMC geometry, click **DAGMC Editor** in the CSG Builder header.
+
+> **Note:** Clicking a `.h5m` file in the Explorer does not open the DAGMC Editor. The OpenMC open handler claims `.nuke-openmc` project files; use the menu or command above for DAGMC geometry.
 
 ---
 
 ## Tabs
+
+The Volumes / Materials / Groups / Overrides / Properties / Faceting tab bar scrolls horizontally and collapses to icon-only tabs with tooltips when the editor panel is narrow. Volume and material grids stack to one column, and wide tables scroll inside their card.
 
 ### Volumes
 
@@ -42,6 +46,10 @@ Click a card to open a **detail modal** with:
 Use the filter pills (**All**, **Assigned**, **Unassigned**, **High-Poly**) and the search box to narrow the list.
 
 > **Tip:** The colored triangle-density bar at the bottom of each card shows the relative mesh density of that volume compared to the largest volume in the model.
+
+![DAGMC Editor volume detail modal with the assigned material input, triangle count, and spatial extent](images/dagmc-editor.png)
+
+_The volume grid opens a detail modal for material reassignment, geometry stats, spatial extent, and a single-volume 3D preview._
 
 ---
 
@@ -143,11 +151,11 @@ Regenerate the DAGMC mesh from the original source CAD with a new tolerance.
 4. **(Optional) Imprint & Merge** — Check **"Imprint & merge shared surfaces"** to imprint and merge coincident surfaces between adjacent volumes during re-faceting. This is slower but produces conformal meshes, which is better for particle transport.
 5. **Generate** — Click **Generate Re-faceted H5M**. The new file is saved with a `_refaceted` suffix. Choose whether to load it immediately.
 
-> **Tip:** Material assignments from the original file are preserved. If the volume count changes (e.g., due to CAD healing differences), materials are mapped by volume tag where possible. The graveyard is preserved too: re-faceting re-tessellates from the source CAD, which does not contain the auto-created graveyard shell — if the old file had a `mat:graveyard` volume it is re-created on the output automatically, with a warning.
+> **Tip:** Material assignments from the original file are preserved. If the volume count changes (e.g., due to CAD healing differences), materials are mapped by volume tag or bounding-box proximity where possible. The graveyard is preserved too: re-faceting re-tessellates from the source CAD, which does not contain the auto-created graveyard shell — if the old file had a `mat:graveyard` volume it is re-created on the output automatically, with a warning.
 
 #### Under the Hood
 
-Refacet uses **OpenCASCADE BRepMesh_IncrementalMesh** to tessellate the source CAD surface directly, then streams the resulting triangles into a properly tagged DAGMC H5M file via `pymoab`. Triangle count scales predictably with tolerance because tessellation is based on linear deflection from the true CAD surface.
+Refacet uses **OpenCASCADE BRepMesh_IncrementalMesh** to tessellate the source CAD surface directly, then streams the resulting triangles into a properly tagged DAGMC H5M file via `pymoab`. When **Imprint & Merge** is enabled and Nuke CAD is available, the refacet routes through Nuke CAD's gmsh OCC imprint/merge pipeline instead, producing conformal shared surfaces between touching solids. Triangle count scales predictably with tolerance because tessellation is based on linear deflection from the true CAD surface.
 
 ---
 

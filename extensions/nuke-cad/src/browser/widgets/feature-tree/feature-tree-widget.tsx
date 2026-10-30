@@ -1,0 +1,1339 @@
+// *****************************************************************************
+// Copyright (C) 2024 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+/**
+ * Feature tree panel for `.nuke-cad` documents.
+ *
+ * Lists datums, sketches, and features in document order. Each row exposes
+ * selection, suppression toggle, and build-status markers from the last
+ * document rebuild. Sketches can be edited and features can be deleted (with
+ * dependent rejection surfaced inline).
+ *
+ * @module nuke-cad/browser/widgets
+ */
+
+import * as React from '@theia/core/shared/react';
+import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
+import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { Disposable } from '@theia/core/lib/common/disposable';
+import { MessageService } from '@theia/core/lib/common/message-service';
+import { CommandService } from '@theia/core/lib/common/command';
+import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { NukeCadCommands } from '../../commands';
+import { CadDocumentStore, getAssemblySection, type AssemblySection } from '../../document/cad-document-store';
+import { validateAssemblyDocument } from '../../../common/assembly-document';
+import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
+import {
+    type NukeCadDocument,
+    type BodyDef,
+    type FeatureDef,
+    type SketchDef,
+    type DatumPlane,
+    type CurveDef,
+    normalizeBodyMaterialInput
+} from '../../../common/cad-document';
+import { type FeatureResult } from '../../../common/nuke-cad-protocol';
+import { type DocumentSelection } from '../../document/cad-document-store';
+import { type TopologyRef } from '../../../common/topology-refs';
+import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
+import { CurveDialog } from './curve-dialog';
+import { featureTreeCommand, featureTreeIcon } from './feature-tree-model';
+import './feature-tree.css';
+
+/**
+ * Input feature ids a pattern/mirror/lattice feature consumes (`source`).
+ *
+ * Mirrors `getPatternSourceIds` in the document store for the single-source
+ * types: linearPattern/circularPattern/mirror name their replicated solid in
+ * `source`, and lattice names its grid source the same way. The
+ * cascade-delete prompt follows this edge exactly like `dependsOn`, so
+ * deleting a source offers to delete its lattices too.
+ */
+function getSourceFeatureIds(feature: FeatureDef): string[] {
+    const source = (feature.params as Record<string, unknown>).source;
+    return typeof source === 'string' && source.length > 0 ? [source] : [];
+}
+
+function collectDependentFeatureIds(doc: NukeCadDocument, id: string): string[] {
+    const dependents: string[] = [];
+    for (const feature of doc.features) {
+        if (feature.dependsOn.includes(id) || getSourceFeatureIds(feature).includes(id)) {
+            dependents.push(feature.id);
+        }
+    }
+    return dependents;
+}
+
+@injectable()
+export class CadFeatureTreeWidget extends ReactWidget {
+    static readonly ID = 'nuke-cad-feature-tree-widget';
+    static readonly LABEL = 'Feature Tree';
+
+    @inject(MessageService)
+    protected readonly messageService: MessageService;
+
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
+
+    @inject(FileDialogService)
+    protected readonly fileDialogService: FileDialogService;
+
+    @inject(FileService)
+    protected readonly fileService: FileService;
+
+    @inject(CadDocumentStore)
+    protected readonly documentStore: CadDocumentStore;
+
+    @inject(NukeCadStateManager)
+    protected readonly stateManager: NukeCadStateManager;
+
+    constructor(options?: any) {
+        super(options);
+        // Sidebar panels scroll natively (see the panel CSS) — no PerfectScrollbar thumb overlay.
+        this.scrollOptions = undefined;
+    }
+
+    @postConstruct()
+    protected init(): void {
+        this.id = CadFeatureTreeWidget.ID;
+        this.title.label = CadFeatureTreeWidget.LABEL;
+        this.title.closable = true;
+        this.title.iconClass = 'codicon codicon-nuke-cad-feature-tree';
+
+        this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.update())));
+        this.update();
+    }
+
+    /**
+     * Highlight a body's solids in the viewport (shared state manager), so
+     * clicking a body or feature row shows which geometry it owns. A no-op
+     * while the body has no tessellated solids (nothing built yet).
+     */
+    protected highlightBodyInViewport(bodyId: string | undefined): void {
+        if (bodyId === undefined) {
+            return;
+        }
+        const solidIds = this.stateManager.solidSummaries.filter((s) => s.bodyId === bodyId).map((s) => s.solidId);
+        if (solidIds.length === 0) {
+            return;
+        }
+        this.stateManager.setSelection({ solidId: solidIds[0], solidIds });
+    }
+
+    protected render(): React.ReactNode {
+        return (
+            <CadFeatureTreeComponent
+                document={this.documentStore.document}
+                selection={this.documentStore.selection}
+                featureResults={this.documentStore.featureResults}
+                referenceResults={this.documentStore.getReferenceResults()}
+                onSelectSketch={(id) => this.documentStore.selectSketch(id)}
+                onSelectFeature={(id) => {
+                    this.documentStore.selectFeature(id);
+                    this.highlightBodyInViewport(this.documentStore.document?.features.find((f) => f.id === id)?.body);
+                }}
+                onSelectBody={(id) => {
+                    this.documentStore.selectBody(id);
+                    this.highlightBodyInViewport(id);
+                }}
+                onToggleSuppressed={(id, value) => this.handleToggleSuppressed(id, value)}
+                onDeleteFeature={(id) => void this.handleDeleteFeature(id)}
+                onRenameFeature={(id, name) => this.handleRenameFeature(id, name)}
+                onRenameBody={(id, name) => this.handleRenameBody(id, name)}
+                onSetBodyMaterial={(id, material) => this.handleSetBodyMaterial(id, material)}
+                onReorderFeatures={(orderedIds) => this.handleReorderFeatures(orderedIds)}
+                onRepairRef={(path, fingerprint) => this.handleRepairRef(path, fingerprint)}
+                onEditSketch={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_SKETCH.id, id)}
+                onNewSketch={() => this.commandService.executeCommand(NukeCadCommands.NEW_SKETCH.id)}
+                onEditFeature={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_FEATURE.id, id)}
+                onExportPython={() => void this.commandService.executeCommand(NukeCadCommands.EXPORT_PYTHON.id)}
+                fileDialogService={this.fileDialogService}
+                fileService={this.fileService}
+                onAddCurve={(def) => this.handleAddCurve(def)}
+                onUpdateCurve={(id, def) => this.handleUpdateCurve(id, def)}
+                onRenameCurve={(id, name) => this.handleRenameCurve(id, name)}
+                onDeleteCurve={(id) => this.handleDeleteCurve(id)}
+                onSelectCurve={(id) => this.handleSelectCurve(id)}
+                onStartFeatureCreation={(type) => {
+                    const command = featureTreeCommand(type);
+                    if (command !== undefined) {
+                        void this.commandService.executeCommand(command.id);
+                    }
+                }}
+                onRenameInstance={(id, newId) => this.handleRenameInstance(id, newId)}
+                onDeleteInstance={(id) => this.handleDeleteInstance(id)}
+                onGroundInstance={(id) => this.handleGroundInstance(id)}
+                onDeleteMate={(id) => this.handleDeleteMate(id)}
+            />
+        );
+    }
+
+    private handleRenameInstance(id: string, newId: string): void {
+        const result = this.documentStore.renameInstance(id, newId);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to rename instance.');
+        }
+    }
+
+    private handleDeleteInstance(id: string): void {
+        const result = this.documentStore.deleteInstance(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete instance.');
+        }
+    }
+
+    private handleGroundInstance(id: string): void {
+        const result = this.documentStore.setGrounded(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to ground instance.');
+        }
+    }
+
+    private handleDeleteMate(id: string): void {
+        const result = this.documentStore.deleteMate(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete mate.');
+        }
+    }
+
+    private handleToggleSuppressed(id: string, value: boolean): void {
+        const result = this.documentStore.setFeatureSuppressed(id, value);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to toggle suppression.');
+        }
+    }
+
+    private async handleDeleteFeature(id: string): Promise<void> {
+        const doc = this.documentStore.document;
+        if (doc === undefined) {
+            return;
+        }
+        const dependentIds = collectDependentFeatureIds(doc, id);
+        if (dependentIds.length > 0) {
+            const confirmed = await new ConfirmDialog({
+                title: 'Delete dependent features?',
+                msg: `Delete feature '${id}' and ${dependentIds.length} dependent feature${
+                    dependentIds.length === 1 ? '' : 's'
+                }? This cannot be undone.`,
+                ok: 'Delete all'
+            }).open();
+            if (!confirmed) {
+                return;
+            }
+            const result = this.documentStore.deleteFeature(id, 'cascade');
+            if (!result.success) {
+                this.messageService.error(result.error || 'Failed to delete feature.');
+            }
+            return;
+        }
+        const result = this.documentStore.deleteFeature(id, 'error');
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete feature.');
+        }
+    }
+
+    private handleRenameFeature(id: string, name: string): void {
+        const result = this.documentStore.renameFeature(id, name);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to rename feature.');
+        }
+    }
+
+    private handleRenameBody(id: string, name: string): void {
+        const result = this.documentStore.renameBody(id, name);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to rename body.');
+        }
+    }
+
+    private handleSetBodyMaterial(id: string, material?: string): void {
+        const result = this.documentStore.setBodyMaterial(id, material);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to set body material.');
+        }
+    }
+
+    private handleAddCurve(def: CurveDef): void {
+        const result = this.documentStore.addCurve(def);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to add curve.');
+        }
+    }
+
+    private handleUpdateCurve(id: string, def: CurveDef): void {
+        const result = this.documentStore.updateCurve(id, def);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to update curve.');
+        }
+    }
+
+    private handleRenameCurve(id: string, name: string): void {
+        const result = this.documentStore.renameCurve(id, name);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to rename curve.');
+        }
+    }
+
+    private handleDeleteCurve(id: string): void {
+        const result = this.documentStore.deleteCurve(id);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to delete curve.');
+        }
+    }
+
+    private handleSelectCurve(id: string | undefined): void {
+        this.documentStore.selectCurve(id);
+    }
+
+    private handleReorderFeatures(orderedIds: string[]): void {
+        const result = this.documentStore.reorderFeatures(orderedIds);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to reorder features.');
+        }
+    }
+
+    private handleRepairRef(
+        path: string,
+        fingerprint: import('../../../common/topology-refs').FaceFingerprint | import('../../../common/topology-refs').EdgeFingerprint
+    ): void {
+        const result = this.documentStore.replaceTopologyRef(path, fingerprint);
+        if (!result.success) {
+            this.messageService.error(result.error || 'Failed to repair reference.');
+            return;
+        }
+        void this.commandService.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id);
+    }
+}
+
+interface CadFeatureTreeComponentProps {
+    readonly document?: NukeCadDocument;
+    readonly selection: DocumentSelection;
+    readonly featureResults: ReadonlyMap<string, FeatureResult>;
+    readonly referenceResults: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
+    readonly onSelectSketch: (id: string | undefined) => void;
+    readonly onSelectFeature: (id: string | undefined) => void;
+    readonly onSelectBody: (id: string | undefined) => void;
+    readonly onToggleSuppressed: (id: string, value: boolean) => void;
+    readonly onDeleteFeature: (id: string) => void;
+    readonly onRenameFeature: (id: string, name: string) => void;
+    readonly onRenameBody: (id: string, name: string) => void;
+    readonly onSetBodyMaterial: (id: string, material?: string) => void;
+    readonly onReorderFeatures: (orderedIds: string[]) => void;
+    readonly onRepairRef: (
+        path: string,
+        fingerprint: import('../../../common/topology-refs').FaceFingerprint | import('../../../common/topology-refs').EdgeFingerprint
+    ) => void;
+    readonly onEditSketch: (id: string) => void;
+    readonly onEditFeature: (id: string) => void;
+    readonly onNewSketch: () => void;
+    readonly onExportPython?: () => void;
+    readonly fileDialogService: FileDialogService;
+    readonly fileService: FileService;
+    readonly onAddCurve: (def: CurveDef) => void;
+    readonly onUpdateCurve: (id: string, def: CurveDef) => void;
+    readonly onRenameCurve: (id: string, name: string) => void;
+    readonly onDeleteCurve: (id: string) => void;
+    readonly onSelectCurve: (id: string | undefined) => void;
+    readonly onStartFeatureCreation: (type: FeatureDef['type']) => void;
+    readonly onRenameInstance: (id: string, newId: string) => void;
+    readonly onDeleteInstance: (id: string) => void;
+    readonly onGroundInstance: (id: string) => void;
+    readonly onDeleteMate: (id: string) => void;
+}
+
+function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.ReactElement {
+    const doc = props.document;
+    const assembly: AssemblySection | undefined = doc !== undefined ? getAssemblySection(doc) : undefined;
+    const hasContent =
+        doc !== undefined &&
+        (doc.datums.length > 0 ||
+            doc.sketches.length > 0 ||
+            doc.curves.length > 0 ||
+            doc.bodies.length > 0 ||
+            doc.features.length > 0 ||
+            (assembly !== undefined && assembly.instances.length > 0));
+    const [renamingId, setRenamingId] = React.useState<string | undefined>();
+    const [curveDialog, setCurveDialog] = React.useState<
+        { readonly mode: 'create' } | { readonly mode: 'edit'; readonly curve: CurveDef } | undefined
+    >();
+    const [renameValue, setRenameValue] = React.useState('');
+    const [repairPopover, setRepairPopover] = React.useState<
+        | {
+              featureId: string;
+              results: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
+              anchor: HTMLElement;
+          }
+        | undefined
+    >();
+    const bodyNameMap = React.useMemo(() => {
+        const map = new Map<string, string>();
+        if (doc !== undefined) {
+            for (const body of doc.bodies) {
+                map.set(body.id, bodyLabelText(body));
+            }
+        }
+        return map;
+    }, [doc?.bodies]);
+
+    const featureIds = React.useMemo(() => doc?.features.map((f) => f.id) ?? [], [doc?.features]);
+
+    const moveFeature = (id: string, direction: -1 | 1): void => {
+        const idx = featureIds.indexOf(id);
+        const newIdx = idx + direction;
+        if (idx < 0 || newIdx < 0 || newIdx >= featureIds.length) {
+            return;
+        }
+        const newIds = [...featureIds];
+        [newIds[idx], newIds[newIdx]] = [newIds[newIdx], newIds[idx]];
+        props.onReorderFeatures(newIds);
+    };
+
+    const startRenameBody = (body: BodyDef): void => {
+        setRenamingId(body.id);
+        setRenameValue(body.name);
+    };
+
+    const commitRenameBody = (): void => {
+        if (renamingId !== undefined) {
+            props.onRenameBody(renamingId, renameValue);
+        }
+        setRenamingId(undefined);
+    };
+
+    const cancelRenameBody = (): void => {
+        setRenamingId(undefined);
+    };
+
+    return (
+        <div className="cad-feature-tree-panel">
+            <div className="cad-feature-tree-header">
+                <div className="header-info">
+                    <h2>
+                        <i className="codicon codicon-nuke-cad-feature-tree" />
+                        Feature Tree
+                    </h2>
+                    <p className="header-description">{doc?.name ?? 'No CAD document open'}</p>
+                </div>
+                {doc !== undefined && props.onExportPython !== undefined && (
+                    <Tooltip content="Export as Python" position="left">
+                        <button className="theia-button secondary" onClick={props.onExportPython}>
+                            <span className="codicon codicon-code" />
+                        </button>
+                    </Tooltip>
+                )}
+            </div>
+
+            {!doc && (
+                <div className="cad-feature-tree-empty">
+                    <i className="codicon codicon-nuke-cad-feature-tree" />
+                    <p>No CAD document is open.</p>
+                    <span className="empty-hint">Create or open a .nuke-cad document to edit its feature tree.</span>
+                </div>
+            )}
+
+            {doc && !hasContent && (
+                <div className="cad-feature-tree-empty">
+                    <i className="codicon codicon-nuke-cad-sketch" />
+                    <p>This document is empty.</p>
+                    <button className="theia-button" onClick={props.onNewSketch}>
+                        <span className="codicon codicon-add" /> New Sketch
+                    </button>
+                </div>
+            )}
+
+            {doc && hasContent && (
+                <div className="cad-feature-tree-content">
+                    <TreeSection title="Datums" count={doc.datums.length}>
+                        {doc.datums.map((datum) => (
+                            <DatumRow key={datum.id} datum={datum} />
+                        ))}
+                    </TreeSection>
+
+                    <TreeSection title="Sketches" count={doc.sketches.length}>
+                        {doc.sketches.map((sketch) => (
+                            <SketchRow
+                                key={sketch.id}
+                                sketch={sketch}
+                                selected={props.selection.selectedSketchId === sketch.id}
+                                onSelect={() => props.onSelectSketch(sketch.id)}
+                                onEdit={() => props.onEditSketch(sketch.id)}
+                            />
+                        ))}
+                    </TreeSection>
+
+                    <TreeSection
+                        title="Curves"
+                        count={doc.curves.length}
+                        action={
+                            <Tooltip content="New Curve" position="left">
+                                <button
+                                    className="theia-button secondary feature-tree-section-action"
+                                    onClick={() => setCurveDialog({ mode: 'create' })}
+                                >
+                                    <span className="codicon codicon-add" />
+                                </button>
+                            </Tooltip>
+                        }
+                    >
+                        {doc.curves.map((curve) => (
+                            <CurveRow
+                                key={curve.id}
+                                curve={curve}
+                                selected={props.selection.selectedCurveId === curve.id}
+                                onSelect={() => props.onSelectCurve(curve.id)}
+                                onEdit={() => setCurveDialog({ mode: 'edit', curve })}
+                                onRename={(name) => props.onRenameCurve(curve.id, name)}
+                                onDelete={() => props.onDeleteCurve(curve.id)}
+                            />
+                        ))}
+                    </TreeSection>
+
+                    <TreeSection title="Bodies" count={doc.bodies.length}>
+                        {doc.bodies.map((body) => (
+                            <BodyRow
+                                key={body.id}
+                                body={body}
+                                selected={props.selection.selectedBodyId === body.id}
+                                renaming={renamingId === body.id}
+                                renameValue={renameValue}
+                                onSelect={() => props.onSelectBody(body.id)}
+                                onRenameValueChange={setRenameValue}
+                                onRenameCommit={commitRenameBody}
+                                onRenameCancel={cancelRenameBody}
+                                onStartRename={() => startRenameBody(body)}
+                                onSetBodyMaterial={props.onSetBodyMaterial}
+                            />
+                        ))}
+                    </TreeSection>
+
+                    <TreeSection title="Features" count={doc.features.length}>
+                        {doc.features.map((feature, index) => (
+                            <FeatureRow
+                                key={feature.id}
+                                feature={feature}
+                                index={index}
+                                isFirst={index === 0}
+                                isLast={index === doc.features.length - 1}
+                                result={props.featureResults.get(feature.id)}
+                                referenceResults={props.referenceResults.filter((r) => r.featureId === feature.id)}
+                                bodyNameMap={bodyNameMap}
+                                selected={props.selection.selectedFeatureId === feature.id}
+                                onSelect={() => props.onSelectFeature(feature.id)}
+                                onToggleSuppressed={props.onToggleSuppressed}
+                                onDelete={props.onDeleteFeature}
+                                onEditFeature={props.onEditFeature}
+                                onRenameFeature={props.onRenameFeature}
+                                onMoveUp={(id) => moveFeature(id, -1)}
+                                onMoveDown={(id) => moveFeature(id, 1)}
+                                onOpenRepairPopover={(featureId, results, anchor) => setRepairPopover({ featureId, results, anchor })}
+                            />
+                        ))}
+                    </TreeSection>
+
+                    {assembly !== undefined && assembly.instances.length > 0 && (
+                        <AssemblySections
+                            assembly={assembly}
+                            documentName={doc.name}
+                            onRenameInstance={props.onRenameInstance}
+                            onDeleteInstance={props.onDeleteInstance}
+                            onGroundInstance={props.onGroundInstance}
+                            onDeleteMate={props.onDeleteMate}
+                        />
+                    )}
+                </div>
+            )}
+            {repairPopover !== undefined && doc !== undefined && (
+                <RepairPopover
+                    document={doc}
+                    featureId={repairPopover.featureId}
+                    results={repairPopover.results}
+                    anchor={repairPopover.anchor}
+                    onRepair={props.onRepairRef}
+                    onClose={() => setRepairPopover(undefined)}
+                />
+            )}
+            {curveDialog !== undefined && doc !== undefined && (
+                <CurveDialog
+                    document={doc}
+                    curve={curveDialog.mode === 'edit' ? curveDialog.curve : undefined}
+                    fileDialogService={props.fileDialogService}
+                    fileService={props.fileService}
+                    onClose={() => setCurveDialog(undefined)}
+                    onSubmit={(def) => {
+                        if (curveDialog.mode === 'edit') {
+                            props.onUpdateCurve(curveDialog.curve.id, def);
+                        } else {
+                            props.onAddCurve(def);
+                        }
+                        setCurveDialog(undefined);
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+interface TreeSectionProps {
+    readonly title: string;
+    readonly count: number;
+    readonly children: React.ReactNode;
+    readonly action?: React.ReactNode;
+}
+
+function TreeSection(props: TreeSectionProps): React.ReactElement {
+    const [collapsed, setCollapsed] = React.useState(false);
+    return (
+        <div className="feature-tree-section">
+            <div className="category-header">
+                <span className="category-header-main" onClick={() => setCollapsed(!collapsed)}>
+                    <i className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
+                    <span>{props.title}</span>
+                    <span className="count-badge">{props.count}</span>
+                </span>
+                {props.action}
+            </div>
+            {!collapsed && <div className="feature-tree-rows">{props.children}</div>}
+        </div>
+    );
+}
+
+interface InlineRenameProps {
+    readonly value: string;
+    readonly onChange: (value: string) => void;
+    readonly onCommit: () => void;
+    readonly onCancel: () => void;
+}
+
+function InlineRename(props: InlineRenameProps): React.ReactElement {
+    return (
+        <input
+            className="feature-tree-rename-input"
+            value={props.value}
+            onChange={(e) => props.onChange(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                    props.onCommit();
+                } else if (e.key === 'Escape') {
+                    props.onCancel();
+                }
+            }}
+            onBlur={props.onCommit}
+            autoFocus
+        />
+    );
+}
+
+interface DatumRowProps {
+    readonly datum: DatumPlane;
+}
+
+function DatumRow(props: DatumRowProps): React.ReactElement {
+    const tooltip = useTooltip(`${props.datum.kind}${props.datum.offset !== undefined ? ` offset ${props.datum.offset}` : ''}`, 'top');
+    return (
+        <>
+            <div className="feature-tree-row datum">
+                <span className="codicon codicon-nuke-cad-datum feature-tree-icon" />
+                <span className="feature-tree-label" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
+                    {props.datum.name}
+                </span>
+            </div>
+            {tooltip.tooltipElement}
+        </>
+    );
+}
+
+interface SketchRowProps {
+    readonly sketch: SketchDef;
+    readonly selected: boolean;
+    readonly onSelect: () => void;
+    readonly onEdit: () => void;
+}
+
+function SketchRow(props: SketchRowProps): React.ReactElement {
+    const tooltip = useTooltip('Click to select, edit to enter sketch mode', 'top');
+    return (
+        <>
+            <div className={`feature-tree-row sketch${props.selected ? ' selected' : ''}`} onClick={props.onSelect}>
+                <span className="codicon codicon-nuke-cad-sketch feature-tree-icon" />
+                <span className="feature-tree-label" onMouseEnter={tooltip.onMouseEnter} onMouseLeave={tooltip.onMouseLeave}>
+                    {props.sketch.name}
+                </span>
+                <Tooltip content="Edit Sketch" position="left">
+                    <button
+                        className="theia-button secondary feature-tree-action"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            props.onEdit();
+                        }}
+                    >
+                        <span className="codicon codicon-edit" />
+                    </button>
+                </Tooltip>
+            </div>
+            {tooltip.tooltipElement}
+        </>
+    );
+}
+
+interface BodyRowProps {
+    readonly body: BodyDef;
+    readonly selected: boolean;
+    readonly renaming: boolean;
+    readonly renameValue: string;
+    readonly onSelect: () => void;
+    readonly onRenameValueChange: (value: string) => void;
+    readonly onRenameCommit: () => void;
+    readonly onRenameCancel: () => void;
+    readonly onStartRename: () => void;
+    readonly onSetBodyMaterial: (id: string, material?: string) => void;
+}
+
+function BodyRow(props: BodyRowProps): React.ReactElement {
+    const tooltip = useTooltip('Click to select body; double-click label to rename', 'top');
+    const [editingMaterial, setEditingMaterial] = React.useState(false);
+    const [materialValue, setMaterialValue] = React.useState('');
+    const [materialError, setMaterialError] = React.useState<string | undefined>();
+
+    const startEditMaterial = (): void => {
+        setMaterialValue(props.body.material ?? '');
+        setMaterialError(undefined);
+        setEditingMaterial(true);
+    };
+
+    const cancelEditMaterial = (): void => {
+        setEditingMaterial(false);
+        setMaterialError(undefined);
+    };
+
+    const commitEditMaterial = (): void => {
+        const result = normalizeBodyMaterialInput(materialValue);
+        if ('error' in result) {
+            setMaterialError(result.error);
+            return;
+        }
+        props.onSetBodyMaterial(props.body.id, result.material);
+        setEditingMaterial(false);
+        setMaterialError(undefined);
+    };
+
+    return (
+        <>
+            <div className={`feature-tree-row body${props.selected ? ' selected' : ''}`} onClick={props.onSelect}>
+                <span className="codicon codicon-nuke-cad-cube feature-tree-icon" />
+                {props.renaming ? (
+                    <InlineRename
+                        value={props.renameValue}
+                        onChange={props.onRenameValueChange}
+                        onCommit={props.onRenameCommit}
+                        onCancel={props.onRenameCancel}
+                    />
+                ) : (
+                    <span
+                        className="feature-tree-label"
+                        onDoubleClick={props.onStartRename}
+                        onMouseEnter={tooltip.onMouseEnter}
+                        onMouseLeave={tooltip.onMouseLeave}
+                    >
+                        {bodyLabelText(props.body)}
+                    </span>
+                )}
+                {!props.renaming && !editingMaterial && props.body.material !== undefined && (
+                    <span className="feature-tree-kind-chip" title="In-CAD material tag">
+                        {props.body.material}
+                    </span>
+                )}
+                {!props.renaming && editingMaterial && (
+                    <input
+                        className="feature-tree-rename-input"
+                        value={materialValue}
+                        placeholder="Material (e.g. UO2)"
+                        onChange={(e) => {
+                            setMaterialValue(e.target.value);
+                            setMaterialError(undefined);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                commitEditMaterial();
+                            } else if (e.key === 'Escape') {
+                                cancelEditMaterial();
+                            }
+                        }}
+                        onBlur={commitEditMaterial}
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                )}
+                {!props.renaming && !editingMaterial && (
+                    <Tooltip content={props.body.material !== undefined ? 'Edit material tag' : 'Set material tag'} position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                startEditMaterial();
+                            }}
+                        >
+                            <span className="codicon codicon-tag" />
+                        </button>
+                    </Tooltip>
+                )}
+                {!props.renaming && !editingMaterial && (
+                    <Tooltip content="Rename" position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                props.onStartRename();
+                            }}
+                        >
+                            <span className="codicon codicon-edit" />
+                        </button>
+                    </Tooltip>
+                )}
+            </div>
+            {materialError !== undefined && (
+                <div
+                    className="feature-tree-row-body-material-error"
+                    style={{ color: 'var(--theia-errorForeground)', fontSize: '11px', padding: '0 8px 4px 24px' }}
+                >
+                    {materialError}
+                </div>
+            )}
+            {tooltip.tooltipElement}
+        </>
+    );
+}
+
+interface CurveRowProps {
+    readonly curve: CurveDef;
+    readonly selected: boolean;
+    readonly onSelect: () => void;
+    readonly onEdit: () => void;
+    readonly onRename: (name: string) => void;
+    readonly onDelete: () => void;
+}
+
+function CurveRow(props: CurveRowProps): React.ReactElement {
+    const { curve } = props;
+    const tooltip = useTooltip(`${curve.samples.length} samples · ${curve.source.kind}`, 'top');
+    const [renaming, setRenaming] = React.useState(false);
+    const [editName, setEditName] = React.useState(curve.name);
+
+    const commitRename = (): void => {
+        const name = editName.trim();
+        if (name.length > 0 && name !== curve.name) {
+            props.onRename(name);
+        }
+        setRenaming(false);
+    };
+
+    const cancelRename = (): void => {
+        setEditName(curve.name);
+        setRenaming(false);
+    };
+
+    return (
+        <>
+            <div className={`feature-tree-row curve${props.selected ? ' selected' : ''}`} onClick={props.onSelect}>
+                <span className="codicon codicon-nuke-cad-curve feature-tree-icon" />
+                {renaming ? (
+                    <InlineRename value={editName} onChange={setEditName} onCommit={commitRename} onCancel={cancelRename} />
+                ) : (
+                    <span
+                        className="feature-tree-label"
+                        onDoubleClick={() => setRenaming(true)}
+                        onMouseEnter={tooltip.onMouseEnter}
+                        onMouseLeave={tooltip.onMouseLeave}
+                    >
+                        {curve.name}
+                    </span>
+                )}
+                <span className="feature-tree-kind-chip">{curve.source.kind}</span>
+                {!renaming && (
+                    <Tooltip content="Edit Curve" position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                props.onEdit();
+                            }}
+                        >
+                            <span className="codicon codicon-edit" />
+                        </button>
+                    </Tooltip>
+                )}
+                {!renaming && (
+                    <Tooltip content="Delete" position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                props.onDelete();
+                            }}
+                        >
+                            <span className="codicon codicon-trash" />
+                        </button>
+                    </Tooltip>
+                )}
+            </div>
+            {tooltip.tooltipElement}
+        </>
+    );
+}
+
+interface FeatureRowProps {
+    readonly feature: FeatureDef;
+    readonly index: number;
+    readonly isFirst: boolean;
+    readonly isLast: boolean;
+    readonly result?: FeatureResult;
+    readonly referenceResults: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
+    readonly bodyNameMap: ReadonlyMap<string, string>;
+    readonly selected: boolean;
+    readonly onSelect: () => void;
+    readonly onToggleSuppressed: (id: string, value: boolean) => void;
+    readonly onDelete: (id: string) => void;
+    readonly onEditFeature: (id: string) => void;
+    readonly onRenameFeature: (id: string, name: string) => void;
+    readonly onMoveUp: (id: string) => void;
+    readonly onMoveDown: (id: string) => void;
+    readonly onOpenRepairPopover: (
+        featureId: string,
+        results: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[],
+        anchor: HTMLElement
+    ) => void;
+}
+
+function FeatureRow(props: FeatureRowProps): React.ReactElement {
+    const { feature, result, referenceResults, bodyNameMap } = props;
+    const status = result?.status ?? 'stale';
+    const statusClass = `status-${status}`;
+    const statusTooltip = result?.error ?? `${status}`;
+    const tooltip = useTooltip(statusTooltip, 'top');
+    const ambiguous = referenceResults.filter((r) => r.status === 'ambiguous').length;
+    const unmatched = referenceResults.filter((r) => r.status === 'unmatched').length;
+    const isBoolean = feature.type === 'booleanFuse' || feature.type === 'booleanCut' || feature.type === 'booleanCommon';
+    const params = feature.params as Record<string, unknown>;
+    const targetBody = isBoolean && typeof params.targetBody === 'string' ? params.targetBody : undefined;
+    const toolBodies = isBoolean && Array.isArray(params.toolBodies) ? (params.toolBodies as string[]) : [];
+    const importSourcePath =
+        feature.type === 'import' && typeof params.sourcePath === 'string' && params.sourcePath.length > 0 ? params.sourcePath : undefined;
+    const importSourceName = importSourcePath !== undefined ? (importSourcePath.split(/[\\/]/).pop() ?? importSourcePath) : undefined;
+    const [renaming, setRenaming] = React.useState(false);
+    const [editName, setEditName] = React.useState(feature.name);
+
+    const commitRename = (): void => {
+        const name = editName.trim();
+        if (name.length > 0 && name !== feature.name) {
+            props.onRenameFeature(feature.id, name);
+        }
+        setRenaming(false);
+    };
+
+    const cancelRename = (): void => {
+        setEditName(feature.name);
+        setRenaming(false);
+    };
+
+    return (
+        <>
+            <div className={`feature-tree-row feature${props.selected ? ' selected' : ''} ${statusClass}`} onClick={props.onSelect}>
+                <span className={`codicon ${featureTreeIcon(feature.type)} feature-tree-icon`} />
+                {renaming ? (
+                    <InlineRename value={editName} onChange={setEditName} onCommit={commitRename} onCancel={cancelRename} />
+                ) : (
+                    <span
+                        className="feature-tree-label"
+                        onDoubleClick={() => setRenaming(true)}
+                        onMouseEnter={tooltip.onMouseEnter}
+                        onMouseLeave={tooltip.onMouseLeave}
+                    >
+                        {feature.name}
+                    </span>
+                )}
+                <span className="feature-tree-body-chip" title="Target body">
+                    {bodyNameMap.get(feature.body) ?? feature.body}
+                </span>
+                {importSourceName !== undefined && (
+                    <span className="feature-tree-import-source" title={`Source: ${importSourcePath}`}>
+                        {importSourceName}
+                    </span>
+                )}
+                {isBoolean && (
+                    <span className="feature-tree-boolean-hint">
+                        {targetBody !== undefined && `→ ${bodyNameMap.get(targetBody) ?? targetBody}`}
+                        {toolBodies.length > 0 && ` · tools: ${toolBodies.map((id) => bodyNameMap.get(id) ?? id).join(', ')}`}
+                    </span>
+                )}
+                {(ambiguous > 0 || unmatched > 0) && (
+                    <span
+                        ref={(el) => {
+                            if (el !== null) {
+                                el.dataset.featureId = feature.id;
+                            }
+                        }}
+                        className={`feature-tree-ref-badge ${unmatched > 0 ? 'unmatched' : 'ambiguous'}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            props.onOpenRepairPopover(feature.id, referenceResults, e.currentTarget);
+                        }}
+                    >
+                        {unmatched > 0 ? `${unmatched} unmatched` : `${ambiguous} ambiguous`}
+                    </span>
+                )}
+                <span className="feature-tree-status" />
+                <Tooltip content={feature.suppressed ? 'Unsuppress' : 'Suppress'} position="left">
+                    <button
+                        className={`theia-button secondary feature-tree-action ${feature.suppressed ? 'suppressed' : ''}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            props.onToggleSuppressed(feature.id, !feature.suppressed);
+                        }}
+                    >
+                        <span className={`codicon codicon-${feature.suppressed ? 'eye-closed' : 'eye'}`} />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Move up" position="left">
+                    <button
+                        className="theia-button secondary feature-tree-action"
+                        disabled={props.isFirst}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            props.onMoveUp(feature.id);
+                        }}
+                    >
+                        <span className="codicon codicon-arrow-up" />
+                    </button>
+                </Tooltip>
+                <Tooltip content="Move down" position="left">
+                    <button
+                        className="theia-button secondary feature-tree-action"
+                        disabled={props.isLast}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            props.onMoveDown(feature.id);
+                        }}
+                    >
+                        <span className="codicon codicon-arrow-down" />
+                    </button>
+                </Tooltip>
+                {!renaming && feature.type !== 'import' && (
+                    <Tooltip content="Edit Parameters" position="left">
+                        <button
+                            className="theia-button secondary feature-tree-action"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                props.onEditFeature(feature.id);
+                            }}
+                        >
+                            <span className="codicon codicon-edit" />
+                        </button>
+                    </Tooltip>
+                )}
+                <Tooltip content="Delete" position="left">
+                    <button
+                        className="theia-button secondary feature-tree-action"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            props.onDelete(feature.id);
+                        }}
+                    >
+                        <span className="codicon codicon-trash" />
+                    </button>
+                </Tooltip>
+            </div>
+            {tooltip.tooltipElement}
+        </>
+    );
+}
+
+function resolveTopologyRefAtPath(doc: NukeCadDocument, path: string): TopologyRef | undefined {
+    const datumMatch = path.match(/^datum\.([^.]+)\.reference$/);
+    if (datumMatch !== null) {
+        return doc.datums.find((d) => d.id === datumMatch[1])?.reference;
+    }
+    const sketchMatch = path.match(/^sketch\.([^.]+)\.externalRefs\[(\d+)\]$/);
+    if (sketchMatch !== null) {
+        const sketch = doc.sketches.find((s) => s.id === sketchMatch[1]);
+        const index = Number(sketchMatch[2]);
+        return sketch?.externalRefs?.[index];
+    }
+    const arrayMatch = path.match(/^feature\.([^.]+)\.params\.(edges|faces)\[(\d+)\]$/);
+    if (arrayMatch !== null) {
+        const feature = doc.features.find((f) => f.id === arrayMatch[1]);
+        const params = feature?.params as Record<string, unknown> | undefined;
+        const index = Number(arrayMatch[3]);
+        const refs = params?.[arrayMatch[2]] as TopologyRef[] | undefined;
+        return refs?.[index];
+    }
+    const faceMatch = path.match(/^feature\.([^.]+)\.params\.(face|upToFace)$/);
+    if (faceMatch !== null) {
+        const feature = doc.features.find((f) => f.id === faceMatch[1]);
+        const params = feature?.params as Record<string, unknown> | undefined;
+        return params?.[faceMatch[2]] as TopologyRef | undefined;
+    }
+    return undefined;
+}
+
+function formatPoint3(point: readonly number[]): string {
+    return `(${point.map((v) => Number(v).toFixed(3)).join(', ')})`;
+}
+
+function summarizeFingerprint(ref: TopologyRef | undefined): string {
+    if (ref === undefined) {
+        return 'none';
+    }
+    if (ref.kind === 'face') {
+        const fp = ref.fingerprint as import('../../../common/topology-refs').FaceFingerprint;
+        return `${fp.surfaceType} area=${fp.area.toFixed(3)} center=${formatPoint3(fp.center)}`;
+    }
+    const fp = ref.fingerprint as import('../../../common/topology-refs').EdgeFingerprint;
+    return `${fp.curveType} length=${fp.length.toFixed(3)} ${formatPoint3(fp.start)} -> ${formatPoint3(fp.end)}`;
+}
+
+interface RepairPopoverProps {
+    readonly document: NukeCadDocument;
+    readonly featureId: string;
+    readonly results: readonly import('../../../common/nuke-cad-protocol').ReferenceResolutionResult[];
+    readonly anchor: HTMLElement;
+    readonly onRepair: (
+        path: string,
+        fingerprint: import('../../../common/topology-refs').FaceFingerprint | import('../../../common/topology-refs').EdgeFingerprint
+    ) => void;
+    readonly onClose: () => void;
+}
+
+function RepairPopover(props: RepairPopoverProps): React.ReactElement {
+    const rect = props.anchor.getBoundingClientRect();
+    const results = props.results.filter((r) => r.status === 'ambiguous' || r.status === 'unmatched');
+    return (
+        <div
+            className="cad-feature-tree-repair-popover"
+            style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left }}
+            onClick={(e) => e.stopPropagation()}
+        >
+            <div className="cad-feature-tree-repair-header">
+                <span>Repair references for {props.featureId}</span>
+                <button className="theia-button secondary" onClick={props.onClose}>
+                    <span className="codicon codicon-close" />
+                </button>
+            </div>
+            {results.length === 0 && <div className="cad-feature-tree-repair-empty">No repairable references.</div>}
+            {results.map((result) => {
+                const current = resolveTopologyRefAtPath(props.document, result.path);
+                const candidates = result.candidates ?? [];
+                return (
+                    <div key={result.path} className="cad-feature-tree-repair-group">
+                        <div className="cad-feature-tree-repair-path">{result.path}</div>
+                        <div className="cad-feature-tree-repair-current">Current: {summarizeFingerprint(current)}</div>
+                        {candidates.length === 0 && <div className="cad-feature-tree-repair-empty">No candidates available.</div>}
+                        {candidates.length > 0 && (
+                            <div className="cad-feature-tree-repair-candidates">
+                                {candidates.map((candidate, index) => (
+                                    <button
+                                        key={`${candidate.candidateId}-${index}`}
+                                        className="theia-button secondary cad-feature-tree-repair-candidate"
+                                        onClick={() => {
+                                            // The fingerprint is the candidate's identity; the
+                                            // per-rebuild candidateId is display-only.
+                                            if (candidate.fingerprint !== undefined) {
+                                                props.onRepair(result.path, candidate.fingerprint);
+                                            }
+                                        }}
+                                    >
+                                        <span className="cad-feature-tree-repair-candidate-id">{candidate.candidateId}</span>
+                                        <span className="cad-feature-tree-repair-candidate-score">{candidate.score.toFixed(3)}</span>
+                                        {candidate.fingerprint !== undefined && (
+                                            <span className="cad-feature-tree-repair-candidate-summary">
+                                                {summarizeFingerprint({
+                                                    featureId: props.featureId,
+                                                    kind: result.kind,
+                                                    fingerprint: candidate.fingerprint
+                                                } as TopologyRef)}
+                                            </span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function bodyLabelText(body: BodyDef): string {
+    return body.label !== undefined ? `${body.name} · ${body.label}` : body.name;
+}
+
+interface AssemblySectionsProps {
+    readonly assembly: AssemblySection;
+    readonly documentName: string;
+    readonly onRenameInstance: (id: string, newId: string) => void;
+    readonly onDeleteInstance: (id: string) => void;
+    readonly onGroundInstance: (id: string) => void;
+    readonly onDeleteMate: (id: string) => void;
+}
+
+/**
+ * Assembly sections of the feature tree: instance rows (rename/delete plus a
+ * Ground action) and mate rows (type chip, delete). Broken-reference badges
+ * come from the frozen-spec validation on the synthesized root — the same
+ * dangling-reference signal the backend reports for assembly references.
+ */
+function AssemblySections(props: AssemblySectionsProps): React.ReactElement {
+    const [renamingId, setRenamingId] = React.useState<string | undefined>(undefined);
+    const [renameValue, setRenameValue] = React.useState('');
+    const brokenMateIndexes = React.useMemo(() => {
+        const result = validateAssemblyDocument({
+            version: 1,
+            name: props.documentName,
+            instances: props.assembly.instances,
+            connectors: props.assembly.connectors,
+            mates: props.assembly.mates,
+            groundedInstanceId: props.assembly.groundedInstanceId
+        });
+        const broken = new Set<number>();
+        if (result.valid) {
+            return broken;
+        }
+        props.assembly.mates.forEach((mate, index) => {
+            const prefix = `mates[${index}]`;
+            if (
+                result.issues.some(
+                    (issue) => issue.path === prefix || issue.path.startsWith(`${prefix}.`) || issue.path.startsWith(`${prefix}[`)
+                )
+            ) {
+                broken.add(index);
+            }
+            // A dangling grounded id or connector also breaks every mate.
+            if (result.issues.some((issue) => issue.path === 'groundedInstanceId' || issue.path.startsWith('connectors['))) {
+                broken.add(index);
+            }
+            void mate;
+        });
+        return broken;
+    }, [props.assembly, props.documentName]);
+
+    const commitRename = (id: string): void => {
+        const next = renameValue.trim();
+        if (next.length > 0 && next !== id) {
+            props.onRenameInstance(id, next);
+        }
+        setRenamingId(undefined);
+    };
+
+    return (
+        <>
+            <TreeSection title="Instances" count={props.assembly.instances.length}>
+                {props.assembly.instances.map((instance) => {
+                    const grounded = props.assembly.groundedInstanceId === instance.id;
+                    return (
+                        <div key={instance.id} className={`feature-tree-row body${grounded ? ' selected' : ''}`}>
+                            <span className="codicon codicon-nuke-cad-assembly feature-tree-icon" />
+                            {renamingId === instance.id ? (
+                                <InlineRename
+                                    value={renameValue}
+                                    onChange={setRenameValue}
+                                    onCommit={() => commitRename(instance.id)}
+                                    onCancel={() => setRenamingId(undefined)}
+                                />
+                            ) : (
+                                <span
+                                    className="feature-tree-label"
+                                    title={`${instance.part}${grounded ? ' (grounded)' : ''} — double-click to rename`}
+                                    onDoubleClick={() => {
+                                        setRenamingId(instance.id);
+                                        setRenameValue(instance.id);
+                                    }}
+                                >
+                                    {instance.id}
+                                </span>
+                            )}
+                            <span className="feature-tree-body-chip" title={instance.part}>
+                                {instance.part}
+                            </span>
+                            {grounded && <span className="feature-tree-kind-chip">grounded</span>}
+                            {!grounded && (
+                                <Tooltip content="Ground here" position="left">
+                                    <button
+                                        className="theia-button secondary feature-tree-action"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            props.onGroundInstance(instance.id);
+                                        }}
+                                    >
+                                        <span className="codicon codicon-nuke-cad-connector" />
+                                    </button>
+                                </Tooltip>
+                            )}
+                            <Tooltip content="Delete instance" position="left">
+                                <button
+                                    className="theia-button secondary feature-tree-action"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        props.onDeleteInstance(instance.id);
+                                    }}
+                                >
+                                    <span className="codicon codicon-trash" />
+                                </button>
+                            </Tooltip>
+                        </div>
+                    );
+                })}
+            </TreeSection>
+            <TreeSection title="Mates" count={props.assembly.mates.length}>
+                {props.assembly.mates.map((mate, index) => (
+                    <div key={mate.id} className="feature-tree-row feature">
+                        <span className="codicon codicon-nuke-cad-mate feature-tree-icon" />
+                        <span
+                            className="feature-tree-label"
+                            title={`${mate.instanceA}:${mate.connectorA} ↔ ${mate.instanceB}:${mate.connectorB}`}
+                        >
+                            {mate.id}
+                        </span>
+                        <span className="feature-tree-kind-chip">{mate.type}</span>
+                        {brokenMateIndexes.has(index) && <span className="feature-tree-ref-badge unmatched">broken ref</span>}
+                        <Tooltip content="Delete mate" position="left">
+                            <button
+                                className="theia-button secondary feature-tree-action"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    props.onDeleteMate(mate.id);
+                                }}
+                            >
+                                <span className="codicon codicon-trash" />
+                            </button>
+                        </Tooltip>
+                    </div>
+                ))}
+            </TreeSection>
+        </>
+    );
+}
