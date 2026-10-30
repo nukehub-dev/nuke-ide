@@ -731,6 +731,11 @@
     cursor: pointer;
 }
 
+.tally-configurator-container input[type='checkbox'] {
+    accent-color: var(--theia-focusBorder);
+    cursor: pointer;
+}
+
 .tally-configurator-container .filter-list {
     margin-bottom: 15px;
 }
@@ -2046,6 +2051,29 @@
 
 .tally-configurator-container .derived-scalar-row input {
     width: 110px;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 12px;
+}
+
+.tally-configurator-container .derived-scalar-row input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px rgba(243, 117, 36, 0.15);
+}
+
+.tally-configurator-container .derived-scalar-row input::-webkit-outer-spin-button,
+.tally-configurator-container .derived-scalar-row input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.tally-configurator-container .derived-scalar-row input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
 }
 
 .tally-configurator-container .derived-operand-chips {

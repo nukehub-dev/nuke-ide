@@ -252,7 +252,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
                             this.samplePoints = parseInt(e.target.value);
                             this.update();
                         }}
-                        style={{ width: '100%', height: '4px', margin: '4px 0' }}
+                        style={{ width: '100%', height: '4px', margin: '4px 0', cursor: 'pointer' }}
                     />
                     <div
                         style={{
@@ -282,7 +282,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
                             this.tolerance = parseFloat(e.target.value);
                             this.update();
                         }}
-                        style={{ width: '100%', height: '4px', margin: '4px 0' }}
+                        style={{ width: '100%', height: '4px', margin: '4px 0', cursor: 'pointer' }}
                     />
                 </div>
 
@@ -297,7 +297,7 @@ export class OpenMCOverlapWidget extends ReactWidget {
                                 this.useParallel = e.target.checked;
                                 this.update();
                             }}
-                            style={{ marginRight: '6px' }}
+                            style={{ marginRight: '6px', cursor: 'pointer' }}
                         />
                         <span>Use parallel processing</span>
                     </label>

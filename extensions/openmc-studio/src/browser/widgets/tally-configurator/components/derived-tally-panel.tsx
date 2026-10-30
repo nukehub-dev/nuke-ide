@@ -420,9 +420,6 @@ export class DerivedTallyPanel extends React.Component<DerivedTallyPanelProps, D
                                         onChange={(value: string) => this.setState({ selectedScore: value })}
                                         ariaLabel="Derived tally operand score"
                                     />
-                                    {scores.length === 0 && (
-                                        <p className="form-hint">This tally has no scores yet — add one in the Tallies tab.</p>
-                                    )}
                                 </div>
                                 <div className="form-group">
                                     <Tooltip content="Restrict the operand to one nuclide, or keep all scored nuclides" position="top">
@@ -439,6 +436,7 @@ export class DerivedTallyPanel extends React.Component<DerivedTallyPanelProps, D
                                     />
                                 </div>
                             </div>
+                            {scores.length === 0 && <p className="form-hint">This tally has no scores yet — add one in the Tallies tab.</p>}
                             <div className="derived-operand-actions">
                                 <button
                                     className="theia-button primary"
