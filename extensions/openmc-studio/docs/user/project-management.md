@@ -8,16 +8,16 @@ OpenMC Studio uses `.nuke-openmc` JSON project files to bundle your simulation s
 
 ### Method 1: New Project Template
 
-1. Run `OpenMC Studio: New Project` from the Command Palette (or click **New Project** in the dashboard header).
+1. Run `OpenMC/Project: New Project` from the Command Palette (or use `Tools → OpenMC Studio → Project → New Project`, or click **New Project** in the dashboard header).
 2. Pick a template card (see below) and optionally adjust its parameters.
 3. Enter a project name and click **Create Project**.
-4. The dashboard opens on the **Simulation** tab. Use **Save Project As** to choose a `.nuke-openmc` location.
+4. The dashboard opens on the **Simulation** tab. Use `Tools → OpenMC Studio → Project → Save Project As...` (or `OpenMC/Project: Save Project As...`) to choose a `.nuke-openmc` location.
 
 ### Method 2: Import Existing XML
 
-1. Run `OpenMC Studio: New Project`, create a blank project, then use **Import XML** in the Simulation tab.
-2. Select the directory containing `geometry.xml`, `materials.xml`, `settings.xml`, `tallies.xml`, and `plots.xml`.
-3. Review the import report for ignored constructs and items that need attention.
+1. Run `OpenMC/Project: New Project`, create a blank project, then use `Tools → OpenMC Studio → XML Configuration → Import from XML...` (or the CSG Builder's **Import XML** button).
+2. Select the directory containing `geometry.xml`, `materials.xml`, `settings.xml`, `tallies.xml`, and (optionally) `plots.xml`.
+3. The imported state replaces the current model state. Review the dashboard import report (menu import) or the status message (CSG Builder import) for ignored constructs and items that need attention.
 
 ---
 
@@ -54,17 +54,13 @@ External asset references are stored **relative to the `.nuke-openmc` project fi
 
 ## Opening an Existing Project
 
-### Method 1: File Dialog
+### Method 1: Dashboard or Command Palette
 
-`File → Open Project` → select any `.nuke-openmc` file.
+Click **Open Project** in the dashboard header, use `Tools → OpenMC Studio → Project → Open Project...`, or run `OpenMC/Project: Open Project...`, then select a `.nuke-openmc` file.
 
 ### Method 2: Explorer
 
-Click a `.nuke-openmc` file in the Explorer sidebar.
-
-### Method 3: Recent Projects
-
-`File → Open Recent → OpenMC Projects`
+Click a `.nuke-openmc` file in the Explorer sidebar. OpenMC Studio's open handler loads the project and reveals the dashboard.
 
 ### What Happens on Open
 
@@ -78,6 +74,10 @@ Click a `.nuke-openmc` file in the Explorer sidebar.
 ## Project Templates
 
 Templates give you a verified starting point instead of a blank slate. They are ordinary project states, not a second schema.
+
+![OpenMC Project New Project picker showing blank, pin cell, assembly, core, shielding, and criticality-safety templates](images/project-templates.png)
+
+_Pick a template card to see what the starting model includes and which parameters it exposes; Create Project opens the new dashboard on the Simulation tab so you can review the model before the first run._
 
 | Template               | What you get                                                                                                                    |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -96,17 +96,9 @@ To create a custom starting point, build a project and save it as a normal `.nuk
 
 ## Project Metadata
 
-View and edit metadata in the **Project Info** panel (`Project → Project Info`).
+Click the project name in the dashboard header to edit the display **Name** and optional **Description**. The name also appears in the editor title, with a `●` while there are unsaved changes.
 
-| Field              | Editable? | Description                            |
-| ------------------ | --------- | -------------------------------------- |
-| **Name**           | Yes       | Display name of the project            |
-| **Description**    | Yes       | Free-text notes about the model        |
-| **Author**         | Yes       | User or team name                      |
-| **Created**        | No        | Timestamp of first save                |
-| **Modified**       | No        | Timestamp of last save                 |
-| **OpenMC Version** | No        | Version used to generate the XML files |
-| **UUID**           | No        | Unique project identifier              |
+The `.nuke-openmc` file stores the schema version, author when present, and created/modified timestamps. There is no separate Project Info panel, no editable author field, and no user-facing UUID or OpenMC-version metadata.
 
 > **Tip:** Use the Description field to record modeling assumptions, reference data sources, or validation benchmarks the project targets.
 
@@ -114,20 +106,16 @@ View and edit metadata in the **Project Info** panel (`Project → Project Info`
 
 ## Exporting to Python Script
 
-The **Python Exporter** generates a standalone `.py` script that reproduces your project using the OpenMC Python API.
+The **Python Exporter** generates a standalone `model.py` script that reproduces your project using the OpenMC Python API.
 
 ### How to Export
 
 1. Open the project you want to export.
-2. Go to `Project → Export → Python Script`.
-3. Choose what to include:
-   - Geometry
-   - Materials
-   - Settings
-   - Tallies
-   - Plots
-4. Select a destination path.
-5. Click **"Export"**.
+2. Run `OpenMC/View: Generate Python Script` or use `Tools → OpenMC Studio → Advanced → Generate Python Script`.
+3. Choose a destination path.
+4. Click **Save**.
+
+There is no include/exclude dialog: the exporter writes the current model as a single file, using the active OpenMC compatibility profile. Derived tallies are analysis-only and are not included.
 
 ### What You Get
 
@@ -151,7 +139,7 @@ settings = openmc.Settings()
 # ...
 
 # Export to XML
-openmc.run()
+model.export_to_xml()
 ```
 
 > **Tip:** The exported script is ideal for version control, batch submissions on HPC clusters, or sharing with users who do not use OpenMC Studio.
@@ -162,7 +150,7 @@ openmc.run()
 
 Models authored in the **Nuke CAD** extension can be brought into OpenMC Studio in one step.
 
-1. `Project → Import from nuke-cad...`.
+1. Use `Tools → OpenMC Studio → Project → Import from nuke-cad...` (or `OpenMC/Project: Import from nuke-cad...`).
 2. Select the `.h5m` file produced by Nuke CAD.
 3. OpenMC Studio reads the sibling `.regions.json` manifest (if present), sets the DAGMC geometry reference, and creates placeholder materials for every manifest material name that does not already exist.
 4. Fill in the placeholder compositions in the Materials tab and run as usual.
@@ -175,20 +163,21 @@ You can exchange models with standard OpenMC command-line workflows using XML im
 
 ### Exporting to XML
 
-1. `Project → Export → OpenMC XML`.
+1. Click **Generate XML Files** in the dashboard header, or use `Tools → OpenMC Studio → XML Configuration → Generate XML Files`.
 2. Choose a destination folder.
 3. The following files are written:
-   - `geometry.xml`
+   - `geometry.xml` (for CSG or DAGMC geometry)
    - `materials.xml`
    - `settings.xml`
    - `tallies.xml` (if tallies exist)
-   - `plots.xml` (if plots exist)
+
+The dashboard export does **not** write `plots.xml`; [Native Plotting](native-plotting.md) generates that file for plot runs.
 
 ### Importing from XML
 
-1. `Project → Import → OpenMC XML`.
-2. Select the folder containing `geometry.xml` (and optionally `materials.xml`, `settings.xml`).
-3. A new untitled project is created and populated from the XML files.
+1. Use `Tools → OpenMC Studio → XML Configuration → Import from XML...` (or the CSG Builder's **Import XML** button).
+2. Select the folder containing `geometry.xml` (and optionally `materials.xml`, `settings.xml`, `tallies.xml`, `plots.xml`).
+3. The imported state replaces the current model state. Save the current project first if you need to keep it.
 
 ### Round-Trip Safety
 
@@ -201,7 +190,7 @@ You can exchange models with standard OpenMC command-line workflows using XML im
 | Meshes                | Yes        | Regular/rectilinear/cylindrical/spherical/unstructured, mesh-filter transforms                 |
 | Variance reduction    | Yes        | UFS, weight-window sets/file/checkpoints/generator                                             |
 | Depletion             | Yes        | Project block, including driver-only substeps/reactivity/feeds/continuation                    |
-| Plots                 | Yes        | Slice/voxel/ray-trace, background, masks, overlap highlighting                                 |
+| Plots                 | Yes        | `plots.xml` import restores slice/voxel/ray-trace, background, masks, overlap highlighting     |
 | Derived tallies       | No         | Analysis-only; they live in `.nuke-openmc` and never enter simulation XML                      |
 | DAGMC geometry        | Partial    | The `<dagmc_universe>` filename is preserved; the `.h5m` is not read or embedded by XML import |
 | Results / statepoints | No         | XML workflow does not include `.h5` results                                                    |

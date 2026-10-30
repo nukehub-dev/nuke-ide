@@ -1,8 +1,8 @@
 # Optimization Framework
 
-The Optimization Framework automates model-driven studies across your OpenMC model in two modes:
+The Optimization Framework automates model studies in two modes:
 
-- **Parameter Sweep** — vary input parameters (enrichment, density, geometry dimensions, …) over specified ranges, execute batch simulations, and collate results for analysis.
+- **Parameter Sweep** — vary material, geometry, or settings values over a range, run the resulting combinations as a batch, and review k-effective trends.
 - **Criticality Search** — wrap OpenMC's `search_for_keff` to find the parameter value that produces a target k-effective.
 
 ---
@@ -15,7 +15,7 @@ In the Simulation Dashboard, go to the **Simulation** tab and click **"Optimizat
 
 ### Method 2: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Optimization Study"**
+`Ctrl+Shift+P` → **`OpenMC/View: Optimization Study`**
 
 ### Method 3: Menu
 
@@ -23,213 +23,116 @@ In the Simulation Dashboard, go to the **Simulation** tab and click **"Optimizat
 
 ---
 
-## Sweep Study Layout
+## Workspace Layout
 
-Select **Parameter Sweep** in the mode selector at the top. Sweep mode has four sub-tabs: **Parameter Sweeps** (define variables), **Batch Runner** (execute and monitor), **Results** (k-effective trends), and **Analysis** (comparisons and statistics).
-
----
-
-## Defining Sweep Variables
-
-A sweep variable maps a model parameter to a range of values.
-
-### Step 1: Add a Variable
-
-1. In the **Sweep Variables** panel, click **"Add Variable"**.
-2. Choose a **Parameter Type**:
-
-| Parameter Type                | Description                                     | Example Values                  |
-| ----------------------------- | ----------------------------------------------- | ------------------------------- |
-| **Material Property**         | Density, enrichment, or composition fraction    | `UO2 enrichment = 3.0–5.0%`     |
-| **Material Nuclide Fraction** | Atomic or weight fraction of a specific nuclide | `B-10 in water = 0–2000 ppm`    |
-| **Geometry Dimension**        | Surface coefficient or lattice pitch            | `Fuel radius = 0.3–0.5 cm`      |
-| **Settings Value**            | Particles, batches, or temperature              | `Particles = 1000–10000`        |
-| **Cell Temperature**          | Temperature of a specific cell                  | `Fuel temperature = 500–1200 K` |
-
-3. Select the **Target** (specific material, surface, cell, or setting).
-4. Define the **Range**:
-
-| Range Mode          | Description                       | Use Case                           |
-| ------------------- | --------------------------------- | ---------------------------------- |
-| **Linear**          | Evenly spaced values              | `start`, `stop`, `step` or `count` |
-| **Logarithmic**     | Log-spaced values                 | Spanning orders of magnitude       |
-| **Custom List**     | Explicit comma-separated values   | Irregular sampling                 |
-| **Latin Hypercube** | Statistically stratified sampling | Surrogate model training           |
-
-### Step 2: Multi-Variable Sweeps
-
-Add multiple variables to explore combined effects:
-
-- **Cartesian Product:** Every combination of variable values is simulated. With 3 variables at 5 points each, this produces `5³ = 125` runs.
-- **Zipped / Simultaneous:** Variables advance together point-by-point. All lists must have the same length.
-
-Select the combination mode in the **Sweep Settings** dropdown.
-
-### Step 3: Reference Case
-
-The **Reference Case** is the current project state before any sweep modifications. It serves as the baseline for comparison.
-
-- Click **"Set from Current Project"** to capture the baseline.
-- Toggle **"Include Reference Run"** to simulate the unmodified case alongside sweeps.
+Use the mode selector at the top to switch between **Parameter Sweep** and **Criticality Search**. Sweep mode has four tabs: **Parameter Sweeps** (define sweeps), **Batch Runner** (start and monitor a run), **Results** (run history and tables), and **Analysis** (k-effective trends and statistics).
 
 ---
 
-## Setting Parameter Ranges
+## Defining Parameter Sweeps
 
-### Example 1: Enrichment Sweep
+A sweep varies one model parameter over a linear or logarithmic range.
 
-| Field            | Value                             |
-| ---------------- | --------------------------------- |
-| Parameter Type   | Material Property                 |
-| Target           | UO2 Fuel → Enrichment             |
-| Range Mode       | Linear                            |
-| Start            | 2.0                               |
-| Stop             | 5.0                               |
-| Count            | 7                                 |
-| Resulting values | 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0 |
+### Step 1: Add a Sweep
 
-### Example 2: Moderator Density and Temperature
+1. In the **Parameter Sweeps** tab, click **"Add Sweep"**.
+2. Give the sweep a **Name**; the **Variable** field stores the label used when no parameter path is selected.
+3. Choose a **Parameter Type**:
+   - **Material** — a material density, temperature, or nuclide fraction.
+   - **Geometry** — a cell temperature.
+   - **Settings** — particles, inactive batches, batches, or random seed.
+4. Choose the **Parameter Path**. The path list is populated from the current project.
+5. Choose the **Range Type**: **Linear** or **Logarithmic**.
+6. Enter the **Start Value**, **End Value**, and **Num Points** (2–1000).
+7. Optionally set the display **Unit**, then click **Save**.
 
-| Variable | Parameter           | Range Mode | Start | Stop | Count |
-| -------- | ------------------- | ---------- | ----- | ---- | ----- |
-| 1        | Water → Density     | Linear     | 0.6   | 1.0  | 5     |
-| 2        | Water → Temperature | Linear     | 500   | 600  | 3     |
+A new sweep starts disabled; enable it with its checkbox before running. Each sweep card also offers edit, duplicate, and delete actions.
 
-With **Cartesian Product** enabled, this produces `5 × 3 = 15` simulations.
+### Step 2: Multiple Variables
 
-### Example 3: Geometry Pin Radius
+Every enabled sweep is combined with every other enabled sweep as a **Cartesian product**. The Batch Runner shows the resulting total iteration count; with three sweeps at five points each, that is `5³ = 125` runs.
 
-| Field            | Value                                         |
-| ---------------- | --------------------------------------------- |
-| Parameter Type   | Geometry Dimension                            |
-| Target           | Surface "Fuel Outer Radius" → Coefficient `r` |
-| Range Mode       | Linear                                        |
-| Start            | 0.35                                          |
-| Stop             | 0.45                                          |
-| Step             | 0.02                                          |
-| Resulting values | 0.35, 0.37, 0.39, 0.41, 0.43, 0.45            |
+### Example: Enrichment Sweep
 
-> **Tip:** When sweeping geometry dimensions, ensure region expressions remain valid. The framework warns if a swept value would invert a half-space (e.g., radius becoming negative).
+| Field          | Value           |
+| -------------- | --------------- |
+| Parameter Type | Material        |
+| Parameter Path | `UO2 Fuel.U235` |
+| Range Type     | Linear          |
+| Start Value    | 2.0             |
+| End Value      | 5.0             |
+| Num Points     | 7               |
+| Unit           | %               |
 
----
+The runner computes seven evenly spaced values between 2.0 and 5.0.
 
-## Running Batch Optimization
+### Example: Moderator Density
 
-### Execution Settings
+| Field          | Value           |
+| -------------- | --------------- |
+| Parameter Type | Material        |
+| Parameter Path | `Water.density` |
+| Range Type     | Linear          |
+| Start Value    | 0.6             |
+| End Value      | 1.0             |
+| Num Points     | 5               |
+| Unit           | g/cm³           |
 
-| Setting               | Description                                   | Default |
-| --------------------- | --------------------------------------------- | ------- |
-| **Parallel Runs**     | Number of simulations to run concurrently     | `1`     |
-| **Use MPI**           | Run each case with MPI                        | Off     |
-| **MPI Ranks per Run** | Number of MPI processes per simulation        | `4`     |
-| **Reuse XML**         | Regenerate XML only when variables change     | On      |
-| **Cleanup**           | Delete temporary run folders after completion | Off     |
-
-### Starting the Sweep
-
-1. Click **"Preview Matrix"** to see the full list of runs before executing.
-2. Click **"Run Sweep"** to begin.
-3. The **Run Control** panel shows:
-   - Total runs
-   - Completed / running / queued counts
-   - Estimated time remaining
-   - Per-run status with pass/fail icons
-
-### Stopping and Resuming
-
-- Click **"Stop"** to halt after the current batch of active runs finishes.
-- Click **"Pause"** to hold the queue (active runs continue).
-- Click **"Resume"** to continue a paused sweep.
-- The sweep state is saved automatically; you can resume even after closing and reopening NukeIDE.
+> **Tip:** Start with material properties such as enrichment or density, and keep the range small while you validate the setup.
 
 ---
 
-## Viewing k-Effective Trends
+## Running a Batch
 
-The **Results** panel plots k-effective (or any scalar tally) against sweep variables.
+1. Open the **Batch Runner** tab.
+2. Review the enabled sweep count and total iterations. The runner also validates the model and flags conflicts such as batches ≤ inactive batches.
+3. Click **"Start Batch Run"**.
+4. Watch the progress bar, iteration timeline, success/failure counts, and estimated remaining time. Per-iteration logs are available from the run view.
+5. Click **"Stop"** to cancel the active run.
 
-### Single-Variable Sweep
+Iterations run **sequentially** under **Start Batch Run** / **Stop** control.
 
-- A **line chart** shows k-effective vs. the swept parameter.
-- Error bars represent the standard deviation from OpenMC.
-- A **reference line** marks the baseline case if included.
-
-### Multi-Variable Sweep
-
-- Use the **Color By** dropdown to select the second variable; points are colored by its value.
-- Or switch to the **Surface Plot** view for 2D parameter grids.
-
-### Statistics Overlay
-
-| Overlay            | Description                              |
-| ------------------ | ---------------------------------------- |
-| **k-eff ± 1σ**     | Shaded band around the mean              |
-| **Reference Band** | ±1σ of the reference case for comparison |
-| **Trend Line**     | Linear or polynomial fit to the data     |
+The Batch Runner offers to save the project before it starts; a criticality search requires an already saved project. Results are written under `optimization/<run-id>/` beside the project file.
 
 ---
 
-## Comparing Results Across Iterations
+## Viewing Results
 
-### Iteration Table
+### Run History
 
-The results table lists every run:
+The **Results** tab lists previous optimization runs in a sidebar. Select a run to view its table:
 
-| Column              | Description                   |
-| ------------------- | ----------------------------- |
-| **Run ID**          | Sequential identifier         |
-| **Variable Values** | One column per sweep variable |
-| **k-effective**     | Mean k-effective              |
-| **k-σ**             | Standard deviation            |
-| **Runtime**         | Wall-clock time               |
-| **Status**          | Success, failed, or cancelled |
+| Column            | Description                   |
+| ----------------- | ----------------------------- |
+| **#**             | Iteration number              |
+| **Sweep columns** | One column per sweep variable |
+| **k-eff**         | Mean k-effective              |
+| **σ (std)**       | Standard deviation            |
+| **Time**          | Wall-clock seconds            |
+| **Status**        | Success or failed             |
 
-Click any row to open that run's statepoint in the Statepoint Viewer.
+Click the trash icon to delete a run, or delete all runs from the sidebar header.
 
-### Relative Comparison
+### k-Effective Trends
 
-Select a **Reference Run** from the dropdown, then view:
+The **Analysis** tab plots k-effective against the first sweep variable, with error bars for each point. For multi-variable sweeps, the remaining variables appear in the results table.
 
-| Metric           | Formula                       | Use Case                   |
-| ---------------- | ----------------------------- | -------------------------- |
-| **Δk**           | `k_i − k_ref`                 | Absolute reactivity change |
-| **Δk/k (pcm)**   | `(k_i − k_ref) / k_ref × 10⁵` | Reactivity in pcm          |
-| **% Difference** | `(k_i − k_ref) / k_ref × 100` | Percent change             |
-
-### Statistical Tests
-
-For comparing two or more runs:
-
-| Test                                 | Description                                                | When Significant                            |
-| ------------------------------------ | ---------------------------------------------------------- | ------------------------------------------- |
-| **Student's t-test**                 | Tests if two k-effective means are statistically different | p-value < 0.05                              |
-| **Welch's t-test**                   | Unequal variance variant                                   | When standard deviations differ             |
-| **Overlapping Confidence Intervals** | Visual check of 1σ or 2σ bands                             | Non-overlap suggests significant difference |
-
-Select runs in the table and click **"Run Statistical Test"** to compute.
+The statistics cards report mean, minimum, maximum, range, standard deviation, and number of successful points. The table below the chart repeats the per-iteration values.
 
 ---
 
 ## Exporting Optimization Data
 
-Click **"Export Results"** in the toolbar to save sweep data for external analysis.
+Click **"Export CSV"** in the Results table toolbar and choose a destination. The CSV contains:
 
-| Format      | Contents                   | Best For                   |
-| ----------- | -------------------------- | -------------------------- |
-| **CSV**     | Tabular run data           | Excel, MATLAB, pandas      |
-| **JSON**    | Full metadata and results  | Python scripting           |
-| **HDF5**    | Results + statepoint paths | Archiving, reloading later |
-| **PNG/SVG** | Trend plots                | Reports and presentations  |
+- `Iteration`
+- One column per sweep parameter path
+- `k-eff`
+- `sigma`
+- `Time (s)`
+- `Status`
 
-### Python Export Script
-
-Click **"Generate Python Script"** to create a reproducible script that:
-
-- Defines the same sweep matrix
-- Runs OpenMC in a loop
-- Collects results into a DataFrame
-
-This is useful for running large sweeps on an HPC cluster outside NukeIDE.
+CSV is the only export format.
 
 ---
 
@@ -239,13 +142,13 @@ Select **Criticality Search** in the mode selector to find the parameter value t
 
 | Setting                 | Description                                                                                  |
 | ----------------------- | -------------------------------------------------------------------------------------------- |
-| **Parameter**           | Searchable parameter path to vary (e.g. a material density or temperature)                   |
+| **Parameter**           | Material density, temperature, or nuclide fraction to vary                                   |
 | **Target k-eff**        | The k-effective to solve for (e.g. `1.0` for criticality)                                    |
 | **Bracketing interval** | Optional low/high bracket with a bracketed method (`Bisect`, `Brent-Q`, `Brent-H`, `Ridder`) |
 | **Initial Guess**       | Un-bracketed starting point (secant method) when no bracket is given                         |
 | **Tolerance**           | Convergence tolerance on the parameter value                                                 |
 
-Click **Run Search** to start; a **Stop** button cancels the search mid-iteration. The result card shows the converged parameter value and the final k-eff ± σ.
+Click **"Run Search"** to start; a **"Stop"** button cancels the active search. The result card reports the converged value and final k-eff ± σ, lists each iteration, and offers **"Apply to Model"** to write the converged value back into the project.
 
 Nuclide-fraction parameters are renormalized within their element: changing one isotope's fraction scales its same-element siblings so the element total is preserved.
 
@@ -253,8 +156,7 @@ Nuclide-fraction parameters are renormalized within their element: changing one 
 
 ## Tips
 
-- **Start small:** Test your sweep with a coarse range (2–3 points) and low particle count before running a full matrix.
-- **Parallel safety:** When running multiple simulations in parallel, ensure each run uses a unique output directory. The framework handles this automatically.
-- **Memory:** Large mesh tallies combined with many runs can fill disk space quickly. Enable **Cleanup** if you only need k-effective trends.
+- **Start small:** Test a sweep with a coarse range (2–3 points) and low particle count before running a full matrix.
+- **Save first:** A batch run prompts for a save when needed; save the project before starting a criticality search.
+- **Sequential runtime:** Plan for the full `product(points)` runtime; each iteration is a complete OpenMC run.
 - **Reproducibility:** Set a fixed random seed in the Settings tab if you need deterministic results across sweep iterations.
-- **Surrogate modeling:** Export sweep results and train a surrogate model (e.g., Gaussian process) to interpolate between simulated points and find optimal parameters faster.

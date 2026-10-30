@@ -8,11 +8,11 @@ This guide walks you through first-time setup: configuring your Python environme
 
 Before you begin, you need a Python installation on your system.
 
-| Requirement    | Required?   | Notes                                                               |
-| -------------- | ----------- | ------------------------------------------------------------------- |
-| Python 3.8+    | Yes         | System Python, pyenv, or any managed installation                   |
-| Conda or Mamba | Recommended | For environment creation and conda-only packages (e.g., `paraview`) |
-| UV             | Optional    | Significantly faster pip installs if available                      |
+| Requirement    | Required?   | Notes                                                             |
+| -------------- | ----------- | ----------------------------------------------------------------- |
+| Python 3.13    | Yes         | Tested profile; OpenMC 0.16 needs Python 3.12+                    |
+| Conda or Mamba | Recommended | For environment creation and conda-only packages (e.g., `mpi4py`) |
+| UV             | Optional    | Significantly faster pip installs if available                    |
 
 > **Tip:** If you don't have Python installed yet, [Miniforge](https://github.com/conda-forge/miniforge) is the easiest way to get both Python and conda on Linux/macOS/Windows.
 
@@ -61,17 +61,19 @@ python3 -c "import sys; print(sys.executable)"
 
 Nuke Core shows the active Python environment in the bottom status bar.
 
-| Indicator          | Meaning                                 |
-| ------------------ | --------------------------------------- |
-| 🐍 `conda: openmc` | Active conda environment named `openmc` |
-| 🐍 `venv: .venv`   | Active virtual environment in workspace |
-| 🐍 `system: 3.11`  | System Python (version 3.11)            |
-| ⚠️ (no label)      | Python not configured — click to set up |
+| Indicator        | Meaning                                           |
+| ---------------- | ------------------------------------------------- |
+| 🐍 `openmc`      | Active conda environment named `openmc`           |
+| 📦 `.venv`       | Active virtual environment in the workspace       |
+| 📜 `poetry-name` | Active Poetry environment                         |
+| 🔧 `3.13`        | Active pyenv interpreter                          |
+| 🐧 `python3`     | System Python                                     |
+| ⚠️ 🐍 `openmc`   | Configured environment is missing; using fallback |
 
 **Click the status bar item to:**
 
-- **Switch environment** — pick from grouped list (Conda, Venv, Other)
-- **Open actions menu** — Terminal, Install Packages, Copy Python Path
+- **Switch environment** — pick from the grouped list (Conda, Venv, Other)
+- **Open the actions menu** — click the currently active entry for Terminal, Install Packages, and Copy Python Path
 
 #### Status Bar Visibility
 

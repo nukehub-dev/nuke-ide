@@ -18,8 +18,8 @@ Best for: Understanding spatial distribution of results in 3D.
 ### How to Open
 
 1. Load a statepoint.
-2. In the **Tallies** list, click a tally that has a **mesh filter**.
-3. Click **"View 3D"**.
+2. In the **Tallies** tab, find a tally that has a **mesh filter**.
+3. Click its **3D** button (tooltip: **View tally in 3D visualization**).
 
 Or use the menu: `Tools → Visualizer → OpenMC → Tally → Visualize Tally`
 
@@ -74,8 +74,8 @@ without a mean pair is not enough, so unrelated arrays are never guessed.
   relative error 0, so exact-zero cells stay reliable instead of masked.
 - **Mask color** — the color painted on cells at or above the threshold.
 - Editing the channel, threshold, or mask color repaints instantly — no
-  reload. The smooth volume raycast and the Slice preview stay mean-only
-  this wave; switch to voxel boxes to see bivariate shading in the volume.
+  reload. The smooth volume raycast and the Slice preview stay mean-only;
+  switch to voxel boxes to see bivariate shading in the volume.
 
 ---
 
@@ -185,10 +185,11 @@ Best for: Validating that your source distribution covers the tally regions you 
 ### How to Open
 
 1. Load a statepoint that contains a **source bank**.
-2. In the **Tallies** list, click a tally that has a **mesh filter**.
-3. Click **"+ Source"** (or **"Overlay with Source"** in the Tally Tree).
+2. In the **Tallies** tab, click the source-overlay button on a mesh tally
+   (tooltip: **Overlay tally on geometry with source particles**).
+3. Or expand the tally in the **Tally Tree** and click **+ Source**.
 
-Or use the menu: `Tools → Visualizer → OpenMC → Tally → Overlay Tally on Geometry with Source`
+This overlay action lives on the tally, not in the `Tally` menu.
 
 ### What You See
 
@@ -211,9 +212,9 @@ Best for: Seeing how tally values vary with neutron energy.
 ### How to Open
 
 1. Load a statepoint with a tally that has an **energy filter**.
-2. In the Tallies list, click **"Spectrum"**.
+2. In the Tallies tab, click the spectrum button on the tally card.
 
-Or open the **Tally Tree** sidebar, right-click a tally → **Energy Spectrum**.
+Or open the **Tally Tree** sidebar, expand the tally, and click **Spectrum**.
 
 ### What You See
 
@@ -225,8 +226,8 @@ Or open the **Tally Tree** sidebar, right-click a tally → **Energy Spectrum**.
 
 ### Multi-Score / Multi-Nuclide
 
-- **"Plot All Scores"** — Overlays every score for the selected nuclide on one chart.
-- **"Plot All Nuclides"** — Overlays every nuclide for the selected score.
+- The **Plot All Scores** button next to **Spectrum** overlays every score for the selected nuclide on one chart.
+- The **Plot All Nuclides** button overlays every nuclide for the selected score.
 
 ---
 
@@ -237,7 +238,7 @@ Best for: 1D line plots of tally value along X, Y, or Z.
 ### How to Open
 
 1. Load a statepoint with a **mesh tally**.
-2. In the Tallies list, click **"Spatial"**.
+2. In the Tallies tab, click the spatial button on the tally card (or **Spatial** in the Tally Tree).
 
 ### What You See
 
@@ -252,7 +253,7 @@ Best for: Flux profiles along an arbitrary segment (e.g. across a fuel pin, thro
 
 ### How to Open
 
-1. Open a mesh tally in the native 3D tally viewer (**"View 3D"**).
+1. Open a mesh tally in the native 3D tally viewer (the **3D** button).
 2. Click **"Line probe"** in the viewer header.
 
 ### What You See
@@ -289,7 +290,7 @@ shielding limit, nested shells around a hot spot).
 
 ### How to Open
 
-1. Open a mesh tally in the native 3D tally viewer (**"View 3D"**).
+1. Open a mesh tally in the native 3D tally viewer (the **3D** button).
 2. Click **"Contour"** in the viewer header.
 
 ### What You See
@@ -327,12 +328,14 @@ Best for: Comparing two views of one file side by side from the same angle.
 
 1. Open the same file in two viewer tabs.
 2. In each tab's bottom nav bar, click the **link** icon (**Link cameras**).
-3. Orbit either view — the linked views follow its direction and distance.
+3. Orbit either view — same-file linked views follow its direction and camera
+   distance, while each view keeps its own orbit target.
 
 ### What Syncs (and What Doesn't)
 
-- Only the camera follows: the orbit direction and distance apply through
-  each view's orbit handle, and every view keeps its own target and framing.
+- Only the camera pose follows: direction and distance are applied through each
+  view's orbit handle; each view keeps its own target. In a **Comparison
+  Workspace**, panes apply direction only and keep their own framing distance.
 - Display settings never sync: warp, threshold, glyphs, color-by, clip, and
   shading stay per-view, so linked tabs can show different fields of the same
   data from one camera.
@@ -351,7 +354,7 @@ of a mesh tally.
 
 ### How to Open
 
-1. Open a mesh tally in the native 3D tally viewer (**"View 3D"**).
+1. Open a mesh tally in the native 3D tally viewer (the **3D** button).
 2. In the Viewer Settings sidebar, find the **Threshold** row beside Range
    and flip the switch, then narrow the min/max window.
 
@@ -376,19 +379,22 @@ Best for: Inspecting mesh tally slice-by-slice.
 ### How to Open
 
 1. Load a statepoint with a **mesh tally**.
-2. In the Tallies list, click **"Heatmap"**.
+2. In the Tallies tab, click the heatmap button on the tally card (or **Heatmap** in the Tally Tree).
 
 ### What You See
 
 - A 2D color heatmap of a single slice through the mesh.
 - Controls:
-  - **Plane:** XY / XZ / YZ
-  - **Slice Index:** Step through slices with arrow buttons
-  - **Score / Nuclide selectors**
+  - **Plane:** XY (Z slice) / XZ (Y slice) / YZ (X slice)
+  - **Slice:** slider with position readout (`n / total`)
+  - **Colormap** and **Log Scale**
+  - **Difference View** with a reference slice (after **Load All**)
 
 ### Animation
 
-Click **"Play"** to animate through all slices automatically. Useful for presentations or quick scans of the full mesh.
+Click **Load All**, then **Play** to animate through all slices automatically;
+**Stop** stops playback and the speed selector sets the interval. Useful for
+presentations or quick scans of the full mesh.
 
 ---
 

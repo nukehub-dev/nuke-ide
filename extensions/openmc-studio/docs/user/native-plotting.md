@@ -8,7 +8,7 @@ XML import restores plot types, camera controls, background colors, cell/materia
 
 ## Opening
 
-- **Command Palette:** `Ctrl+Shift+P` → **"OpenMC Studio: Native Plotting"**
+- **Command Palette:** `Ctrl+Shift+P` → **`OpenMC/View: Native Plotting`**
 - **Menu:** `Tools → OpenMC Studio → Advanced → Native Plotting`
 
 ---
@@ -31,7 +31,7 @@ Click an add button to append a plot definition; each plot has a name and a **Co
 
 Solid ray-trace plots render every material/cell opaque when **Opaque Domain IDs** is empty; add IDs to reveal interior regions.
 
-If OpenMC is built without libpng (some conda builds), it writes PPM files instead of PNG. Native Plotting automatically converts them to PNG previews with Pillow.
+If OpenMC is built without libpng (some conda builds), it writes PPM files instead of PNG. Native Plotting automatically converts them to PNG previews with Pillow, which must be installed in the active Python environment. Without Pillow, the conversion fails with a message telling you to install Pillow or use an OpenMC build compiled with libpng.
 
 ---
 

@@ -80,7 +80,7 @@ TypeScript interfaces shared by both frontend and backend. These define the RPC 
 **Key files:**
 
 - `base-visualizer-protocol.ts` — Base visualizer RPC + shared types
-- `openmc-protocol.ts` — OpenMC RPC + ~1400 lines of domain types
+- `openmc-protocol.ts` — OpenMC RPC + domain types
 
 ### 3. Backend Layer (`src/node/`)
 
@@ -116,7 +116,7 @@ There are no visualization servers to reach: a conversion command runs, writes i
 **Key scripts:**
 
 - `server.py` — Unified entry point with auto-discovery and plugin routing
-- `nuke_viz/` — Shared framework (`@command` decorator, registry, server)
+- `nuke_viz/` — Shared framework (`@command`/`@arg` decorators, plugin registry, structured logging)
 - `plugins/openmc/` — OpenMC plugin (commands + lib modules)
 - `plugins/base/` — Base visualizer plugin (headless file converters, shared libraries)
 
@@ -130,7 +130,7 @@ Plugins register commands via the `@command` decorator. Importing a command modu
 2. **`OpenMCContribution.canHandle()`** returns `200` (high priority).
 3. **`OpenMCContribution.open()`** is called.
 4. It calls **`OpenMCService.loadStatepoint()`** which:
-   - Checks OpenMC availability via `HealthCheckFramework`
+   - Checks OpenMC availability through the backend, then uses `HealthCheckFramework` requirements to offer a package install
    - Calls `OpenMCBackendService.loadStatepoint()` over RPC
 5. **Backend** (`OpenMCBackendServiceImpl`) delegates to `OpenMCStatepointService`.
 6. `OpenMCStatepointService` calls **`PythonCommandHelper.executeScriptJson()`**.
@@ -179,7 +179,10 @@ extensions/nuke-visualizer/
 │   │   └── index.ts                     # Re-exports
 │   ├── browser/                         # Frontend
 │   │   ├── visualizer-frontend-module.ts    # DI module (bindings)
-│   │   ├── visualizer-contribution.ts       # Base viz commands/menus/OpenHandler
+│   │   ├── contributions/                   # Base viz contributions
+│   │   │   ├── visualizer-view-contribution.ts  # View toggle command + keybinding
+│   │   │   ├── visualizer-open-handler.ts       # File open routing
+│   │   │   └── visualizer-menu-contribution.ts  # Tools → Visualizer menus
 │   │   ├── visualizer-widget.tsx            # native viewer widget
 │   │   ├── visualizer-preferences.ts        # Settings schema
 │   │   ├── plotly/                      # Plotly integration
@@ -207,7 +210,7 @@ extensions/nuke-visualizer/
 │   ├── nuke_viz/                        # Framework package
 │   │   ├── plugin.py                    # @command + @arg decorators
 │   │   ├── registry.py                  # Auto-discovery
-│   │   └── server.py                    # CLI routing
+│   │   └── logging.py                   # Structured warnings
 │   └── plugins/                         # Plugin packages
 │       ├── openmc/                      # OpenMC plugin
 │       │   ├── commands/                # @command-decorated modules

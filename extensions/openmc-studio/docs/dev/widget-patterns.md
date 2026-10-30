@@ -314,7 +314,7 @@ Widget → OpenMCStudioBackendService (frontend proxy)
               │ WebSocket RPC
               ▼
        OpenMCStudioBackendServiceImpl (Node backend)
-              │ child_process.spawn / executeScriptJson
+              │ child_process.spawn / execSync
               ▼
               Python script
 ```

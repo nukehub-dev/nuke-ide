@@ -65,6 +65,22 @@ export async function runCommand(page: Page, label: string): Promise<void> {
 }
 
 /**
+ * Warm the workspace file index with one Quick Open query. The first query
+ * after server start builds the index and can take ~40 s on a repo-sized
+ * workspace; later queries are fast.
+ */
+export async function warmQuickOpen(page: Page): Promise<void> {
+    await page.locator('#theia-app-shell').click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press('Control+P');
+    const input = page.locator('.quick-input-widget input');
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.fill('fixtures');
+    await expect(page.locator('.quick-input-widget .monaco-list-row').first()).toBeVisible({ timeout: 120_000 });
+    await page.keyboard.press('Escape');
+    await expect(input).toBeHidden();
+}
+
+/**
  * Open a workspace file via Quick Open (Ctrl+P). `waitForClose` false keeps
  * the quick-input open, e.g. to snapshot a loading state mid-open.
  */

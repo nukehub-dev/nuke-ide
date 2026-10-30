@@ -79,7 +79,7 @@ async runAnalysis(filePath: string): Promise<MyResult> {
 
     // Execute a script and parse JSON output
     const result = await this.pythonHelper.executeScriptJson<MyResult>(
-        'my_script.py',
+        this.pythonHelper.findScript('my_script.py'),
         ['analyze', filePath],
         { requirements: MY_REQUIREMENTS }
     );
@@ -89,25 +89,26 @@ async runAnalysis(filePath: string): Promise<MyResult> {
 
 ### API
 
-| Method                                    | Description                                     |
-| ----------------------------------------- | ----------------------------------------------- |
-| `detectPython(requirements?, envs?)`      | Find a Python with required packages            |
-| `detectPythonForBaseVisualizer(envs?)`    | Shorthand for base viz requirements             |
-| `checkPackages(command, requirements?)`   | Check if a specific Python has packages         |
-| `executeScript(path, args, options?)`     | Run a script, return `{stdout, stderr, status}` |
-| `executeScriptJson(path, args, options?)` | Run a script and parse stdout as JSON           |
-| `findScript(name)`                        | Resolve a script in `python/` directory         |
-| `getExtensionPath()`                      | Get root path of nuke-visualizer                |
+| Method                                    | Description                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `detectPython(requirements?, envs?)`      | Find a Python with required packages                             |
+| `detectPythonForBaseVisualizer(envs?)`    | Shorthand for base viz requirements                              |
+| `checkPackages(command, requirements?)`   | Check if a specific Python has packages                          |
+| `executeScript(path, args, options?)`     | Run a script by absolute path, return `{stdout, stderr, status}` |
+| `executeScriptJson(path, args, options?)` | Run a script by absolute path and parse stdout as one JSON value |
+| `findScript(name)`                        | Resolve a script in the extension's `python/` directory          |
+| `getExtensionPath()`                      | Get root path of nuke-visualizer                                 |
 
 ### Script Discovery
 
-`findScript('my_script.py')` searches in this order:
+`findScript('my_script.py')` delegates to nuke-core's `resolvePythonScript` and returns the first existing candidate:
 
-1. `lib/python/my_script.py` (installed)
-2. `src/python/my_script.py` (development)
-3. Fallback relative paths from `__dirname`
+1. Electron `extraResources/python/<package>/<script>` (outside `app.asar`)
+2. `<resolved package>/python/<script>` (development and `asarUnpack` installs)
+3. `<app>/extensions/<package>/python/<script>`
+4. Monorepo development fallbacks relative to the resolver module and the current working directory
 
-Always use `findScript()` instead of hardcoding paths.
+Always use `findScript()` instead of hardcoding paths, and pass its absolute result to `executeScript`/`executeScriptJson`.
 
 ---
 

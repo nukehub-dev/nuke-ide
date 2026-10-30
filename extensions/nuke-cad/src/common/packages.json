@@ -85,6 +85,11 @@
       "name": "ipython",
       "required": false,
       "condaSpec": "ipython<9"
+    },
+    {
+      "name": "svgelements",
+      "required": false,
+      "condaSpec": "svgelements"
     }
   ],
   "dagmc": [
@@ -193,6 +198,11 @@
       "name": "ipython",
       "required": true,
       "condaSpec": "ipython<9"
+    },
+    {
+      "name": "svgelements",
+      "required": true,
+      "condaSpec": "svgelements"
     }
   ]
 }

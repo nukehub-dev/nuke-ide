@@ -3,8 +3,7 @@
 # Tiered coverage policy (see root AGENTS.md):
 #   - Logic layer (parsers, converters, services, command handlers) is measured
 #     and ratcheted — the threshold in `yarn test:python:cov` may only go UP.
-#   - Rendering layer (former trame/ParaView server modules, now the
-#     headless VTK converter seam) is excluded here:
+#   - Rendering layer (the headless VTK converter seam) is excluded here:
 #     it is exercised by the error-path contract tests and the docker smoke
 #     test, not by unit tests (unit-testing VTK into meaninglessness).
 
@@ -17,8 +16,7 @@ source =
     # dagmc_export, mesh_service, fem_service, foam_service, ocp_compat) stay
     # out of the ratchet via `omit` below: they are only exercised in the
     # full-dependency profile (docker in-image pytest step, NUKE_TEST_PYTHON)
-    # and including them would drag the total below the gate. Only the
-    # pure-logic modules (region_manifest, job_service) are measured here.
+    # and including them would drag the total below the gate.
 
 omit =
     # headless VTK converter seam and plugin registration glue (covered by

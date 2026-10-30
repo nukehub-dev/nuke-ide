@@ -40,8 +40,8 @@
 const widget = (await this.widgetManager.getOrCreateWidget(NativeVtkViewerWidget.ID, { uri: fileUri.toString() })) as NativeVtkViewerWidget;
 
 // Backend converts, frontend reads + renders (no server, no port)
-const result = await this.visualizerBackend.convertDagmc(filePath);
-const text = (await this.fileService.read(URI.file(result.vtkPath))).value.toString();
+const vtkPath = await this.visualizerBackend.convertDagmc(filePath);
+const text = (await this.fileService.read(URI.file(vtkPath))).value.toString();
 await widget.setVtkText(text);
 ```
 
@@ -172,7 +172,7 @@ Some features combine both patterns:
 **Example: Statepoint Viewer**
 
 - Main viewer is a **React widget** showing metadata, tables, and Plotly charts.
-- Clicking "View Source" opens a **NativeVtkViewerWidget** with the converted source scatter.
+- Clicking **Visualize 3D** in the Source Bank section opens a **NativeVtkViewerWidget** with the converted source scatter.
 
 **Example: Geometry Hierarchy**
 

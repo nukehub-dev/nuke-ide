@@ -78,8 +78,9 @@ bind(WidgetFactory)
 #### 4. Contribution Pattern
 
 ```typescript
-bindViewContribution(bind, VisualizerContribution);
-bind(OpenHandler).toService(VisualizerContribution);
+bindViewContribution(bind, VisualizerViewContribution);
+bind(VisualizerOpenHandler).toSelf().inSingletonScope();
+bind(OpenHandler).toService(VisualizerOpenHandler);
 ```
 
 `bindViewContribution` is a Theia helper that binds a class as:
@@ -89,7 +90,7 @@ bind(OpenHandler).toService(VisualizerContribution);
 - `MenuContribution`
 - `KeybindingContribution`
 
-`OpenHandler` lets the contribution intercept file double-clicks.
+The open handler is a separate `OpenHandler` contribution (`VisualizerOpenHandler`), so file double-clicks route to the viewer without adding view-menu entries.
 
 #### 5. OpenMC Plugin Bindings
 
@@ -108,17 +109,19 @@ bind(OpenMCService).toSelf().inSingletonScope();
 bind(OpenMCWidgetFactory).toSelf().inSingletonScope();
 bind(OpenMCFileDiscoveryService).toSelf().inSingletonScope();
 
-// Contribution
+// Open handler, app lifecycle, and plugin menu
 bind(OpenMCContribution).toSelf().inSingletonScope();
 bind(FrontendApplicationContribution).toService(OpenMCContribution);
-bind(CommandContribution).toService(OpenMCContribution);
-bind(MenuContribution).toService(OpenMCContribution);
 bind(OpenHandler).toService(OpenMCContribution);
+bind(OpenMCMenuContribution).toSelf().inSingletonScope();
+bind(MenuContribution).toService(OpenMCMenuContribution);
 
 // Dedicated command contributions
 bind(OpenMCStatepointCommands).toSelf().inSingletonScope();
 bind(CommandContribution).toService(OpenMCStatepointCommands);
-// ... (Geometry, Plotting, Depletion commands)
+// ... (Geometry, Plotting, Depletion, RandomRay, and NuclearData commands)
+// are bound the same way. OpenMCContribution itself is not a
+// CommandContribution or MenuContribution.
 
 // Widget factories (one per widget type)
 bind(OpenMCPlotWidget).toSelf().inTransientScope();
@@ -131,9 +134,15 @@ bind(WidgetFactory)
   }))
   .inSingletonScope();
 
-// Sidebar view contributions
-bindViewContribution(bind, XSPlotViewContribution);
-bind(FrontendApplicationContribution).toService(XSPlotViewContribution);
+// XSPlotWidget is opened by OpenMC plotting commands and registered only
+// through WidgetFactory; there is no XSPlotViewContribution.
+bind(XSPlotWidget).toSelf().inTransientScope();
+bind(WidgetFactory)
+  .toDynamicValue((ctx) => ({
+    id: XSPlotWidget.ID,
+    createWidget: () => ctx.container.get(XSPlotWidget)
+  }))
+  .inSingletonScope();
 ```
 
 ---

@@ -22,20 +22,21 @@ Click `materials.xml` in the Explorer.
 
 ## Material List
 
-The left panel shows a sortable list of all materials:
+The left panel shows one row per material:
 
-| Field           | Description                                        |
-| --------------- | -------------------------------------------------- |
-| **ID**          | Material identifier                                |
-| **Name**        | Material name (from XML)                           |
-| **Density**     | Value and unit (g/cm³, kg/m³, atom/b-cm, or `sum`) |
-| **Depletable?** | Whether the material is marked for burnup          |
-| **Temperature** | Optional temperature in Kelvin                     |
-| **Volume**      | Optional volume in cm³                             |
-| **Nuclides**    | Count of constituent nuclides                      |
-| **S(α,β)**      | Count of thermal scattering assignments            |
+- **ID** — material identifier
+- **Name** — name from the XML (with a `D` badge when depletable)
+- **Density** — value and unit (`g/cm3`, `kg/m3`, `atom/b-cm`, or `sum`)
+- **Nuclides** — count of constituent nuclides
+- **S(α,β)** — count of thermal scattering assignments
 
-Select a material to show its full composition in the details panel on the right.
+Sort the list by ID, name, or density with the column headers. Select a row to
+show its details on the right:
+
+- density, optional temperature, optional volume, and nuclide count
+- thermal scattering assignments
+- cells that reference the material
+- a nuclide composition bar chart and the full nuclide table
 
 ---
 
@@ -51,7 +52,8 @@ When selected, each material shows a table of nuclides:
 
 ### Thermal Scattering
 
-If the material has S(α,β) data (e.g., `c_H_in_H2O`), it is listed below the nuclide table with the assigned fraction.
+If the material has S(α,β) data (e.g., `c_H_in_H2O`), it is listed above the
+nuclide table with the assigned fraction.
 
 ---
 
@@ -83,34 +85,39 @@ The linkage panel shows:
 | **Cell Name** | Name from geometry.xml             |
 | **Universe**  | Which universe the cell belongs to |
 
-Click a cell to **highlight it in the 3D Geometry Viewer**.
+Click the crosshair button on a cell row to open the **3D Geometry Viewer** with
+that cell selected.
 
 ---
 
 ## Material Mixer
 
-Create a new material by mixing existing ones.
+Create a new material by homogenizing existing ones.
 
 ### How to Open
 
-Click **"Mix Materials"** in the Material Explorer toolbar.
+Click **"Mix Materials"** in the Material Explorer toolbar. The **Material
+Homogenizer** panel opens.
 
 ### Steps
 
-1. **Select materials** from the list (check the boxes).
-2. **Set fractions** for each material:
-   - Atomic % (`ao`)
-   - Weight % (`wo`)
-   - Volume % (`vo`)
-3. **Name** the new material.
-4. **Optional:** Assign an ID.
-5. Click **"Calculate"**.
+1. **Add source materials:** click materials in the left list; each added
+   material appears with a fraction field.
+2. **Choose the fraction type:** Atom % (`ao`), Weight % (`wo`), or Volume %
+   (`vo`).
+3. **Set fractions** for each material. Atom and weight fractions must total
+   `1.0000`; volume fractions may total less, with the remainder treated as void.
+4. **Set the output name and material ID.**
+5. Click **"Generate Mixture"**.
 
 ### Result
 
-- The mixed composition is shown in a preview table.
-- The resulting density is computed.
-- Click **"Save to File"** to append the new material definition to your file.
+- A **Generated Material** card shows the computed density, nuclide count,
+  depletable flag, and the generated XML.
+- The density is computed by the mixer and displayed; there is no overall
+  density input.
+- Click **"Save to File"** to append the new material definition to
+  `materials.xml`.
 - Or click **"Copy XML"** to paste the `<material>` snippet manually.
 
 ### Use Cases
@@ -123,13 +130,10 @@ Click **"Mix Materials"** in the Material Explorer toolbar.
 
 ## Editing Materials
 
-The Material Explorer is **read-only by default** for safety. To edit:
-
-1. Make changes in the mixer.
-2. Copy the generated XML.
-3. Paste it into `materials.xml` in the editor.
-
-Future versions may support direct in-place editing.
+The Material Explorer is **read-only**; it does not edit existing material
+definitions. The mixer can append a new material directly with **Save to File**,
+or you can copy its generated XML and paste it into `materials.xml` in the
+editor for manual changes.
 
 ---
 

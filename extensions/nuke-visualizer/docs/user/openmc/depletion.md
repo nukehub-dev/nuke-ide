@@ -1,6 +1,6 @@
 # Depletion / Burnup Visualization
 
-The Depletion Viewer analyzes `depletion_results.h5` files produced by OpenMC's depletion solver. Track how nuclide concentrations, masses, and activities evolve over irradiation time.
+The Depletion Viewer analyzes `depletion_results.h5` files produced by OpenMC's depletion solver. Track how nuclide concentrations, masses, activities, decay heat, and photon dose evolve over irradiation time.
 
 ---
 
@@ -22,58 +22,50 @@ Click `depletion_results.h5` in the Explorer.
 
 ## Viewer Layout
 
-The Depletion Viewer has three main areas:
+The viewer has a summary line, a material sidebar, and a plot pane.
 
-### 1. Summary Panel (Top)
+### Summary Line
 
-| Metric         | Description                             |
-| -------------- | --------------------------------------- |
-| **Materials**  | Number of burnable materials            |
-| **Time Steps** | Number of depletion steps               |
-| **Nuclides**   | Total nuclides tracked                  |
-| **Time Range** | From 0 to final time (seconds and days) |
-| **Burnup**     | Final burnup in MWd/kg (if available)   |
+The header shows three counts for the loaded file:
 
-### 2. Material Selector (Left)
+- **Materials** — number of burnable materials
+- **Time Steps** — number of depletion steps
+- **Nuclides** — total nuclides tracked
 
-A list of all burnable materials. Click one to analyze it.
+### Material Selector
 
-| Column           | Description                          |
-| ---------------- | ------------------------------------ |
-| **Index**        | Material index in the depletion file |
-| **Name**         | Material name (from OpenMC model)    |
-| **Initial Mass** | Starting mass in grams               |
-| **Volume**       | Material volume in cm³               |
+A **Material** dropdown in the left sidebar lists every burnable material as
+`Name (Mat <index>)`. Selecting a material reloads the nuclide list and chart
+for that material.
 
-### 3. Plot Area (Center/Right)
+### Plot Pane
 
-Interactive Plotly charts showing the selected material's evolution. If the
-file has no burnup values, the X-Axis selector defaults to **Time (days)** and
-the unavailable burnup option is labeled as such.
+The center/right area contains the chart toolbar and an interactive Plotly
+chart. If the file has no burnup values, the X-axis falls back to **Time
+(days)** and the burnup option is marked unavailable.
 
 ---
 
 ## Plot Types
 
-Use the toolbar above the plot to switch types:
+Use the **Plot** selector above the chart to switch types:
 
-| Plot Type                       | Y-Axis                        | Use Case                             |
-| ------------------------------- | ----------------------------- | ------------------------------------ |
-| **Concentration**               | atoms/barn-cm                 | Raw nuclide density                  |
-| **Mass**                        | grams                         | Total mass per nuclide               |
-| **Mass Fraction**               | % of total                    | Relative composition change          |
-| **Activity**                    | Bq or Ci                      | Radioactivity for decay analysis     |
-| **Decay Heat**                  | Watts                         | Thermal power from radioactive decay |
-| **Contact dose (absorbed-air)** | Gy/h                          | Photon contact dose from activation  |
-| **Contact dose (effective)**    | Sv/h                          | Effective photon contact dose        |
-| **Decay photon spectrum**       | photons/s (lines)             | Gamma lines from decay at one step   |
-| **Normalized**                  | fraction of initial           | Relative change from start           |
-| **Stacked**                     | cumulative mass/concentration | Overall composition pie-over-time    |
+| Plot Type                            | Y-Axis              | Use Case                             |
+| ------------------------------------ | ------------------- | ------------------------------------ |
+| **Concentration**                    | atoms/barn-cm       | Raw nuclide density                  |
+| **Mass**                             | grams               | Total mass per nuclide               |
+| **Normalized**                       | % of initial        | Relative change from start           |
+| **Stacked composition**              | % of total per step | Overall composition over time        |
+| **Activity**                         | Ci                  | Radioactivity for decay analysis     |
+| **Decay heat**                       | W                   | Thermal power from radioactive decay |
+| **Contact dose rate (absorbed-air)** | Gy/h                | Photon contact dose from activation  |
+| **Contact dose rate (effective)**    | Sv/h                | Effective photon contact dose        |
+| **Decay photon spectrum**            | photons/s           | Gamma lines from decay at one step   |
 
 ### X-Axis Options
 
 - **Time** — days (linear or log)
-- **Burnup** — MWd/kg (if available)
+- **Burnup** — MWd/kg (unavailable when the file has no burnup values)
 - **Step** — discrete step index
 
 ---
@@ -82,18 +74,20 @@ Use the toolbar above the plot to switch types:
 
 ### Manual
 
-Type nuclide names in the filter box (e.g., `U235 U238 Pu239 Xe135`).
+Use the **Search nuclides…** box to filter the checkbox list, then check the
+nuclides to plot. The list shows 20 entries at a time; **Show N more…** reveals
+the rest.
 
 ### Presets
 
-Quick-select important groups:
+Quick-select important groups (click a preset to toggle its members):
 
-| Preset               | Nuclides                        | Use Case                          |
-| -------------------- | ------------------------------- | --------------------------------- |
-| **Major Actinides**  | U234–U238, Pu238–Pu242, Am241   | Burnup credit, criticality safety |
-| **Fission Products** | Xe135, Sm149, Cs137, I135       | Reactivity poisons, dosimetry     |
-| **Burnable Poisons** | B10, Gd155, Gd157               | Control rod / poison analysis     |
-| **Noble Gases**      | Kr83, Kr85, Xe131, Xe133, Xe135 | Gap release, pressure buildup     |
+| Preset               | Nuclides                                           | Use Case                          |
+| -------------------- | -------------------------------------------------- | --------------------------------- |
+| **Major Actinides**  | U234, U235, U236, U238, Pu238–Pu242, Am241, Am242m | Burnup credit, criticality safety |
+| **Fission Products** | Xe135, Sm149, Cs137, I135, Pm147, Nd143, Nd145     | Reactivity poisons, dosimetry     |
+| **Burnable Poisons** | B10, Gd155, Gd157, Er166, Er167                    | Control rod / poison analysis     |
+| **Noble Gases**      | Kr83, Kr85, Xe131, Xe133, Xe135                    | Gap release, pressure buildup     |
 
 ---
 
@@ -101,29 +95,37 @@ Quick-select important groups:
 
 Compare results from two different simulations (e.g., different enrichments, different spectra):
 
-1. Select **two** `depletion_results.h5` files in the Explorer (hold `Ctrl` and click).
-2. Right-click → **"Compare Depletion"**.
-3. Or use `Tools → Visualizer → OpenMC → Depletion → Compare Depletion Results...`.
+1. Use `Tools → Visualizer → OpenMC → Depletion → Compare Depletion Results...`
+   or the Command Palette (**"Compare Depletion Results"**).
+2. Pick **Case A (Reference)**, then **Case B (Comparison)** from the workspace
+   or browse for each file.
+3. The **Depletion Comparison** tab opens with both cases overlaid.
 
-The **Depletion Comparison** viewer opens:
+The comparison loads the first material from each file. Its sidebar offers:
 
-- Side-by-side or overlay plots
-- Relative difference chart: `(B - A) / A × 100%`
-- Select the same material from both files
-- Nuclide selections apply to both runs simultaneously
+- **Plot Type:** **Concentration**, **Normalized (%)**, or **Difference (A - B)**
+- **X-Axis:** **Time (days)**, or **Burnup (MWd/kg)** when both files have it
+- **Common Nuclides:** only nuclides present in both cases, checked by default
+  for important actinides and fission products
 
-> **Tip:** You can also diff two depletion files via the Explorer by selecting both and choosing **"Compare Selected"**.
+Difference plots show the absolute concentration difference, not a relative
+percentage.
+
+> **Tip:** The comparison is opened from the command palette or menu; selecting
+> two files in the Explorer and choosing a context-menu action is not required.
 
 ---
 
 ## Activity and Decay Heat
 
-If you enable **"Include Activity"** when loading data:
+**Activity** and **Decay heat** are plot types, computed from the end-of-step
+concentrations. There is no load-time option to enable them.
 
-- Activity is computed from decay constants and end-of-step concentrations.
-- Units: **Becquerels (Bq)** or **Curies (Ci)**.
-- Decay heat is shown in **Watts**.
-- Useful for shutdown heat removal and waste classification analysis.
+- Activity is shown in **Curies (Ci)** and covers every nuclide in the material.
+- Decay heat is shown in **Watts (W)**.
+- For either plot, enable **Show individual nuclide contributions** to list the
+  top 15 contributors at the final step. The total curve is unaffected by
+  nuclide selection.
 
 ---
 
@@ -155,25 +157,17 @@ Most chain data produces discrete lines (photons/s at fixed energies). A chain w
 
 ---
 
-## Data Table
+## Exports
 
-Below the plot, a sortable table shows the numerical values at the **final time step**:
+CSV export is available in two places:
 
-| Column              | Description        |
-| ------------------- | ------------------ |
-| Nuclide             | Name               |
-| Final Concentration | atoms/barn-cm      |
-| Final Mass          | grams              |
-| Mass Fraction       | % of total mass    |
-| Half-life           | seconds (if known) |
+- **Decay photon spectrum** — the **Export CSV** button in the chart toolbar
+  writes one row per photon line.
+- **Contact dose, By nuclide** — the table's **CSV** button writes the
+  contributor rows.
 
-Click a column header to sort. Use the search box to filter nuclides.
-
----
-
-## Export
-
-Click **"Export CSV"** to download the current plot data as a CSV file for further analysis in Excel, Python, or MATLAB.
+There is no generic plot-data export; use the Plotly modebar if you need an
+image of the current chart.
 
 ---
 

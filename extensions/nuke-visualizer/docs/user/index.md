@@ -27,7 +27,7 @@ The OpenMC plugin handles Monte Carlo simulation data:
 | [**Tally Visualization**](openmc/tally-visualization.md) | 3D mesh tallies, geometry overlay, energy spectra, spatial plots, heatmaps               |
 | [**Output Viewers**](openmc/output-viewers.md)           | Particle tracks, collision tracks, weight windows, particle restarts, random ray results |
 | [**Nuclear Data**](openmc/nuclear-data.md)               | Browse the cross-section library, inspect nuclides, jump to XS plots                     |
-| [**Cross-Sections (XS)**](openmc/cross-sections.md)      | Plot nuclear cross-sections, temperature comparisons, mixed materials                    |
+| [**Cross-Sections (XS)**](openmc/cross-sections.md)      | Plot nuclear cross-sections, temperature comparisons, material mixtures                  |
 | [**Depletion / Burnup**](openmc/depletion.md)            | Analyze `depletion_results.h5`, plot nuclide evolution, compare runs                     |
 | [**Geometry Viewer**](openmc/geometry.md)                | Browse `geometry.xml` hierarchy, 3D view, overlap checking                               |
 | [**Materials**](openmc/materials.md)                     | Explore `materials.xml`, mix compositions, trace cell linkage                            |

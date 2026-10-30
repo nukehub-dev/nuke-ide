@@ -12,7 +12,7 @@ In the Simulation Dashboard, go to the **Tallies** tab and click **"Open Tally C
 
 ### Method 2: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open Tally Configurator"**
+`Ctrl+Shift+P` → **`OpenMC/View: Open Tally Configurator`**
 
 ### Method 3: Menu
 
@@ -22,17 +22,13 @@ In the Simulation Dashboard, go to the **Tallies** tab and click **"Open Tally C
 
 ## Tally List
 
-The left panel shows all tallies in the project. Click a tally to edit it, or click **"Add Tally"** to create a new one.
+The left panel shows all tallies in the project as cards. Click a tally to edit it, or click **"Add"** to create a new one. Each card shows the tally ID and name along with score, filter, and nuclide counts.
+
+![Tally and Mesh Configurator showing a tally card, template list, and the select-a-tally empty editor](images/tally-configurator.png)
+
+_The tally list summarizes each definition at a glance; select a card to edit it, click Add to create one from scratch, or start from a template such as Mesh Flux or Cell Fission._
 
 In a narrow editor panel the tally list stacks above the editor instead of squeezing both side by side; wide score/filter grids collapse to one column.
-
-| Column            | Description                |
-| ----------------- | -------------------------- |
-| **ID**            | Unique tally identifier    |
-| **Name**          | Descriptive label          |
-| **Score Count**   | Number of scores assigned  |
-| **Filter Count**  | Number of filters applied  |
-| **Nuclide Count** | Number of nuclides tracked |
 
 ---
 
@@ -40,13 +36,17 @@ In a narrow editor panel the tally list stacks above the editor instead of squee
 
 ### Step 1: Name and ID
 
-1. Click **"Add Tally"**.
+1. Click **"Add"**.
 2. Enter a **Name** (e.g., "Fuel Flux", "Assembly Power").
-3. The **ID** is auto-assigned; override it if needed for compatibility with external scripts.
+3. The **ID** is auto-assigned and shown in the editor header; it is not editable in the Tally Configurator.
+
+![Tally editor showing the Basic Settings, score grid, and tally summary](images/tally-editor.png)
+
+_The editor keeps name, estimator, scores, filters, and nuclides in one scrollable panel; the selected tally card summarizes its score/filter/nuclide counts._
 
 ### Step 2: Add Scores
 
-Scores define the physical quantity to compute. Click **"Add Score"** and pick from the score catalog, which is organized into categories:
+Scores define the physical quantity to compute. Select them from the score catalog's checkbox grid, organized into collapsible categories:
 
 | Category                | Contents                                                                                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -65,7 +65,7 @@ Custom integer MT scores are also accepted — enter any MT number ≥ 1 directl
 
 Filters restrict scoring to specific regions of phase space.
 
-Click **"Add Filter"** and choose a filter type:
+Choose a filter type from the grouped add buttons in the filter builder:
 
 | Filter               | Description                              | Parameters                                       |
 | -------------------- | ---------------------------------------- | ------------------------------------------------ |
@@ -260,13 +260,13 @@ of writing input OpenMC cannot read.
 
 Each tally can use a specific statistical estimator:
 
-| Estimator     | Description                                | When to Use                                     |
-| ------------- | ------------------------------------------ | ----------------------------------------------- |
-| `analog`      | Scores only when the event actually occurs | Rare events, verification                       |
-| `tracklength` | Scores along entire particle tracks        | Flux, most efficient for optically thin regions |
-| `collision`   | Scores at every collision                  | Default for many reaction rates                 |
+| Estimator     | Description                                | When to Use                                       |
+| ------------- | ------------------------------------------ | ------------------------------------------------- |
+| `analog`      | Scores only when the event actually occurs | Rare events, verification                         |
+| `tracklength` | Scores along entire particle tracks        | Flux, most efficient for optically thin regions   |
+| `collision`   | Scores at every collision                  | Alternative for non-flux and reaction-rate scores |
 
-Select the estimator in the tally detail panel. The default is `collision` for most scores and `tracklength` for `flux`.
+Select the estimator in the tally detail panel. The selector defaults to `tracklength`; the editor warns when the tally has no mesh filter or includes scores other than `flux`, and suggests switching to `collision` or `analog`.
 
 ---
 
@@ -365,24 +365,8 @@ project and compare each derived tally's aggregate value and uncertainty across 
 
 ---
 
-## Export and Import
-
-### Export Tally Configuration
-
-Click **"Export"** in the Tally Configurator toolbar to save the current tally setup as a JSON file. This is useful for:
-
-- Sharing tally definitions across projects
-- Version-controlling tally configurations independently
-
-### Import Tally Configuration
-
-Click **"Import"** and select a previously exported JSON file to load tally definitions into the current project.
-
----
-
 ## Tips
 
 - **Flux-to-dose conversion:** Add an `energyfunction` filter with ICRP flux-to-dose response data to compute dose rates directly.
 - **Mesh alignment:** Align mesh boundaries with geometry boundaries to avoid artificial gradients at material interfaces.
-- **Memory warning:** The Tally Configurator shows an estimated memory usage indicator based on the product of filter bins, scores, and nuclides.
 - **Tally naming:** Use consistent naming conventions (e.g., `<location>_<quantity>_<filter>`) so results are easy to identify in the Statepoint Viewer.

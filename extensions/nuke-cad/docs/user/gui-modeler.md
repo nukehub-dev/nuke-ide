@@ -7,10 +7,10 @@ FEM artifacts as a script build.
 
 ## Two authoring modes
 
-| Mode                       | Source of truth                                               | Best for                                                                 |
-| -------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **Script** (`.py`)         | A build123d/CadQuery script with a top-level `model` variable | Complex programmatic geometry, reusable libraries, version-control diffs |
-| **Document** (`.nuke-cad`) | A JSON feature tree edited through the GUI                    | Rapid parametric parts, design tables, visual sketch-driven modeling     |
+| Mode                       | Source of truth                                                          | Best for                                                                 |
+| -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| **Script** (`.py`)         | A build123d script (CadQuery optional) with a top-level `model` variable | Complex programmatic geometry, reusable libraries, version-control diffs |
+| **Document** (`.nuke-cad`) | A JSON feature tree edited through the GUI                               | Rapid parametric parts, design tables, visual sketch-driven modeling     |
 
 Both modes end at the same geometry service: the viewport tessellation, STEP
 export, region manifest, DAGMC `.h5m`, and FEM meshes are authoring-mode-agnostic.
@@ -82,6 +82,10 @@ picker immediately; cancelling that picker reveals the launcher. Both variants
 offer compact **Open CAD Model…**, **Import CAD…**, and **Import CAD as Body…**
 rows. The launcher stacks when the editor is narrow and drops its supporting
 copy on very narrow widths; the ribbon stays available above it.
+
+![CAD viewport Start a model launcher with New Document, Open CAD Model, Import CAD, and Import CAD as Body](images/cad-start.png)
+
+_The Start a model launcher is the entry point for a new document, an existing CAD/script file, or a STEP/IGES/BREP import; the ribbon stays available above it._
 
 The document toolbar carries a **Units** dropdown (`Unitless`, `mm`, `cm`,
 `m`). Declared units tag future numeric inputs (curve expressions may then
@@ -257,6 +261,10 @@ modified to force an export.
 
 ## Sketch mode walkthrough
 
+![CAD sketch mode with the floating sketch toolbar, constraint bar, grid, and solver status line](images/sketch-mode.png)
+
+_In sketch mode the floating toolbar holds the draw, reference, inspect, and transform tools; the top-center constraint bar applies relations; and the status line reports degrees of freedom, snap radius, and grid state._
+
 ### Enter sketch mode
 
 1. Open the Feature Tree panel with **Open Feature Tree** (or `CAD Studio →
@@ -282,7 +290,7 @@ grays out the 3D model, and shows a sketch grid (toggle it from the toolbar's
 
 ### Draw with snap and auto-constraints
 
-The sketch toolbar has nine tools (press the letter, or use the keyboard icon
+The sketch toolbar has 21 tools (press the letter, or use the keyboard icon
 on the toolbar header for the full cheat sheet — shortcuts apply while the
 viewport has focus):
 
@@ -350,17 +358,16 @@ start that constraint; click the active chip again, choose **None** in the
 **More** dropdown, or start another constraint to cancel. The bar shows how
 many primitives it still needs, for example `2 / 2 selected`.
 
-- Coincident, fix, horizontal, vertical
-- Parallel, perpendicular, tangent
-- Equal, concentric, symmetry
-- Point on object
-- Axis-locked distance (`DistanceX`/`DistanceY`), diameter, block
-  (freeze-in-place)
+The primary chips are Coincident, Horizontal, Vertical, Parallel,
+Perpendicular, Tangent, Equal, Distance, Radius, and Angle. **More** exposes
+Fix, Concentric, Symmetry, and Point on Object.
 
 Most constraints are applied by selecting the required number of primitives.
 `distance`, `radius`, and `angle` additionally ask for a numeric value or
-parameter name. The **More** dropdown shows the active kind while one of its
-constraints is armed and falls back to **More** otherwise.
+parameter name. Distance supports horizontal, vertical, and diameter modes;
+there is no separate `DistanceX`/`DistanceY` or block chip. The **More**
+dropdown shows the active kind while one of its constraints is armed and falls
+back to **More** otherwise.
 
 - **Right-click menu** — right-click a sketch entity to see only the
   constraints that fit the current selection: Horizontal/Vertical and **Add
@@ -497,7 +504,7 @@ Deleting the dimension clears its pin.
 
 ## Bodies
 
-A `.nuke-cad` v2 document contains one or more solid **bodies**. Each body is an
+A `.nuke-cad` v3 document contains one or more solid **bodies**. Each body is an
 independent accumulator of material; features target a body by id. New bodies are
 created from the document toolbar or the **Add Body** command in the Feature
 Tree. A body can be renamed and can carry an optional **Label** that maps to the
@@ -949,14 +956,15 @@ Reopening the CAD viewport restores the active model and re-opens the Feature
 Tree and Model Outline panels. Both panels are also available as **Feature
 Tree** and **Model Outline** buttons in the Inspect ribbon and command search.
 
-The **Feature Tree** panel shows four sections:
+The **Feature Tree** panel shows five sections:
 
+- **Datums** — XY, YZ, XZ, and any offset, midplane, three-point, or face datum planes.
+- **Sketches** — one row per sketch; click to select, click the edit button to
+  re-enter sketch mode.
+- **Curves** — one row per standalone 3D curve; edit, rename, or delete curves here.
 - **Bodies** — one row per body; click to select (the body's solids highlight
   in the viewport), double-click the name (or click the edit button) to
   rename. New bodies are added from the document toolbar.
-- **Datums** — XY, YZ, XZ, and any offset or face datum planes.
-- **Sketches** — one row per sketch; click to select, click the edit button to
-  re-enter sketch mode.
 - **Features** — one row per feature in build order, showing its target body and
   (for booleans) the target/tool bodies. Clicking a feature highlights its
   body's solids in the viewport. Status markers from the last rebuild
@@ -974,6 +982,11 @@ it, use any of:
   reopens prefilled with the feature's current parameters (target/tool bodies
   for booleans, edges/faces for dress-ups, sections for lofts); confirming
   updates the feature and rebuilds.
+
+![CAD Feature Tree with a built pincell body and the Edit Pad feature dialog open](images/feature-tree.png)
+
+_The Feature Tree lists datums, sketches, curves, bodies, and features; the pencil on a feature row reopens its parameter dialog with the current values._
+
 - The **Edit Feature** command in the Command Palette — it edits the feature
   currently selected in the Feature Tree (select a row first).
 - The **viewport context menu** (below) — right-click the solid and choose
@@ -1025,8 +1038,8 @@ exact placed CAD export. A tessellation cache hit reuses an unchanged STEP
 an export build, not the viewport's
 display build: run `geometry_service.py <document.nuke-cad> --from-document
 --no-mesh --tolerance 0.01 --no-auto-tolerance` (DAGMC is enabled by default)
-or use the script/export pipeline, then choose **Project → Import from
-nuke-cad...** in OpenMC Studio and select the `.h5m` with its sibling
+or use the script/export pipeline, then choose **Tools → OpenMC Studio →
+Project → Import from nuke-cad...** and select the `.h5m` with its sibling
 `.regions.json`.
 
 Large W7-X assemblies take much longer to imprint than the display build; this
@@ -1213,7 +1226,7 @@ through the sidecar link.
 
 ## Drawings
 
-**Open Drawing Sheet** (`CAD Studio → Drawings`) opens the drawing workspace
+**Open Drawing Sheet** (`CAD Studio → Panels → Drawing Sheet`) opens the drawing workspace
 for the current document:
 
 1. Choose a sheet size (A4/A3) and a front/top/right base view on the empty

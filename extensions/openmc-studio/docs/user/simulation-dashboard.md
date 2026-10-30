@@ -8,7 +8,7 @@ The Simulation Dashboard is the central workspace for building, configuring, and
 
 ### Method 1: New Project
 
-Create a new project (`Ctrl+Shift+P` → **"OpenMC Studio: New Project"**). The dashboard opens automatically.
+Create a new project (`Ctrl+Shift+P` → **`OpenMC/Project: New Project`**). The dashboard opens automatically.
 
 ### Method 2: Open Existing Project
 
@@ -16,7 +16,7 @@ Click any `.nuke-openmc` file in the Explorer.
 
 ### Method 3: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open Simulation Dashboard"**
+`Ctrl+Shift+P` → **`OpenMC/View: Open Simulation Dashboard`**
 
 ### New Project Templates
 
@@ -43,14 +43,14 @@ The dashboard is a single tab with a toolbar at the top and a tabbed panel below
 
 ### Toolbar Actions
 
-| Button           | Action                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| **New Project**  | Scaffold a new OpenMC project                                                                          |
-| **Open Project** | Open an existing `.nuke-openmc` project                                                                |
-| **Save Project** | Save the current project to its `.nuke-openmc` file                                                    |
-| **Generate XML** | Export the current configuration to `geometry.xml`, `materials.xml`, `settings.xml`, and `tallies.xml` |
+| Button                 | Action                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| **New Project**        | Scaffold a new OpenMC project                                                                          |
+| **Open Project**       | Open an existing `.nuke-openmc` project                                                                |
+| **Save Project**       | Save the current project to its `.nuke-openmc` file                                                    |
+| **Generate XML Files** | Export the current configuration to `geometry.xml`, `materials.xml`, `settings.xml`, and `tallies.xml` |
 
-Click the project name in the header to rename it.
+Click the project name in the header to edit its name and optional description.
 
 ### Tabs
 
@@ -79,19 +79,23 @@ The same behavior applies to the CSG Builder, DAGMC Editor, Tally Configurator, 
 
 ## XML Import Report
 
-**Import XML** from the Simulation tab reads `materials.xml`, `geometry.xml`, `settings.xml`, `tallies.xml`, and `plots.xml` from a directory. After import, a report panel above the tabs shows:
+Use `Tools → OpenMC Studio → XML Configuration → Import from XML...` to read `materials.xml`, `geometry.xml`, `settings.xml`, `tallies.xml`, and `plots.xml` from a directory. Import replaces the current model state. After import, a report panel above the tabs shows:
 
 - **Imported** — how many materials, surfaces, cells, universes, lattices, tallies, meshes, plots, and sources were reconstructed.
 - **Ignored** — constructs that were deliberately not mapped, with the reason (for example a 9-element rotation matrix that cannot be represented as Tait-Bryan angles).
 - **Needs attention** — references or setup that require review before a run (for example a missing mesh file or a DAGMC `.h5m` that must be opened in the DAGMC Editor).
 
-Every parse warning appears in one of those buckets; import never silently drops a construct. Dismiss the report with its close button.
+Every parse warning appears in one of those buckets; import never silently drops a construct. Dismiss the report with its close button. The CSG Builder's **Import XML** button runs the same import and reports the imported counts in a status message.
 
 ---
 
 ## Settings Tab
 
 Global simulation parameters, organized into collapsible sections.
+
+![OpenMC Studio Simulation Dashboard Settings tab showing the Quick Start Guide and General run settings](images/dashboard-settings.png)
+
+_The Settings tab leads with recommended particle and batch ranges for each run mode, then the General section where you choose the mode and set the particle and active/inactive batch schedule._
 
 ### General
 
@@ -218,7 +222,7 @@ material field, so it is intentionally not exposed. `max_splits` is deprecated u
 
 ## Materials Tab
 
-Define and manage materials. The tab shows all materials in the project with inline editing, plus a template gallery (UO₂, water, heavy water, graphite, Zircaloy-4, B₄C, stainless steel, helium) for one-click creation.
+Define and manage materials. The tab shows all materials in the project with inline editing, plus a template gallery (UO₂ fuel, light water, heavy water, graphite, stainless steel 304, B₄C, air/vacuum, helium) that prefills the material form.
 
 ### Editing a Material
 
@@ -226,6 +230,10 @@ Define and manage materials. The tab shows all materials in the project with inl
 2. Edit **Name**, **ID**, **Density** and units, **Temperature**, **Isotropic scattering nuclides**, and **S(α,β)** thermal scattering assignments.
 3. Add or remove nuclides in the composition table (name, fraction, `wo`/`ao`).
 4. Toggle **Depletable** to include the material in burnup calculations.
+
+![Light water material editor showing density, S(alpha,beta) thermal scattering, and H1/O16 nuclide rows](images/material-form.png)
+
+_The material editor combines the composition table with optional S(α,β) rows; the Pin Cell template ships Light water with `c_H_in_H2O` already assigned._
 
 **Isotropic scattering nuclides** lists nuclides whose elastic scattering is treated as isotropic in the
 laboratory system (`Material.isotropic`, `<isotropic>` in `materials.xml`). Leave it empty for OpenMC's
@@ -409,6 +417,10 @@ For DAGMC models, constraining the source to the plasma **material** or **volume
 
 Execute OpenMC and monitor progress in real time.
 
+![OpenMC Studio Simulation Dashboard Simulation tab showing the setup checklist, run controls, and run summary](images/dashboard-simulation.png)
+
+_The Simulation tab turns the model into a run: the setup checklist names missing inputs and links to their editors, Run Controls validate or start the run, and the Run Summary mirrors the launch configuration before and after execution._
+
 ### Setup Checklist
 
 A readiness checklist (with an `N / M configured` badge) verifies the model before running: Materials, Geometry, Source, Tallies (optional), Depletion (when enabled), Variance Reduction (optional), Kinetics (when IFP is enabled), and MGXS Library (in multi-group mode). The readiness pill shows **Ready to run** or what is missing; geometry items offer inline **Open CSG Builder** / **Edit** shortcuts.
@@ -464,7 +476,7 @@ For DAGMC models, the geometry summary offers a **Copy DAGMC file into run direc
 4. **Tallies** — Configure scores and filters (see [Tally Configurator](tally-configurator.md)).
 5. **Depletion** _(optional)_ — Set burnup timeline and chain file.
 6. **Variance Reduction / Random Ray** _(optional)_ — Weight windows, multi-group mode.
-7. **Generate XML** — Export all configuration files.
+7. **Generate XML Files** — Export all configuration files.
 8. **Simulation** — Check readiness, run, monitor, and view results.
 
 ---

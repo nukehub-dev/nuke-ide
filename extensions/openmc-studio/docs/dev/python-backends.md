@@ -6,9 +6,9 @@ Python helper scripts in `python/` perform scientific work: reading statepoints,
 
 ## Script Location
 
-All Python scripts live in `extensions/openmc-studio/python/`:
+All Python scripts live in `extensions/openmc-studio/python/`.
 
-The Node.js backend resolves script paths via `__dirname` relative resolution (production `lib/python/` vs development `src/python/`).
+The Node backend resolves script paths through nuke-core's `resolvePythonScript({ packageName: 'openmc-studio', scriptName: '...' })` (see `extensions/nuke-core/src/node/utils/script-resolver.ts`). The resolver checks Electron `extraResources`, the installed/resolved package's `python/` directory, the app's `extensions/` tree, and monorepo development fallbacks — never a `lib/python` or `src/python` directory.
 
 ---
 
@@ -161,43 +161,33 @@ You do NOT need to detect Python in your script. The Node.js backend:
 
 ## Backend Execution Pattern
 
-The Node.js backend executes scripts via `child_process.spawn` or helper methods. The standard pattern is:
+The Node.js backend executes short JSON queries with `child_process.execSync` and long-running simulations with `child_process.spawn`. There is no shared `executeScriptJson` helper on `OpenMCStudioBackendServiceImpl`.
 
-### `executeScriptJson` Pattern
+### Short JSON Query Pattern
+
+This mirrors the statepoint/depletion methods in `openmc-studio-backend-service.ts`:
 
 ```typescript
-// Node backend service executes a script and parses JSON stdout
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
+
 async runMyScript(inputPath: string): Promise<MyResult> {
-    const { spawn } = await import('child_process');
+    const { execSync } = await import('child_process');
+    const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'my_script.py' });
+    if (!scriptPath) {
+        throw new Error('my_script.py not found');
+    }
 
-    // Resolve Python from nuke-core configuration
-    const pythonPath = await this.getPythonPath();
-    const scriptPath = this.resolveScriptPath('my_script.py');
-
-    return new Promise((resolve, reject) => {
-        const proc = spawn(pythonPath, [scriptPath, inputPath, '--json']);
-
-        let stdout = '';
-        let stderr = '';
-
-        proc.stdout.on('data', (data) => { stdout += data; });
-        proc.stderr.on('data', (data) => { stderr += data; });
-
-        proc.on('close', (code) => {
-            if (code !== 0) {
-                reject(new Error(stderr || `Process exited with code ${code}`));
-                return;
-            }
-            try {
-                const result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
-                resolve(result);
-            } catch (e) {
-                reject(new Error(`Failed to parse JSON: ${stdout}`));
-            }
-        });
+    const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+    const output = execSync(`"${pythonInfo.command}" "${scriptPath}" "${inputPath}" --json`, {
+        encoding: 'utf-8',
+        timeout: 60000,
+        stdio: ['pipe', 'pipe', 'pipe']
     });
+    return JSON.parse(output);
 }
 ```
+
+Scripts that need streaming output, cancellation, or a process id belong on `OpenMCRunnerService`, which owns the Python detection and process lifecycle; delegate to it from the orchestrator.
 
 ### Long-Running Processes (Simulations)
 
@@ -308,17 +298,34 @@ if __name__ == "__main__":
 
 ### Step 2: Add Backend Method
 
+Scripts that return one JSON payload follow the `execSync` pattern above; add a typed method to the orchestrator and parse stdout:
+
 ```typescript
 // src/node/openmc-studio-backend-service.ts
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
+
 async getDAGMCVolumeStats(filePath: string): Promise<{
     success: boolean;
     volumeCount?: number;
     surfaceCount?: number;
     error?: string;
 }> {
-    return this.executeScriptJson('dagmc_volume_stats.py', [filePath, '--json']);
+    const { execSync } = await import('child_process');
+    const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'dagmc_volume_stats.py' });
+    if (!scriptPath) {
+        return { success: false, error: 'dagmc_volume_stats.py not found' };
+    }
+
+    const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+    const output = execSync(`"${pythonInfo.command}" "${scriptPath}" "${filePath}" --json`, {
+        encoding: 'utf-8',
+        timeout: 60000
+    });
+    return JSON.parse(output);
 }
 ```
+
+For streaming/cancellable work, add the method to `OpenMCRunnerService` and delegate from the orchestrator.
 
 ### Step 3: Add to RPC Protocol
 
@@ -444,5 +451,5 @@ When writing a new Python backend script:
 - [ ] Print errors to stderr and exit non-zero on unrecoverable failures
 - [ ] Wrap optional heavy dependencies in `try/except ImportError`
 - [ ] Do not hardcode Python interpreter paths
-- [ ] Test standalone: `python python/my_script.py --help`
+- [ ] Test standalone from `extensions/openmc-studio/python`: `python my_script.py --help`
 - [ ] Add pytest coverage in `tests/python/` (runs via `yarn test:python` from the repo root; must pass with only `pytest` + `numpy` — use `pytest.importorskip` for heavy deps). Logic-layer coverage is ratcheted in CI; see "Coverage" in the root `AGENTS.md`.

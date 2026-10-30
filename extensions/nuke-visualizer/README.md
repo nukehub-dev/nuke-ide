@@ -8,10 +8,10 @@ Plugin-based visualization framework for NukeIDE.
 
 ## Plugins
 
-| Plugin              | Domain                | File Types                                              | Python Packages                            |
-| ------------------- | --------------------- | ------------------------------------------------------- | ------------------------------------------ |
-| **Base Visualizer** | General 3D mesh/DAGMC | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj`                  | `vtk` (converters; geometry is numpy-only) |
-| **OpenMC**          | Monte Carlo analysis  | `statepoint*.h5`, `geometry.xml`, `materials.xml`, etc. | `openmc`, `h5py`, `numpy`                  |
+| Plugin              | Domain                | File Types                                                                       | Python Packages                                                 |
+| ------------------- | --------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Base Visualizer** | General 3D mesh/DAGMC | `.h5m`, `.vtk`, `.vti`, `.stl`, `.ply`, `.obj`, `.msh`, `.step`, `.stp`, `.brep` | `vtk`; `pydagmc` + `moab` for `.h5m`; `gmsh` for `.msh` and CAD |
+| **OpenMC**          | Monte Carlo analysis  | `statepoint*.h5`, `geometry.xml`, `materials.xml`, etc.                          | `openmc`, `h5py`, `numpy`, `vtk`                                |
 
 ## What the Framework Provides
 
@@ -47,7 +47,7 @@ For developers who want to understand or extend the codebase.
 - Architecture (frontend/backend/Python layers)
 - Shared services (health checks, Python helper, Plotly, widgets)
 - RPC protocols and DI wiring
-- Widget patterns (iframe vs React)
+- Widget patterns (native 3D vs React)
 - Adding a new plugin
 - Python backend conventions
 

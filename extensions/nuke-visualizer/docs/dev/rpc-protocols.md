@@ -15,7 +15,9 @@ export const MyBackendService = Symbol('MyBackendService');
 export const MY_BACKEND_PATH = '/services/my-plugin';
 
 export interface MyBackendService {
-  // Headless converters (no startServer/stopServer — commands write files and exit)
+  // Headless converters: commands write files and exit.
+  // Legacy startServer/stopServer declarations may remain for protocol
+  // compatibility, but new plugins must not add them.
   getData(filePath: string): Promise<MyData>;
 }
 
@@ -58,6 +60,9 @@ export interface VisualizerBackendService {
   // Environment
   checkEnvironment(config?: PythonConfig): Promise<EnvironmentInfo>;
 
+  // Legacy port-based hook; headless converters never start a server
+  stopServer(port: number): Promise<void>;
+
   // Client for log streaming
   setClient(client: VisualizerClient): void;
 }
@@ -72,7 +77,7 @@ export interface VisualizerClient {
   log(message: string): void; // stdout
   error(message: string): void; // stderr / errors
   warn(message: string): void; // warnings (shown as toast)
-  onServerStop(port: number): void; // server process exited
+  onServerStop(port: number): void; // legacy process-exit callback; viewers do not track ports
 }
 ```
 
@@ -89,7 +94,7 @@ export interface VisualizerClient {
 
 **File:** `src/common/openmc-protocol.ts`
 
-The largest protocol (~1400 lines), covering all OpenMC domain types.
+The OpenMC protocol covers the OpenMC domain types (statepoints, tallies, geometry, depletion, cross sections, nuclear data).
 
 ### Service Interface
 
@@ -109,6 +114,9 @@ export interface OpenMCBackendService {
   convertTallyMeshToVtk(statepointPath: string, options?: OpenMCTallyMeshVtkOptions): Promise<OpenMCVtkConversionResult>;
   convertSourceToVtk(filePath: string, options?: OpenMCSourceVtkOptions): Promise<OpenMCVtkConversionResult>;
   convertOverlayToVtk(statepointPath: string, options?: OpenMCOverlayVtkOptions): Promise<OpenMCVtkConversionResult>;
+
+  // Legacy port-based hook; nothing listens on ports
+  stopServer(port: number): Promise<void>;
 
   // Plot data
   getEnergySpectrum(statepointPath, tallyId, scoreIndex?, nuclideIndex?): Promise<OpenMCSpectrumData>;
@@ -141,7 +149,6 @@ export interface OpenMCBackendService {
   // Environment
   checkOpenMCAvailable(): Promise<{ available; message; warning? }>;
   checkOpenMCPythonAvailable(): Promise<{ available; message; warning? }>;
-  // (No stopServer — the legacy stub is a no-op; nothing listens on ports.)
 }
 ```
 

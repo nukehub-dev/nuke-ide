@@ -63,37 +63,32 @@ A bar chart or table showing time spent in each phase:
 
 ### Source Distribution
 
-If the statepoint contains a source bank:
-
-- Click **"View Source"** to launch a 3D scatter plot of source particle positions.
-- Particles are colored by energy or weight.
+If the statepoint contains a source bank, the **Overview** tab shows a **Source
+Bank** card with a **Visualize 3D** button. It opens a native point cloud of the
+source particle positions, with `energy` or `weight` arrays available for
+coloring. You can also open a `source.h5` file directly, or run
+**"Visualize Source Distribution..."** from the command palette.
 
 ---
 
 ## Tallies Panel
 
-The lower half of the viewer lists all tallies found in the statepoint.
-
-| Column       | Description                                    |
-| ------------ | ---------------------------------------------- |
-| **ID**       | Tally identifier                               |
-| **Name**     | User-defined tally name                        |
-| **Scores**   | What was scored (flux, heating, fission, etc.) |
-| **Nuclides** | Which nuclides (U235, total, etc.)             |
-| **Filters**  | Applied filters (energy, mesh, material, etc.) |
+The **Tallies** tab lists one card per tally found in the statepoint. Each card
+shows the tally ID, name, filter badges (Mesh/Cell/Energy), scores, nuclides
+(truncated when long), and mesh dimensions when present.
 
 ### Actions per Tally
 
-Click a tally to reveal action buttons:
+Each card carries icon buttons; hover them for the labels below.
 
 | Action                  | Result                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------ |
-| **View 3D**             | Opens a 3D mesh tally visualization (if mesh filter exists)                    |
+| **3D**                  | Opens a 3D mesh tally visualization (mesh filter only)                         |
 | **Overlay on Geometry** | Colors DAGMC/VTK geometry with this tally (slice or full 3D)                   |
-| **+ Source**            | Colors geometry with tally _and_ overlays source particles from the statepoint |
+| **Source overlay**      | Colors geometry with tally _and_ overlays source particles from the statepoint |
 | **Heatmap**             | Opens a 2D slice heatmap viewer                                                |
-| **Spectrum**            | Plots energy spectrum (if energy filter exists)                                |
-| **Spatial**             | Plots 1D spatial distribution (if mesh filter exists)                          |
+| **Spectrum**            | Plots energy spectrum (energy filter only)                                     |
+| **Spatial**             | Plots 1D spatial distribution (mesh filter only)                               |
 | **Series**              | Charts this score across every sibling statepoint (see below)                  |
 
 ### Tally Series
@@ -143,7 +138,7 @@ instead of hiding it.
 
 ## k-Generation Convergence Plot
 
-A line chart is shown at the top of the viewer:
+The **K-Effective** tab shows a line chart:
 
 - **X-axis:** Batch (or generation) number
 - **Y-axis:** k-effective
@@ -173,19 +168,15 @@ If the statepoint has no entropy history, the tab explains that an entropy mesh 
 
 ## Tally Tree Sidebar
 
-Click **"Show Tally Information"** in the Statepoint Viewer (or use `Tools → Visualizer → OpenMC → Tally → Show Tally Information`) to open a dedicated sidebar widget.
+Click **"View Tally Tree"** in the Overview tally card or the Tallies tab header
+(or use `Tools → Visualizer → OpenMC → Tally → Show Tally Information`) to open
+a dedicated sidebar widget.
 
 The Tally Tree shows:
 
 - Hierarchical view of tallies
 - Expandable nodes for scores and nuclides
 - Quick-action buttons for each tally
-
----
-
-## Global Tallies
-
-Some statepoints contain global tallies (e.g., leakage, absorption rates). These are shown in a summary table near the top of the viewer.
 
 ---
 

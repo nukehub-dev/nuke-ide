@@ -54,14 +54,14 @@ The [Nuclear Data](nuclear-data.md) window additionally browses the configured `
 
 All OpenMC commands are under `Tools → Visualizer → OpenMC`:
 
-| Submenu        | Commands                                                                                                             |
-| -------------- | -------------------------------------------------------------------------------------------------------------------- |
-| **Statepoint** | View Statepoint...                                                                                                   |
-| **Tally**      | Visualize Tally, Visualize Source, Overlay Tally on Geometry, Overlay Tally on Geometry with Source, Show Tally Info |
-| **Depletion**  | View Depletion Results..., Compare Depletion Results...                                                              |
-| **Geometry**   | View Geometry Hierarchy..., Check Geometry Overlaps...                                                               |
-| **Materials**  | View Materials..., Nuclear Data                                                                                      |
-| **Plotting**   | Plot Cross-Sections                                                                                                  |
+| Submenu        | Commands                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Statepoint** | View Statepoint...                                                                                                       |
+| **Tally**      | Visualize Tally..., Visualize Source Distribution..., Overlay Tally on Geometry..., Show Tally Information, Open Tallies |
+| **Depletion**  | View Depletion Results..., Compare Depletion Results...                                                                  |
+| **Geometry**   | View Geometry Hierarchy..., Check Geometry Overlaps...                                                                   |
+| **Materials**  | View Materials..., Nuclear Data                                                                                          |
+| **Plotting**   | Plot Cross-Sections                                                                                                      |
 
 Output viewers (tracks, collision tracks, weight windows, particle restart) open by clicking their files in the Explorer; random ray results open via the command palette (**"Open as Random Ray Results..."**).
 

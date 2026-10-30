@@ -6,10 +6,10 @@ The XS Plot view lets you query and visualize nuclear cross-section data directl
 
 ## Opening the XS Plot View
 
-1. Click the **XS Plot** icon in the left sidebar (activity bar).
-2. Or use the Command Palette (`Ctrl+Shift+P`) → **"Open XS Plot View"**.
-
-The XS Plot panel opens, usually in the right sidebar.
+Use the Command Palette (`Ctrl+Shift+P`) → **"Plot Cross-Sections"**, or
+`Tools → Visualizer → OpenMC → Plotting → Plot Cross-Sections`. The XS Plot
+opens as an editor-area tab (there is no activity-bar icon or right-sidebar
+panel).
 
 ---
 
@@ -41,10 +41,10 @@ Check the reactions you want to plot:
 
 ### 4. Plot
 
-Click **"Plot"**. A new tab opens with an interactive Plotly chart:
+Click **"Plot Cross-Sections"**. The chart renders in the XS Plot tab:
 
 - **X-axis:** Energy (eV), logarithmic scale
-- **Y-axis:** Cross-section (barns), logarithmic scale
+- **Y-axis:** Cross-section (barns), logarithmic scale by default
 - **Lines:** One per nuclide-reaction pair
 
 Hover over the chart to see exact values at any energy.
@@ -56,34 +56,28 @@ Hover over the chart to see exact values at any energy.
 Compare the same nuclide/reaction at multiple temperatures to see Doppler broadening effects.
 
 1. Enter a nuclide and reaction.
-2. Enable **"Temperature Comparison"**.
+2. Select the **Temp** plot mode.
 3. Add temperatures (e.g., `294, 600, 900, 1200`).
-4. Click **"Plot"**.
+4. Click **"Plot Cross-Sections"**.
 
 Each temperature gets its own line, making resonance broadening clearly visible.
 
 ---
 
-## Mixed Materials
+## Materials Mode
 
-Plot macroscopic cross-sections for a mixture of nuclides.
+Build one or more named materials and plot their macroscopic cross-sections.
 
-1. Enable **"Mixed Material Mode"**.
-2. Add components:
-   - Nuclide (e.g., `U235`)
-   - Fraction (weight or atomic)
-3. Optionally set overall **density** (g/cm³).
-4. The resulting curve is the macroscopic cross-section Σ = N·σ in units of 1/cm.
+1. Select the **Materials** plot mode.
+2. Enter a **Material name**.
+3. Add one or more **components**: pick a nuclide from the dropdown and enter
+   a fraction between 0 and 1.
+4. Click **Add Material**. Repeat to overlay more materials.
+5. Click **"Plot Cross-Sections"**.
 
----
-
-## Reaction Rate Calculation
-
-If you provide a **flux spectrum**, the plugin calculates reaction rates:
-
-1. Enable **"Calculate Reaction Rates"**.
-2. Enter or load a flux spectrum (energy bins + flux values).
-3. The reaction rate R = ∫ φ(E)·Σ(E) dE is computed and displayed in a table.
+Fractions are normalized across the components, and the plotted curve is
+macroscopic (Σ). There are no weight/atomic fraction or density controls in
+this mode.
 
 ---
 
@@ -91,15 +85,10 @@ If you provide a **flux spectrum**, the plugin calculates reaction rates:
 
 Collapse continuous-energy cross-sections into energy group structures:
 
-1. After plotting, select a **Group Structure** from the dropdown:
-   - 2-group
-   - 8-group
-   - 16-group
-   - 70-group
-   - 172-group
-   - CASMO-8, etc.
-2. The chart updates to show group-averaged cross-sections as step functions.
-3. A table shows the numerical values per group.
+1. After plotting, select a **Group Structure (Multigroup)** from the dropdown.
+   The default is **Continuous Energy**; the available names come from OpenMC's
+   built-in structures and any `group_structures.yaml` files.
+2. The chart updates to show group-averaged cross-sections as bars.
 
 ---
 
@@ -108,7 +97,7 @@ Collapse continuous-energy cross-sections into energy group structures:
 Plot thermal scattering data for bound atoms:
 
 1. Select a thermal scattering material (e.g., `c_Graphite`, `h_H2O`, `h_ZrH`).
-2. Choose temperature.
+2. Enter one or more temperatures (comma-separated).
 3. The plot shows inelastic, elastic, and total thermal scattering cross-sections in the thermal energy range (~0.01 meV to 10 eV).
 
 ---
@@ -132,8 +121,8 @@ Quickly zoom to important energy ranges:
 The plugin looks for nuclear data in this order:
 
 1. **Explicit path** set in the XS Plot panel
-2. **`OPENMC_CROSS_SECTIONS`** environment variable
-3. **Nuke Core setting** (`Settings → Nuke Utils → Cross Sections Path`)
+2. **Nuke setting** `nuke.openmcCrossSections` (`Settings → Nuke Utils → Cross Sections Path`)
+3. **`OPENMC_CROSS_SECTIONS`** environment variable
 
 If no path is found, the plugin shows a warning and prompts you to configure one.
 
@@ -141,6 +130,10 @@ If no path is found, the plugin shows a warning and prompts you to configure one
 
 ## Tips
 
-- **Resonance regions** are automatically annotated on the plot when zoomed into the resonance energy range.
-- **Integral quantities** (resonance integral, thermal cross-section, etc.) are shown in a summary table below the plot.
-- Use the **toolbar** above the plot to toggle log/linear axes, toggle lines, and download the figure as PNG.
+- **Resonance regions and markers** are annotated on the plot; use the Settings
+  checkboxes to hide either layer.
+- **Integral quantities** (resonance integral, thermal cross-section, Maxwellian
+  average, average and integrated cross-section) appear in the **Integral
+  Quantities** panel below the chart when **Calculate Integral Quantities** is on.
+- Use the **Plotly modebar** to download the figure as PNG. The energy and
+  cross-section axes are logarithmic by default.

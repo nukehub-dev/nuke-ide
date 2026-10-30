@@ -6,6 +6,7 @@ import MarkdownIt, { type MarkdownIt as MarkdownItType, type MarkdownItOptions, 
 import { SimpleLoadingSpinner, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { DocsSidebar } from './docs-sidebar';
 import { DocsToc, TocItem } from './docs-toc';
+import { resolveDocAsset, resolveDocPath, splitDocTarget } from './docs-links';
 
 export interface DocsNavItem {
     title: string;
@@ -112,10 +113,9 @@ export class DocsWidget extends ReactWidget {
             const token = tokens[idx];
             let src = String(token.attrGet('src') ?? '');
             const alt = token.content || '';
-            if (!src.startsWith('http') && !src.startsWith('/')) {
-                src = this.getApiUrlWithQuery('docs-api/file', { path: this.resolveDocLink(src) });
-            } else if (!src.startsWith('http')) {
-                src = this.getApiUrlWithQuery('docs-api/file', { path: src });
+            if (!/^(https?:|data:|blob:)/i.test(src)) {
+                const asset = src.startsWith('/') ? src : resolveDocAsset(this.state.currentPath, src);
+                src = this.getApiUrlWithQuery('docs-api/file', { path: asset });
             }
             return `<img src="${src}" alt="${alt}" class="nuke-doc-image" loading="lazy" />`;
         };
@@ -276,41 +276,21 @@ export class DocsWidget extends ReactWidget {
     }
 
     protected resolveDocLink(href: string): string {
-        const base = this.state.currentPath.substring(0, this.state.currentPath.lastIndexOf('/') + 1);
-        let resolved = href.startsWith('/') ? href : base + href;
+        return resolveDocPath(this.state.currentPath, href);
+    }
 
-        const parts = resolved.split('/').filter((p) => p.length > 0);
-        const stack: string[] = [];
-        for (const part of parts) {
-            if (part === '..') {
-                stack.pop();
-            } else if (part !== '.') {
-                stack.push(part);
-            }
+    /** Scroll to a heading after a linked page has rendered. */
+    protected scrollToAnchor(fragment: string): void {
+        const id = decodeURIComponent(fragment.replace(/^#/, ''));
+        if (!id) {
+            return;
         }
-        resolved = '/' + stack.join('/');
-
-        const extPrefixes = ['/nuke-core', '/nuke-visualizer', '/openmc-studio'];
-        for (const prefix of extPrefixes) {
-            const docsPath = prefix + '/docs/';
-            if (resolved.startsWith(docsPath)) {
-                resolved = prefix + '/' + resolved.slice(docsPath.length);
-            }
-        }
-
-        if (resolved.endsWith('/README.md')) {
-            resolved = resolved.replace(/\/README\.md$/, '/index.md');
-        }
-
-        if (!resolved.endsWith('.md')) {
-            if (resolved.endsWith('/')) {
-                resolved += 'index.md';
-            } else {
-                resolved += '.md';
-            }
-        }
-
-        return resolved;
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                const element = this.contentRef.current?.querySelector(`[id="${id.replace(/"/g, '\\"')}"]`);
+                element?.scrollIntoView({ block: 'start' });
+            });
+        });
     }
 
     protected onClickLink = async (e: React.MouseEvent): Promise<void> => {
@@ -321,16 +301,21 @@ export class DocsWidget extends ReactWidget {
             const href = anchor.getAttribute('data-doc-link');
             if (!href) return;
             const resolved = this.resolveDocLink(href);
-            if (resolved.endsWith('.md')) {
-                const success = await this.loadContent(resolved);
-                if (!success) {
+            const { path, fragment } = splitDocTarget(resolved);
+            if (path.endsWith('.md')) {
+                const success = await this.loadContent(path);
+                if (success) {
+                    if (fragment) {
+                        this.scrollToAnchor(fragment);
+                    }
+                } else {
                     // If the .md file doesn't exist, try the bare path as a fallback
                     // (for non-markdown files linked from docs)
-                    const barePath = resolved.replace(/\.md$/, '');
+                    const barePath = path.replace(/\.md$/, '');
                     window.open(this.getApiUrlWithQuery('docs-api/file', { path: barePath }), '_blank');
                 }
             } else {
-                window.open(this.getApiUrlWithQuery('docs-api/file', { path: resolved }), '_blank');
+                window.open(this.getApiUrlWithQuery('docs-api/file', { path }), '_blank');
             }
         }
     };

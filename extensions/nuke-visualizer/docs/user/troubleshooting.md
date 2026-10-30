@@ -133,8 +133,12 @@ Health checks verify the **currently configured** environment, not fallback envi
 
 **Symptoms:**
 
-- Error message when opening a STEP file
+- Error message when opening a STEP file in Nuke Visualizer
 - Status shows "CAD conversion failed: gmsh is required..."
+
+> With Nuke CAD installed, STEP/STP/BREP files open in the CAD viewport by
+> default. Use **Open With… → Open in Nuke Visualizer** to exercise this
+> converter.
 
 **Fixes:**
 

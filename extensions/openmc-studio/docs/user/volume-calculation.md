@@ -6,7 +6,7 @@ The Volume Calculation window runs OpenMC's stochastic volume estimation over th
 
 ## Opening
 
-- **Command Palette:** `Ctrl+Shift+P` → **"OpenMC Studio: Volume Calculation"**
+- **Command Palette:** `Ctrl+Shift+P` → **`OpenMC/View: Volume Calculation`**
 - **Menu:** `Tools → OpenMC Studio → Advanced → Volume Calculation`
 
 ---

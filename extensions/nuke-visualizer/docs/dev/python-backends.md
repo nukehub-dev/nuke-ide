@@ -19,17 +19,18 @@ This means adding a new command is just decorating a function. No edits to centr
 
 ## Script Discovery
 
-Never hardcode paths. Use `PythonCommandHelper.findScript()`:
+Never hardcode paths. Use `PythonCommandHelper.findScript()`, which delegates to nuke-core's `resolvePythonScript`:
 
 ```typescript
 const scriptPath = this.pythonHelper.findScript('server.py');
 ```
 
-This resolves to:
+The resolver returns the first existing candidate in this order:
 
-1. `lib/python/server.py` (production build)
-2. `src/python/server.py` (development)
-3. Fallback relative to `__dirname`
+1. Electron `extraResources/python/<package>/<script>` (outside `app.asar`)
+2. `<resolved package>/python/<script>` (development and `asarUnpack` installs)
+3. `<app>/extensions/<package>/python/<script>`
+4. Monorepo development fallbacks relative to the resolver module and the current working directory
 
 All operations — file converters, data queries — go through the unified `server.py` entry point.
 
@@ -163,9 +164,11 @@ Derived tallies are the one cross-extension seam: the Node statepoint service re
 visualizer's configured Python environment. The viewer reads the definitions from the sibling
 `.nuke-openmc` project, so nuke-visualizer never imports OpenMC Studio's TypeScript or Python modules.
 
-All commands are invoked through `server.py`:
+All commands are invoked through `server.py` from the extension's Python directory:
 
 ```bash
+cd extensions/nuke-visualizer/python
+
 # Data query
 python server.py openmc.info /path/to/statepoint.h5
 
@@ -201,16 +204,16 @@ The helpers live in `python/plugins/openmc/lib/depletion_analysis.py` (contact d
 
 ### Standard Output
 
-Everything printed to stdout is streamed to the IDE's output channel:
+Converter stdout is captured by the backend for JSON parsing and error reporting; it is not streamed line-by-line to the IDE output channel. Backend services write their own status/progress messages (and captured errors) to the output channel:
 
 ```python
-print("Loading mesh...")  # Appears in output channel
-print(f"Result: {data}")  # Appears in output channel
+print("Loading mesh...")  # captured by executeScript, not a UI notification
+print(f"Result: {data}")  # keep machine-readable data in the final JSON payload
 ```
 
 ### Structured Warnings
 
-To show a warning toast in the IDE, use the framework helper or print manually:
+For machine-readable diagnostics, use the framework helper or print the conventional prefix:
 
 ```python
 from nuke_viz.logging import warning
@@ -226,7 +229,7 @@ import json
 print(f"NUKE_IDE_WARNING:{json.dumps({'type': 'spatial_warning', 'message': '...'})}")
 ```
 
-The backend scans stdout for lines starting with `NUKE_IDE_WARNING:` and forwards them via `VisualizerClient.warn()`.
+`nuke_viz.logging.warning()` prints one `NUKE_IDE_WARNING:<json>` line on stdout. The Node backend does not special-case the prefix, so the line stays in captured stdout rather than becoming a toast; report conditions that must reach the UI in the command's JSON payload as well.
 
 ### Errors
 
@@ -310,7 +313,7 @@ python/
 ├── nuke_viz/                        # Framework
 │   ├── plugin.py
 │   ├── registry.py
-│   └── server.py
+│   └── logging.py
 └── plugins/
     ├── openmc/
     │   ├── plugin.py
@@ -373,8 +376,9 @@ yarn test:python:cov    # run with the coverage report
 Tests must pass with only `pytest` + `numpy` installed — guard heavy imports
 and use `pytest.importorskip` for optional dependencies. Coverage of the
 logic layer is ratcheted in CI (see "Coverage" in the root `AGENTS.md`); the
-headless VTK converter modules are excluded by design and covered by
-error-path contract tests instead.
+`.coveragerc` omit list names the rendering/converter seam modules (for example
+`tally_viz.py`, `xs_plot.py`, `geometry_viz.py`, `slice_viz.py`) that are covered
+by error-path contract tests instead.
 
 ---
 
@@ -427,9 +431,9 @@ When writing a new Python backend command:
 - [ ] Accept `args` (argparse.Namespace) and return an integer exit code
 - [ ] Output data as JSON to stdout
 - [ ] Print errors to stderr, exit non-zero on failure
-- [ ] Use `NUKE_IDE_WARNING:{json}` or `nuke_viz.logging.warning()` for IDE warnings
+- [ ] Use `NUKE_IDE_WARNING:{json}` or `nuke_viz.logging.warning()` for machine-readable diagnostics, and put UI-critical conditions in the JSON result
 - [ ] Never bind ports or start servers — write files and exit
 - [ ] Keep heavy imports lazy (inside the handler) so missing deps report clean JSON errors
 - [ ] Put reusable code in `python/plugins/<plugin>/lib/`
 - [ ] Register the command module in `python/plugins/<plugin>/plugin.py`
-- [ ] Test standalone: `python server.py plugin.command-name ...`
+- [ ] Test standalone from `extensions/nuke-visualizer/python`: `python server.py plugin.command-name ...`

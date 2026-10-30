@@ -1,6 +1,6 @@
 # Coverage and Limitations
 
-OpenMC Studio is a graphical workbench over OpenMC 0.15.3 and 0.16.0. It covers the modelling, transport, depletion, variance-reduction, plotting, and analysis workflows documented below. It is not a wrapper around every OpenMC Python symbol, and it does not claim that every OpenMC feature is configurable in the IDE.
+OpenMC Studio is a graphical workbench over OpenMC 0.15.3 and 0.16.0+. It covers the modelling, transport, depletion, variance-reduction, plotting, and analysis workflows documented below. It is not a wrapper around every OpenMC Python symbol, and it does not claim that every OpenMC feature is configurable in the IDE.
 
 This page is the source of truth for that boundary. The project schema is **1.2.0**; optional fields keep older `.nuke-openmc` projects loading unchanged.
 

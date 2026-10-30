@@ -8,7 +8,7 @@ extensions:
 
 ```
 Script mode (.py)          Document mode (.nuke-cad)
-build123d/CadQuery         GUI sketcher + feature tree
+build123d (CadQuery opt.)  GUI sketcher + feature tree
         │                          │
         └──────┬───────────────────┘
                ▼
@@ -39,5 +39,17 @@ build123d/CadQuery         GUI sketcher + feature tree
 
 ## Developer guides
 
+- [Developer documentation index](dev/index.md)
 - [Architecture](dev/architecture.md)
 - [GUI modeler architecture](dev/gui-modeler-architecture.md)
+- [Backend pipeline](dev/backend-pipeline.md)
+- [Document schema](dev/document-schema.md)
+- [Drawings and assemblies](dev/drawings-assemblies.md)
+- [Features and patterns](dev/features-patterns.md)
+- [FEM, meshing, and OpenFOAM](dev/fem-mesh-foam.md)
+- [Sketch model](dev/sketch.md)
+- [End-to-end testing](dev/testing-e2e.md)
+- [Viewport outline](dev/viewport-outline.md)
+
+CadQuery script support is optional and is not installed by the bundled image
+or the nuke-cad health check. Install it separately when you need it.

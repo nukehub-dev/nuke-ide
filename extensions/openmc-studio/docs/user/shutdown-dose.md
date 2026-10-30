@@ -1,6 +1,6 @@
 # Shutdown Dose (R2S / D1S)
 
-The **Shutdown Dose** wizard runs OpenMC's activation and decay-photon workflows without writing a Python driver. Open it from **Tools → OpenMC → Advanced → Shutdown Dose**.
+The **Shutdown Dose** wizard runs OpenMC's activation and decay-photon workflows without writing a Python driver. Open it from **Tools → OpenMC Studio → Advanced → Shutdown Dose** (or `OpenMC/View: Shutdown Dose`).
 
 Two methods are available:
 
@@ -27,6 +27,10 @@ Both methods require a **fixed-source model**. Shutdown-dose settings are stored
 3. **Photon tallies** — select existing photon tallies or **Add dose tally**. The dose template reads OpenMC's shipped ICRP tables through `openmc.data.dose_coefficients`; the response function is not hard-coded in the UI. Optional: score per parent radionuclide (R2S) or keep/sum the parent breakdown (D1S).
 4. **Review & run** — choose a run directory. The wizard writes the model XML there and starts the driver. Progress streams in the panel; **Cancel** stops the process.
 5. **Results** — review activation regions, photon tally charts, dose response, total activity, and decay heat. **Reveal output folder** opens the run tree in the file navigator. The results page reloads from `r2s_summary.json` / `d1s_summary.json` when you reopen the project.
+
+![Shutdown Dose wizard Results step showing the R2S summary, dose response, total activity, and decay heat](images/shutdown-dose.png)
+
+_After an R2S run, the Results step collects activation regions, photon tallies, dose response, total activity, and decay heat, with direct links to the run folder and statepoint for follow-up analysis._
 
 > **Runtime warning:** R2S can run for a long time and writes a large output tree with neutron, activation, and photon subdirectories. Start with one or two short steps and a small particle count before scaling up.
 
@@ -57,4 +61,4 @@ D1S prepares every selected photon tally with a `ParentNuclideFilter`, runs one 
 
 ## Python export
 
-The single-file **Generate Python Script** export appends an equivalent R2S/D1S driver after `model.export_to_xml()`. The separate-files export labels the shutdown-dose boundary explicitly: run the wizard, or export the single-file script. Shutdown-dose fields never appear in `settings.xml` or `tallies.xml`.
+The single-file **Generate Python Script** export appends an equivalent R2S/D1S driver after `model.export_to_xml()`. Shutdown-dose fields never appear in `settings.xml` or `tallies.xml`; run the wizard from the IDE, or use the generated single-file script.

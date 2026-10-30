@@ -33,6 +33,13 @@ test.describe('new project templates', () => {
         await expect(dialog.getByRole('button', { name: 'Create Project' })).toBeEnabled();
         await expect(dialog.getByRole('radio').first().locator('i')).toHaveClass(/codicon/);
 
+        // Each card must preview its own defaults, not the selected template.
+        const previews = await dialog.locator('.new-project-card-preview').allTextContents();
+        expect(new Set(previews.map((text) => text.trim())).size).toBe(TEMPLATE_CARDS.length);
+        expect(previews[0]).toContain('Empty model');
+        expect(previews[1]).toContain('fuel pin');
+        expect(previews[2]).toContain('264 fuel pins');
+
         // Product hints stay on the shared tooltip layer, never native title.
         await expect(dialog.getByRole('button', { name: 'Close' })).not.toHaveAttribute('title');
         await dialog.getByRole('button', { name: 'Close' }).hover();

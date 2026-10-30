@@ -192,10 +192,12 @@ overlap … but are not merged by a boolean`) carry a **Fuse** button when the
 ## Preferences
 
 - `nukeCad.facetingTolerance` (default `0.001`) sets the faceting tolerance
-  used for geometry builds — both the viewport tessellation and the DAGMC
-  export. Smaller values give finer meshes at the cost of build time. It
-  applies to builds started after the change; an explicit per-build tolerance
-  still wins.
+  used for export builds, including DAGMC. Smaller values give finer meshes at
+  the cost of build time. It applies to builds started after the change; an
+  explicit per-build tolerance still wins.
+- `nukeCad.displayFacetingTolerance` (default `0.01`) controls the coarser
+  viewport preview for STEP imports and `.nuke-cad` documents. It never
+  affects DAGMC or FEM exports.
 
 ## Export artifacts
 
@@ -258,7 +260,7 @@ The fastest path from a Nuke CAD model to an OpenMC simulation is through the
 DAGMC export:
 
 1. Build your model and make sure `model.h5m` is produced.
-2. In OpenMC Studio, choose `Project → Import from nuke-cad...`.
+2. In OpenMC Studio, choose `Tools → OpenMC Studio → Project → Import from nuke-cad...`.
 3. Select `model.h5m`. OpenMC Studio reads the sibling `model.regions.json`
    manifest, sets the DAGMC geometry, and creates placeholder materials for
    each manifest material name.
@@ -319,8 +321,9 @@ patch geometry and run with the selected OpenFOAM solver.
 ## Next steps
 
 - Add the CAD toolchain and CalculiX to your active Python environment (see
-  the Environment section in Nuke Tools). The health check treats OCP,
-  build123d, and gmsh (plus numpy) as required and reports everything else
-  as optional; the required set is what a working CAD backend needs.
+  the Environment section in Nuke Tools). The health check requires numpy, OCP,
+  build123d, gmsh, and build123d's helper packages (`svgpathtools`,
+  `svgelements`, `anytree`, `ezdxf`, `trianglesolver`, `ocpsvg`, `py-lib3mf`, `ipython`). CadQuery,
+  meshio, netCDF4, MOAB, h5py, and netgen are optional.
 - Refine mesh size per region with the optional `meshSize` field in the
   manifest.

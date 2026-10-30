@@ -232,7 +232,7 @@ export function NewProjectDialog(props: NewProjectDialogProps): React.ReactEleme
                                         <li key={item}>{item}</li>
                                     ))}
                                 </ul>
-                                <div className="new-project-card-preview">{preview}</div>
+                                <div className="new-project-card-preview">{previewProjectTemplate(template.id)}</div>
                             </div>
                         );
                     })}

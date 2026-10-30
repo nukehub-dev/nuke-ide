@@ -268,16 +268,31 @@ export interface OpenMCStudioBackendService {
 
 ### 6b: Implement in Backend Service
 
+There is no generic `executeScriptJson` helper on `OpenMCStudioBackendServiceImpl`. Short JSON queries follow the pattern used by `readStatepoint` / `readDepletionResults`: resolve the script through nuke-core, run it with `execSync`, and parse the JSON stdout.
+
 ```typescript
 // src/node/openmc-studio-backend-service.ts
+import { resolvePythonScript } from 'nuke-core/lib/node/utils/script-resolver';
+
 async loadCrossSection(nuclide: string, reaction: string): Promise<{ ... }> {
-    this.log(`Loading cross section for ${nuclide} ${reaction}`);
-    // Delegate to a specialized service or execute a Python script
-    return this.executeScriptJson('cross_section_loader.py', [
-        nuclide, reaction, '--json'
-    ]);
+    const { execSync } = await import('child_process');
+    const scriptPath = resolvePythonScript({ packageName: 'openmc-studio', scriptName: 'cross_section_loader.py' });
+    if (!scriptPath) {
+        return { success: false, error: 'cross_section_loader.py not found' };
+    }
+
+    // Existing statepoint methods use this runner helper the same way.
+    const pythonInfo = (await this.runnerService['detectPythonCommand']?.()) || { command: 'python' };
+    const output = execSync(`"${pythonInfo.command}" "${scriptPath}" "${nuclide}" "${reaction}" --json`, {
+        encoding: 'utf-8',
+        timeout: 60000,
+        stdio: ['pipe', 'pipe', 'pipe']
+    });
+    return JSON.parse(output);
 }
 ```
+
+Prefer adding a typed method to `OpenMCRunnerService` (which owns Python detection and long-running process management) and delegating from the orchestrator when the script needs streaming output or cancellation.
 
 ### 6c: Call from Widget
 
@@ -418,8 +433,8 @@ After adding a widget, these files should be modified or created:
 
 ## Testing Your Widget
 
-1. **Build the extension:** `yarn build` from the project root
+1. **Build the extension:** `npx lerna run build --scope openmc-studio` from the repo root (or `yarn build` inside `extensions/openmc-studio`)
 2. **Start the IDE:** `yarn start:electron` or `yarn start:browser`
 3. **Open the widget:** `Tools → OpenMC Studio → Advanced → Cross Section Viewer`
 4. **Check the console:** Verify no DI binding errors
-5. **Test standalone script:** `python python/cross_section_loader.py U235 total --json`
+5. **Test standalone script:** `cd extensions/openmc-studio/python && python cross_section_loader.py U235 total --json`

@@ -51,16 +51,16 @@ Maps `OpenMCState.materials` → `<materials>`.
 
 ### State → XML Mapping
 
-| State Field                        | XML Element                          | Notes                                |
-| ---------------------------------- | ------------------------------------ | ------------------------------------ |
-| `material.id`                      | `<material id="...">`                | Required                             |
-| `material.name`                    | `<material name="...">`              | Escaped for XML                      |
-| `material.density` + `densityUnit` | `<density units="..." value="..."/>` | `g/cm3`, `atom/b-cm`, etc.           |
-| `material.nuclides[]`              | `<nuclide name="..." ao="..."/>`     | `ao` or `wo` based on `fractionType` |
-| `material.thermalScattering[]`     | `<sab name="..."/>`                  | S(α,β) thermal scattering data       |
-| `material.isDepletable`            | `depletable="true"`                  | Attribute on `<material>`            |
-| `material.volume`                  | `volume="..."`                       | Attribute on `<material>`            |
-| `material.temperature`             | `temperature="..."`                  | Attribute on `<material>`            |
+| State Field                        | XML Element                          | Notes                                                  |
+| ---------------------------------- | ------------------------------------ | ------------------------------------------------------ |
+| `material.id`                      | `<material id="...">`                | Required                                               |
+| `material.name`                    | `<material name="...">`              | Escaped for XML                                        |
+| `material.density` + `densityUnit` | `<density units="..." value="..."/>` | `g/cm3`, `atom/b-cm`, etc.                             |
+| `material.nuclides[]`              | `<nuclide name="..." ao="..."/>`     | Always the `ao` attribute; import recognizes `ao`/`wo` |
+| `material.thermalScattering[]`     | `<sab name="..."/>`                  | S(α,β) thermal scattering data                         |
+| `material.isDepletable`            | `depletable="true"`                  | Attribute on `<material>`                              |
+| `material.volume`                  | `volume="..."`                       | Attribute on `<material>`                              |
+| `material.temperature`             | `temperature="..."`                  | Attribute on `<material>`                              |
 
 ### Example
 
@@ -72,9 +72,9 @@ Maps `OpenMCState.materials` → `<materials>`.
     density: 10.0,
     densityUnit: 'g/cm3',
     nuclides: [
-        { name: 'U235', fraction: 0.04, fractionType: 'wo' },
-        { name: 'U238', fraction: 0.96, fractionType: 'wo' },
-        { name: 'O16', fraction: 2.0, fractionType: 'wo' }
+        { name: 'U235', fraction: 0.04, fractionType: 'ao' },
+        { name: 'U238', fraction: 0.96, fractionType: 'ao' },
+        { name: 'O16', fraction: 2.0, fractionType: 'ao' }
     ],
     thermalScattering: [],
     isDepletable: true,
@@ -583,10 +583,10 @@ async importXML(directory: string): Promise<void> {
 
 ## Summary
 
-| XML File        | Generator Method         | Parser Method         | Completeness       |
-| --------------- | ------------------------ | --------------------- | ------------------ |
-| `materials.xml` | `generateMaterialsXML()` | `parseMaterialsXML()` | Full               |
-| `geometry.xml`  | `generateGeometryXML()`  | `parseGeometryXML()`  | Full (CSG + DAGMC) |
-| `settings.xml`  | `generateSettingsXML()`  | `parseSettingsXML()`  | Full               |
-| `tallies.xml`   | `generateTalliesXML()`   | Not implemented       | Generation only    |
-| `plots.xml`     | `generatePlotsXML()`     | `parsePlotsXML()`     | Full (appearance)  |
+| XML File        | Generator Method         | Parser Method         | Completeness                                  |
+| --------------- | ------------------------ | --------------------- | --------------------------------------------- |
+| `materials.xml` | `generateMaterialsXML()` | `parseMaterialsXML()` | Full                                          |
+| `geometry.xml`  | `generateGeometryXML()`  | `parseGeometryXML()`  | Full (CSG + DAGMC)                            |
+| `settings.xml`  | `generateSettingsXML()`  | `parseSettingsXML()`  | Full                                          |
+| `tallies.xml`   | `generateTalliesXML()`   | `parseTalliesXML()`   | Full (filters, meshes, triggers, derivatives) |
+| `plots.xml`     | `generatePlotsXML()`     | `parsePlotsXML()`     | Full (appearance)                             |

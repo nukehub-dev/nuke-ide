@@ -6,22 +6,22 @@ The Base Visualizer renders 3D geometry and scientific datasets with **native in
 
 ## Supported File Formats
 
-| Format     | Extension                                        | Notes                                        |
-| ---------- | ------------------------------------------------ | -------------------------------------------- |
-| VTK legacy | `.vtk`                                           | Structured and unstructured grids            |
-| VTK XML    | `.vtu`, `.vtp`, `.vts`, `.vtr`, `.pvtu`, `.pvtp` | Parallel and serial XML formats              |
-| DAGMC      | `.h5m`                                           | Nuclear CAD geometry; auto-converted to VTK  |
-| STEP       | `.step`, `.stp`                                  | CAD exchange format; auto-converted to VTK   |
-| BREP       | `.brep`                                          | OpenCASCADE native; auto-converted to VTK    |
-| Gmsh mesh  | `.msh`                                           | Imported as-is; auto-converted to ASCII VTK  |
-| STL        | `.stl`                                           | Stereolithography meshes                     |
-| PLY        | `.ply`                                           | Polygon file format                          |
-| OBJ        | `.obj`                                           | Wavefront OBJ                                |
-| ExodusII   | `.e`, `.exo*`                                    | Time series; opens in the time-slider viewer |
+| Format     | Extension                                                | Notes                                                 |
+| ---------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| VTK legacy | `.vtk`                                                   | Structured and unstructured grids                     |
+| VTK XML    | `.vtu`, `.vtp`, `.vts`, `.vtr`, `.vti`, `.pvtu`, `.pvtp` | Parallel and serial XML formats, including image data |
+| DAGMC      | `.h5m`                                                   | Nuclear CAD geometry; auto-converted to VTK           |
+| STEP       | `.step`, `.stp`                                          | CAD exchange format; auto-converted to VTK            |
+| BREP       | `.brep`                                                  | OpenCASCADE native; auto-converted to VTK             |
+| Gmsh mesh  | `.msh`                                                   | Imported as-is; auto-converted to ASCII VTK           |
+| STL        | `.stl`                                                   | Stereolithography meshes                              |
+| PLY        | `.ply`                                                   | Polygon file format                                   |
+| OBJ        | `.obj`                                                   | Wavefront OBJ                                         |
+| ExodusII   | `.e`, `.exo*`                                            | Time series; opens in the time-slider viewer          |
 
 > **Priority:** `.h5m` files open with the highest priority. If a statepoint exists in the same folder, NukeIDE may offer to overlay tally results instead.
 >
-> **Note:** `.step`, `.stp`, `.brep`, and `.msh` files take precedence over the text editor and open directly in the Visualizer.
+> **Note:** With Nuke CAD installed, `.step`, `.stp`, and `.brep` files open in the Nuke CAD viewport by default (its open handler has higher priority). Use **Open With… → Open in Nuke Visualizer** to run this viewer's CAD converter. `.msh` files still open directly in the Visualizer.
 
 ---
 
@@ -54,11 +54,15 @@ manually matching cameras or color scales.
    - Open each case first (VTK, DAGMC, Gmsh, or tally-native), then run
      `Tools → Visualizer → Compare Open Views...` and multi-select 2–4 open
      viewers.
-2. The views split into A/B/C panes; four panes form a 2×2 grid (A/B on top,
+2. The views split into A/B/C/D panes; four panes form a 2×2 grid (A/B on top,
    C/D below). Cameras stay linked across different files (orientation only,
    so each pane keeps its own framing distance), and the color range uses the
    union of each pane's active-array data range.
 3. Viewer Settings opens with a **Comparison** section for the active pane.
+
+![Four-pane comparison workspace with A/B/C/D labels and linked cameras](images/comparison-workspace.png)
+
+_Four viewers split into a 2×2 A/B/C/D workspace; cameras and the color range are linked while each pane keeps its own framing distance._
 
 | Control                | What It Does                                                            |
 | ---------------------- | ----------------------------------------------------------------------- |
@@ -98,6 +102,10 @@ badges. Dense rows wrap their extra controls only when the panel is too
 narrow. Controls appear only when they apply: **Solid Color** and the DAGMC
 categorical modes hide the scalar mapping rows (Color Map, Invert/Log, Range,
 Threshold, Scalar Bar) instead of showing them disabled.
+
+![Native VTK viewer with the Viewer Settings sidebar showing display, clip, measure, and view sections](images/native-viewer.png)
+
+_Viewer Settings keeps display controls, clipping, measurement, and saved views beside the canvas; rows appear only for the data and controls the active viewer supports._
 
 ### Appearance
 
@@ -319,9 +327,11 @@ starting step.
 
 ## CAD Specifics (STEP / BREP)
 
+> Nuke CAD owns the default open for `.step`, `.stp`, and `.brep` when it is installed. The conversion below runs when the same file is opened in Nuke Visualizer via **Open With… → Open in Nuke Visualizer**.
+
 ### Auto-Conversion
 
-When you open a `.step`, `.stp`, or `.brep` file:
+When a `.step`, `.stp`, or `.brep` file opens in Nuke Visualizer:
 
 1. The backend detects the format.
 2. It runs `python server.py base.convert-step` (using **gmsh** + OpenCASCADE) to mesh the geometry into VTK.
@@ -371,6 +381,8 @@ When you open a `.h5m` file:
 
 > Conversion may take a few seconds for large models. Re-opening the same file is instant (cached conversion, live tab reused).
 
+This path needs **pydagmc** and the **moab** package (which provides `pymoab`), plus `vtk`, in the active Python environment. The health check's install action sets both up.
+
 ### Volume Extraction
 
 If you select a specific volume ID (e.g., from the Geometry Hierarchy), only that volume is extracted and visualized.
@@ -404,8 +416,9 @@ the solid-color picker remain among the mapping controls.
 ### DAGMC Outline Sidebar
 
 The **DAGMC Outline** sidebar opens automatically with every DAGMC viewer
-tab (or via `Tools → Visualizer → DAGMC Outline`), bound to the active
-DAGMC viewer tab. Like the CAD panels it has an icon + subtitle header
+tab. Reopen it from the Nuke Tools sidebar (`Visualizer → DAGMC Outline`) or
+the command palette (**Visualizer: Open DAGMC Outline**); it stays bound to
+the active DAGMC viewer tab. Like the CAD panels it has an icon + subtitle header
 (the bound viewer tab) and collapsible count-badge sections with 11 px
 uppercase headers and 24 px rows:
 
@@ -487,11 +500,11 @@ Conversion commands (STEP, DAGMC, and Gmsh) time out based on file size:
 
 ## Troubleshooting
 
-| Symptom                                          | Likely Cause         | Fix                                                                    |
-| ------------------------------------------------ | -------------------- | ---------------------------------------------------------------------- |
-| "Loading..." forever / conversion never finishes | Python/`vtk` missing | Run health check, install missing packages                             |
-| "Conversion failed" for .h5m                     | MOAB not installed   | `pip install --extra-index-url https://shimwell.github.io/wheels moab` |
-| Blank 3D view after loading                      | Conversion crashed   | Check **Nuke Visualizer** output channel for Python errors             |
-| Widget shows "No Visualization Loaded"           | No file selected     | Click a supported file or use Browse                                   |
+| Symptom                                          | Likely Cause           | Fix                                                                                      |
+| ------------------------------------------------ | ---------------------- | ---------------------------------------------------------------------------------------- |
+| "Loading..." forever / conversion never finishes | Python/`vtk` missing   | Run health check, install missing packages                                               |
+| "Conversion failed" for .h5m                     | DAGMC packages missing | Install `pydagmc` and `moab` (`pymoab`), plus `vtk`; use the health check install action |
+| Blank 3D view after loading                      | Conversion crashed     | Check **Nuke Visualizer** output channel for Python errors                               |
+| Widget shows "No Visualization Loaded"           | No file selected       | Click a supported file or use Browse                                                     |
 
 See the full [Troubleshooting Guide](troubleshooting.md) for more.

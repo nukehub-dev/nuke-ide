@@ -28,7 +28,7 @@ Covers architecture, shared services, RPC protocols, DI wiring, and how to add n
 
 | Plugin              | What It Visualizes                                                    | File Types                                                                                                                                                      |
 | ------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Base Visualizer** | 3D meshes, DAGMC geometry, VTK data                                   | `.h5m`, `.vtk`, `.stl`, `.ply`, `.obj`                                                                                                                          |
+| **Base Visualizer** | 3D meshes, DAGMC geometry, VTK data                                   | `.h5m`, `.vtk`, `.vti`, `.step`, `.stp`, `.brep`, `.msh`, `.stl`, `.ply`, `.obj`, `.e`, `.exo*`                                                                 |
 | **OpenMC**          | Monte Carlo results, tallies, cross-sections, depletion, output files | `statepoint*.h5`, `openmc_simulation_n<N>.h5`, `geometry.xml`, `materials.xml`, `depletion_results.h5`, `tracks.h5`, `collision_track*.h5`, `weight_windows.h5` |
 
 ---

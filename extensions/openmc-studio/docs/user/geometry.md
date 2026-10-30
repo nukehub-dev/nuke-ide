@@ -10,6 +10,10 @@ XML import reconstructs CSG surfaces, cells, universes, rectangular/hexagonal la
 
 The CSG Builder lets you create OpenMC geometry from primitive surfaces, combine them into cells with Boolean region expressions, and arrange cells into universes and lattices.
 
+![CSG Builder showing the Surfaces tab with a primitive palette and a list of defined surfaces](images/csg-builder.png)
+
+_The Surfaces tab pairs a primitive palette with the defined-surface list; descriptive names keep the list and validation messages readable, while cell region expressions still refer to surface IDs._
+
 ### Opening the CSG Builder
 
 ### Method 1: Dashboard
@@ -18,7 +22,7 @@ In the Simulation Dashboard, go to the **Simulation** tab and click **"Edit in C
 
 ### Method 2: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open CSG Builder"**
+`Ctrl+Shift+P` → **`OpenMC/View: Open CSG Builder`**
 
 ### Method 3: Menu
 
@@ -174,17 +178,19 @@ The DAGMC Editor is for working with CAD-based `.h5m` files. You can view volume
 
 ### Opening the DAGMC Editor
 
-### Method 1: Click
+### Method 1: Menu
 
-Click any `.h5m` file in the Explorer.
+`Tools → OpenMC Studio → Geometry → DAGMC Editor`, then click **Open File** in the editor header.
 
 ### Method 2: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open DAGMC Editor"**
+`Ctrl+Shift+P` → **`OpenMC/View: Open DAGMC Editor`**
 
-### Method 3: Menu
+### Method 3: CSG Builder
 
-`Tools → OpenMC Studio → Geometry → DAGMC Editor`
+When the current project uses DAGMC geometry, click **DAGMC Editor** in the CSG Builder header.
+
+> **Note:** Clicking a `.h5m` file in the Explorer does not open the DAGMC Editor. The OpenMC open handler claims `.nuke-openmc` project files; use the menu or command above for DAGMC geometry.
 
 ---
 

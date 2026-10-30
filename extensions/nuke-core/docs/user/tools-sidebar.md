@@ -9,6 +9,8 @@ The **Nuke Tools** sidebar collects every NukeIDE command into one searchable, c
 
 The sidebar appears in the left panel, replacing the current view.
 
+![Nuke Tools sidebar with OpenMC Studio categories expanded](images/tools-sidebar.png)
+
 ## Browsing tools
 
 Commands are grouped into collapsible sections:

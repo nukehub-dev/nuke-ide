@@ -98,9 +98,10 @@ In the tree, click the **highlight icon** next to a cell:
 
 ### From Material Explorer
 
-In the [Material Explorer](materials.md), click **"Highlight Cells"** next to a material:
+In the [Material Explorer](materials.md), open a material's **Cell Usage** list
+and click the crosshair button on a cell row:
 
-- All cells using that material are highlighted in the 3D view.
+- The 3D view opens with that cell selected.
 
 ---
 
@@ -116,29 +117,29 @@ Detect overlapping cells — a common source of simulation errors.
 
 ### Settings
 
-| Parameter         | Default | Description               |
-| ----------------- | ------- | ------------------------- |
-| **Sample Points** | 100,000 | Random points to test     |
-| **Tolerance**     | 1e-6 cm | Numerical tolerance       |
-| **Bounding Box**  | Auto    | Limit check to a region   |
-| **Parallel**      | On      | Use multi-core processing |
+| Parameter                   | Default | Description                           |
+| --------------------------- | ------- | ------------------------------------- |
+| **Sample Points**           | 100,000 | Random points to test (10K–1M slider) |
+| **Tolerance**               | 1e-6 cm | Numerical tolerance                   |
+| **Use parallel processing** | Off     | Use multi-core processing             |
 
 ### Results
 
-- A list of overlaps appears in a panel:
+- A list of overlaps appears in the checker panel:
   - Coordinates of the overlap
-  - Cell IDs involved
-  - Cell names (if available)
-- Click an overlap to **jump to that location** in the 3D view.
-- Export results to CSV or JSON.
+  - Cell IDs involved (cell names are included in the JSON export)
+- Select a row to highlight it in the list; use its **3D** button to open the
+  first involved cell selected in the native geometry viewer.
+- **Export** downloads the results as JSON.
 
 ### Overlap Visualization
 
 If overlaps are found:
 
-1. Click **"Visualize Overlaps"**.
-2. The 3D viewer opens with **red spheres** marking overlap locations.
-3. Overlapping cells are highlighted in red.
+1. Click **"View 3D"** in the results header.
+2. The native geometry viewer opens. The overlap list remains the location
+   reference; the individual **3D** buttons open a specific overlap's first
+   involved cell selected.
 
 > **Performance note:** Overlap checks on large geometries can take minutes. The progress bar shows sample count and percentage.
 
@@ -147,5 +148,8 @@ If overlaps are found:
 ## Tips
 
 - **Complex lattices:** Large lattice arrays (e.g., 17×17 fuel assemblies) are shown as a 2D grid in the tree. Expand to see individual universe positions.
-- **CSG expressions:** The region expression (e.g., `(-1 2 -3):4`) is shown in the cell detail panel. Click **"Tokenize"** to see a readable breakdown of surface operations.
-- **3D viewer sync:** The 3D viewer and tree are linked. Selecting a cell in the tree highlights it in 3D, and vice versa.
+- **CSG expressions:** The region expression (e.g., `(-1 2 -3):4`) is shown in
+  the cell detail panel alongside its surface list.
+- **3D viewer sync:** Selecting a cell in the tree forwards the selection to
+  every open native geometry viewer. The tree's highlight button opens the
+  viewer with that cell selected.

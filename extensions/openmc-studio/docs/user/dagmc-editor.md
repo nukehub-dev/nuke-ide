@@ -6,17 +6,19 @@ The DAGMC Editor is a visual tool for inspecting and editing faceted CAD geometr
 
 ## Opening the Editor
 
-### Method 1: Click
+### Method 1: Menu
 
-Click any `.h5m` file in the Explorer.
+`Tools → OpenMC Studio → Geometry → DAGMC Editor`, then click **Open File** in the editor header.
 
 ### Method 2: Command Palette
 
-`Ctrl+Shift+P` → **"OpenMC Studio: Open DAGMC Editor"**
+`Ctrl+Shift+P` → **`OpenMC/View: Open DAGMC Editor`**
 
-### Method 3: Menu
+### Method 3: CSG Builder
 
-`Tools → OpenMC Studio → Geometry → DAGMC Editor`
+When the current project uses DAGMC geometry, click **DAGMC Editor** in the CSG Builder header.
+
+> **Note:** Clicking a `.h5m` file in the Explorer does not open the DAGMC Editor. The OpenMC open handler claims `.nuke-openmc` project files; use the menu or command above for DAGMC geometry.
 
 ---
 
@@ -44,6 +46,10 @@ Click a card to open a **detail modal** with:
 Use the filter pills (**All**, **Assigned**, **Unassigned**, **High-Poly**) and the search box to narrow the list.
 
 > **Tip:** The colored triangle-density bar at the bottom of each card shows the relative mesh density of that volume compared to the largest volume in the model.
+
+![DAGMC Editor volume detail modal with the assigned material input, triangle count, and spatial extent](images/dagmc-editor.png)
+
+_The volume grid opens a detail modal for material reassignment, geometry stats, spatial extent, and a single-volume 3D preview._
 
 ---
 

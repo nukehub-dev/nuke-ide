@@ -70,7 +70,7 @@ const result = await this.nukeCore.detectPythonWithRequirements({
     { name: 'mpi4py', condaOnly: true }
   ],
   // Optional: prefer these environment names if multiple match
-  autoDetectEnvs: ['openmc', 'nuke-ide'],
+  autoDetectEnvs: ['openmc', 'ide'],
   // Also search for venvs in the workspace
   searchWorkspaceVenvs: true
 });
@@ -115,7 +115,7 @@ await this.nukeCore.switchToEnvironment(environments[0]);
 
 ### `ensurePackages`
 
-The easiest way to guarantee required packages are available in the **configured** environment. This checks dependencies, prompts the user if anything is missing, installs via a live terminal, and re-checks.
+The easiest way to guarantee required packages are available in the selected environment. This checks dependencies, prompts the user if anything is missing, installs via a live terminal, and re-checks.
 
 ```typescript
 import { EnvironmentActionsHelper } from 'nuke-core/lib/browser/services';
@@ -140,7 +140,7 @@ export class MyExtension {
     } else if (result.installed === false) {
       console.log('User declined installation');
     } else if (!result.environment) {
-      console.log('No configured environment');
+      console.log('No selected environment');
     } else {
       console.log('Failed to install:', result.missingPackages);
     }
@@ -150,15 +150,15 @@ export class MyExtension {
 
 **What `ensurePackages` does:**
 
-1. Gets the **configured** environment (never a fallback).
+1. Gets the **selected** environment via `getSelectedEnvironment()` — the active configured environment when one exists, otherwise the first discovered environment (so an unconfigured workspace can fall back to a usable interpreter).
 2. Runs `checkDependencies()` directly on that environment's Python path.
 3. If all packages exist → returns success immediately.
 4. If packages are missing → shows a Theia notification with an **Install** action.
-5. If the user clicks **Install** → launches a live terminal and installs into the configured environment.
+5. If the user clicks **Install** → launches a live terminal and installs into the selected environment.
 6. Re-checks dependencies to verify.
 7. Returns the final result.
 
-> **Important:** `ensurePackages` checks **only** the configured environment. It does **not** search other environments or return fallbacks. If you need discovery across all envs, use `detectPythonWithRequirements` instead.
+> **Important:** `ensurePackages` checks **only** the selected environment. It does **not** search other environments for a better match. If you need discovery across all envs, use `detectPythonWithRequirements` instead.
 
 ### `installPackages`
 
@@ -341,7 +341,7 @@ if (result.missingPackages) {
 
 ## Check Dependencies
 
-Check whether specific packages are installed in the currently configured environment:
+Check whether specific packages are installed in the active Python interpreter (configured path/env, falling back to system Python), or pass an explicit `pythonPath`:
 
 ```typescript
 const result = await this.nukeCore.checkDependencies([
@@ -529,7 +529,7 @@ export class MyExtension {
     // Detect Python with requirements
     const result = await this.backend.detectPythonWithRequirements({
       requiredPackages: [{ name: 'openmc' }],
-      autoDetectEnvs: ['openmc', 'nuke-ide'],
+      autoDetectEnvs: ['openmc', 'ide'],
       searchWorkspaceVenvs: true
     });
 

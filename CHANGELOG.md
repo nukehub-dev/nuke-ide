@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - build: optional extensions selectable at build time via `NUKE_EXTENSIONS` allow-list / `NUKE_EXCLUDE_EXTENSIONS` deny-list.
+- docs: workflow screenshots cover OpenMC Studio settings, runs, materials, tallies, CSG/DAGMC, and dose.
+- docs: Nuke CAD screenshots cover sketch tools and the Feature Tree; Visualizer adds four-pane comparison.
+- docs: `yarn docs:screenshots` regenerates docs images; `yarn docs:screenshots:check` validates the manifest, references, and PNGs.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
 - nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.
@@ -267,6 +270,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform: Theia 1.73.1 to 1.74.1 with the deprecated Vercel AI provider removed; Electron shell moves to 43.4.0.
 - Platform: lerna 9 to 10 (Node.js >= 22.13.0) and markdown-it 14 to 15 in nuke-docs.
 - Platform: React 18 to 19 for all extension widgets with no component API changes.
+- docs: product and extension guides match the current UI, package pins, OpenMC 0.16 support, and CAD schema.
+- docs: screenshot captures are quantized to indexed PNGs, cutting the committed image payload by roughly half with no visible UI artifacts.
 - nuke-cad: CadQuery is optional and no longer bundled; build123d/OCP remains the default CAD and script stack.
 - nuke-cad: Origin section swaps three eye-toggle rows for a compact X/Y/Z chip row; master switch and per-axis preferences unchanged.
 - nuke-cad: BOM panel drops the duplicate header/empty text, keeps one empty card, and supports Enter/Space row selection with shared tooltips.
@@ -317,6 +322,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- nuke-cad: environment health check includes `svgelements` alongside the other build123d helpers.
 - nuke-cad: command search moved off the ribbon into a floating bottom-left launcher, so a dense toolbar can no longer hide a section under its button.
 - nuke-cad: running a command from the viewport command search returns focus to the viewport, so Escape and viewport shortcuts keep working (for example, ending Measure).
 - nuke-cad: Edit Selected Sketch reopens the sketch on its stored datum instead of showing a plane picker that could reorient YZ/XZ sketches.
@@ -436,6 +442,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: opening large documents defaults to viewport-only builds with a display tolerance and triangle budget.
 - nuke-cad docs: corrected the sketch segment limit, exported-helix note, and edge-overlay description.
 - nuke-core + nuke-cad + nuke-visualizer + openmc-studio: sidebar panels scroll natively; PerfectScrollbar's overlay no longer covers panel content.
+- nuke-docs: relative images, cross-page anchors, and cross-extension docs links resolve; the sidebar discovers every extension docs folder and hides `AGENTS.md`.
 - nuke-essentials: empty-state card centers itself in wide sidebars instead of hugging the left.
 - nuke-essentials: active ribbon actions keep readable icon contrast in light themes, and text inputs use border-box sizing app-wide.
 - nuke-essentials: color picker popup portals to the document body so it never clips in narrow sidebars.
@@ -490,6 +497,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: headless command failures return one JSON error without tracebacks, and every registered command has a CLI help contract.
 - nuke-visualizer: overlap-checker sliders and checkboxes show a pointer cursor on hover.
 - nukelab-integration: expired server tokens re-mint silently so file transfers never hang on Preparing download.
+- openmc-studio: environment health check reports Pillow, which native plotting needs for PPM fallback conversion.
+- openmc-studio: New Project cards preview their own template defaults instead of repeating the selected card's preview.
 - openmc-studio: secondary source cards expand from the header instead of staying permanently collapsed.
 - openmc-studio: theme-safe ID chips, DAGMC stat cards, empty-state buttons, and lattice selects align at editor-panel widths.
 - openmc-studio: empty-state actions sit clear of their explanatory text.

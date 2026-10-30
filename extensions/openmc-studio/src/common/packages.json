@@ -28,7 +28,8 @@
       "pipSpec": "git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8"
     },
     { "name": "moab", "required": false, "extraIndexUrl": "https://shimwell.github.io/wheels" },
-    { "name": "OCP", "required": false, "condaSpec": "ocp=7.9.3.1", "pipSpec": "cadquery-ocp<7.9" }
+    { "name": "OCP", "required": false, "condaSpec": "ocp=7.9.3.1", "pipSpec": "cadquery-ocp<7.9" },
+    { "name": "PIL", "required": false, "condaSpec": "pillow" }
   ],
   "ncrystal": [{ "name": "ncrystal", "required": false, "condaSpec": "ncrystal" }]
 }

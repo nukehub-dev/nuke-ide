@@ -54,8 +54,8 @@
 │                        PYTHON LAYER │                                        │
 │                                     │                                        │
 │   ┌─────────────────────────────────┴────────────────────────────────────┐   │
-│   │  statepoint_reader.py  │  run_depletion.py  │  cad_helpers/          │   │
-│   │  ────────────────────  │  ───────────────── │  ───────────────────── │   │
+│   │  statepoint_reader.py  │  run_depletion.py  │  cad_conversion/       │   │
+│   │  ────────────────────  │  ───────────────── │  cad_importer.py       │   │
 │   │  • read statepoint     │  • burnup calc     │  • STEP/IGES import    │   │
 │   │  • compare tallies     │  • chain evolution │  • faceting            │   │
 │   │  • k-eff convergence   │  • power history   │  • CSG conversion      │   │
@@ -97,8 +97,8 @@ TypeScript interfaces shared by both frontend and backend. These define the RPC 
 
 **Key files:**
 
-- `openmc-studio-protocol.ts` — RPC contract + domain request/response types (~1200 lines)
-- `openmc-state-schema.ts` — `OpenMCState` and all sub-types (~1150 lines)
+- `openmc-studio-protocol.ts` — RPC contract + domain request/response types
+- `openmc-state-schema.ts` — `OpenMCState` and all sub-types
 
 ### 3. Backend Layer (`src/node/`)
 

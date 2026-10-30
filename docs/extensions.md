@@ -35,13 +35,14 @@ Advanced 3D and 2D visualization for nuclear engineering data.
 
 No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations.
 
-- Simulation dashboard: settings, sources, materials, depletion (with custom chain builder), variance reduction, random ray, and a readiness-checked run tab with kinetics (IFP)
+- Simulation dashboard: settings, sources, materials, depletion (with custom chain builder), variance reduction, random ray, CMFD, and a readiness-checked run tab with kinetics (IFP)
 - CSG builder and DAGMC editor (material overrides, depletion sync)
 - Tally configurator with score catalog, filter builders, triggers, and derivatives
 - Optimization framework: parameter sweeps and criticality (k-eff) search
 - Volume calculation, native plotting (slice/voxel/ray-trace), and MGXS generator
+- Shutdown dose with R2S and D1S workflows
 - Simulation comparison and project management
-- CAD import (STEP/IGES to DAGMC or CSG)
+- CAD import (STEP/STP/BREP/IGES, with DAGMC conversion)
 - Nuke-cad integration: import a nuke-cad `.h5m` + `.regions.json` and auto-match materials
 
 [User Guide](/openmc-studio/user/getting-started) · [Developer Guide](/openmc-studio/dev/index)
@@ -58,13 +59,16 @@ Parametric CAD / meshing / FEM extension with two authoring modes.
 - Loft and helical sweep features: join ordered sketch sections into a single solid, or sweep a section along a parametric helix (axis/pitch/turns), both with a ghosted in-viewport preview
 - Live three.js viewport with face/solid picking and an **Open CAD Model...** button
 - Model Outline panel: manifest volume/surface tree with two-way viewport picking sync, multi-select, hide/isolate, and overlap-warning fuse fixes
-- Feature Tree panel for `.nuke-cad` documents: datums, sketches, features, suppression, and build-status markers
+- Feature Tree panel for `.nuke-cad` documents: datums, sketches, curves, bodies, features, suppression, and build-status markers
+- Assembly documents with constraints, overlap checks, BOM, and import-as-body/assembly
+- Drawing sheets with views, dimensions, title block, SVG/DXF export, and BOM tables
 - Canonical STEP export and JSON region manifest
 - DAGMC export with gmsh OCC imprint/merge and named `mat:<name>` groups
 - FEM volume meshing (gmsh or optional netgen engine; `.msh`, ExodusII `.e`, CalculiX `.inp`, VTK `.vtk`)
+- FEM analysis with CalculiX, FRD-to-VTK conversion, and OpenFOAM case export
 - One-click import into OpenMC Studio: `.h5m` + `.regions.json` → DAGMC project
 
-[User Guide](/nuke-cad/user/getting-started) · [GUI Modeler](/nuke-cad/user/gui-modeler) · [Developer Guide](/nuke-cad/dev/architecture)
+[User Guide](/nuke-cad/user/getting-started) · [GUI Modeler](/nuke-cad/user/gui-modeler) · [Developer Guide](/nuke-cad/dev/index)
 
 ## Utility Extensions
 
@@ -73,7 +77,7 @@ Parametric CAD / meshing / FEM extension with two authoring modes.
 | **nuke-essentials**     | Common UI components, commands, and utilities shared across NukeIDE extensions                                               |
 | **nuke-sysmon**         | System resource monitoring inside the IDE                                                                                    |
 | **nuke-fileinfo**       | File properties and metadata viewer (MIME types, permissions, checksums, Git info)                                           |
-| **nuke-docs**           | Native in-IDE documentation widget (Help → NukeIDE Documentation)                                                            |
+| **nuke-docs**           | Native in-IDE documentation widget (Help → Documentation)                                                                    |
 | **nukelab-integration** | NukeLab gateway integration: account context, navigation, logout, app install, and interaction-gated idle-activity heartbeat |
 
 ## Adding a New Extension
@@ -81,7 +85,8 @@ Parametric CAD / meshing / FEM extension with two authoring modes.
 1. Create a new folder under `extensions/<your-extension>`.
 2. Add a `package.json` with Theia contribution metadata.
 3. Implement frontend and/or backend contributions.
-4. Add a `docs/` folder with user and developer guides.
+4. Add a `docs/` folder with user and developer guides; the docs widget discovers it on restart.
 5. Register the extension in `applications/browser/package.json` and `applications/electron/package.json`.
+6. Register it as `REQUIRED` or `OPTIONAL` in `scripts/with-extension-set.js` so builds and Docker images include it.
 
 For more details, see the developer guides for [Nuke Visualizer](/nuke-visualizer/dev/adding-a-plugin) and [OpenMC Studio](/openmc-studio/dev/adding-a-widget).

@@ -159,10 +159,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   OpenFOAM scaffolding + per-solid STL (`foam_service.py`), and the `job_service.py`
   run-layer with `cancelJob` RPC. See `docs/dev/fem-mesh-foam.md`.
 - Tests: minimal profile (`pytest` + `numpy`, guarded heavies, forced-absence guards),
-  `.coveragerc` ratchet over `region_manifest.py` + `job_service.py` only,
-  `@pytest.mark.e2e` env-gated suites, tokamak GUI-authored fixture with
-  drift/toponaming/perf coverage, and opt-in W7X suites with a conda/pip netgen env
-  split. Import/generator coverage: `tests/python/test_import_feature.py` (units,
+  `.coveragerc` ratchet over the nuke-cad logic modules with the OCC/gmsh/pymoab
+  pipeline omitted, `@pytest.mark.e2e` env-gated suites, tokamak GUI-authored fixture
+  with drift/toponaming/perf coverage, and opt-in W7X suites with a conda/pip netgen
+  env split. Import/generator coverage: `tests/python/test_import_feature.py` (units,
   selection/signatures, hash/cache, assembly dirs, inspect CLI) and
   `tests/e2e/test_w7x_generator.py` (`NUKE_E2E_W7X_STEP`: 55 solids / 55 selector keys,
   plus 45/65-solid 4/6-module studies with simulation export blocked),

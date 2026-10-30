@@ -6,14 +6,16 @@ that feeds the same geometry pipeline as script builds.
 
 ## Document schema
 
-`src/common/cad-document.ts` owns the `.nuke-cad` v2 schema and its validation.
+`src/common/cad-document.ts` owns the `.nuke-cad` v3 schema and its validation.
 
 A document contains:
 
 - `parameters` — document-level named scalar values.
-- `datums` — planes on which sketches sit (`XY`, `YZ`, `XZ`, `offset`, and
-  `face`). `face` datums reference a planar face of a predecessor feature by
-  fingerprint and derive a deterministic workplane from it.
+- `datums` — planes on which sketches sit (`XY`, `YZ`, `XZ`, `offset`, `face`,
+  `threePoint`, `midplane`, and `line2Point`). `face` datums reference a planar
+  face of a predecessor feature by fingerprint and derive a deterministic
+  workplane from it; `midplane` uses two planar faces, and the point-based
+  kinds use literal 3D points.
 - `sketches` — `SketchDef` records with planegcs-verbatim primitives,
   constraints, sketch-local parameters (merged into document parameters on save),
   dimension metadata, and optional `externalRefs` to edges/faces of predecessor
@@ -24,16 +26,18 @@ A document contains:
 - `features` — a sequential feature tree with explicit `dependsOn` edges, a
   required `body` id for every feature, consumed feature `sketchId` for
   sketch-based features, parameters, suppression flag, and optional label.
-  Solid features (`pad`/`pocket`/`revolve`/`groove`/`sweep`/`pipe`),
-  pattern/mirror features
-  (`linearPattern`/`circularPattern`/`mirror`), the hole wizard (`hole`), boolean
-  features (`booleanFuse`/`booleanCut`/`booleanCommon`), and dress-up features
-  (`fillet`/`chamfer`/`draft`/`shell`) share the same feature record shape.
+  Solid features (`pad`/`pocket`/`revolve`/`groove`/`sweep`/`pipe`/`loft`/
+  `helicalSweep`/`coilSweep`/`primitive`/`import`), pattern and transform
+  features (`linearPattern`/`circularPattern`/`mirror`/`multiTransform`/
+  `translate`), the hole wizard (`hole`), boolean features (`booleanFuse`/
+  `booleanCut`/`booleanCommon`), lattice/defeature features, and dress-up
+  features (`fillet`/`chamfer`/`draft`/`shell`) share the same feature record
+  shape.
 
 Validation (`validateNukeCadDocument`) checks duplicate ids, dangling references,
 body references on every feature, boolean parameter shape, parameter-name
 collisions, and feature-parameter ranges. Migration (`migrateNukeCadDocument`)
-runs registered v1→v2 steps in `MIGRATIONS`; future schema bumps add steps and
+runs the registered v1→v2 and v2→v3 steps; future schema bumps add a step and
 bump `NUKE_CAD_SCHEMA_VERSION`.
 
 ## Client solver

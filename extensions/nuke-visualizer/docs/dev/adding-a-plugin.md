@@ -178,9 +178,10 @@ def cmd_info(args):
     return 0
 ```
 
-Test standalone:
+Test standalone from the extension's Python directory:
 
 ```bash
+cd extensions/nuke-visualizer/python
 python server.py moose.info --file /path/to/moose.i
 ```
 
@@ -190,7 +191,7 @@ Create `src/node/plugins/moose/moose-backend-service.ts`:
 
 ```typescript
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { MooseBackendService, MooseMeshInfo } from '../../../common/moose-protocol';
+import { MooseBackendService, MooseMeshInfo, MOOSE_REQUIREMENTS } from '../../../common/moose-protocol';
 import { VisualizerClient } from '../../../common/base-visualizer-protocol';
 import { PythonCommandHelper } from '../../services/python-command-helper';
 
@@ -205,12 +206,13 @@ export class MooseBackendServiceImpl implements MooseBackendService {
     this.client = client;
   }
 
-  async convertMesh(inputFile: string): Promise<{ vtkPath: string }> {
+  async convertMesh(inputFile: string): Promise<string> {
     // Run the headless converter via the unified entry point; it writes VTK and exits.
     const serverScript = this.pythonHelper.findScript('server.py');
-    return this.pythonHelper.executeScriptJson(serverScript, ['moose.convert', '--file', inputFile], {
+    const result = await this.pythonHelper.executeScriptJson<{ vtk_path: string }>(serverScript, ['moose.convert', '--file', inputFile], {
       requirements: MOOSE_REQUIREMENTS
     });
+    return result.vtk_path;
   }
 
   async getMeshInfo(filePath: string): Promise<MooseMeshInfo> {
@@ -273,7 +275,7 @@ export class MooseService {
 
   async openInputFile(filePath: string): Promise<void> {
     // Convert via the backend, read the converted file, render natively.
-    const { vtkPath } = await this.backend.convertMesh(filePath);
+    const vtkPath = await this.backend.convertMesh(filePath);
     // ... read vtkPath via FileService and render with setVtkText
   }
 }
@@ -370,10 +372,10 @@ bind(ConnectionHandler)
 In your contribution's `registerMenus()`:
 
 ```typescript
-import { NukeMenus } from 'nuke-core/lib/browser/nuke-core-menus';
+import { NukeVisualizerMenus } from '../../contributions/visualizer-menus';
 
 registerMenus(menus: MenuModelRegistry): void {
-    menus.registerMenuAction(NukeMenus.TOOLS_VISUALIZER, {
+    menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
         commandId: MooseCommands.OPEN_INPUT.id,
         label: 'MOOSE'
     });
@@ -461,7 +463,7 @@ Use standard Theia patterns:
 commands.registerCommand(YOUR_COMMAND, { execute: () => ... });
 
 // Menus under Tools → Visualizer
-menus.registerMenuAction(NukeMenus.TOOLS_VISUALIZER, {
+menus.registerMenuAction(NukeVisualizerMenus.VISUALIZER, {
     commandId: YOUR_COMMAND.id,
     label: 'Your Plugin'
 });
@@ -503,11 +505,17 @@ detectPython(
 ): Promise<PythonCommandResult>
 
 executeScriptJson<T>(
-    scriptName: string,
+    scriptPath: string,
     args: string[],
-    requirements?: PackageDependency[]
+    options?: {
+        maxBuffer?: number;
+        timeout?: number;
+        requirements?: PackageDependency[];
+    }
 ): Promise<T>
 ```
+
+`scriptPath` must be the absolute path returned by `findScript()`. `executeScriptJson` parses the entire stdout as one JSON value; commands that print log lines before the payload must use `executeScript` and extract the final JSON line.
 
 ### `PlotlyService`
 
@@ -562,5 +570,5 @@ Health checks always verify the **configured** environment, not fallbacks. If yo
 ### Commands don't appear in menus
 
 - Verify `CommandContribution` and `MenuContribution` are bound in the frontend module
-- Check that `NukeMenus.TOOLS_VISUALIZER` is the correct menu path
+- Check that `NukeVisualizerMenus.VISUALIZER` is the correct menu path
 - Ensure command IDs match between `registerCommand` and `registerMenuAction`

@@ -20,16 +20,16 @@ Install Python packages directly from NukeIDE with live terminal output, automat
 
 ## Package Manager Selection
 
-| Manager   | When to Use                                                 | Fallback Chain |
-| --------- | ----------------------------------------------------------- | -------------- |
-| **pip**   | General Python packages; non-conda environments             | uv → pip       |
-| **conda** | Conda-only packages (e.g., `paraview`, `moose`); conda envs | mamba → conda  |
+| Manager   | When to Use                                               | Fallback Chain |
+| --------- | --------------------------------------------------------- | -------------- |
+| **pip**   | General Python packages; non-conda environments           | uv → pip       |
+| **conda** | Conda-only packages (e.g., `mpi4py`, `moose`); conda envs | mamba → conda  |
 
 **Automatic behavior:**
 
 - If you select **conda** but mamba is available, Nuke Core uses `mamba install` for faster solving.
 - If you select **pip** and `uv` is installed, Nuke Core uses `uv pip install` for significantly faster installs.
-- If the preferred tool fails, Nuke Core falls back to the next available option.
+- If the preferred tool is not installed, Nuke Core selects the next available option before starting the install.
 
 > **Tip:** You don't need to decide up front. The picker shows all options, and Nuke Core handles the rest.
 
