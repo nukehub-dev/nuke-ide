@@ -47,6 +47,8 @@ Update parent docs when parent-level structure, ownership, workflow, or child in
 
 Internal refactors, bug fixes with no behavior change, and test-only work need neither.
 
+Docs are part of the behavior contract. Commands, menu paths, labels, controls, empty states, package pins, file formats, and screenshots are user-visible behavior: update the owning pages in the same change and run the checks in `docs/AGENTS.md`. Formatter, link, and image-manifest checks cannot detect stale prose — compare changed labels and states with the source.
+
 ## Hierarchy
 
 - Root `AGENTS.md` is the NAD rail: project-wide instructions, global preferences, durable workflow rules, and the top-level Child NAD Index.

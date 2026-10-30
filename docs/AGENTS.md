@@ -21,6 +21,31 @@ All files under `docs/`.
   already-indexed images, so repeated compression cannot degrade them. Keep the manifest curated and remove
   screenshots that no longer document a workflow.
 
+## Documentation Freshness
+
+Docs are part of the feature contract, not release cleanup. A change is not done while it leaves an owning page describing the old behavior.
+
+| Change                                 | Required docs work                                                                                                                             |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Command, menu path, panel, or label    | Update every user/dev page that names it; search the old and new text with `rg`; regenerate the screenshot if the control is visible.          |
+| Widget control, layout, or empty state | Update the page and affected screenshots; verify the caption still matches what the image shows.                                               |
+| Package, version, or environment pin   | Update installation, health, and package tables alongside `packages.json`, `package-registry.json`, and `applications/docker/environment.yml`. |
+| New or removed capability              | Update the user guide and `coverage.md` boundary where applicable; remove dead screenshots and manifest entries.                               |
+| File format, setting, RPC, or API      | Update both the user workflow and the developer contract; fix all links to renamed pages.                                                      |
+
+Source of truth:
+
+- Commands and menu paths: `src/browser/commands/*.ts` and menu contributions.
+- Widget controls and states: the widget source plus its Playwright spec.
+- Python requirements: `packages.json`, `package-registry.json`, and `environment.yml`.
+- OpenMC feature boundary: `extensions/openmc-studio/docs/user/coverage.md`.
+- Screenshots: `docs/screenshots.json` and `tests/ui/docs-screenshots.spec.ts`.
+- Release notes: `CHANGELOG.md`.
+
+Do not duplicate volatile facts casually. Prefer one canonical page for versions, package pins, command labels, and support boundaries; when a fact must repeat, verify every copy against the source.
+
+Link, image, and manifest checks prove targets exist, not that the prose is still true. Before closing a UI-related change, compare the changed command labels and widget states with the source and open the regenerated screenshots.
+
 ## Work Guidance
 
 - Adding docs for an extension: create/edit files under that extension's `docs/` folder; the widget discovers every `extensions/*/docs` directory on IDE restart.

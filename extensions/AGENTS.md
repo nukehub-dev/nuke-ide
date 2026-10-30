@@ -36,6 +36,7 @@ All files under `extensions/` except generated artifacts (`*/lib/`, `*/node_modu
 
 ### Conventions
 
+- Feature definition of done includes extension docs: command/menu/control, package, and screenshot changes update the owning `docs/user/` or `docs/dev/` pages in the same change and pass `docs/AGENTS.md` verification.
 - Follow the existing Theia style: 4-space indent, single quotes, no trailing commas (enforced by prettier, config at repo root).
 - Keep widgets and services small and composable; register everything through the module files, not ad-hoc singletons.
 - Sidebar `ReactWidget`s opt out of PerfectScrollbar (`this.scrollOptions = undefined` in the constructor — Theia enables it by default) and scroll natively via their own CSS; otherwise the `ps__thumb` overlay sits on top of panel content.
