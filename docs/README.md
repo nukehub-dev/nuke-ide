@@ -22,7 +22,9 @@ The native docs widget (`extensions/nuke-docs`) reads directly from both locatio
 
 - Use standard Markdown.
 - Cross-link between pages with relative paths, for example `[Installation](installation.md)`.
-- For links into another extension, prefer the served route (`/openmc-studio/user/getting-started`) or a portable relative path (`../../openmc-studio/docs/user/getting-started.md`).
+- For links into another extension, use a portable relative path such as
+  [OpenMC Studio Getting Started](../extensions/openmc-studio/docs/user/getting-started.md).
+- Root-absolute routes (`/openmc-studio/...`) 404 on GitHub, which renders the same Markdown.
 - The native widget strips YAML frontmatter (`---`) and VitePress-style containers (`::: tip`) automatically.
 - Shipped screenshots live in `docs/images/` or `extensions/<name>/docs/user/images/`; reference them relatively, for example `![Ribbon](images/ribbon.png)`.
 - Keep full-window screenshots at a readable width (1280–1600 px); panel crops may be narrower. Avoid personal paths or unrelated workspace content.

@@ -322,6 +322,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
+- docs: GitHub-rendered guides use portable relative links, so extension and product pages no longer return 404.
 - nuke-cad: environment health check includes `svgelements` alongside the other build123d helpers.
 - nuke-cad: command search moved off the ribbon into a floating bottom-left launcher, so a dense toolbar can no longer hide a section under its button.
 - nuke-cad: running a command from the viewport command search returns focus to the viewport, so Escape and viewport shortcuts keep working (for example, ending Measure).

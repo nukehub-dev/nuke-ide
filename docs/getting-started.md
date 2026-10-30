@@ -64,7 +64,7 @@ yarn start:electron
 
 The repo ships a Playwright smoke suite for the browser UI (`tests/ui/`). One-time setup: `npx playwright install chromium`. Then build the browser app once (`yarn build:browser`) and run `yarn test:ui` — it starts the app on `127.0.0.1:3000`, exercises the workbench, dashboard, and viewer windows in headless Chromium, and shuts everything down afterwards. Failures drop screenshots and traces into `test-results/`.
 
-- [Nuke Core User Guide](/nuke-core/user/getting-started) — Environment management and package installation
-- [Nuke Visualizer User Guide](/nuke-visualizer/user/getting-started) — Opening and visualizing nuclear data
-- [OpenMC Studio User Guide](/openmc-studio/user/getting-started) — Building and running simulations
-- [Nuke CAD User Guide](/nuke-cad/user/getting-started) — Parametric models, meshing, DAGMC export, and FEM
+- [Nuke Core User Guide](../extensions/nuke-core/docs/user/getting-started.md) — Environment management and package installation
+- [Nuke Visualizer User Guide](../extensions/nuke-visualizer/docs/user/getting-started.md) — Opening and visualizing nuclear data
+- [OpenMC Studio User Guide](../extensions/openmc-studio/docs/user/getting-started.md) — Building and running simulations
+- [Nuke CAD User Guide](../extensions/nuke-cad/docs/user/getting-started.md) — Parametric models, meshing, DAGMC export, and FEM

@@ -87,7 +87,10 @@ export function resolveDocPath(currentPath: string, href: string): string {
     let resolved = normalizeAbsolute(absolute);
 
     // `extensions/<name>/docs/<page>` is served as `/<name>/<page>`.
+    resolved = resolved.replace(/^\/extensions\/([^/]+)\/docs\//, '/$1/');
     resolved = resolved.replace(/^\/([^/]+)\/docs\//, '/$1/');
+    // Portable product-docs paths (`.../docs/<page>`) are served as `/product/<page>`.
+    resolved = resolved.replace(/^\/docs\//, '/product/');
 
     if (!hasFileExtension(resolved)) {
         resolved = resolved.endsWith('/') ? resolved + 'index.md' : resolved + '.md';

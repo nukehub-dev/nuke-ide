@@ -17,6 +17,10 @@ describe('docs link resolution', () => {
         expect(resolveDocPath('/openmc-studio/user/geometry.md', '../../../nuke-visualizer/docs/user/base-visualizer.md')).toBe(
             '/nuke-visualizer/user/base-visualizer.md'
         );
+        expect(resolveDocPath('/nuke-cad/dev/index.md', '../../../../docs/installation.md')).toBe('/product/installation.md');
+        expect(resolveDocPath('/product/extensions.md', '../extensions/nuke-core/docs/user/getting-started.md')).toBe(
+            '/nuke-core/user/getting-started.md'
+        );
         expect(resolveDocPath('/product/index.md', '/nuke-cad/dev/architecture')).toBe('/nuke-cad/dev/architecture.md');
     });
 
@@ -88,14 +92,19 @@ function markdownFiles(dir: string): string[] {
     });
 }
 
+/** Product and extension Markdown pages rendered on GitHub and in the docs widget. */
+function shippedMarkdownFiles(): string[] {
+    const extensionsRoot = path.join(REPO_ROOT, 'extensions');
+    const extensionDocs = fs
+        .readdirSync(extensionsRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry) => markdownFiles(path.join(extensionsRoot, entry.name, 'docs')));
+    return [...markdownFiles(PRODUCT_ROOT), ...extensionDocs];
+}
+
 describe('shipped documentation links', () => {
     it('every relative link and image points at a shipped file', () => {
-        const extensionsRoot = path.join(REPO_ROOT, 'extensions');
-        const extensionDocs = fs
-            .readdirSync(extensionsRoot, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .flatMap((entry) => markdownFiles(path.join(extensionsRoot, entry.name, 'docs')));
-        const files = [...markdownFiles(PRODUCT_ROOT), ...extensionDocs];
+        const files = shippedMarkdownFiles();
         const broken: string[] = [];
         for (const file of files) {
             const served = servedPath(file);
@@ -130,5 +139,22 @@ describe('shipped documentation links', () => {
             }
         }
         expect(broken).toEqual([]);
+    });
+
+    it('avoids root-absolute paths that break GitHub rendering', () => {
+        const absolute: string[] = [];
+        for (const file of shippedMarkdownFiles()) {
+            const text = fs
+                .readFileSync(file, 'utf-8')
+                .replace(/```[\s\S]*?```/g, '')
+                .replace(/`[^`\n]*`/g, '');
+            for (const match of text.matchAll(/!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+                const target = match[1].trim().replace(/^<|>$/g, '');
+                if (target.startsWith('/') && !target.startsWith('//')) {
+                    absolute.push(`${path.relative(REPO_ROOT, file)} -> ${target}`);
+                }
+            }
+        }
+        expect(absolute).toEqual([]);
     });
 });

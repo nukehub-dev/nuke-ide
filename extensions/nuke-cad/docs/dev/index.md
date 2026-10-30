@@ -26,5 +26,5 @@ and OpenFOAM cases.
 ## Conventions
 
 - Python backends live in `extensions/nuke-cad/python/`; TypeScript frontend code lives in `src/browser/` and shared contracts in `src/common/`.
-- The build123d/OCP stack is pinned together. Do not move `ocp`, `build123d`, or `ocpsvg` independently; see [Installation](/product/installation.md).
+- The build123d/OCP stack is pinned together. Do not move `ocp`, `build123d`, or `ocpsvg` independently; see [Installation](../../../../docs/installation.md).
 - CadQuery is an optional user install, never a bundled dependency.

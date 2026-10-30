@@ -15,11 +15,11 @@ NukeIDE is an open-source Integrated Development Environment (IDE) for nuclear s
 
 ## Extension Guides
 
-| Extension           | Description                                                        | Docs                                                                                                                        |
-| ------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| **Nuke Core**       | Python environment, package management, and the Nuke Tools sidebar | [User Guide](/nuke-core/user/getting-started) · [Dev Guide](/nuke-core/dev/index)                                           |
-| **Nuke Visualizer** | 3D/2D nuclear data visualization                                   | [User Guide](/nuke-visualizer/user/getting-started) · [Dev Guide](/nuke-visualizer/dev/index)                               |
-| **OpenMC Studio**   | No-code OpenMC simulation workspace                                | [User Guide](/openmc-studio/user/getting-started) · [Dev Guide](/openmc-studio/dev/index)                                   |
-| **Nuke CAD**        | Parametric CAD, meshing, DAGMC export, and FEM                     | [User Guide](/nuke-cad/user/getting-started) · [GUI Modeler](/nuke-cad/user/gui-modeler) · [Dev Guide](/nuke-cad/dev/index) |
+| Extension           | Description                                                        | Docs                                                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Nuke Core**       | Python environment, package management, and the Nuke Tools sidebar | [User Guide](../extensions/nuke-core/docs/user/getting-started.md) · [Dev Guide](../extensions/nuke-core/docs/dev/index.md)                                                                |
+| **Nuke Visualizer** | 3D/2D nuclear data visualization                                   | [User Guide](../extensions/nuke-visualizer/docs/user/getting-started.md) · [Dev Guide](../extensions/nuke-visualizer/docs/dev/index.md)                                                    |
+| **OpenMC Studio**   | No-code OpenMC simulation workspace                                | [User Guide](../extensions/openmc-studio/docs/user/getting-started.md) · [Dev Guide](../extensions/openmc-studio/docs/dev/index.md)                                                        |
+| **Nuke CAD**        | Parametric CAD, meshing, DAGMC export, and FEM                     | [User Guide](../extensions/nuke-cad/docs/user/getting-started.md) · [GUI Modeler](../extensions/nuke-cad/docs/user/gui-modeler.md) · [Dev Guide](../extensions/nuke-cad/docs/dev/index.md) |
 
 The full extension catalogue, including utility extensions, is in [Extensions](extensions.md).

@@ -13,6 +13,9 @@ All files under `docs/`.
 - `docs/*.md` holds product-level docs; `extensions/*/docs/` is the **source of truth** for extension-specific docs (`README.md` landing page, `user/`, `dev/`).
 - Both locations are read directly in-IDE by the native docs widget (`extensions/nuke-docs`, opened via Help → Documentation). There is no docs build step and no external docs site.
 - Write standard Markdown; cross-link with relative paths. The widget strips YAML frontmatter and VitePress-style containers.
+- Link across docs boundaries with page-relative paths. From `docs/`, use `../extensions/<name>/docs/user/<page>.md`;
+  from another extension's `docs/user/`, use `../../../<name>/docs/user/<page>.md`.
+- Never use root-absolute routes (`/nuke-cad/...`, `/product/...`): GitHub resolves them from the repository root and returns 404.
 - Shipped screenshots live in `docs/images/` or `extensions/<name>/docs/user/images/`; reference them relatively. Use SVG for diagrams and cropped PNGs for screenshots; never use absolute URLs for shipped screenshots.
 - Every PNG under `docs/` or `extensions/*/docs/` is declared in `docs/screenshots.json`, captured by
   `tests/ui/docs-screenshots.spec.ts` from committed `tests/ui/fixtures/` in one fixed light theme, and
@@ -49,7 +52,7 @@ Link, image, and manifest checks prove targets exist, not that the prose is stil
 ## Work Guidance
 
 - Adding docs for an extension: create/edit files under that extension's `docs/` folder; the widget discovers every `extensions/*/docs` directory on IDE restart.
-- Cross-extension links use either the served route (`/openmc-studio/user/getting-started`) or a portable relative path (`../../openmc-studio/docs/user/getting-started.md`).
+- Cross-extension links use portable relative paths; the widget maps them to its served routes. Root-absolute routes 404 on GitHub.
 - Adding a product doc: create `docs/<topic>.md` and add it to `docs/index.md`.
 - Keep `docs/architecture.md` (repo layout, extension list) and `docs/extensions.md` (extension catalogue) in sync when extensions are added, removed, or renamed.
 - Tracked docs never cite `.planning/`, Wave/phase IDs, feature IDs, briefs, or roadmaps; describe the stable
@@ -65,6 +68,7 @@ npx vitest run extensions/nuke-docs/src/browser/docs-links.test.ts
 ```
 
 Link and image resolution is covered by `docs-links.test.ts`; update it when the widget's path rules change.
+The test also rejects root-absolute Markdown paths that would 404 on GitHub.
 `docs:screenshots:check` validates manifest declarations, Markdown references, PNG headers/dimensions/size, and orphan images.
 
 ## Child NAD Index

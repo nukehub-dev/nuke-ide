@@ -14,7 +14,7 @@ The foundational extension for Python environment management and shared infrastr
 - Context-aware status bar with quick-switcher
 - Workspace auto-detection for `environment.yml` and `requirements.txt`
 
-[User Guide](/nuke-core/user/getting-started) · [Developer Guide](/nuke-core/dev/index)
+[User Guide](../extensions/nuke-core/docs/user/getting-started.md) · [Developer Guide](../extensions/nuke-core/docs/dev/index.md)
 
 ---
 
@@ -27,7 +27,7 @@ Advanced 3D and 2D visualization for nuclear engineering data.
 - **Base Visualizer** — VTK, DAGMC (.h5m), STL, PLY, OBJ meshes
 - **OpenMC Plugin** — Statepoints (incl. IFP kinetics), tallies, cross-sections, depletion results, geometry, materials, nuclear data browsing, and output viewers for particle tracks, collision tracks, weight windows, and random ray results
 
-[User Guide](/nuke-visualizer/user/getting-started) · [Developer Guide](/nuke-visualizer/dev/index)
+[User Guide](../extensions/nuke-visualizer/docs/user/getting-started.md) · [Developer Guide](../extensions/nuke-visualizer/docs/dev/index.md)
 
 ---
 
@@ -45,7 +45,7 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 - CAD import (STEP/STP/BREP/IGES, with DAGMC conversion)
 - Nuke-cad integration: import a nuke-cad `.h5m` + `.regions.json` and auto-match materials
 
-[User Guide](/openmc-studio/user/getting-started) · [Developer Guide](/openmc-studio/dev/index)
+[User Guide](../extensions/openmc-studio/docs/user/getting-started.md) · [Developer Guide](../extensions/openmc-studio/docs/dev/index.md)
 
 ---
 
@@ -68,7 +68,7 @@ Parametric CAD / meshing / FEM extension with two authoring modes.
 - FEM analysis with CalculiX, FRD-to-VTK conversion, and OpenFOAM case export
 - One-click import into OpenMC Studio: `.h5m` + `.regions.json` → DAGMC project
 
-[User Guide](/nuke-cad/user/getting-started) · [GUI Modeler](/nuke-cad/user/gui-modeler) · [Developer Guide](/nuke-cad/dev/index)
+[User Guide](../extensions/nuke-cad/docs/user/getting-started.md) · [GUI Modeler](../extensions/nuke-cad/docs/user/gui-modeler.md) · [Developer Guide](../extensions/nuke-cad/docs/dev/index.md)
 
 ## Utility Extensions
 
@@ -89,4 +89,4 @@ Parametric CAD / meshing / FEM extension with two authoring modes.
 5. Register the extension in `applications/browser/package.json` and `applications/electron/package.json`.
 6. Register it as `REQUIRED` or `OPTIONAL` in `scripts/with-extension-set.js` so builds and Docker images include it.
 
-For more details, see the developer guides for [Nuke Visualizer](/nuke-visualizer/dev/adding-a-plugin) and [OpenMC Studio](/openmc-studio/dev/adding-a-widget).
+For more details, see the developer guides for [Nuke Visualizer](../extensions/nuke-visualizer/docs/dev/adding-a-plugin.md) and [OpenMC Studio](../extensions/openmc-studio/docs/dev/adding-a-widget.md).
