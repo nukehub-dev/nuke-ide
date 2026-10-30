@@ -172,18 +172,23 @@ def convert_step_to_vtk(
     return {"vtk_path": str(output_path), "num_nodes": num_nodes, "num_elements": num_elems}
 
 
-def get_cache_path(step_path: str, cache_dir: str = None) -> tuple[str, bool]:
+def get_cache_path(
+    step_path: str, cache_dir: str = None, mesh_size_max: float = 10.0
+) -> tuple[str, bool]:
     """
     Get the cached VTK path for a STEP file.
 
     Args:
         step_path: Path to the STEP file
         cache_dir: Optional cache directory. Uses system temp dir if None.
+        mesh_size_max: Mesh size used for the conversion; part of the key so
+            a finer or coarser mesh never reuses stale geometry.
 
     Returns:
         Tuple of (cache_vtk_path, exists)
     """
     step_path = Path(step_path)
+    mesh_size = _require_mesh_size(mesh_size_max)
 
     if cache_dir is None:
         cache_dir = Path(tempfile.gettempdir()) / "nuke-visualizer" / "step"
@@ -192,9 +197,9 @@ def get_cache_path(step_path: str, cache_dir: str = None) -> tuple[str, bool]:
 
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Compute hash based on file name + size + modification time
+    # Compute hash based on file name + size + modification time + mesh size
     stat = step_path.stat()
-    hash_input = f"{step_path.name}:{stat.st_size}:{stat.st_mtime}"
+    hash_input = f"{step_path.name}:{stat.st_size}:{stat.st_mtime}:{mesh_size:g}"
     file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
 
     cache_path = cache_dir / f"{step_path.stem}_{file_hash}.vtk"
@@ -224,7 +229,7 @@ def convert_step_to_vtk_cached(
 
     # Check cache first
     if use_cache:
-        cache_path, exists = get_cache_path(str(step_path), cache_dir)
+        cache_path, exists = get_cache_path(str(step_path), cache_dir, mesh_size_max)
         if exists:
             print(f"[STEP] Using cached VTK: {cache_path}")
             result["vtk_path"] = cache_path

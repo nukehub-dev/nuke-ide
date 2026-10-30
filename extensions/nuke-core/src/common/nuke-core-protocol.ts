@@ -113,15 +113,15 @@ export interface ListEnvironmentsResult {
  * environment `condaOnly` entries cannot be auto-installed.
  */
 export interface PackageDependency {
-    /** Package name to import (e.g., 'trame', 'openmc') */
+    /** Package name to import (e.g., 'openmc', 'pydagmc') */
     name: string;
-    /** Optional submodule path for version check (e.g., 'app' for trame.app) */
+    /** Optional submodule path for version check (e.g., 'data' for openmc.data) */
     submodule?: string;
     /** Whether this package is required or optional */
     required?: boolean;
     /** Minimum version required */
     minVersion?: string;
-    /** Whether this package is only available via conda (not pip), e.g. paraview */
+    /** Whether this package is only available via conda (not pip), e.g. mpi4py */
     condaOnly?: boolean;
     /** Conda channels to use for this package (defaults to global/preference channels) */
     channels?: string[];
@@ -149,7 +149,7 @@ export interface PackageDependency {
 
 /** A single prepared dependency-install command (one conda batch or one pip group). */
 export interface DependencyInstallCommand {
-    /** Human-readable label for the terminal tab (e.g. 'Install (conda): paraview trame') */
+    /** Human-readable label for the terminal tab (e.g. 'Install (conda): mpi4py') */
     label: string;
     /** Full shell command string to execute */
     command: string;
@@ -403,7 +403,7 @@ export interface NukeCoreBackendServiceInterface {
 
     /**
      * Run health checks on the Nuke Core setup.
-     * @param packages Optional packages to check for (e.g., [{name: 'openmc'}, {name: 'paraview', condaOnly: true}])
+     * @param packages Optional packages to check for (e.g., [{name: 'openmc'}, {name: 'mpi4py', condaOnly: true}])
      * @returns A promise resolving to the health check result.
      */
     healthCheck(packages?: PackageDependency[]): Promise<HealthCheckResult>;

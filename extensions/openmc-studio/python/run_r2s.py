@@ -17,6 +17,7 @@ Usage:
 import argparse
 import copy
 import json
+import math
 import os
 import sys
 import traceback
@@ -92,14 +93,13 @@ def _parse_timestep(value, default_unit):
     elif isinstance(value, str):
         text = value.strip()
         pieces = text.split()
-        if len(pieces) == 1:
-            parsed = float(pieces[0])
-            unit = default_unit
-        elif len(pieces) == 2:
-            parsed = float(pieces[0])
-            unit = pieces[1].lower()
-        else:
+        if len(pieces) not in (1, 2):
             raise ShutdownDoseConfigError(f"Invalid timestep '{value}'")
+        try:
+            parsed = float(pieces[0])
+        except ValueError:
+            raise ShutdownDoseConfigError(f"Invalid timestep '{value}'") from None
+        unit = default_unit if len(pieces) == 1 else pieces[1].lower()
     else:
         raise ShutdownDoseConfigError(f"Invalid timestep {value!r}")
     if parsed <= 0 or unit not in ("s", "min", "h", "d", "a"):
@@ -492,9 +492,11 @@ def summarize_activation(depletion_results, activation_materials, chain_file=Non
                 {"region": material.name or f"Material {material.id}", "totalBq": activity}
             )
         elif len(by_region) == MAX_REGION_SUMMARIES:
-            warnings.append(
+            message = (
                 f"Activity summary truncated to the first {MAX_REGION_SUMMARIES} activation regions"
             )
+            if message not in warnings:
+                warnings.append(message)
 
     activity_summary = None
     if times is not None and total_activity is not None:
@@ -673,7 +675,7 @@ def run_r2s(config, working_directory, openmc_module=None):
             summary for summary in tally_summaries if summary["tallyId"] == int(dose_tally_id)
         ]
         if matching:
-            finite = [value for value in matching[-1]["mean"] if value == value]
+            finite = [value for value in matching[-1]["mean"] if math.isfinite(value)]
             if finite:
                 dose = {
                     "tallyId": int(dose_tally_id),

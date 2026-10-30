@@ -42,6 +42,9 @@ import * as path from 'path';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const REGISTRY_PATH = path.join(REPO_ROOT, 'extensions/nuke-core/src/common/package-registry.json');
+const ENVIRONMENT_PATH = path.join(REPO_ROOT, 'applications/docker/environment.yml');
+const INSTALLER_PATH = path.join(REPO_ROOT, 'extensions/openmc-studio/src/browser/services/openmc-installer-service.ts');
+const OPTIMIZATION_PATH = path.join(REPO_ROOT, 'extensions/openmc-studio/src/node/optimization-backend-service.ts');
 const EXTENSION_PACKAGES = ['nuke-cad', 'nuke-visualizer', 'openmc-studio'].map((ext) => ({
     extension: ext,
     file: path.join(REPO_ROOT, 'extensions', ext, 'src/common/packages.json')
@@ -82,6 +85,36 @@ function specOf(entry: Record<string, unknown>): Record<string, unknown> {
     return spec;
 }
 
+/** Conda and pip specs from the shared full-profile environment file. */
+function loadEnvironmentSpecs(): { conda: string[]; pip: string[] } {
+    const conda: string[] = [];
+    const pip: string[] = [];
+    let inPip = false;
+    for (const raw of fs.readFileSync(ENVIRONMENT_PATH, 'utf-8').split('\n')) {
+        const line = raw.trim();
+        if (line === '- pip:') {
+            inPip = true;
+            continue;
+        }
+        if (!line.startsWith('- ')) {
+            continue;
+        }
+        const spec = line.slice(2).trim();
+        if (spec && !spec.startsWith('#')) {
+            (inPip ? pip : conda).push(spec);
+        }
+    }
+    return { conda, pip };
+}
+
+/** Package identity for matching a spec with or without a version constraint. */
+function specName(spec: string): string {
+    return spec
+        .toLowerCase()
+        .split(/[=<>!~]/)[0]
+        .trim();
+}
+
 describe('package registry consistency', () => {
     const registry = loadRegistry();
 
@@ -117,5 +150,37 @@ describe('package registry consistency', () => {
             .filter(([name]) => !(name in registry))
             .map(([name, extensions]) => `${name} (${extensions.join(', ')})`);
         expect(unregistered).toEqual([]);
+    });
+
+    it('bundled environment specs match the registry pins', () => {
+        const env = loadEnvironmentSpecs();
+        const mismatches: string[] = [];
+        for (const [name, spec] of Object.entries(registry)) {
+            const condaSpec = spec.condaSpec as string | undefined;
+            if (condaSpec) {
+                const found = env.conda.find((entry) => specName(entry) === specName(condaSpec));
+                if (found && found.toLowerCase() !== condaSpec.toLowerCase()) {
+                    mismatches.push(`${name}: environment.yml '${found}' != registry '${condaSpec}'`);
+                }
+            }
+            const pipSpec = spec.pipSpec as string | undefined;
+            if (pipSpec && !pipSpec.startsWith('git+')) {
+                const found = env.pip.find((entry) => specName(entry) === specName(pipSpec));
+                if (found && found.toLowerCase() !== pipSpec.toLowerCase()) {
+                    mismatches.push(`${name}: environment.yml '${found}' != registry '${pipSpec}'`);
+                }
+            }
+        }
+        expect(mismatches).toEqual([]);
+    });
+
+    it('install surfaces do not reference retired tools or environment names', () => {
+        const installer = fs.readFileSync(INSTALLER_PATH, 'utf-8');
+        expect(installer).not.toMatch(/openmc-plotter|paraview|trame/);
+        const optimization = fs.readFileSync(OPTIMIZATION_PATH, 'utf-8');
+        expect(optimization).not.toContain("'trame'");
+        for (const match of optimization.matchAll(/autoDetectEnvs:\s*\[([^\]]*)\]/g)) {
+            expect(match[1]).toContain("'ide'");
+        }
     });
 });

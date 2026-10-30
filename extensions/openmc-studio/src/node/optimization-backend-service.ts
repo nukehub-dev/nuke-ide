@@ -459,7 +459,7 @@ export class OptimizationBackendService {
             // Detect Python with OpenMC
             const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
                 requiredPackages: STUDIO_CORE_PACKAGES,
-                autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer']
+                autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'ide']
             });
             if (!detectionResult.success || !detectionResult.command) {
                 return fail(detectionResult.error || 'No Python environment with OpenMC found');
@@ -789,7 +789,7 @@ export class OptimizationBackendService {
         // Otherwise use direct OpenMC CLI
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
             requiredPackages: STUDIO_CORE_PACKAGES,
-            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer']
+            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'ide']
         });
 
         if (!detectionResult.success || !detectionResult.command) {
@@ -966,7 +966,7 @@ export class OptimizationBackendService {
 
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
             requiredPackages: STUDIO_CORE_PACKAGES,
-            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
+            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'ide']
         });
 
         if (!detectionResult.success || !detectionResult.command) {
@@ -1110,7 +1110,7 @@ export class OptimizationBackendService {
         // Detect Python with OpenMC
         const detectionResult = await this.nukeCoreService.detectPythonWithRequirements({
             requiredPackages: STUDIO_CORE_PACKAGES,
-            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'trame']
+            autoDetectEnvs: ['openmc', 'nuke-ide', 'visualizer', 'ide']
         });
 
         if (!detectionResult.success || !detectionResult.command) {

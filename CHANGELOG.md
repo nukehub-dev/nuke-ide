@@ -267,6 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform: Theia 1.73.1 to 1.74.1 with the deprecated Vercel AI provider removed; Electron shell moves to 43.4.0.
 - Platform: lerna 9 to 10 (Node.js >= 22.13.0) and markdown-it 14 to 15 in nuke-docs.
 - Platform: React 18 to 19 for all extension widgets with no component API changes.
+- nuke-cad: CadQuery is optional and no longer bundled; build123d/OCP remains the default CAD and script stack.
 - nuke-cad: Origin section swaps three eye-toggle rows for a compact X/Y/Z chip row; master switch and per-axis preferences unchanged.
 - nuke-cad: BOM panel drops the duplicate header/empty text, keeps one empty card, and supports Enter/Space row selection with shared tooltips.
 - nuke-cad: viewport toolbar groups actions into labelled sections with promoted buttons, per-section menus, and a width-driven compact mode.
@@ -298,6 +299,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: viewer tab titles drop the redundant Native prefix (DAGMC, VTK, Tally, Geometry, and Exodus viewers).
 - nuke-visualizer: Viewer Settings rows keep full labels in narrow sidebars, section badges are plain integers, and categorical color modes hide scalar-only controls; DAGMC Outline mirrors the CAD header and 24 px row treatment.
 - nuke-visualizer: statepoint and tally empty-state illustrations now pair a database with a k-eff chart and use one histogram; tally, statepoint, and overlap title/command/Nuke Tools icons match.
+- openmc-studio: installer drops the obsolete OpenMC Plotter option; native plotting covers that workflow.
 - openmc-studio: dashboard, geometry, tally, optimization, and comparison windows reflow to narrow editor panels with wrapping headers, icon-only scrollable tabs, stacked forms, and scrolling result tables.
 - openmc-studio: collapsed tab labels use the shared nuke-essentials tooltip instead of native title hints.
 - openmc-studio: Native Plotting uses one plot-type chooser when empty, keeps a live plot selected, and clears stale outputs before rendering.

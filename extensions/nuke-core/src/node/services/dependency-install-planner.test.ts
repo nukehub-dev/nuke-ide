@@ -39,17 +39,17 @@ const SHIMWELL = 'https://shimwell.github.io/wheels';
 const PYDAGMC_GIT = 'git+https://github.com/svalinn/pydagmc@4afa678d24aa091417798ef4b3d11fda98b165f8';
 
 const openmc: PackageDependency = { name: 'openmc', extraIndexUrl: SHIMWELL };
-const paraview: PackageDependency = { name: 'paraview', condaOnly: true, condaSpec: 'paraview' };
+const mpi4py: PackageDependency = { name: 'mpi4py', condaOnly: true, condaSpec: 'mpi4py' };
 const gmsh: PackageDependency = { name: 'gmsh', condaSpec: 'python-gmsh' };
-const ocp: PackageDependency = { name: 'OCP', condaSpec: 'ocp', pipSpec: 'cadquery-ocp' };
+const ocp: PackageDependency = { name: 'OCP', condaSpec: 'ocp=7.9.3.1', pipSpec: 'cadquery-ocp<7.9' };
 const build123d: PackageDependency = { name: 'build123d', pipSpec: 'build123d==0.9.1', pipArgs: ['--no-deps'] };
 const pydagmc: PackageDependency = { name: 'pydagmc', pipSpec: PYDAGMC_GIT };
 const numpy: PackageDependency = { name: 'numpy' };
 
 describe('buildDependencyInstallPlan', () => {
     it('routes condaOnly and condaSpec entries to a single conda batch in conda envs', () => {
-        const plan = buildDependencyInstallPlan([paraview, gmsh, ocp], true);
-        expect(plan.conda).toEqual({ specs: ['paraview', 'python-gmsh', 'ocp'], channels: ['conda-forge'] });
+        const plan = buildDependencyInstallPlan([mpi4py, gmsh, ocp], true);
+        expect(plan.conda).toEqual({ specs: ['mpi4py', 'python-gmsh', 'ocp=7.9.3.1'], channels: ['conda-forge'] });
         expect(plan.pip).toEqual([]);
         expect(plan.skipped).toEqual([]);
     });
@@ -66,8 +66,8 @@ describe('buildDependencyInstallPlan', () => {
     });
 
     it('keeps pip-only entries on pip in conda envs', () => {
-        const plan = buildDependencyInstallPlan([openmc, pydagmc, paraview], true);
-        expect(plan.conda).toEqual({ specs: ['paraview'], channels: ['conda-forge'] });
+        const plan = buildDependencyInstallPlan([openmc, pydagmc, mpi4py], true);
+        expect(plan.conda).toEqual({ specs: ['mpi4py'], channels: ['conda-forge'] });
         expect(plan.pip).toEqual([
             { specs: ['openmc'], args: [], extraIndexUrl: SHIMWELL },
             { specs: [PYDAGMC_GIT], args: [], extraIndexUrl: undefined }
@@ -79,7 +79,7 @@ describe('buildDependencyInstallPlan', () => {
         const plan = buildDependencyInstallPlan([gmsh, ocp, numpy], false);
         expect(plan.conda).toBeUndefined();
         // Same (no-index, no-args) signature → one shared pip command
-        expect(plan.pip).toEqual([{ specs: ['gmsh', 'cadquery-ocp', 'numpy'], args: [], extraIndexUrl: undefined }]);
+        expect(plan.pip).toEqual([{ specs: ['gmsh', 'cadquery-ocp<7.9', 'numpy'], args: [], extraIndexUrl: undefined }]);
         expect(plan.skipped).toEqual([]);
     });
 
@@ -102,10 +102,10 @@ describe('buildDependencyInstallPlan', () => {
     });
 
     it('reports condaOnly entries in non-conda envs as skipped (hint-only)', () => {
-        const plan = buildDependencyInstallPlan([paraview, numpy], false);
+        const plan = buildDependencyInstallPlan([mpi4py, numpy], false);
         expect(plan.conda).toBeUndefined();
         expect(plan.pip).toEqual([{ specs: ['numpy'], args: [], extraIndexUrl: undefined }]);
-        expect(plan.skipped).toEqual([paraview]);
+        expect(plan.skipped).toEqual([mpi4py]);
     });
 
     it('returns an empty plan for empty input', () => {

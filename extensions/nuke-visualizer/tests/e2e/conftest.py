@@ -16,3 +16,11 @@ _PYTHON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..
 _PYTHON_DIR = os.path.abspath(_PYTHON_DIR)
 if _PYTHON_DIR not in sys.path:
     sys.path.insert(0, _PYTHON_DIR)
+
+# openmc.run() shells out to the openmc executable; make the interpreter's
+# sibling binary discoverable when this suite runs on its own.
+_BIN_DIR = os.path.dirname(sys.executable)
+if os.path.exists(os.path.join(_BIN_DIR, "openmc")) and _BIN_DIR not in os.environ.get(
+    "PATH", ""
+).split(os.pathsep):
+    os.environ["PATH"] = _BIN_DIR + os.pathsep + os.environ.get("PATH", "")

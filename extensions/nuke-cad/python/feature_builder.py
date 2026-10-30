@@ -447,8 +447,8 @@ def _resolve_refs_against_shape(
     if not refs_with_paths:
         return [], []
 
-    fingerprints = [rr.topology_ref_to_fingerprint(ref) for _, ref in refs_with_paths]
     try:
+        fingerprints = [rr.topology_ref_to_fingerprint(ref) for _, ref in refs_with_paths]
         match_result, entity_map = rr.resolve_references_with_entities(
             fingerprints,
             shape,
@@ -2568,16 +2568,16 @@ def _find_top_rim_edge(
     while exp.More():
         edge = TopoDS.Edge_s(exp.Current())
         try:
-            curve = rr._curve_type_string(rr._edge_curve(edge))
+            from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+            adaptor = BRepAdaptor_Curve(edge)
+            curve = rr._curve_type_string(adaptor)
         except Exception:
             curve = "other"
         if curve != "circle":
             exp.Next()
             continue
         try:
-            from OCP.BRepAdaptor import BRepAdaptor_Curve
-
-            adaptor = BRepAdaptor_Curve(edge)
             circ = adaptor.Circle()
             ec = circ.Location()
             edge_center = (ec.X(), ec.Y(), ec.Z())

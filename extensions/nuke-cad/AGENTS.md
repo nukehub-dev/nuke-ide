@@ -3,7 +3,7 @@
 ## Purpose
 
 Parametric CAD / meshing / FEM extension for NukeIDE with two authoring modes:
-script-based build123d/CadQuery `.py` files and GUI-edited `.nuke-cad`
+script-based build123d `.py` files (CadQuery is optional) and GUI-edited `.nuke-cad`
 parametric documents. Both paths feed the same geometry-service pipeline and
 produce identical simulation-ready artifacts (STEP, DAGMC, FEM meshes) consumed
 by openmc-studio and future physics extensions.
@@ -176,7 +176,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - BOM panel empty state is one card; rows use the shared `Tooltip` and support Enter/Space selection. It is bound through
   `CadBomPanelWidget` + `nuke.cad.openBomPanel` (right area), the CAD Studio menu, and the Nuke Tools sidebar.
 - Geometry scripts must define a top-level `model` variable holding a
-  build123d Part/Compound, CadQuery Workplane, or OCP TopoDS_Shape.
+  build123d Part/Compound, CadQuery Workplane (when installed), or OCP TopoDS_Shape.
 - Heavy Python imports must be guarded so modules stay importable in the
   minimal pytest profile.
 - Compact icon buttons must reset Theia's `.theia-button` defaults via the

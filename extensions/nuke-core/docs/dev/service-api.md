@@ -67,7 +67,7 @@ const result = await this.nukeCore.detectPythonWithRequirements({
   requiredPackages: [
     { name: 'openmc', required: true },
     { name: 'numpy', required: true, minVersion: '1.20.0' },
-    { name: 'paraview', condaOnly: true }
+    { name: 'mpi4py', condaOnly: true }
   ],
   // Optional: prefer these environment names if multiple match
   autoDetectEnvs: ['openmc', 'nuke-ide'],
@@ -225,7 +225,7 @@ Set global defaults in **Settings → Nuke Utils**, or override per-package in `
 const result = await this.nukeCore.detectPythonWithRequirements({
   requiredPackages: [
     { name: 'pytorch', channels: ['pytorch', 'nvidia'] },
-    { name: 'paraview', condaOnly: true },
+    { name: 'mpi4py', condaOnly: true },
     { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
     { name: 'pydagmc', pipSpec: 'git+https://github.com/svalinn/pydagmc@<pinned-commit>' }
   ]
@@ -250,10 +250,10 @@ const result = await this.envActions.installPackages({
 | Field            | Description                                                                 |
 | ---------------- | --------------------------------------------------------------------------- |
 | `name`           | Package name to import                                                      |
-| `submodule`      | Submodule for version check (e.g., `'app'` for `trame.app`)                 |
+| `submodule`      | Submodule for version check (e.g., `'data'` for `openmc.data`)              |
 | `required`       | Whether this package is required or optional                                |
 | `minVersion`     | Minimum version required                                                    |
-| `condaOnly`      | Only installable via conda, never pip (e.g., `paraview`, `mpi4py`)          |
+| `condaOnly`      | Only installable via conda, never pip (e.g., `mpi4py`)                      |
 | `channels`       | Conda channels for this package                                             |
 | `extraIndexUrl`  | Extra pip index URL                                                         |
 | `pipSpec`        | Pip requirement spec or commit-pinned VCS URL (defaults to `name`)          |
@@ -347,8 +347,8 @@ Check whether specific packages are installed in the currently configured enviro
 const result = await this.nukeCore.checkDependencies([
   { name: 'openmc', required: true, minVersion: '0.14.0' },
   { name: 'numpy', required: true },
-  { name: 'trame', submodule: 'app', required: false },
-  { name: 'paraview', condaOnly: true, required: true }
+  { name: 'pydagmc', required: false },
+  { name: 'mpi4py', condaOnly: true, required: false }
 ]);
 
 if (result.available) {
@@ -372,7 +372,7 @@ const health = await this.nukeCore.healthCheck();
 // Health check with packages
 const health = await this.nukeCore.healthCheck([
   { name: 'openmc', extraIndexUrl: 'https://shimwell.github.io/wheels' },
-  { name: 'paraview', condaOnly: true },
+  { name: 'mpi4py', condaOnly: true },
   { name: 'pydagmc', pipSpec: 'git+https://github.com/svalinn/pydagmc@<pinned-commit>' }
 ]);
 

@@ -120,12 +120,6 @@ export class OpenMCInstallerService {
             channels: ['conda-forge']
         },
         {
-            id: 'openmc-plotter',
-            label: 'OpenMC Plotter',
-            description: 'Interactive visualization tool for OpenMC',
-            packages: ['openmc-plotter']
-        },
-        {
             id: 'visualization',
             label: 'Visualization Tools',
             description: 'VTK, matplotlib, and plotting utilities',

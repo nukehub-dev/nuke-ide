@@ -2,7 +2,7 @@
 
 All-in-one container for NukeIDE: the Theia browser IDE plus the `ide`
 conda environment with every Python backend the extensions need
-(OpenMC, headless VTK converters, gmsh/CadQuery/pythonocc-core CAD toolchain, DAGMC).
+(OpenMC, headless VTK converters, gmsh/OCP/pythonocc-core CAD toolchain, DAGMC).
 
 ## Quick start
 
@@ -25,10 +25,11 @@ yarn docker:up
   `yarn download:plugins`.
 - **Stage 2 (runtime)** — `condaforge/miniforge3` with the `ide` conda env
   (`environment.yml`): Python 3.13, Node 22, OpenMC, VTK,
-  gmsh, CadQuery (`OCP`), `pythonocc-core` (`OCC`), pydagmc/moab, and
+  gmsh, OCP, `pythonocc-core` (`OCC`), pydagmc/moab, and
   build123d (pip-installed `--no-deps` by the Dockerfile with nuke-cad's OCP
   7.9 alias shim — see the CAD comment in `environment.yml` for why it is
-  not a conda dependency). VTK runs headless (`QT_QPA_PLATFORM=offscreen`,
+  not a conda dependency). CadQuery is optional and is not bundled; install it
+  separately if you need CadQuery scripts. VTK runs headless (`QT_QPA_PLATFORM=offscreen`,
   `VTK_USE_OFFSCREEN=1`); the IDE's native three.js viewers render the
   converted XML VTK client-side, so no server-side rendering stack ships.
 

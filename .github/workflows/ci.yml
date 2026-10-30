@@ -123,21 +123,32 @@ jobs:
         uses: actions/cache@v6
         id: test-env-cache
         with:
-          path: ${{ env.CONDA }}/envs/nuke-test
-          key: nuke-test-env-${{ runner.os }}-v2
+          path: ${{ env.CONDA }}/envs/ide
+          key: nuke-test-env-${{ runner.os }}-v3-${{ hashFiles('applications/docker/environment.yml') }}
 
-      # Full-dependency profile: openmc is conda-forge-only (not PyPI), and
-      # h5py/vtk unblock the importorskip integration tests, so the coverage
-      # ratchet measures the real test profile (matching local full runs).
-      # python is pinned explicitly — openmc 0.15.3 supports up to 3.13.
-      - name: Create full test env (conda-forge)
+      # Same full CAD/OpenMC environment as the Docker image so the nuke-cad
+      # suites run instead of skipping and the 94% ratchet measures the real
+      # test profile. The environment file pins python=3.13.
+      - name: Create full test env
         if: steps.test-env-cache.outputs.cache-hit != 'true'
-        run: conda create -y -n nuke-test -c conda-forge --strict-channel-priority python=3.13 openmc h5py vtk pytest pytest-cov numpy
+        run: conda env create -f applications/docker/environment.yml
+
+      # build123d is deliberately absent from the conda env (see the CAD
+      # comment in environment.yml): install it --no-deps and activate the
+      # OCP 7.9 alias shim, mirroring the Dockerfile and upstream-latest.
+      - name: Install build123d and test tools
+        run: |
+          SP="$CONDA/envs/ide/lib/python3.13/site-packages"
+          cp extensions/nuke-cad/python/ocp_compat.py "$SP/ocp_compat.py"
+          echo 'import ocp_compat; ocp_compat.install_build123d_import_hook()' > "$SP/_nuke_ocp79.pth"
+          "$CONDA/envs/ide/bin/pip" install -q --no-deps build123d==0.9.1 ocpsvg==0.6.0
+          "$CONDA/envs/ide/bin/pip" install -q pytest pytest-cov
 
       - name: Run Python tests with coverage
         # Logic-layer coverage is ratcheted (fail_under in .coveragerc);
         # the rendering layer is excluded by design (see .coveragerc).
-        run: conda run -n nuke-test python -m pytest --cov --cov-report=term-missing --cov-report=xml
+        run: |
+          "$CONDA/envs/ide/bin/python" -m pytest --cov --cov-report=term-missing --cov-report=xml
 
       - name: Coverage summary
         if: always() && hashFiles('coverage.xml') != ''

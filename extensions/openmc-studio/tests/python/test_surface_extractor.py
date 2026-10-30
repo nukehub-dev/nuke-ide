@@ -347,6 +347,20 @@ class TestOccExactExtraction:
         finally:
             surface_extractor._occ_cache.clear()
 
+    def test_ocp_reader_works_without_cadquery(self, occ_extractor, monkeypatch):
+        """CadQuery is optional; OCP alone still extracts exact surfaces."""
+        _install_fake_occ(monkeypatch, {"f1": _plane_surf(normal=(0, 0, 1), location=(0, 0, 5))})
+        monkeypatch.setitem(sys.modules, "cadquery", None)
+        importlib.reload(surface_extractor)
+        monkeypatch.setattr(surface_extractor, "_read_step_with_ocp", lambda path: "COMPOUND")
+        try:
+            assert surface_extractor.HAS_CADQUERY is False
+            params = surface_extractor._load_occ_params("model.step")
+            assert params is not None
+            assert params[1].surface_type == "plane"
+        finally:
+            surface_extractor._occ_cache.clear()
+
     def test_plane_extraction_and_orientation_flip(self, occ_extractor, monkeypatch):
         """Plane normals with negative z are flipped to the canonical side."""
         _install_fake_occ(monkeypatch, {"f1": _plane_surf(normal=(0, 0, -1), location=(0, 0, 3))})

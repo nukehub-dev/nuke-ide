@@ -52,7 +52,7 @@ No-code graphical workspace for OpenMC Monte Carlo neutron transport simulations
 
 Parametric CAD / meshing / FEM extension with two authoring modes.
 
-- Script mode: author geometry with build123d or CadQuery (Python scripts) or open existing STEP/STP/BREP files
+- Script mode: author geometry with build123d (CadQuery is optional) or open existing STEP/STP/BREP files
 - GUI document mode: `.nuke-cad` parametric documents with a sketcher, constraints, dimensions, feature tree, and document-level parameters
 - Sweep/pipe features: sweep a sketch section or a circular pipe along 3D curves with Frenet or fixed-binormal orientation, with a ghosted in-viewport preview
 - Loft and helical sweep features: join ordered sketch sections into a single solid, or sweep a section along a parametric helix (axis/pitch/turns), both with a ghosted in-viewport preview

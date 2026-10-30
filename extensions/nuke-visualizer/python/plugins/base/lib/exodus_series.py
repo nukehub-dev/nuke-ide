@@ -318,15 +318,15 @@ def _read_nodes(variables, n_nodes):
     for name in ("coordx", "coordy", "coordz"):
         if name in variables:
             try:
-                axes.append(np.asarray(variables[name][:], dtype=float).ravel()[:n_nodes])
+                values = np.asarray(variables[name][:], dtype=float).ravel()
             except Exception as exc:
                 raise ExodusSeriesError(f"Could not read node coordinates: {exc}") from None
+            if values.size < n_nodes:
+                raise ExodusSeriesError("Node coordinate length does not match num_nodes")
+            axes.append(values[:n_nodes])
         else:
             axes.append(np.zeros(n_nodes))
-    stacked = np.column_stack(axes[:3])
-    if stacked.shape[0] != n_nodes:
-        raise ExodusSeriesError("Node coordinate length does not match num_nodes")
-    return stacked
+    return np.column_stack(axes[:3])
 
 
 def _pad_to_xyz(coords):

@@ -143,7 +143,7 @@ Notes:
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), pytest with coverage, and vitest. This must stay green.
+- `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), extension compile (`npx lerna run build`), pytest with coverage in the full CAD/OpenMC conda env (the 94% gate runs there), and vitest. This must stay green.
 - `build.yml` — Electron packaging for Linux/Windows/macOS and draft GitHub Releases on `v*` tags.
 - `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch. Smoke coverage: Python env import check, the extension pytest suite in-image, a functional converter check (`applications/docker/render_smoke_test.py` — the headless VTK converter seam the unit tests skip), and an IDE boot check. Green builds archive a dependency snapshot (`conda list` + `pip freeze`); a failed weekly run opens/updates an `upstream-regression` issue.
 - `ui-smoke.yml` — weekly Playwright GUI smoke (`yarn test:ui`): bundles the browser app, boots it in headless Chromium, and runs `tests/ui/` (boot console errors, dashboard tabs, dedicated windows, controlled selects). Uploads `test-results/` on failure; node_modules cache uses the `ui-smoke-yarn-` prefix (never `ci-yarn-`/`build-yarn-` — scriptless installs must not collide, see pitfalls). The scriptless install skips the lerna prepare build, so the workflow compiles explicitly (`npx lerna run build`) and rebuilds native modules (cpu-features/keytar/drivelist/@theia/ffmpeg) before bundling — without both, webpack fails on `*/lib/...` and `*.node` resolves.

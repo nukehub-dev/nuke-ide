@@ -2807,6 +2807,8 @@ def test_hole_countersink_builds() -> None:
     )
     result = fb.build_document_shape(doc)
     assert result["shape"] is not None
+    by_id = {record["featureId"]: record for record in result["featureResults"]}
+    assert by_id["hole1"]["status"] == "built", by_id["hole1"]
     assert result["shape"].volume < 10.0 * 10.0 * 5.0
 
 

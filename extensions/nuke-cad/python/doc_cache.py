@@ -470,7 +470,7 @@ def _evict_lru(
     for fid in sorted(records, key=lambda f: records[f].get("updatedAt", 0.0)):
         if _manifest_total(manifest) <= size_cap_bytes:
             break
-        if fid in protected and (len(records) > 1 or _tess_record(manifest) is not None):
+        if fid in protected:
             continue
         record = records.pop(fid)
         _ = record

@@ -80,7 +80,7 @@ expands its section.
 3. Writes a canonical STEP file.
 4. Tessellates with `BRepMesh_IncrementalMesh` and writes `model.tess.json`.
    Selectors come from real build123d labels and CadQuery Assembly names;
-   CadQuery extraction is tested against real cadquery 2.7/2.8 (TShape-based
+   CadQuery extraction is tested against real cadquery 2.7/2.8 when installed (TShape-based
    matching via `IsPartner`, UUID-name filtering, multi-solid Workplanes).
 5. Loads and validates `model.regions.json` if present.
 6. Exports a DAGMC `.h5m` file via `dagmc_export.py` (skipped for

@@ -1,6 +1,7 @@
 """Tests for read_mgxs_data_names.py."""
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -86,3 +87,30 @@ def test_main_prints_json(capsys, tmp_path: Path):
     assert result["success"] is True
     assert result["type"] == "material"
     assert result["xsDataNames"] == [{"materialName": "fuel", "xsDataName": "fuel"}]
+
+
+def test_read_mapping_reports_missing_h5py(monkeypatch):
+    monkeypatch.setitem(sys.modules, "h5py", None)
+    success, mapping, library_type, error = reader.read_mapping("missing.h5")
+    assert success is False
+    assert "h5py is required" in error
+
+
+def test_read_mapping_reports_a_corrupt_library(tmp_path):
+    path = tmp_path / "broken.h5"
+    path.write_bytes(b"not hdf5")
+    success, mapping, library_type, error = reader.read_mapping(str(path))
+    assert success is False
+    assert error
+
+
+def test_main_reports_usage_and_errors(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["read_mgxs_data_names.py"])
+    with pytest.raises(SystemExit) as exc:
+        reader.main()
+    assert exc.value.code == 1
+    assert "Usage" in json.loads(capsys.readouterr().out)["error"]
+
+    monkeypatch.setattr(sys, "argv", ["read_mgxs_data_names.py", "missing.h5"])
+    reader.main()
+    assert "not found" in json.loads(capsys.readouterr().out)["error"]

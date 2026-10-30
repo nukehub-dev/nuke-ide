@@ -43,8 +43,9 @@ pip install moab --extra-index-url https://shimwell.github.io/wheels
 
 In a plain pip/venv environment use `pip install "build123d==0.9.1" --no-deps cadquery-ocp gmsh meshio netCDF4` instead — pip `cadquery-ocp` must not be mixed into a conda OCP env (it clobbers conda's OCCT binaries; see below).
 
-All of the above except netgen/ngsolve are preinstalled in the Docker image.
-The FEM analysis panel additionally needs the external `ccx` (CalculiX)
+All required packages above are preinstalled in the Docker image. CadQuery is
+optional and is not bundled; install it separately if you need CadQuery
+scripts. The FEM analysis panel additionally needs the external `ccx` (CalculiX)
 executable on `PATH` or pointed to with `NUKE_CCX` — it is not a Python
 package.
 
@@ -58,7 +59,7 @@ there):
 
 ```bash
 conda create -n nuke -c conda-forge --strict-channel-priority python=3.13 \
-    "ocp=7.8.1.2" "cadquery=2.7.0" "build123d=0.9.1" python-gmsh meshio \
+    "ocp=7.8.1.2" "build123d=0.9.1" python-gmsh meshio \
     netCDF4 h5py numpy scipy matplotlib pandas pyyaml pytest pytest-cov
 ~/.conda/envs/nuke/bin/python -m pip install \
     --extra-index-url https://shimwell.github.io/wheels \
@@ -81,8 +82,8 @@ run the same code.
 Keep netgen out of this env. Conda netgen and conda OCP register the same
 OCCT types with pybind11 in one process ("type gp_Pnt is already registered!"
 in either import order), and the pip `ngsolve` wheel dumps its own OCCT .so
-files into the env's `lib/`, clobbering conda's occt (cadquery then fails to
-import with undefined-symbol errors). Run netgen engine tests in a separate
+files into the env's `lib/`, clobbering conda's occt (the OCP stack then fails
+to import with undefined-symbol errors). Run netgen engine tests in a separate
 pip-OCP env instead — pip `cadquery-ocp` and pip `ngsolve` coexist fine.
 
 ## Clone and Install

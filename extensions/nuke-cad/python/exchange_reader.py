@@ -639,7 +639,7 @@ def _read_step_geometry(step_path: Path, system_unit_mm: float | None) -> object
         reader.SetSystemLengthUnit(float(system_unit_mm))
     reader.TransferRoots()
     shape = reader.OneShape()
-    if shape is None:
+    if _is_null_shape(shape):
         raise ExchangeReadError(f"No shape transferred from {step_path}")
     return shape
 
@@ -651,6 +651,14 @@ def read_step_raw(step_path: Path, system_unit_mm: float) -> object:
     scaling so the caller can apply the exact file-to-target factor once.
     """
     return _read_step_geometry(step_path, system_unit_mm)
+
+
+def _is_null_shape(shape: object) -> bool:
+    """True for a missing or OCCT-null shape (``OneShape()`` never returns None)."""
+    if shape is None:
+        return True
+    is_null = getattr(shape, "IsNull", None)
+    return bool(is_null()) if callable(is_null) else False
 
 
 def read_step_shape(step_path: Path) -> object:
@@ -730,7 +738,7 @@ def read_iges_shape(iges_path: Path) -> object:
         raise ExchangeReadError(f"IGES reader returned status {status} for {iges_path}")
     reader.TransferRoots()
     shape = reader.OneShape()
-    if shape is None:
+    if _is_null_shape(shape):
         raise ExchangeReadError(f"No shape transferred from {iges_path}")
     if not _explorer_solids(shape):
         shape = sew_faces_to_solids(shape)

@@ -1499,6 +1499,9 @@ def _map_materials_by_proximity(
     for new_vol in new_model.volumes:
         new_bbox = _volume_bounding_box(new_vol)
         if new_bbox[0] is None:
+            warnings.append(
+                f"Volume {getattr(new_vol, 'id', '?')}: bounding box unavailable; material left unassigned"
+            )
             continue
         new_center = _bbox_center(new_bbox)
         nearest = min(old_centers, key=lambda vid: np.linalg.norm(new_center - old_centers[vid]))
@@ -1506,6 +1509,10 @@ def _map_materials_by_proximity(
         if old_mat is not None:
             new_vol.material = old_mat
             matched += 1
+        else:
+            warnings.append(
+                f"Volume {getattr(new_vol, 'id', '?')}: nearest previous volume {nearest} has no material"
+            )
     return matched, warnings
 
 

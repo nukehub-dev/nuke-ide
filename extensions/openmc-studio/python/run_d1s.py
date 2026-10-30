@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 import sys
 import traceback
@@ -212,7 +213,7 @@ def run_d1s(config, working_directory, openmc_module=None, d1s_module=None):
             summary for summary in tally_summaries if summary["tallyId"] == int(dose_tally_id)
         ]
         if matching:
-            finite = [value for value in matching[-1]["mean"] if value == value]
+            finite = [value for value in matching[-1]["mean"] if math.isfinite(value)]
             if finite:
                 dose = {
                     "tallyId": int(dose_tally_id),

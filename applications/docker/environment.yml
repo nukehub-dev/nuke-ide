@@ -22,12 +22,14 @@ dependencies:
   # client-side by the IDE's native three.js viewers). Everything comes
   # from conda so the whole stack shares conda's vtk.
   - vtk
-  - python-multipart
-  # CAD import/conversion (openmc-studio cad_conversion). Conda cadquery pulls
-  # conda ocp and links conda's vtk — never install pip cadquery/cadquery-ocp/
-  # cadquery_vtk here: their vtkmodules builds clobber conda's vtk files.
+  # CAD import/conversion (openmc-studio cad_conversion). CadQuery is optional
+  # user tooling, not bundled: conda cadquery 2.8 pulls trame/trame-vtk for its
+  # visualization extra, which the native viewers do not use. STEP/BREP import
+  # and exact surface extraction use OCP directly. Users who want CadQuery
+  # scripts can install it separately (`conda install cadquery`).
   - python-gmsh
-  - cadquery
+  # Keep OCP on the 7.9 line: build123d 0.9.1 and nuke-cad's OCP shim target it.
+  - ocp=7.9.3.1
   # nuke-cad full profile: meshio for CalculiX/VTK mesh export, netCDF4 for the
   # custom ExodusII writer, plus build123d's pure-Python dependencies. build123d
   # itself is deliberately NOT a conda dependency here: a conda build123d
@@ -54,7 +56,7 @@ dependencies:
   # with pybind11 in one process ("type gp_Pnt is already registered!" in either
   # import order, and build123d+netgen breaks too), and the pip ngsolve wheel
   # (netgen-occt) dumps its own OCCT 7.8.1 .so files into the env's lib/,
-  # clobbering conda's occt (empirically confirmed: cadquery import broke with
+  # clobbering conda's occt (empirically confirmed: the OCP import broke with
   # undefined-symbol errors until the pip packages were removed and conda occt
   # force-reinstalled). The netgen mesh engine is an opt-in alternative to the
   # default gmsh path; run its tests in a pip-OCP env (pip cadquery-ocp + pip

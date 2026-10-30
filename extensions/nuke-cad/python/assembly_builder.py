@@ -697,7 +697,13 @@ def _instance_overlap_warnings(groups: list[tuple[str, list[object]]]) -> list[s
         cast: list[object] = []
         for solid in solids:
             try:
-                cast.append(bd.Shape.cast(solid))
+                shape_cls = getattr(bd, "Shape", None)
+                if isinstance(shape_cls, type) and isinstance(solid, shape_cls):
+                    cast.append(solid)
+                elif hasattr(bd, "Solid"):
+                    cast.append(bd.Solid(solid))
+                else:
+                    cast.append(bd.Shape.cast(solid))
             except Exception:
                 cast = []
                 break
@@ -739,9 +745,19 @@ def _instance_overlap_warnings(groups: list[tuple[str, list[object]]]) -> list[s
     return warnings
 
 
+def _bound_xyz(value: object) -> tuple[float, float, float]:
+    """Normalize a build123d Vector or a sequence to an XYZ tuple."""
+    to_tuple = getattr(value, "to_tuple", None)
+    if callable(to_tuple):
+        return tuple(float(coordinate) for coordinate in to_tuple())  # type: ignore[return-value]
+    if hasattr(value, "X"):
+        return (float(value.X), float(value.Y), float(value.Z))  # type: ignore[attr-defined]
+    return (float(value[0]), float(value[1]), float(value[2]))  # type: ignore[index]
+
+
 def _bbox_overlaps(a: object, b: object) -> bool:
-    min_a, max_a = a.min, a.max
-    min_b, max_b = b.min, b.max
+    min_a, max_a = _bound_xyz(a.min), _bound_xyz(a.max)
+    min_b, max_b = _bound_xyz(b.min), _bound_xyz(b.max)
     return (
         min_a[0] <= max_b[0]
         and max_a[0] >= min_b[0]

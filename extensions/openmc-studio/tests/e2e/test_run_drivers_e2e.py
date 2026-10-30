@@ -7,6 +7,7 @@ Full-profile only: every test skips without openmc/cross sections.
 
 import json
 import os
+import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 
 import pytest
@@ -147,6 +148,11 @@ def test_run_depletion_external_rate_e2e(pincell_dir):
     if not run_depletion.supports_integrator_method("add_external_source_rate"):
         pytest.skip("Installed OpenMC does not support external source rates")
 
+    # Material ids are process-global in OpenMC; read the exported fuel id
+    # instead of assuming a fresh interpreter starts at id 1.
+    materials_root = ET.parse(pincell_dir / "materials.xml").getroot()
+    fuel_id = int(materials_root.find("material").get("id"))
+
     args = SimpleNamespace(
         working_directory=str(pincell_dir),
         chain_file=chain,
@@ -169,7 +175,7 @@ def test_run_depletion_external_rate_e2e(pincell_dir):
         external_source_rates=json.dumps(
             [
                 {
-                    "material": 1,
+                    "material": fuel_id,
                     "composition": [{"name": "U235", "weightPercent": 100}],
                     "rate": 1e-9,
                     "units": "g/s",
@@ -184,7 +190,7 @@ def test_run_depletion_external_rate_e2e(pincell_dir):
     result = run_depletion.run_depletion(args)
 
     assert result["success"] is True
-    assert result["externalSourceRates"][0]["material"] == 1
+    assert result["externalSourceRates"][0]["material"] == fuel_id
 
 
 @pytest.mark.e2e

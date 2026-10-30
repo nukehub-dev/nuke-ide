@@ -21,6 +21,7 @@ message on failure; command wrappers convert these to the single-JSON-object
 contract. Returned dict shapes and VTK array names are unchanged.
 """
 
+import math
 import os
 import tempfile
 
@@ -77,9 +78,16 @@ def _require_positive(name, value):
         return None
     if isinstance(value, bool):
         raise OutputReaderError(f"{name} must be a positive integer, got {value!r}")
+    if not isinstance(value, str):
+        try:
+            as_float = float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise OutputReaderError(f"{name} must be a positive integer, got {value!r}") from None
+        if not math.isfinite(as_float) or as_float != int(as_float):
+            raise OutputReaderError(f"{name} must be a positive integer, got {value!r}")
     try:
         number = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise OutputReaderError(f"{name} must be a positive integer, got {value!r}") from None
     if number <= 0:
         raise OutputReaderError(f"{name} must be a positive integer, got {value!r}")

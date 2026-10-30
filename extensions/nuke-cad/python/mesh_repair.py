@@ -137,7 +137,10 @@ def _as_triangles(triangles: Any, op: str) -> Any:
     """Validate a triangle array to ``(M, 3)`` int64, or raise naming ``op``."""
     _require_numpy(op)
     assert np is not None
-    arr = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
+    try:
+        arr = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
+    except (TypeError, ValueError) as exc:
+        raise RepairError(f"{op}: expected an (M, 3) triangle array") from exc
     if arr.ndim != 2 or arr.shape[1] != 3:
         raise RepairError(f"{op}: expected an (M, 3) triangle array")
     return arr
