@@ -32,9 +32,13 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   capability id stays the registry/MCP/resource identifier.
 - `src/browser/capabilities/nuke-tool-result.ts` renders `NukeCapabilityResult` as bounded `ToolCallContent`: 8 KiB per string, 32 KiB per JSON payload, `[truncated]` markers, and no inline base64 or binary payloads.
 - `src/browser/capabilities/nuke-tool-call-summary.ts` parses finished `nuke_*` results into a normalized summary;
-  `nuke-tool-call-renderer.tsx` renders status, counts, issues, warnings, previews, artifacts, and textual next actions.
-- The card renderer claims only finished, non-awaiting `nuke_*` calls (priority 30) and returns -1 otherwise so Theia
-  keeps progress and confirmation UI; see `docs/dev/agent-and-cards.md`.
+  `nuke-tool-call-card.tsx` is the pure card rendering status, counts, issues, warnings, previews, artifacts, and
+  executable next actions; `nuke-tool-call-renderer.tsx` binds the Theia renderer, opener service, and parsed card props.
+- `NukeNextActionService` runs read-only next actions in place and replaces the card result through `updateResult`;
+  write/execute/destructive actions only open a NukeAI prompt that keeps the normal confirmation flow.
+  See `docs/dev/agent-and-cards.md`.
+- The pure card helper claims only finished, non-awaiting `nuke_*` calls (priority 30) and returns -1 otherwise so
+  Theia keeps progress and confirmation UI; see `docs/dev/agent-and-cards.md`.
 - `src/browser/preview/` persists truthful previews and command-to-preview trajectory lines under `.nuke-ide/ai/previews`; see `docs/dev/preview.md`.
 - `src/browser/capabilities/nuke-capability-tool-bridge.ts` keeps one tool per enabled capability under provider name `nuke-ai`. It unregisters stale tools before every refresh, debounces changes, coalesces concurrent refreshes, and disposes subscriptions and registrations on stop.
 - `nuke-core` owns the capability contract and registry; import them from `nuke-core/lib/...`, never from another extension's `src/`.
@@ -65,6 +69,8 @@ npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-tools-contribution
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-schema.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-result.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-call-summary.test.ts
+npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-call-card.test.tsx
+npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-next-action-service.test.ts
 npx vitest run extensions/nuke-ai/src/browser/preview/nuke-preview-store.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-capability-tool-bridge.test.ts
 npx vitest run extensions/nuke-ai/src/node/skills/nuke-skill-service.test.ts

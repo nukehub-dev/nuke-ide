@@ -286,10 +286,33 @@
 }
 
 .nuke-tool-card-actions li {
-    flex-direction: column;
-    gap: 1px;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px 8px;
     padding-left: 8px;
     border-left: 2px solid var(--theia-focusBorder, #007fd4);
+}
+
+.nuke-tool-card-actions .nuke-tool-card-action-button {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 2px 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.nuke-tool-card-actions .nuke-tool-card-action-button:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.nuke-tool-card-action-body {
+    display: flex;
+    flex: 1 1 160px;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
 }
 
 .nuke-tool-card-action-label {
@@ -342,5 +365,9 @@
 
     .nuke-tool-card-artifact-target {
         margin-left: auto;
+    }
+
+    .nuke-tool-card-actions .nuke-tool-card-action-button {
+        width: 100%;
     }
 }

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: tool results can show truthful viewport previews and keep a replayable command-to-preview history.
 - nuke-ai: NukeAI adds a dedicated agent, context-aware actions in the Nuke Tools sidebar, and a one-click context chip.
 - nuke-ai: NukeAI tool results render as compact cards with status, counts, warnings, previews, artifacts, and next actions.
+- nuke-ai: NukeAI result cards run read-only next steps directly and route write or execute steps through NukeAI confirmation.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.

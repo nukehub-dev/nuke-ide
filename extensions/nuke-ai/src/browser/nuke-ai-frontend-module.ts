@@ -48,6 +48,7 @@ import { AIVariableContribution } from '@theia/ai-core/lib/common/variable-servi
 import { SkillDirectoryContribution } from '@theia/ai-core/lib/browser/skill-service';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
 import { NukeCapabilityToolBridge } from './capabilities/nuke-capability-tool-bridge';
+import { NukeNextActionService } from './capabilities/nuke-next-action-service';
 import { NukeToolCallRenderer } from './capabilities/nuke-tool-call-renderer';
 import { NukePreviewStore } from './preview/nuke-preview-store';
 import { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';
@@ -80,6 +81,7 @@ export default new ContainerModule((bind) => {
     bind(FrontendApplicationContribution).toService(NukeCapabilityToolBridge);
     bind(NukePreviewStore).toSelf().inSingletonScope();
 
+    bind(NukeNextActionService).toSelf().inSingletonScope();
     bind(NukeToolCallRenderer).toSelf().inSingletonScope();
     bind(ChatResponsePartRenderer).toService(NukeToolCallRenderer);
 
@@ -106,6 +108,7 @@ export { NukeAiActionService } from './actions/nuke-ai-action-service';
 export { NukeAiCommandContribution, NukeAiCommands } from './actions/nuke-ai-commands';
 export { NukeAiToolsContribution } from './actions/nuke-ai-tools-contribution';
 export { NukeCapabilityToolBridge } from './capabilities/nuke-capability-tool-bridge';
+export { NukeNextActionService } from './capabilities/nuke-next-action-service';
 export { NukeToolCallRenderer } from './capabilities/nuke-tool-call-renderer';
 export { NukePreviewStore } from './preview/nuke-preview-store';
 export { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';

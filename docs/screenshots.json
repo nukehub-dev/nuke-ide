@@ -15,6 +15,12 @@
       "description": "Expanded OpenMC Studio categories in the searchable Nuke Tools sidebar."
     },
     {
+      "id": "nuke-ai-actions",
+      "file": "extensions/nuke-ai/docs/user/images/nuke-ai-actions.png",
+      "title": "NukeAI actions in the Nuke Tools sidebar",
+      "description": "Expanded NukeAI section with the read-only contextual actions for the active workspace."
+    },
+    {
       "id": "openmc-dashboard",
       "file": "extensions/openmc-studio/docs/user/images/dashboard.png",
       "title": "OpenMC Studio dashboard",

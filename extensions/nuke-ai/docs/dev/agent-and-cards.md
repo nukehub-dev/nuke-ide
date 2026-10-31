@@ -50,10 +50,15 @@ omitted from text. `nuke-tool-call-summary.ts` parses that content without trust
 string, a plain object, or `ToolCallContent`; malformed JSON stays visible as text; images become data URLs; error and
 HTML blocks are collected separately; and every field is optional.
 
-## Renderer contract
+## Renderer and card contract
 
 `nuke-tool-call-renderer.tsx` implements `ChatResponsePartRenderer<ToolCallChatResponseContent>` and is bound to
-`ChatResponsePartRenderer` in the frontend module. Its `canHandle` rule is intentionally narrow:
+`ChatResponsePartRenderer` in the frontend module. It parses the summary, issues, status, and details, owns artifact
+opening through the opener service, and passes those values to `NukeToolCard`.
+
+`nuke-tool-call-card.tsx` is the pure presentational card. It imports only React and the summary helpers, so
+`nuke-tool-call-card.test.tsx` renders it with `renderToStaticMarkup` in a plain Node test without booting Theia or a
+DOM. Its `canHandleNukeToolCall` rule is intentionally narrow:
 
 - return `30` only for a `ToolCallChatResponseContent` whose `name` starts with `nuke_`, whose `finished` flag is true,
   and whose `isAwaitingUserConfirmation` flag is false;
@@ -61,6 +66,22 @@ HTML blocks are collected separately; and every field is optional.
 
 Returning `-1` is what preserves Theia's progress and confirmation UI. Never claim an unfinished or waiting call just
 because it has a partial result.
+
+## Executable next actions
+
+`nuke-next-action-service.ts` turns the next actions in a finished card into buttons:
+
+- `canRunDirectly(capabilityId)` is true only when the capability exists and its `risk` is `read`.
+- A direct run reads the current capability context, honors the capability's `when` predicate, validates the empty
+  input with `validateCapabilityInput`, invokes `capability.invoke({}, context)`, and replaces the card result with
+  `response.updateResult(result)`. Duplicate concurrent runs of the same capability are ignored.
+- A missing capability, an unavailable `when`, or missing required inputs never invokes the capability. Missing
+  capabilities and unavailable context warn; missing inputs open a chat prompt that asks NukeAI to collect them.
+- A write, execute, or destructive capability is never invoked from the card. `ask` sends a short prompt through
+  `NukeAiActionService.ask` with the display text `Run next action`. The prompt tells NukeAI to inspect current state
+  (`#nukeContext`), never invent state, use the sanitized tool name, and ask for confirmation before any state-changing
+  tool. The normal Theia confirmation flow remains in charge.
+- Invocation failures are logged and reported as `NukeAI could not run ...` without changing the card result.
 
 ## Card anatomy
 
@@ -74,8 +95,9 @@ Each card contains, in order:
 - error and warning lists;
 - image previews as `<img src="data:...">` figures, never raw base64 text;
 - HTML previews in `<iframe sandbox="" srcDoc={...} title={...}>`;
-- artifact buttons that open a path through `URI.fromFilePath` or a URI through the opener service;
-- textual next actions — cards never execute a capability;
+- artifact buttons wired to the renderer, which opens a path through `URI.fromFilePath` or a URI through the opener service;
+- one button per next action: `Run` for read-only capabilities and `Ask NukeAI` for every other risk, with the action
+  label and reason visible beside it;
 - a bounded `<details>` block with the parsed arguments and normalized result (20 KiB maximum).
 
 Status is derived from the result, not the badge alone: `ok: false`, an error block, or an error-severity issue marks

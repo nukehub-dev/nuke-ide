@@ -9,6 +9,8 @@ workspace context attached.
 Open the **Nuke Tools** view from the activity bar (the tools icon), or run **Nuke: Focus Tools Sidebar** from the
 Command Palette. The **NukeAI** section is the first section in the sidebar.
 
+![NukeAI section in the Nuke Tools sidebar with the read-only contextual actions](images/nuke-ai-actions.png)
+
 | Action                    | What it asks NukeAI to do                                                          |
 | ------------------------- | ---------------------------------------------------------------------------------- |
 | Ask About Active Context  | Explain what the active CAD document, OpenMC project, and dataset let you do next. |
@@ -39,6 +41,14 @@ path or a result.
 Write and execute capabilities still exist in the agent. Exporting DAGMC, importing geometry, running OpenMC, and
 opening a statepoint viewer require explicit confirmation in the conversation. The sidebar actions never confirm those
 operations for you.
+
+## Next steps in result cards
+
+A finished NukeAI result card can suggest follow-up capabilities. Read-only suggestions show a **Run** button that
+executes the step immediately and replaces the card with the new result. State-changing suggestions show **Ask NukeAI**
+instead: it opens a focused chat prompt that asks NukeAI to inspect the current state, request any missing inputs, and
+ask for confirmation before writing, executing, or destructive work. The card never performs those steps itself, so the
+normal confirmation flow still applies.
 
 ## The NukeAI agent
 
