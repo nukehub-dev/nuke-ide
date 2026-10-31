@@ -1,7 +1,7 @@
-# Safe OpenMC Settings Edits
+# Safe OpenMC Edits
 
-NukeAI can change basic OpenMC run settings without writing directly to your project from the chat model. Every edit
-goes through a preview, an explicit apply step with confirmation, and an in-session undo.
+NukeAI can change basic OpenMC run settings, materials, and tallies without writing directly to your project from the
+chat model. Every edit goes through a preview, an explicit apply step with confirmation, and an in-session undo.
 
 ## Supported settings
 
@@ -21,7 +21,37 @@ Only these paths are accepted. Any other path rejects the whole preview.
 | `atomicRelaxation`        | boolean                                                   |
 | `sourceRejectionFraction` | number from 0 to 1                                        |
 
-Materials, tallies, sources, geometry, and advanced settings are not editable through this flow.
+Sources, geometry, and advanced settings are not editable through this flow. Materials and tallies have their own
+flows below.
+
+## Materials
+
+Material edits support add, update, and remove actions, one to twenty per preview.
+
+- **Update** - change `name`, `density`, `densityUnit`, `nuclides`, `thermalScattering`, `color`, `temperature`,
+  `volume`, `isDepletable`, `ncrystalCfg`, or `isotropic` on an existing material.
+- **Add** - create a material with those fields. It receives the next material id, and its name must not already exist.
+- **Remove** - delete an existing material; the preview keeps its full snapshot for undo.
+
+Material ids, macroscopic data, and CAD provenance fields are read-only in this flow. NCrystal config cannot be
+combined with thermal scattering. A nuclide list uses `{ name, fraction, fractionType }` entries and must have a
+positive total fraction. NukeAI reads the current material first and does not invent nuclides, densities, volumes, or
+names.
+
+Removing a material does not rewrite references in cells or tallies. Validate the project after a removal.
+
+## Tallies
+
+Tally edits support add, update, and remove actions, one to twenty per preview.
+
+- **Update** - change `name`, `scores`, `nuclides`, `estimator`, `multiplyDensity`, or `higherMoments`.
+- **Add** - create a tally with those fields. It receives the next tally id, and a provided name must be unique.
+  `nuclides` defaults to `["total"]` and `filters` defaults to `[]`.
+- **Remove** - delete an existing tally; the preview keeps its full snapshot for undo.
+
+Scores must be catalog names or numeric `MT<n>` values. Existing filters, triggers, and derivatives are preserved and
+cannot be edited through this flow. Adding a tally with filters is supported; mesh authoring remains a dashboard task.
+NukeAI never invents tally results: run the model and inspect a statepoint for results.
 
 ## Preview
 
@@ -46,16 +76,17 @@ explicit confirmation before calling the write capability.
 Confirm only when the diff matches what you want. The apply tool call appears as its own result card with the same
 diff, an **Undo** button, and no **Apply with NukeAI**.
 
-If the settings changed between the preview and the apply, the apply is rejected with
-`Settings changed since the preview. Preview again.` Run a fresh preview instead of retrying the old proposal.
+If the project changed between the preview and the apply, the apply is rejected with a message naming the changed
+setting, material, or tally. Run a fresh preview instead of retrying the old proposal.
 
 ## Undo
 
 An applied change shows **Undo**. Selecting it opens a warning notification with an **Undo** action; the reverse
 handler runs only after you choose that action. Cancelling the notification leaves the settings unchanged.
 
-Undo restores only the paths that the proposal changed and verifies that the current values still match the applied
-result. A failed undo keeps the token so you can try again, and reports the failure instead of replacing the card.
+Undo restores only the paths, materials, or tallies that the proposal changed and verifies that the current values
+still match the applied result. A failed undo keeps the token so you can try again, and reports the failure instead of
+replacing the card.
 
 Undo state is in memory for the current IDE session only:
 

@@ -57,6 +57,8 @@ export const NUKE_DIAGNOSTICS_TOOL_NAMES = [
     'nuke_openmc_diagnoseProject',
     'nuke_openmc_diagnoseRun',
     'nuke_viz_diagnoseStatepoint',
+    'nuke_viz_compareStatepoints',
+    'nuke_viz_analyzeTallySeries',
     'nuke_cad_summarizeDocument',
     'nuke_cad_inspectSelection',
     'nuke_openmc_summarizeProject',
@@ -72,7 +74,8 @@ export class NukeDiagnosticsAgent extends AbstractStreamParsingChatAgent {
 
     readonly name = 'Nuke Diagnostics';
 
-    description = 'Read-only diagnostics for the active CAD model, OpenMC project and run, and loaded statepoint metadata.';
+    description =
+        'Read-only diagnostics for the active CAD model, OpenMC project and run, statepoint metadata and comparison, and tally series.';
 
     iconClass = 'codicon codicon-checklist';
 

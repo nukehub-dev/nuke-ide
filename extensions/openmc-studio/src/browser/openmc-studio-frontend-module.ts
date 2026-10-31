@@ -54,7 +54,9 @@ import { OpenMCXMLGenerationService } from './xml-generator/xml-generation-servi
 import { OpenMCSimulationRunner } from './widgets/simulation-dashboard/simulation-runner';
 import { OpenMCPythonExporter } from './script-generator/python-exporter';
 import { OpenMCCapabilities, OpenMCContextContribution } from './capabilities/openmc-capabilities';
-import { OpenMCSettingsProposalService } from './capabilities/openmc-settings-proposal-service';
+import { OpenMCChangeProposalService } from './capabilities/openmc-change-proposal-service';
+import { OpenMCMaterialCapabilities } from './capabilities/openmc-material-capabilities';
+import { OpenMCTallyCapabilities } from './capabilities/openmc-tally-capabilities';
 
 // New modular services
 import { OpenMCEnvironmentService, OpenMCHealthService, OpenMCInstallerService } from './services';
@@ -169,7 +171,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCXMLGenerationService).toSelf().inSingletonScope();
     bind(OpenMCSimulationRunner).toSelf().inSingletonScope();
     bind(OpenMCPythonExporter).toSelf().inSingletonScope();
-    bind(OpenMCSettingsProposalService).toSelf().inSingletonScope();
+    bind(OpenMCChangeProposalService).toSelf().inSingletonScope();
 
     // ============================================================================
     // Environment & Health Services
@@ -184,6 +186,12 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     // The capability contribution providers are bound once by nuke-core.
     bind(OpenMCCapabilities).toSelf().inSingletonScope();
     bind(NukeCapabilityContribution).toService(OpenMCCapabilities);
+
+    bind(OpenMCMaterialCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCMaterialCapabilities);
+
+    bind(OpenMCTallyCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCTallyCapabilities);
 
     bind(OpenMCContextContribution).toSelf().inSingletonScope();
     bind(NukeCapabilityContextContribution).toService(OpenMCContextContribution);

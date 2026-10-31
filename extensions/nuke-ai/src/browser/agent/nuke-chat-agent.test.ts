@@ -37,6 +37,10 @@ const CAPABILITY_IDS = [
     'nuke.openmc.validateProject',
     'nuke.openmc.previewSettings',
     'nuke.openmc.applySettings',
+    'nuke.openmc.previewMaterialChange',
+    'nuke.openmc.applyMaterialChange',
+    'nuke.openmc.previewTallyChange',
+    'nuke.openmc.applyTallyChange',
     'nuke.openmc.importCad',
     'nuke.openmc.runSimulation',
     'nuke.openmc.getRunStatus',
@@ -62,12 +66,12 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all thirteen capability tool names', () => {
+    it('exposes the nukeContext variable and all seventeen capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(13);
+        expect(agent.functions).toHaveLength(17);
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -98,25 +102,29 @@ describe('NukeChatAgent', () => {
         expect(prompt).toMatch(/do not write files/i);
     });
 
-    it('requires a settings preview, a shown diff, explicit apply, and undo reporting', () => {
+    it('requires previews, shown diffs, explicit apply, and undo for settings, materials, and tallies', () => {
         const prompt = promptTemplate();
 
         expect(prompt).toContain('nuke_openmc_previewSettings');
         expect(prompt).toContain('nuke_openmc_applySettings');
+        expect(prompt).toContain('nuke_openmc_previewMaterialChange');
+        expect(prompt).toContain('nuke_openmc_applyMaterialChange');
+        expect(prompt).toContain('nuke_openmc_previewTallyChange');
+        expect(prompt).toContain('nuke_openmc_applyTallyChange');
         expect(prompt).toMatch(/Preview every change/);
         expect(prompt).toMatch(/Show the diff/);
         expect(prompt).toMatch(/Apply only after explicit confirmation/);
         expect(prompt).toContain('undoToken');
         expect(prompt).toContain('run.particles');
         expect(prompt).toContain('sourceRejectionFraction');
-        expect(prompt).toMatch(/Do not edit materials/);
-        expect(prompt).toMatch(/Applying a\s+previewed settings change also requires explicit confirmation/i);
+        expect(prompt).toMatch(/filters,\s+triggers, and derivatives are preserved/);
+        expect(prompt).toMatch(/Applying a\s+previewed settings, material, or tally change also requires explicit confirmation/i);
     });
 
-    it('stays within a concise prompt budget', () => {
+    it('stays within a bounded prompt budget', () => {
         const lines = promptTemplate().split('\n');
 
         expect(lines.length).toBeGreaterThanOrEqual(80);
-        expect(lines.length).toBeLessThanOrEqual(150);
+        expect(lines.length).toBeLessThanOrEqual(190);
     });
 });

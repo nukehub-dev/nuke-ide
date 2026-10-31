@@ -71,7 +71,7 @@ import { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from '../services/o
 import { OpenMCSimulationRunner } from '../widgets/simulation-dashboard/simulation-runner';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { applySettingsChanges, OpenMCSettingsEdit, settingsChanges, settingsEqual, settingsValue } from './openmc-settings-edit';
-import { OpenMCSettingsProposal, OpenMCSettingsProposalService } from './openmc-settings-proposal-service';
+import { OpenMCChangeProposal, OpenMCChangeProposalService, scopeError } from './openmc-change-proposal-service';
 
 /** Read the last `lines` lines of a log, capped at 16 KiB. */
 const MAX_LOG_TAIL_LENGTH = 16 * 1024;
@@ -425,8 +425,21 @@ function defaultSettingsSummary(changes: readonly NukeChange[]): string {
 /** Title shared by the preview and apply change sets. */
 const SETTINGS_CHANGE_TITLE = 'OpenMC settings change';
 
+/** Read a settings snapshot from a generic proposal. */
+function readSettingsSnapshot(value: unknown): OpenMCSettings | undefined {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    const run = record.run;
+    if (run === null || typeof run !== 'object' || Array.isArray(run) || !Array.isArray(record.sources)) {
+        return undefined;
+    }
+    return value as OpenMCSettings;
+}
+
 /** Build the change set returned by the preview and apply capabilities. */
-function settingsChangeSet(proposal: Pick<OpenMCSettingsProposal, 'id' | 'summary' | 'changes'>, applyCapability?: string): NukeChangeSet {
+function settingsChangeSet(proposal: Pick<OpenMCChangeProposal, 'id' | 'summary' | 'changes'>, applyCapability?: string): NukeChangeSet {
     return {
         id: proposal.id,
         title: SETTINGS_CHANGE_TITLE,
@@ -524,7 +537,7 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
         @inject(OpenMCSimulationRunner) protected readonly simulationRunner: OpenMCSimulationRunner,
         @inject(NukeCoreService) protected readonly nukeCoreService: NukeCoreService,
         @inject(FileService) protected readonly fileService: FileService,
-        @inject(OpenMCSettingsProposalService) protected readonly proposalService: OpenMCSettingsProposalService,
+        @inject(OpenMCChangeProposalService) protected readonly proposalService: OpenMCChangeProposalService,
         @inject(NukeUndoService) protected readonly undoService: NukeUndoService
     ) {}
 
@@ -1175,10 +1188,11 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
         const afterSettings = applySettingsChanges(settings, parsed.changes);
         const summary = readString(record, 'summary')?.trim() || defaultSettingsSummary(changes);
         const proposal = this.proposalService.create({
+            scope: 'settings',
             summary,
             changes,
-            beforeSettings: settings,
-            afterSettings
+            before: settings,
+            after: afterSettings
         });
         return {
             ok: true,
@@ -1202,10 +1216,19 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
         if (!proposal) {
             return { ok: false, message: 'This settings preview is missing or has expired. Preview again.' };
         }
+        const wrongScope = scopeError(proposal, 'settings');
+        if (wrongScope) {
+            return { ok: false, message: wrongScope };
+        }
+        const beforeSettings = readSettingsSnapshot(proposal.before);
+        const afterSettings = readSettingsSnapshot(proposal.after);
+        if (!beforeSettings || !afterSettings) {
+            return { ok: false, message: 'This settings preview is missing its settings snapshot. Preview again.' };
+        }
 
         const current = this.stateManager.getState().settings;
         const stale = proposal.changes.some(
-            (change) => !settingsEqual(settingsValue(current, change.path), settingsValue(proposal.beforeSettings, change.path))
+            (change) => !settingsEqual(settingsValue(current, change.path), settingsValue(beforeSettings, change.path))
         );
         if (stale) {
             return { ok: false, message: 'Settings changed since the preview. Preview again.' };
@@ -1219,7 +1242,7 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
         );
         this.stateManager.updateSettings(updated);
         this.proposalService.remove(proposal.id);
-        const undoToken = this.undoService.register(this.createSettingsUndo(proposal));
+        const undoToken = this.undoService.register(this.createSettingsUndo(proposal, beforeSettings, afterSettings));
         return {
             ok: true,
             data: { proposalId: proposal.id, summary: proposal.summary, changes: proposal.changes },
@@ -1230,13 +1253,17 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
     }
 
     /** Build the undo handler for an applied settings proposal. */
-    protected createSettingsUndo(proposal: OpenMCSettingsProposal): NukeUndoEntry {
+    protected createSettingsUndo(
+        proposal: OpenMCChangeProposal,
+        beforeSettings: OpenMCSettings,
+        afterSettings: OpenMCSettings
+    ): NukeUndoEntry {
         return {
             title: `Undo ${proposal.summary}`,
             undo: async () => {
                 const current = this.stateManager.getState().settings;
                 const changed = proposal.changes.some(
-                    (change) => !settingsEqual(settingsValue(current, change.path), settingsValue(proposal.afterSettings, change.path))
+                    (change) => !settingsEqual(settingsValue(current, change.path), settingsValue(afterSettings, change.path))
                 );
                 if (changed) {
                     return { ok: false, message: 'Settings changed since the edit; the change can no longer be undone.' };
@@ -1246,7 +1273,7 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
                 const updates: Record<string, unknown> = {};
                 let runChanged = false;
                 for (const change of proposal.changes) {
-                    const before = settingsValue(proposal.beforeSettings, change.path);
+                    const before = settingsValue(beforeSettings, change.path);
                     if (change.path.startsWith('run.')) {
                         run[change.path.slice('run.'.length)] = before;
                         runChanged = true;

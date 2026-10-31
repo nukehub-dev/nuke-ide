@@ -70,7 +70,7 @@ import type { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from '../servi
 import type { OpenMCSimulationRunner } from '../widgets/simulation-dashboard/simulation-runner';
 import type { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { OpenMCCapabilities, OpenMCContextContribution } from './openmc-capabilities';
-import { OpenMCSettingsProposalService } from './openmc-settings-proposal-service';
+import { OpenMCChangeProposalService } from './openmc-change-proposal-service';
 
 const WORKSPACE = '/workspace';
 
@@ -210,7 +210,7 @@ class FakeFileService {
     exists = vi.fn(async (uri: URI): Promise<boolean> => this.existingPaths.has(uri.path.toString()));
 }
 
-class TestProposalService extends OpenMCSettingsProposalService {
+class TestProposalService extends OpenMCChangeProposalService {
     readonly clock = { now: 1_000_000 };
     protected counter = 0;
 
@@ -1141,6 +1141,10 @@ describe('OpenMC settings capabilities', () => {
             { capability: 'nuke.openmc.applySettings', reason: 'Apply the previewed settings change after confirmation.' }
         ]);
         expect(harness.proposalService.get(data.proposalId)).toBeDefined();
+        const proposal = harness.proposalService.get(data.proposalId)!;
+        expect(proposal.scope).toBe('settings');
+        expect(proposal.before).toMatchObject({ run: { particles: 1000 } });
+        expect(proposal.after).toMatchObject({ run: { particles: 2000 }, verbosity: 3 });
         expect(harness.stateManager.settingsUpdates).toEqual([]);
         expect(harness.stateManager.state.settings.run).toEqual({ mode: 'eigenvalue', particles: 1000, inactive: 10, batches: 50 });
     });
@@ -1237,6 +1241,23 @@ describe('OpenMC settings capabilities', () => {
         expect(result.ok).toBe(true);
         expect(harness.stateManager.state.settings.run).toMatchObject({ particles: 2000 });
         expect(harness.stateManager.state.settings.seed).toBe(7);
+    });
+
+    it('rejects a proposal from another scope without mutating state or consuming it', async () => {
+        const harness = createHarness();
+        const foreign = harness.proposalService.create({
+            scope: 'materials',
+            summary: 'Swap materials',
+            changes: [{ path: 'materials', label: 'Materials', kind: 'update', before: [], after: [] }],
+            before: [],
+            after: []
+        });
+
+        const result = await harness.invoke('nuke.openmc.applySettings', { proposalId: foreign.id });
+
+        expect(result).toEqual({ ok: false, message: `Proposal ${foreign.id} is for materials, not settings.` });
+        expect(harness.stateManager.settingsUpdates).toEqual([]);
+        expect(harness.proposalService.get(foreign.id)).toBeDefined();
     });
 
     it('rejects missing, expired, and stale proposals', async () => {

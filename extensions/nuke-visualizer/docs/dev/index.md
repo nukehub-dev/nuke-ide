@@ -4,17 +4,17 @@ This section is for developers who want to understand, modify, or extend `nuke-v
 
 ## Getting Started
 
-| Doc                                       | What You'll Learn                                                  |
-| ----------------------------------------- | ------------------------------------------------------------------ |
-| [**Architecture**](architecture.md)       | How frontend, backend, and Python layers fit together              |
-| [**Shared Services**](shared-services.md) | Health checks, Python helper, Plotly service, widget lifecycle     |
-| [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract     |
-| [**DI Wiring**](di-wiring.md)             | InversifyJS container modules and binding patterns                 |
-| [**Widget Patterns**](widget-patterns.md) | When to use native 3D widgets vs React widgets                     |
-| [**Output Viewers**](output-viewers.md)   | The OutputViewerRegistry and the convert → parse → render pipeline |
-| [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin          |
-| [**Python Backends**](python-backends.md) | Conventions for Python server scripts                              |
-| [**AI Capabilities**](ai-capabilities.md) | Capability registry actions and truthful viewport capture          |
+| Doc                                       | What You'll Learn                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| [**Architecture**](architecture.md)       | How frontend, backend, and Python layers fit together                    |
+| [**Shared Services**](shared-services.md) | Health checks, Python helper, Plotly service, widget lifecycle           |
+| [**RPC Protocols**](rpc-protocols.md)     | How TypeScript interfaces define the frontend/backend contract           |
+| [**DI Wiring**](di-wiring.md)             | InversifyJS container modules and binding patterns                       |
+| [**Widget Patterns**](widget-patterns.md) | When to use native 3D widgets vs React widgets                           |
+| [**Output Viewers**](output-viewers.md)   | The OutputViewerRegistry and the convert → parse → render pipeline       |
+| [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin                |
+| [**Python Backends**](python-backends.md) | Conventions for Python server scripts                                    |
+| [**AI Capabilities**](ai-capabilities.md) | Capability registry actions, statepoint comparison, and viewport capture |
 
 ## Code Organization
 

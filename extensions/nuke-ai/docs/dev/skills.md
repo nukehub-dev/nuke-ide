@@ -58,7 +58,8 @@ by name when a conversation needs progressive disclosure.
   `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_cad_exportDagmc`, `nuke_cad_diagnoseModel`,
   `nuke_openmc_summarizeProject`, `nuke_openmc_validateProject`, `nuke_openmc_importCad`,
   `nuke_openmc_runSimulation`, `nuke_openmc_getRunStatus`, `nuke_openmc_diagnoseProject`, `nuke_openmc_diagnoseRun`,
-  `nuke_viz_summarizeStatepoint`, `nuke_viz_openStatepoint`, `nuke_viz_captureView`, `nuke_viz_diagnoseStatepoint`.
+  `nuke_viz_summarizeStatepoint`, `nuke_viz_openStatepoint`, `nuke_viz_captureView`, `nuke_viz_diagnoseStatepoint`,
+  `nuke_viz_compareStatepoints`, `nuke_viz_analyzeTallySeries`.
 - Call instructions use the sanitized tool names. Each skill includes one short mapping note because the
   capability id stays the stable registry identifier: `nuke.cad.summarizeDocument` is exposed as
   `nuke_cad_summarizeDocument`, and the remaining ids replace dots with underscores in the same way.

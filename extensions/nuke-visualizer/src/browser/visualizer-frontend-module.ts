@@ -113,6 +113,7 @@ import { CsgOutlineWidget } from './csg-outline/csg-outline-widget';
 import { CsgOutlineContribution } from './csg-outline/csg-outline-contribution';
 import { NukeCapabilityContribution, NukeCapabilityContextContribution } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { VisualizerCapabilities, VisualizerContextContribution } from './capabilities/visualizer-capabilities';
+import { VisualizerDiagnosticsCapabilities } from './capabilities/visualizer-diagnostics-capabilities';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -418,6 +419,14 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         )
         .inSingletonScope();
     bind(NukeCapabilityContribution).toService(VisualizerCapabilities);
+    // Read-only statepoint comparison and tally-series analysis. A separate
+    // contribution keeps the viewer-facing capabilities above untouched; it
+    // only receives the OpenMC backend, so it cannot change the loaded
+    // statepoint.
+    bind(VisualizerDiagnosticsCapabilities)
+        .toDynamicValue(({ container }) => new VisualizerDiagnosticsCapabilities(container.get(OpenMCBackendService)))
+        .inSingletonScope();
+    bind(NukeCapabilityContribution).toService(VisualizerDiagnosticsCapabilities);
     bind(VisualizerContextContribution)
         .toDynamicValue(({ container }) => new VisualizerContextContribution(container.get(OpenMCService)))
         .inSingletonScope();

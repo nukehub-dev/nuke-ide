@@ -49,6 +49,10 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   real DAGMC viewport, never the window; see `docs/dev/ai-capabilities.md`.
 - `nuke.viz.diagnoseStatepoint` triages loaded statepoint metadata only (k-effective uncertainty, batch counts, tally
   coverage); it never reads raw tally values or replaces the loaded file. See `docs/dev/ai-capabilities.md`.
+- `nuke.viz.compareStatepoints` / `nuke.viz.analyzeTallySeries` live in `visualizer-diagnostics-capabilities.ts` with
+  pure thresholds in `visualizer-diagnostics.ts`; both use `OpenMCBackendService` only, never `OpenMCService.loadStatepoint`.
+- Diagnostic paths stay absolute and inside a workspace root; series reads cap at 50 files and report aggregate steps
+  only (no per-bin RPC). See `docs/dev/ai-capabilities.md`.
 - Color legend title/vertical-label settings are native-viewer fields (`scalarBarTitle`/`scalarBarVertical`); keep the
   legend as the single source of truth and do not duplicate the title in the viewer header.
 - Mesh quality (`viewer-quality-menu.tsx`) runs `base.mesh-quality` through `runBaseCommand`, then opens the returned

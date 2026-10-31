@@ -34,6 +34,8 @@ const CAPABILITY_IDS = [
     'nuke.openmc.diagnoseProject',
     'nuke.openmc.diagnoseRun',
     'nuke.viz.diagnoseStatepoint',
+    'nuke.viz.compareStatepoints',
+    'nuke.viz.analyzeTallySeries',
     'nuke.cad.summarizeDocument',
     'nuke.cad.inspectSelection',
     'nuke.openmc.summarizeProject',
@@ -44,7 +46,12 @@ const CAPABILITY_IDS = [
 
 const WRITE_TOOL_NAMES = [
     'nuke_cad_exportDagmc',
+    'nuke_openmc_previewSettings',
     'nuke_openmc_applySettings',
+    'nuke_openmc_previewMaterialChange',
+    'nuke_openmc_applyMaterialChange',
+    'nuke_openmc_previewTallyChange',
+    'nuke_openmc_applyTallyChange',
     'nuke_openmc_importCad',
     'nuke_openmc_runSimulation',
     'nuke_viz_openStatepoint'
@@ -72,13 +79,15 @@ describe('NukeDiagnosticsAgent', () => {
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_DIAGNOSTICS_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(10);
+        expect(agent.functions).toHaveLength(12);
         expect(NUKE_DIAGNOSTICS_TOOL_NAMES).toEqual(
             expect.arrayContaining([
                 'nuke_cad_diagnoseModel',
                 'nuke_openmc_diagnoseProject',
                 'nuke_openmc_diagnoseRun',
-                'nuke_viz_diagnoseStatepoint'
+                'nuke_viz_diagnoseStatepoint',
+                'nuke_viz_compareStatepoints',
+                'nuke_viz_analyzeTallySeries'
             ])
         );
     });
@@ -110,6 +119,15 @@ describe('NukeDiagnosticsAgent', () => {
         expect(prompt).toMatch(/per-bin\s+uncertainties/i);
     });
 
+    it('documents comparison and aggregate tally-series limits', () => {
+        const prompt = promptTemplate();
+
+        expect(prompt).toMatch(/Neither\s+file is loaded into the viewer/i);
+        expect(prompt).toMatch(/one to fifty absolute workspace/i);
+        expect(prompt).toMatch(/aggregate step statistics only/i);
+        expect(prompt).toMatch(/never loads a statepoint into the viewer/i);
+    });
+
     it('keeps the agent strictly read-only and cites evidence', () => {
         const prompt = promptTemplate();
 
@@ -130,5 +148,13 @@ describe('NukeDiagnosticsAgent', () => {
         }
         expect(prompt).not.toContain('nuke_openmc_previewSettings');
         expect(prompt).not.toContain('nuke.openmc.previewSettings');
+        expect(prompt).not.toContain('nuke_openmc_previewMaterialChange');
+        expect(prompt).not.toContain('nuke.openmc.previewMaterialChange');
+        expect(prompt).not.toContain('nuke_openmc_applyMaterialChange');
+        expect(prompt).not.toContain('nuke.openmc.applyMaterialChange');
+        expect(prompt).not.toContain('nuke_openmc_previewTallyChange');
+        expect(prompt).not.toContain('nuke.openmc.previewTallyChange');
+        expect(prompt).not.toContain('nuke_openmc_applyTallyChange');
+        expect(prompt).not.toContain('nuke.openmc.applyTallyChange');
     });
 });

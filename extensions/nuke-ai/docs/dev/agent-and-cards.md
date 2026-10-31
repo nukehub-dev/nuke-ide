@@ -9,7 +9,7 @@ for finished Nuke capability calls.
 
 - extends `AbstractStreamParsingChatAgent` and is bound as both `Agent` and `ChatAgent`;
 - uses the `chat` language-model purpose and the `nuke-system` prompt;
-- declares `nuke.context` and the thirteen capability tool names in its `functions` list;
+- declares `nuke.context` and the seventeen capability tool names in its `functions` list;
 - references every capability tool through `~{toolName}` in the prompt, where `toolName` is the sanitized name
   registered by the bridge (for example `nuke_cad_summarizeDocument`), not the capability id, so the model receives
   the typed tools without a separate registration step.
@@ -18,9 +18,10 @@ The system prompt introduces the CAD → DAGMC → OpenMC → statepoint workflo
 the model to ask before a write, execute, or destructive tool. Export, import, run, and viewer-open tools keep their
 Theia confirmation requirement. Never add a write or execute tool to the prompt without a matching confirmation path.
 
-The settings-edit section requires NukeAI to preview with `nuke_openmc_previewSettings`, show the diff, apply with
-`nuke_openmc_applySettings` only after explicit confirmation, and report undo availability from the apply result. The
-read-only Diagnostics agent never receives either tool; see [Safe OpenMC Settings Edits](../user/safe-edits.md).
+The safe-edit section requires NukeAI to preview with `nuke_openmc_previewSettings`, `nuke_openmc_previewMaterialChange`,
+or `nuke_openmc_previewTallyChange`, show the diff, apply with the matching apply tool only after explicit confirmation,
+and report undo availability from the apply result. The read-only Diagnostics agent never receives a preview or apply
+tool; see [Safe OpenMC Edits](../user/safe-edits.md).
 
 The agent receives the same active-workspace summary as `#nukeContext`. Missing documents, projects, or datasets are
 reported as `none`; the agent must not invent model state.
@@ -29,19 +30,20 @@ reported as `none`; the agent must not invent model state.
 
 `src/browser/agent/nuke-diagnostics-agent.ts` registers the read-only `Nuke Diagnostics` agent
 (`NUKE_DIAGNOSTICS_AGENT_ID`). It is bound as both `Agent` and `ChatAgent`, uses the `chat` language-model purpose,
-the `nuke-diagnostics-system` prompt set, `#nukeContext`, and a `functions` list of the four diagnostics tools plus
+the `nuke-diagnostics-system` prompt set, `#nukeContext`, and a `functions` list of the six diagnostics tools plus
 the read-only support tools:
 
 - diagnostics: `nuke_cad_diagnoseModel`, `nuke_openmc_diagnoseProject`, `nuke_openmc_diagnoseRun`,
-  `nuke_viz_diagnoseStatepoint`;
+  `nuke_viz_diagnoseStatepoint`, `nuke_viz_compareStatepoints`, `nuke_viz_analyzeTallySeries`;
 - support: `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_openmc_summarizeProject`,
   `nuke_openmc_validateProject`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`.
 
 The prompt forbids every write, execute, and destructive tool. It requires severity-ordered findings (`error`, then
 `warning`, then `info`), tool-backed evidence for each finding, a separation between observation and hypothesis, and
-at most three safe next steps. It also states that the statepoint diagnosis reads metadata only, not raw tally values
-or per-bin uncertainties, and that a missing diagnostic tool must be reported rather than simulated. Never add a
-state-changing tool to this agent; use the NukeAI agent and its confirmation flow for those actions.
+at most three safe next steps. It also states that the statepoint diagnosis reads metadata only, that a tally series
+reports aggregate step statistics only (no per-bin values for one file), and that a missing diagnostic tool must be
+reported rather than simulated. Never add a state-changing tool to this agent; use the NukeAI agent and its
+confirmation flow for those actions.
 
 ## Contextual actions
 

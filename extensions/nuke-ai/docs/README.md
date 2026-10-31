@@ -14,7 +14,7 @@ The AI chat and capability tools become useful as domain extensions publish capa
 
 → Read [**Nuke Diagnostics**](user/diagnostics.md) for the read-only diagnostics agent and the CAD, OpenMC project/run, and statepoint diagnostic actions.
 
-→ Read [**Safe OpenMC Settings Edits**](user/safe-edits.md) for previewing a settings diff, applying it with confirmation, and undoing it in-session.
+→ Read [**Safe OpenMC Edits**](user/safe-edits.md) for previewing settings, material, and tally diffs, applying them with confirmation, and undoing them in-session.
 
 → Read [**External MCP Clients**](user/mcp-clients.md) to connect an external MCP client to the opt-in, read-only endpoint.
 
@@ -40,23 +40,23 @@ Covers the in-process capability-to-tool flow, tool naming, schema and result co
 
 ## Quick Overview
 
-| Area              | What It Does                                                                          |
-| ----------------- | ------------------------------------------------------------------------------------- |
-| NukeAI agent      | Dedicated `NukeAI` chat agent for the CAD → DAGMC → OpenMC → statepoint workflow      |
-| Diagnostics agent | Read-only `Nuke Diagnostics` agent for CAD, OpenMC project/run, and statepoint triage |
-| Context actions   | Read-only Nuke Tools sidebar commands that open a focused chat with `#nukeContext`    |
-| Capability bridge | Turns every enabled `NukeCapability` into a Theia AI tool                             |
-| Schema mapping    | Converts capability JSON Schema into `ToolRequestParameters`                          |
-| Result mapping    | Renders structured results as bounded text, errors, previews, and artifact lines      |
-| Result cards      | Finished Nuke tool calls render as status cards with counts, warnings, and previews   |
-| Settings edits    | Preview a diff, apply with confirmation, and undo an OpenMC settings change           |
-| Preview history   | Persists truthful previews and a replayable command-to-preview trajectory             |
-| Refresh           | Rebuilds the tool set when capabilities or ambient context change                     |
-| Skills            | Ships domain guidance as plugin-tier `SKILL.md` slash commands                        |
-| Context           | `#nukeContext` carries the active CAD document, OpenMC project, dataset, and roots    |
-| Resources         | Read-only `nuke://` summaries backed by the capability registry                       |
-| External MCP      | Opt-in, token-protected, loopback-only read-only endpoint on the external API         |
-| Transport         | In-process for the chat; external MCP is a separate opt-in surface                    |
+| Area              | What It Does                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------- |
+| NukeAI agent      | Dedicated `NukeAI` chat agent for the CAD → DAGMC → OpenMC → statepoint workflow         |
+| Diagnostics agent | Read-only `Nuke Diagnostics` agent for CAD, OpenMC project/run, and statepoint triage    |
+| Context actions   | Read-only Nuke Tools sidebar commands that open a focused chat with `#nukeContext`       |
+| Capability bridge | Turns every enabled `NukeCapability` into a Theia AI tool                                |
+| Schema mapping    | Converts capability JSON Schema into `ToolRequestParameters`                             |
+| Result mapping    | Renders structured results as bounded text, errors, previews, and artifact lines         |
+| Result cards      | Finished Nuke tool calls render as status cards with counts, warnings, and previews      |
+| Safe edits        | Preview a diff, apply with confirmation, and undo OpenMC settings, materials, or tallies |
+| Preview history   | Persists truthful previews and a replayable command-to-preview trajectory                |
+| Refresh           | Rebuilds the tool set when capabilities or ambient context change                        |
+| Skills            | Ships domain guidance as plugin-tier `SKILL.md` slash commands                           |
+| Context           | `#nukeContext` carries the active CAD document, OpenMC project, dataset, and roots       |
+| Resources         | Read-only `nuke://` summaries backed by the capability registry                          |
+| External MCP      | Opt-in, token-protected, loopback-only read-only endpoint on the external API            |
+| Transport         | In-process for the chat; external MCP is a separate opt-in surface                       |
 
 ---
 

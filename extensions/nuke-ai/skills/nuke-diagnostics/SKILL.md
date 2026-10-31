@@ -1,6 +1,6 @@
 ---
 name: nuke-diagnostics
-description: Triage the active CAD model, OpenMC project or run, and loaded statepoint with read-only diagnostic tools. Use when a model or simulation misbehaves and the user needs severity-ordered findings and safe next steps.
+description: Triage the active CAD model, OpenMC project or run, statepoints, and tally series with read-only diagnostic tools. Use when a model or simulation misbehaves and the user needs severity-ordered findings and safe next steps.
 ---
 
 # Nuke Diagnostics
@@ -24,6 +24,13 @@ exposed as `nuke_cad_diagnoseModel`, and the other diagnostic ids follow the sam
   it only when exactly one run is active.
 - `nuke_viz_diagnoseStatepoint` - triages the currently loaded statepoint. Reports batches, generations per
   batch, k-effective uncertainty, tally coverage, and severity-coded findings. It never loads a different file.
+- `nuke_viz_compareStatepoints` - compares two absolute workspace statepoints. Reports batches, generations per
+  batch, k-effective with uncertainty, tally ids, and severity-coded findings for missing k-effective, a
+  k-effective shift, a batch-count difference, and a tally-set difference. Neither file is loaded into the
+  viewer.
+- `nuke_viz_analyzeTallySeries` - aggregates one tally and score across one to fifty absolute workspace
+  statepoints. Reports per-step values, standard deviations, bin counts, and findings for empty bins, high or
+  worsening uncertainty, mesh tallies, and single-step series.
 
 Read-only support tools add context without changing state: `nuke_cad_summarizeDocument`,
 `nuke_cad_inspectSelection`, `nuke_openmc_summarizeProject`, `nuke_openmc_validateProject`,
@@ -62,12 +69,23 @@ State-changing capabilities keep their normal confirmation flow and require expl
 from a diagnostic answer, and do not present a repair as already done. Close with at most three safe next steps
 and mark any step that changes state as something the user must perform.
 
+## Comparison and series analysis
+
+`nuke_viz_compareStatepoints` warns when the relative k-effective difference exceeds 1% and reports an error
+above 5%. A missing k-effective is a warning; batch-count and tally-set differences are info findings. Both
+files are read through the headless backend, so the loaded viewer and active statepoint never change.
+
+`nuke_viz_analyzeTallySeries` warns above 10% relative tally uncertainty and reports an error above 25%. It
+warns when the last step's uncertainty grows more than 20% over the first, and it reports mesh tallies and
+single-step series as info. A successful read returns `ok: true` even when it reports error findings.
+
 ## Statepoint metadata limitation
 
 `nuke_viz_diagnoseStatepoint` triages metadata only: batches, generations per batch, k-effective and its
 uncertainty, and tally coverage. It does not read raw tally values, per-bin uncertainties, or spatial distributions.
-For those, direct the user to the statepoint viewer or a dedicated tally analysis; do not infer them from the
-diagnosis.
+`nuke_viz_analyzeTallySeries` adds aggregate per-step values and uncertainties, but the tally-series contract still
+does not expose per-bin values for a single file or spatial distributions. For those, direct the user to the
+statepoint viewer; do not infer them from a diagnosis or series result.
 
 ## Stop conditions
 

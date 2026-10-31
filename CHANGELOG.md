@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: NukeAI result cards run read-only next steps directly and route write or execute steps through NukeAI confirmation.
 - nuke-ai: NukeAI adds a read-only diagnostics agent and CAD, OpenMC project/run, and statepoint diagnostic actions.
 - nuke-ai: NukeAI previews OpenMC settings edits as diffs, applies them with confirmation, and can undo the change in-session.
+- nuke-ai: NukeAI previews, applies, and undoes OpenMC material additions, updates, and removals.
+- nuke-ai: NukeAI previews, applies, and undoes OpenMC tally additions, updates, and removals.
+- nuke-ai: the diagnostics agent can compare statepoints and analyze tally series.
 - nuke-cad: NukeAI can diagnose the active CAD model without rebuilding it.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
@@ -147,6 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-core: Nuke Tools sidebar aggregates every Nuke command in a searchable, categorized, state-aware left-panel view.
 - nuke-essentials: shared UI components (dialog, toolbar, empty state, loading overlay, panel, form layout) on the theme module.
 - nuke-essentials + nuke-visualizer + nuke-cad: shared viewer chrome (orientation cube, nav bar, view badge, status line) in all 3D views.
+- nuke-visualizer: NukeAI can compare statepoints and analyze tally uncertainty across statepoint series.
 - nuke-visualizer: NukeAI can diagnose statepoint convergence and tally coverage.
 - nuke-visualizer: NukeAI can summarize and open statepoints and capture the active DAGMC viewport.
 - nuke-visualizer: OpenMC analysis adds entropy convergence, photon contact dose, decay-photon spectra, and an ICRP dose-coefficient reference tab.

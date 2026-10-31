@@ -58,14 +58,16 @@ import type { OpenMCContribution } from '../plugins/openmc/openmc-contribution';
 import type { OpenMCService } from '../plugins/openmc/openmc-service';
 import type { OpenMCStatepointInfo, OpenMCTallyInfo } from '../../common/openmc-protocol';
 import type { ScreenshotFormat, ScreenshotOptions, ScreenshotScale } from '../viewer-core/canvas-screenshot';
+import { capDiagnosticIssues, formatRelativeUncertainty } from './visualizer-diagnostics';
+import type { NukeDiagnosticIssue } from './visualizer-diagnostics';
+
+export type { NukeDiagnosticIssue } from './visualizer-diagnostics';
 
 const SUMMARIZE_STATEPOINT = 'nuke.viz.summarizeStatepoint';
 const DIAGNOSE_STATEPOINT = 'nuke.viz.diagnoseStatepoint';
 const OPEN_STATEPOINT = 'nuke.viz.openStatepoint';
 const CAPTURE_VIEW = 'nuke.viz.captureView';
 
-/** Maximum number of findings returned by a diagnosis. */
-const DIAGNOSTIC_ISSUE_LIMIT = 20;
 const HIGH_KEFF_RELATIVE_UNCERTAINTY = 0.005;
 const NOTABLE_KEFF_RELATIVE_UNCERTAINTY = 0.001;
 const MIN_BATCHES = 50;
@@ -82,15 +84,6 @@ export interface StatepointSummary {
     readonly nTallies: number;
     readonly tallyIds: readonly number[];
     readonly tallies: readonly Pick<OpenMCTallyInfo, 'id' | 'name' | 'scores' | 'nuclides' | 'hasMesh'>[];
-}
-
-/** Shared diagnostic finding shape rendered by capability consumers. */
-export interface NukeDiagnosticIssue {
-    readonly severity: 'error' | 'warning' | 'info';
-    readonly code: string;
-    readonly category?: string;
-    readonly message: string;
-    readonly suggestion?: string;
 }
 
 /** Tally metadata included in a statepoint diagnosis. */
@@ -575,29 +568,8 @@ function diagnoseStatepoint(info: OpenMCStatepointInfo, tallies: readonly OpenMC
     };
 }
 
-/** Keep at most {@link DIAGNOSTIC_ISSUE_LIMIT} findings, replacing the tail with a truncation notice. */
-function capDiagnosticIssues(findings: readonly NukeDiagnosticIssue[]): NukeDiagnosticIssue[] {
-    if (findings.length <= DIAGNOSTIC_ISSUE_LIMIT) {
-        return [...findings];
-    }
-    const omitted = findings.length - (DIAGNOSTIC_ISSUE_LIMIT - 1);
-    return [
-        ...findings.slice(0, DIAGNOSTIC_ISSUE_LIMIT - 1),
-        {
-            severity: 'info',
-            code: 'findings-truncated',
-            message: `${omitted} additional finding(s) were omitted from this diagnosis.`,
-            suggestion: 'Review the statepoint in the viewer to inspect the remaining tallies.'
-        }
-    ];
-}
-
 function isFiniteNumber(value: number | undefined): value is number {
     return typeof value === 'number' && Number.isFinite(value);
-}
-
-function formatRelativeUncertainty(value: number): string {
-    return `${(value * 100).toFixed(2)}%`;
 }
 
 function validateStatepointPath(filePath: string, context: NukeCapabilityContext): string | undefined {

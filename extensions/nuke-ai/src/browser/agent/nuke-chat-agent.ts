@@ -30,7 +30,7 @@
  *
  * The dedicated `NukeAI` chat agent. It uses the standard streaming chat
  * pipeline with a nuclear-engineering system prompt, the `#nukeContext`
- * variable, and the thirteen capability tools published by the in-process
+ * variable, and the seventeen capability tools published by the in-process
  * bridge.
  *
  * @module nuke-ai/browser/agent
@@ -62,6 +62,10 @@ export const NUKE_CAPABILITY_TOOL_NAMES = [
     'nuke_openmc_validateProject',
     'nuke_openmc_previewSettings',
     'nuke_openmc_applySettings',
+    'nuke_openmc_previewMaterialChange',
+    'nuke_openmc_applyMaterialChange',
+    'nuke_openmc_previewTallyChange',
+    'nuke_openmc_applyTallyChange',
     'nuke_openmc_importCad',
     'nuke_openmc_runSimulation',
     'nuke_openmc_getRunStatus',

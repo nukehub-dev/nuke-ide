@@ -50,7 +50,9 @@ const ALLOWED_CAPABILITY_IDS = new Set([
     'nuke.viz.summarizeStatepoint',
     'nuke.viz.openStatepoint',
     'nuke.viz.captureView',
-    'nuke.viz.diagnoseStatepoint'
+    'nuke.viz.diagnoseStatepoint',
+    'nuke.viz.compareStatepoints',
+    'nuke.viz.analyzeTallySeries'
 ]);
 
 const ALLOWED_TOOL_NAMES = [
@@ -68,7 +70,9 @@ const ALLOWED_TOOL_NAMES = [
     'nuke_viz_summarizeStatepoint',
     'nuke_viz_openStatepoint',
     'nuke_viz_captureView',
-    'nuke_viz_diagnoseStatepoint'
+    'nuke_viz_diagnoseStatepoint',
+    'nuke_viz_compareStatepoints',
+    'nuke_viz_analyzeTallySeries'
 ];
 
 function createLogger(): ILogger & { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn> } {

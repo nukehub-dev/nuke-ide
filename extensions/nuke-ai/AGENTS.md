@@ -22,11 +22,12 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   provider's screens or styling.
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
   and `ChatAgent`; its prompt references every capability tool and `{{nukeContext}}`, and write/execute tools require
-  explicit confirmation. The settings-edit section requires `nuke_openmc_previewSettings` before
-  `nuke_openmc_applySettings`, a shown diff, confirmation, and undo reporting; see `docs/user/safe-edits.md`.
+  explicit confirmation. The safe-edit section requires preview before apply for settings, materials, and tallies, a
+  shown diff, confirmation, and undo reporting; see `docs/user/safe-edits.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
-  and read-only support tools, never the settings preview or apply tools. See `docs/user/diagnostics.md`.
+  and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.
+  Series findings cover aggregate steps only; per-bin detail stays in the viewer. See `docs/user/diagnostics.md`.
 - `NukeAiActionService.ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` resolves the requested agent and falls back
   to `NukeAI`; the four `nuke.ai.diagnose*` commands sit under the NukeAI `Diagnostics` sidebar subgroup.
 - `src/browser/actions/` owns the read-only NukeAI commands, `NukeAiActionService`, and the NukeAI Nuke Tools

@@ -1,6 +1,6 @@
 ---
 name: openmc-studio
-description: Summarize, validate, edit settings, import CAD, run, and poll an OpenMC Studio project. Use when a user asks about the active model, wants to change run settings safely, import a DAGMC model, or needs a simulation run and its status.
+description: Summarize, validate, edit settings, materials, and tallies, import CAD, run, and poll an OpenMC Studio project. Use when a user asks about the active model, wants to change the model safely, import a DAGMC model, or needs a simulation run and its status.
 ---
 
 # OpenMC Studio
@@ -83,8 +83,42 @@ Supported paths:
 | `atomicRelaxation`        | boolean                                                   |
 | `sourceRejectionFraction` | number from 0 to 1                                        |
 
-Materials, tallies, sources, geometry, and advanced settings are out of scope for this flow. Report the rejection
-message instead of trying another path.
+Sources, geometry, and advanced settings are out of scope for this flow. Report the rejection message instead of
+trying another path.
+
+## Preview, apply, and undo material edits
+
+Read the active project first and never invent nuclides, densities, volumes, colors, or names.
+
+1. **Preview** with `nuke_openmc_previewMaterialChange` and `actions` containing 1 to 20 objects:
+   - `{ "action": "update", "materialId": N, "updates": { ... } }`
+   - `{ "action": "add", "material": { "name": "...", "density": ..., "densityUnit": "g/cm3", ... } }`
+   - `{ "action": "remove", "materialId": N }`
+
+   Updatable fields are `name`, `density`, `densityUnit`, `nuclides`, `thermalScattering`, `color`, `temperature`,
+   `volume`, `isDepletable`, `ncrystalCfg`, and `isotropic`. `id`, `macroscopic`, and CAD provenance are read-only.
+   Adds receive the next id and require a unique name. Duplicate actions and NCrystal/thermal-scattering conflicts are
+   rejected.
+
+2. **Apply** with `nuke_openmc_applyMaterialChange` and the preview id after explicit confirmation. A stale preview is
+   rejected; preview again instead of guessing.
+
+3. **Undo** from the apply `undoToken`. Undo restores only the changed materials and fields and fails if they changed
+   again after apply.
+
+## Preview, apply, and undo tally edits
+
+1. **Preview** with `nuke_openmc_previewTallyChange` and 1 to 20 update/add/remove actions. Updatable fields are
+   `name`, `scores`, `nuclides`, `estimator`, `multiplyDensity`, and `higherMoments`; filters, triggers, and derivatives
+   are preserved and cannot be edited in this flow.
+
+   Adds accept optional `filters` and default `nuclides` to `["total"]`. Scores must be catalog names or numeric `MT<n>`
+   values. New tallies receive the next id, and a provided name must be unique.
+
+2. **Apply** with `nuke_openmc_applyTallyChange` and the preview id after explicit confirmation. A stale preview is
+   rejected; preview again.
+
+3. **Undo** from the apply `undoToken`. Undo restores only the changed fields and fails if they changed again.
 
 ## Import a NukeCAD DAGMC model
 

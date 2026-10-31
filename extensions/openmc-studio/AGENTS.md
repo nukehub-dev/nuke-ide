@@ -54,10 +54,16 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   into it; unsupported constructs are reported, never silently dropped. DAGMC `<dagmc_universe>` preserves the filename only;
   mesh metadata is loaded by the DAGMC Editor. `docs/user/coverage.md` is the user-facing support matrix; update it with each
   feature and keep `docs/user/index.md`/`simulation-dashboard.md` free of full-coverage claims. See `docs/dev/xml-generation.md`.
-- NukeAI capabilities live in `src/browser/capabilities/openmc-capabilities.ts`; they orchestrate existing state, XML, environment,
-  and runner services instead of reimplementing XML or run logic. See `docs/dev/ai-capabilities.md`.
-- `nuke.openmc.previewSettings`/`applySettings` edit only whitelisted basic run/settings paths through in-memory proposals (max 20,
-  10-minute TTL); apply registers a session undo that restores only the changed paths. See `docs/dev/ai-capabilities.md`.
+- NukeAI capabilities live in `src/browser/capabilities/`: project/run/settings in `openmc-capabilities.ts`, material edits in
+  `openmc-material-capabilities.ts`, and tally edits in `openmc-tally-capabilities.ts`; they orchestrate existing state, XML,
+  environment, and runner services instead of reimplementing XML or run logic. See `docs/dev/ai-capabilities.md`.
+- `OpenMCChangeProposalService` (`src/browser/capabilities/openmc-change-proposal-service.ts`) stores scoped in-memory proposals
+  (max 20, 10-minute TTL, cloned snapshots); `previewSettings`/`applySettings` use the `settings` scope, and apply registers a
+  session undo that restores only the changed paths. See `docs/dev/ai-capabilities.md`.
+- `nuke.openmc.previewMaterialChange`/`applyMaterialChange` add, update, or remove materials through a `materials` proposal;
+  ids/macroscopic/CAD provenance are read-only, adds need unique names, and undo restores only changed materials.
+- `nuke.openmc.previewTallyChange`/`applyTallyChange` add, update, or remove tallies through a `tallies` proposal; scores must be
+  catalog names or numeric MT values, and filters/triggers/derivatives are preserved and not editable.
 - `nuke.openmc.diagnoseProject` / `diagnoseRun` are read-only: project diagnosis aggregates validation, environment, cross-section,
   and DAGMC findings; run diagnosis triages an active run's log tail. Findings cap at 20 with `findings-truncated`.
 
