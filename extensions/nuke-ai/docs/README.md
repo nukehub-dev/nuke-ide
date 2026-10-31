@@ -12,6 +12,8 @@ The AI chat and capability tools become useful as domain extensions publish capa
 
 → Read [**NukeAI Actions**](user/actions.md) for the dedicated agent, the context-aware sidebar actions, and the `#nukeContext` chip.
 
+→ Read [**Nuke Diagnostics**](user/diagnostics.md) for the read-only diagnostics agent and the CAD, OpenMC project/run, and statepoint diagnostic actions.
+
 → Read [**External MCP Clients**](user/mcp-clients.md) to connect an external MCP client to the opt-in, read-only endpoint.
 
 ### 🛠️ I want to develop or extend it
@@ -36,21 +38,22 @@ Covers the in-process capability-to-tool flow, tool naming, schema and result co
 
 ## Quick Overview
 
-| Area              | What It Does                                                                        |
-| ----------------- | ----------------------------------------------------------------------------------- |
-| NukeAI agent      | Dedicated `NukeAI` chat agent for the CAD → DAGMC → OpenMC → statepoint workflow    |
-| Context actions   | Read-only Nuke Tools sidebar commands that open a focused chat with `#nukeContext`  |
-| Capability bridge | Turns every enabled `NukeCapability` into a Theia AI tool                           |
-| Schema mapping    | Converts capability JSON Schema into `ToolRequestParameters`                        |
-| Result mapping    | Renders structured results as bounded text, errors, previews, and artifact lines    |
-| Result cards      | Finished Nuke tool calls render as status cards with counts, warnings, and previews |
-| Preview history   | Persists truthful previews and a replayable command-to-preview trajectory           |
-| Refresh           | Rebuilds the tool set when capabilities or ambient context change                   |
-| Skills            | Ships domain guidance as plugin-tier `SKILL.md` slash commands                      |
-| Context           | `#nukeContext` carries the active CAD document, OpenMC project, dataset, and roots  |
-| Resources         | Read-only `nuke://` summaries backed by the capability registry                     |
-| External MCP      | Opt-in, token-protected, loopback-only read-only endpoint on the external API       |
-| Transport         | In-process for the chat; external MCP is a separate opt-in surface                  |
+| Area              | What It Does                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| NukeAI agent      | Dedicated `NukeAI` chat agent for the CAD → DAGMC → OpenMC → statepoint workflow      |
+| Diagnostics agent | Read-only `Nuke Diagnostics` agent for CAD, OpenMC project/run, and statepoint triage |
+| Context actions   | Read-only Nuke Tools sidebar commands that open a focused chat with `#nukeContext`    |
+| Capability bridge | Turns every enabled `NukeCapability` into a Theia AI tool                             |
+| Schema mapping    | Converts capability JSON Schema into `ToolRequestParameters`                          |
+| Result mapping    | Renders structured results as bounded text, errors, previews, and artifact lines      |
+| Result cards      | Finished Nuke tool calls render as status cards with counts, warnings, and previews   |
+| Preview history   | Persists truthful previews and a replayable command-to-preview trajectory             |
+| Refresh           | Rebuilds the tool set when capabilities or ambient context change                     |
+| Skills            | Ships domain guidance as plugin-tier `SKILL.md` slash commands                        |
+| Context           | `#nukeContext` carries the active CAD document, OpenMC project, dataset, and roots    |
+| Resources         | Read-only `nuke://` summaries backed by the capability registry                       |
+| External MCP      | Opt-in, token-protected, loopback-only read-only endpoint on the external API         |
+| Transport         | In-process for the chat; external MCP is a separate opt-in surface                    |
 
 ---
 

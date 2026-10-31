@@ -25,6 +25,14 @@ Command Palette. The **NukeAI** section is the first section in the sidebar.
 Every action is also available in the Command Palette under the `NukeAI:` prefix. The command-palette label names the
 action, and the chat transcript shows the shorter action label.
 
+## Diagnostics
+
+The **Diagnostics** subsection under **NukeAI** opens the read-only **Nuke Diagnostics** agent with four focused
+requests: **Diagnose Active CAD Model**, **Diagnose OpenMC Project**, **Diagnose OpenMC Run**, and **Diagnose Active
+Statepoint**. Each one reports severity-coded findings with the tool evidence behind them and closes with safe next
+steps. See [Nuke Diagnostics](diagnostics.md) for the findings, severity rules, and the statepoint metadata
+limitation.
+
 ## Tool names
 
 Each capability is registered in the chat under a sanitized tool name. For example, **Check Active CAD Model** calls
@@ -34,9 +42,9 @@ the stable identifiers for extension authors: `nuke.cad.summarizeDocument` is ex
 
 ## Read-only by default
 
-The eight actions only read state. They do not move geometry, edit an OpenMC project, open viewers, start or cancel
-runs, or write files. If a tool cannot see the required state, NukeAI reports what is missing instead of inventing a
-path or a result.
+The eight actions and the four diagnostics actions only read state. They do not move geometry, edit an OpenMC
+project, open viewers, start or cancel runs, or write files. If a tool cannot see the required state, NukeAI reports
+what is missing instead of inventing a path or a result.
 
 Write and execute capabilities still exist in the agent. Exporting DAGMC, importing geometry, running OpenMC, and
 opening a statepoint viewer require explicit confirmation in the conversation. The sidebar actions never confirm those
@@ -58,6 +66,9 @@ and uses the capability tools published by the domain extensions.
 
 The agent receives the same active-workspace summary as the context chip. The summary lists the active CAD document,
 OpenMC project, dataset, and workspace roots; missing entries appear as `none`.
+
+The diagnostics actions pin the separate **Nuke Diagnostics** agent. You can also choose it directly in AI Chat for
+read-only triage of the CAD model, OpenMC project or run, and loaded statepoint.
 
 ## The context chip
 

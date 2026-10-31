@@ -33,34 +33,42 @@ import { ILogger } from '@theia/core/lib/common/logger';
 import { parseSkillFile, validateSkillDescription } from '@theia/ai-core/lib/common/skill';
 import { NukeAISkillServiceImpl, resolveNukeAISkillRoots } from './nuke-skill-service';
 
-const SKILL_NAMES = ['nuke-cad', 'openmc-studio', 'nuke-visualizer', 'nuke-workflow'];
+const SKILL_NAMES = ['nuke-cad', 'openmc-studio', 'nuke-visualizer', 'nuke-workflow', 'nuke-diagnostics'];
 
 const ALLOWED_CAPABILITY_IDS = new Set([
     'nuke.cad.summarizeDocument',
     'nuke.cad.inspectSelection',
     'nuke.cad.exportDagmc',
+    'nuke.cad.diagnoseModel',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
     'nuke.openmc.importCad',
     'nuke.openmc.runSimulation',
     'nuke.openmc.getRunStatus',
+    'nuke.openmc.diagnoseProject',
+    'nuke.openmc.diagnoseRun',
     'nuke.viz.summarizeStatepoint',
     'nuke.viz.openStatepoint',
-    'nuke.viz.captureView'
+    'nuke.viz.captureView',
+    'nuke.viz.diagnoseStatepoint'
 ]);
 
 const ALLOWED_TOOL_NAMES = [
     'nuke_cad_summarizeDocument',
     'nuke_cad_inspectSelection',
     'nuke_cad_exportDagmc',
+    'nuke_cad_diagnoseModel',
     'nuke_openmc_summarizeProject',
     'nuke_openmc_validateProject',
     'nuke_openmc_importCad',
     'nuke_openmc_runSimulation',
     'nuke_openmc_getRunStatus',
+    'nuke_openmc_diagnoseProject',
+    'nuke_openmc_diagnoseRun',
     'nuke_viz_summarizeStatepoint',
     'nuke_viz_openStatepoint',
-    'nuke_viz_captureView'
+    'nuke_viz_captureView',
+    'nuke_viz_diagnoseStatepoint'
 ];
 
 function createLogger(): ILogger & { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn> } {
@@ -120,7 +128,7 @@ describe('NukeAISkillServiceImpl', () => {
         }
     });
 
-    it('returns the packaged root with the four skill directories', async () => {
+    it('returns the packaged root with the five skill directories', async () => {
         const service = new NukeAISkillServiceImpl(createLogger());
 
         const roots = await service.getSkillRoots();

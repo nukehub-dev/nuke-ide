@@ -52,11 +52,12 @@ function registeredItems(): NukeToolsItem[] {
 }
 
 describe('NukeAiToolsContribution', () => {
-    it('registers eight contextual actions and two external MCP controls', () => {
+    it('registers eight contextual actions, four diagnostics actions, and two external MCP controls', () => {
         const items = registeredItems();
 
-        expect(items).toHaveLength(10);
+        expect(items).toHaveLength(14);
         expect(items.filter((item) => item.category.length === 1)).toHaveLength(8);
+        expect(items.filter((item) => item.category.join('/') === 'NukeAI/Diagnostics')).toHaveLength(4);
         expect(items.filter((item) => item.category.join('/') === 'NukeAI/External MCP')).toHaveLength(2);
     });
 
@@ -99,8 +100,27 @@ describe('NukeAiToolsContribution', () => {
         ]);
     });
 
+    it('maps the four diagnostics actions to their NukeAI commands and codicons', () => {
+        const items = registeredItems().filter((item) => item.category.join('/') === 'NukeAI/Diagnostics');
+
+        expect(items.map((item) => item.commandId)).toEqual([
+            NukeAiCommands.DIAGNOSE_CAD.id,
+            NukeAiCommands.DIAGNOSE_OPENMC.id,
+            NukeAiCommands.DIAGNOSE_RUN.id,
+            NukeAiCommands.DIAGNOSE_STATEPOINT.id
+        ]);
+        expect(items.map((item) => item.icon)).toEqual(['checklist', 'checklist', 'debug-alt', 'graph']);
+        expect(items.map((item) => item.order)).toEqual(['a', 'b', 'c', 'd']);
+        expect(items.map((item) => item.label)).toEqual([
+            'Diagnose Active CAD Model',
+            'Diagnose OpenMC Project',
+            'Diagnose OpenMC Run',
+            'Diagnose Active Statepoint'
+        ]);
+    });
+
     it('maps the external MCP entries to the enable and disable commands', () => {
-        const items = registeredItems().filter((item) => item.category.length === 2);
+        const items = registeredItems().filter((item) => item.category.join('/') === 'NukeAI/External MCP');
 
         expect(items.map((item) => item.commandId)).toEqual([NukeMcpCommands.ENABLE.id, NukeMcpCommands.DISABLE.id]);
         expect(items.map((item) => item.icon)).toEqual(['plug', 'debug-disconnect']);

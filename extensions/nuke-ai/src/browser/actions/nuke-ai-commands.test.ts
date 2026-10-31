@@ -28,6 +28,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Command, CommandHandler, CommandRegistry } from '@theia/core/lib/common/command';
 import { Disposable } from '@theia/core/lib/common/disposable';
+import { NUKE_DIAGNOSTICS_AGENT_ID } from '../agent/nuke-diagnostics-agent';
 import type { NukeAiActionService } from './nuke-ai-action-service';
 import { NUKE_AI_ACTIONS, NukeAiCommandContribution, NukeAiCommands, NukeAiPrompts } from './nuke-ai-commands';
 
@@ -66,7 +67,7 @@ describe('NukeAI commands', () => {
         const { registry } = createHarness();
 
         expect([...registry.handlers.keys()]).toEqual(NUKE_AI_ACTIONS.map((action) => action.command.id));
-        expect(registry.handlers.size).toBe(8);
+        expect(registry.handlers.size).toBe(12);
     });
 
     it('uses unique command ids and the NukeAI category', () => {
@@ -88,7 +89,11 @@ describe('NukeAI commands', () => {
             }
             await registry.execute(action.command.id);
 
-            expect(actions.ask).toHaveBeenCalledWith(action.prompt, action.displayText);
+            if (action.agentId === undefined) {
+                expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText);
+            } else {
+                expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText, action.agentId);
+            }
             expect(action.prompt.trim().length).toBeGreaterThan(0);
             expect(action.prompt.toLowerCase()).toContain('read-only');
             expect(action.prompt).not.toContain('~{');
@@ -97,18 +102,34 @@ describe('NukeAI commands', () => {
             expect(action.displayText.length).toBeLessThanOrEqual(30);
         }
 
-        expect(actions.ask).toHaveBeenCalledTimes(7);
+        expect(actions.ask).toHaveBeenCalledTimes(11);
         expect(actions.attachContext).not.toHaveBeenCalled();
     });
 
     it('names the sanitized capability tool in each prompt', () => {
         expect(NukeAiPrompts.CHECK_CAD).toContain('nuke_cad_summarizeDocument');
+        expect(NukeAiPrompts.DIAGNOSE_CAD).toContain('nuke_cad_diagnoseModel');
         expect(NukeAiPrompts.EXPLAIN_SELECTION).toContain('nuke_cad_summarizeDocument');
         expect(NukeAiPrompts.EXPLAIN_SELECTION).toContain('nuke_cad_inspectSelection');
         expect(NukeAiPrompts.VALIDATE_OPENMC).toContain('nuke_openmc_validateProject');
+        expect(NukeAiPrompts.DIAGNOSE_OPENMC).toContain('nuke_openmc_diagnoseProject');
         expect(NukeAiPrompts.EXPLAIN_RUN).toContain('nuke_openmc_getRunStatus');
+        expect(NukeAiPrompts.DIAGNOSE_RUN).toContain('nuke_openmc_diagnoseRun');
         expect(NukeAiPrompts.EXPLAIN_STATEPOINT).toContain('nuke_viz_summarizeStatepoint');
+        expect(NukeAiPrompts.DIAGNOSE_STATEPOINT).toContain('nuke_viz_diagnoseStatepoint');
         expect(NukeAiPrompts.CAPTURE_VIEW).toContain('nuke_viz_captureView');
+    });
+
+    it('routes the four diagnostic actions to the Nuke Diagnostics agent', async () => {
+        const { registry, actions } = createHarness();
+        const diagnostics = NUKE_AI_ACTIONS.filter((action) => action.agentId === NUKE_DIAGNOSTICS_AGENT_ID);
+
+        expect(diagnostics).toHaveLength(4);
+        for (const action of diagnostics) {
+            await registry.execute(action.command.id);
+
+            expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText, NUKE_DIAGNOSTICS_AGENT_ID);
+        }
     });
 
     it('routes the attach action to attachContext without sending a prompt', async () => {

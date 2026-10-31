@@ -29,7 +29,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { Emitter } from '@theia/core/lib/common/event';
 import URI from '@theia/core/lib/common/uri';
 import type { ApplicationShell, Widget } from '@theia/core/lib/browser';
-import type { NukeCapability, NukeCapabilityContext, NukeCapabilityRegistry } from 'nuke-core/lib/common/nuke-capability-protocol';
+import type {
+    NukeCapability,
+    NukeCapabilityContext,
+    NukeCapabilityRegistry,
+    NukeCapabilityResult
+} from 'nuke-core/lib/common/nuke-capability-protocol';
 import { validateCapability } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import type { OpenMCStatepointInfo, OpenMCTallyInfo } from '../../common/openmc-protocol';
 import type { OpenMCContribution } from '../plugins/openmc/openmc-contribution';
@@ -67,6 +72,18 @@ function tallies(): OpenMCTallyInfo[] {
         { id: 1, name: 'Flux tally', scores: ['flux'], nuclides: ['total'], filters: [], hasMesh: true },
         { id: 2, name: 'Heating tally', scores: ['heating'], nuclides: ['U235'], filters: [], hasMesh: false }
     ];
+}
+
+function healthyTallies(): OpenMCTallyInfo[] {
+    return [
+        { id: 1, name: 'Flux tally', scores: ['flux'], nuclides: ['total'], filters: [], hasMesh: false },
+        { id: 2, name: 'Heating tally', scores: ['heating'], nuclides: ['U235'], filters: [], hasMesh: false }
+    ];
+}
+
+function issueSummaries(result: NukeCapabilityResult): Array<{ severity: string; code: string }> {
+    const data = result.data as { issues: Array<{ severity: string; code: string }> };
+    return data.issues.map(({ severity, code }) => ({ severity, code }));
 }
 
 function createStatepointService(
@@ -128,7 +145,12 @@ describe('visualizer capabilities', () => {
     it('registers contract-valid capabilities', () => {
         const capabilities = capabilitiesById(createCapabilities());
 
-        expect([...capabilities.keys()]).toEqual(['nuke.viz.summarizeStatepoint', 'nuke.viz.openStatepoint', 'nuke.viz.captureView']);
+        expect([...capabilities.keys()]).toEqual([
+            'nuke.viz.summarizeStatepoint',
+            'nuke.viz.diagnoseStatepoint',
+            'nuke.viz.openStatepoint',
+            'nuke.viz.captureView'
+        ]);
         for (const capability of capabilities.values()) {
             expect(validateCapability(capability)).toEqual([]);
         }
@@ -204,6 +226,181 @@ describe('visualizer capabilities', () => {
             .invoke({ filePath: '/workspace/statepoint.100.h5' }, context);
 
         expect(result).toEqual({ ok: false, message: 'Failed to load statepoint.' });
+    });
+
+    it('reports when no statepoint is loaded for diagnosis', async () => {
+        const capabilities = capabilitiesById(createCapabilities(createStatepointService().service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(result).toEqual({ ok: false, message: 'No statepoint is loaded.' });
+    });
+
+    it('diagnoses a healthy loaded statepoint without findings', async () => {
+        const service = createStatepointService({
+            current: statepoint({ kEff: 1, kEffStd: 0.0005 }),
+            currentTallies: healthyTallies()
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(result).toEqual({
+            ok: true,
+            data: {
+                file: '/workspace/statepoint.100.h5',
+                batches: 50,
+                generationsPerBatch: 1000,
+                kEff: 1,
+                kEffStd: 0.0005,
+                relativeKeffUncertainty: 0.0005,
+                nTallies: 2,
+                tallies: [
+                    { id: 1, name: 'Flux tally', scores: ['flux'], nuclides: ['total'], hasMesh: false },
+                    { id: 2, name: 'Heating tally', scores: ['heating'], nuclides: ['U235'], hasMesh: false }
+                ],
+                issues: [],
+                warnings: []
+            }
+        });
+    });
+
+    it('warns when the relative k-effective uncertainty exceeds 0.5%', async () => {
+        const service = createStatepointService({
+            current: statepoint({ kEff: 1, kEffStd: 0.01 }),
+            currentTallies: healthyTallies()
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(result.ok).toBe(true);
+        expect((result.data as { relativeKeffUncertainty: number }).relativeKeffUncertainty).toBeCloseTo(0.01);
+        expect(issueSummaries(result)).toEqual([{ severity: 'warning', code: 'high-keff-uncertainty' }]);
+        expect((result.data as { warnings: string[] }).warnings[0]).toContain('Relative k-effective uncertainty');
+    });
+
+    it('reports the info band for relative k-effective uncertainty above 0.1%', async () => {
+        const service = createStatepointService({
+            current: statepoint({ kEff: 1, kEffStd: 0.002 }),
+            currentTallies: healthyTallies()
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(result.ok).toBe(true);
+        expect(issueSummaries(result)).toEqual([{ severity: 'info', code: 'high-keff-uncertainty' }]);
+    });
+
+    it('warns about missing k-effective metadata', async () => {
+        const service = createStatepointService({
+            current: statepoint({ kEff: undefined, kEffStd: undefined }),
+            currentTallies: healthyTallies()
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(issueSummaries(result)).toEqual([{ severity: 'warning', code: 'missing-keff' }]);
+        expect((result.data as { relativeKeffUncertainty?: number }).relativeKeffUncertainty).toBeUndefined();
+    });
+
+    it('warns about few batches and reports few generations', async () => {
+        const service = createStatepointService({
+            current: statepoint({ batches: 25, generationsPerBatch: 5 }),
+            currentTallies: healthyTallies()
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(issueSummaries(result)).toEqual([
+            { severity: 'warning', code: 'few-batches' },
+            { severity: 'info', code: 'few-generations' }
+        ]);
+    });
+
+    it('warns when the statepoint has no tallies', async () => {
+        const service = createStatepointService({
+            current: statepoint({ nTallies: 0, tallyIds: [] }),
+            currentTallies: []
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(issueSummaries(result)).toEqual([{ severity: 'warning', code: 'no-tallies' }]);
+    });
+
+    it('warns about a tally without scores', async () => {
+        const service = createStatepointService({
+            current: statepoint({ nTallies: 1, tallyIds: [7] }),
+            currentTallies: [{ id: 7, name: 'Empty tally', scores: [], nuclides: ['total'], filters: [], hasMesh: false }]
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(issueSummaries(result)).toEqual([{ severity: 'warning', code: 'tally-no-scores' }]);
+        expect((result.data as { issues: Array<{ message: string }> }).issues[0].message).toContain('Tally 7');
+    });
+
+    it('reports mesh tallies as an info finding', async () => {
+        const service = createStatepointService({
+            current: statepoint({ nTallies: 1, tallyIds: [8] }),
+            currentTallies: [{ id: 8, name: 'Mesh flux', scores: ['flux'], nuclides: ['total'], filters: [], hasMesh: true }]
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(issueSummaries(result)).toEqual([{ severity: 'info', code: 'mesh-tally' }]);
+    });
+
+    it('reports many tallies as an info finding', async () => {
+        const tallyIds = Array.from({ length: 21 }, (_, index) => index + 1);
+        const service = createStatepointService({
+            current: statepoint({ nTallies: 21, tallyIds }),
+            currentTallies: []
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+
+        expect(issueSummaries(result)).toEqual([{ severity: 'info', code: 'many-tallies' }]);
+    });
+
+    it('caps findings at 20 and reports truncation', async () => {
+        const currentTallies: OpenMCTallyInfo[] = Array.from({ length: 21 }, (_, index) => ({
+            id: index + 1,
+            name: `Tally ${index + 1}`,
+            scores: [],
+            nuclides: [],
+            filters: [],
+            hasMesh: false
+        }));
+        const service = createStatepointService({
+            current: statepoint({ nTallies: currentTallies.length, tallyIds: currentTallies.map((tally) => tally.id) }),
+            currentTallies
+        }).service;
+        const capabilities = capabilitiesById(createCapabilities(service));
+
+        const result = await capabilities.get('nuke.viz.diagnoseStatepoint')!.invoke({}, context);
+        const issues = (result.data as { issues: Array<{ code: string }> }).issues;
+
+        expect(issues).toHaveLength(20);
+        expect(issues[19].code).toBe('findings-truncated');
+    });
+
+    it('is read-only, always available, and takes no input', () => {
+        const capability = capabilitiesById(createCapabilities()).get('nuke.viz.diagnoseStatepoint')!;
+
+        expect(capability.when!(context)).toBe(true);
+        expect(capability.risk).toBe('read');
+        expect(capability.requiresConfirmation).toBeUndefined();
+        expect(capability.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+        expect(capability.inputSchema).toEqual({ type: 'object', properties: {}, additionalProperties: false });
     });
 
     it('opens a statepoint through the OpenMC contribution', async () => {

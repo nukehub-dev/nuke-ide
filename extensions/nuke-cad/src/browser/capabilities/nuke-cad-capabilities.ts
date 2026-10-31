@@ -57,7 +57,11 @@ import { CadSelection, NukeCadStateManager, SolidSummary } from '../state/nuke-c
 
 const SUMMARIZE_DOCUMENT_ID = 'nuke.cad.summarizeDocument';
 const INSPECT_SELECTION_ID = 'nuke.cad.inspectSelection';
+const DIAGNOSE_MODEL_ID = 'nuke.cad.diagnoseModel';
 const EXPORT_DAGMC_ID = 'nuke.cad.exportDagmc';
+
+/** Maximum number of issues returned, including the truncation marker. */
+const MAX_DIAGNOSTIC_ISSUES = 20;
 
 const CATEGORY = ['CAD'] as const;
 
@@ -132,6 +136,75 @@ const INSPECT_INPUT_SCHEMA: NukeJsonSchema = {
     additionalProperties: false
 };
 
+const DIAGNOSE_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+};
+
+const DIAGNOSE_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        documentPath: { type: 'string', description: 'Absolute path to the active CAD source.' },
+        success: { type: 'boolean', description: 'Whether the active build succeeded.' },
+        valid: { type: 'boolean', description: 'True only when no error issue was found.' },
+        counts: {
+            type: 'object',
+            description: 'Build counts for the active model.',
+            properties: {
+                solids: { type: 'integer' },
+                faces: { type: 'integer' },
+                triangles: { type: 'integer' }
+            },
+            required: ['solids', 'faces', 'triangles'],
+            additionalProperties: false
+        },
+        manifest: {
+            type: 'object',
+            description: 'Region manifest coverage; present is false for a missing or empty manifest.',
+            properties: {
+                present: { type: 'boolean' },
+                volumes: { type: 'integer', description: 'Number of manifest volumes.' },
+                surfaces: { type: 'integer', description: 'Number of manifest surfaces.' }
+            },
+            required: ['present', 'volumes', 'surfaces'],
+            additionalProperties: false
+        },
+        selection: {
+            type: 'object',
+            description: 'Current viewport selection; valid is false when it references missing geometry.',
+            properties: {
+                solidId: { type: 'integer', description: 'Primary selected solid.' },
+                faceId: { type: 'integer', description: 'Precise face of the primary solid.' },
+                solidIds: { type: 'array', items: { type: 'integer' }, description: 'All highlighted solids.' },
+                valid: { type: 'boolean', description: 'Whether every selected solid and face exists in the active build.' }
+            },
+            required: ['valid'],
+            additionalProperties: false
+        },
+        hiddenSolidIds: { type: 'array', items: { type: 'integer' }, description: 'Solids hidden in the viewport.' },
+        warnings: { type: 'array', items: { type: 'string' }, description: 'Build warnings copied from the active result.' },
+        issues: {
+            type: 'array',
+            description: 'Severity-tagged findings; at most 20 issues including a truncation marker.',
+            items: {
+                type: 'object',
+                properties: {
+                    severity: { type: 'string', enum: ['error', 'warning', 'info'] },
+                    code: { type: 'string' },
+                    category: { type: 'string' },
+                    message: { type: 'string' },
+                    suggestion: { type: 'string' }
+                },
+                required: ['severity', 'code', 'message'],
+                additionalProperties: false
+            }
+        }
+    },
+    required: ['documentPath', 'success', 'valid', 'counts', 'manifest', 'selection', 'hiddenSolidIds', 'warnings', 'issues'],
+    additionalProperties: false
+};
+
 const EXPORT_INPUT_SCHEMA: NukeJsonSchema = {
     type: 'object',
     properties: {
@@ -171,6 +244,36 @@ interface MeshingOptions {
     lengthScale?: number;
 }
 
+/** Severity-tagged diagnostic finding returned by `nuke.cad.diagnoseModel`. */
+export interface NukeDiagnosticIssue {
+    severity: 'error' | 'warning' | 'info';
+    code: string;
+    category?: string;
+    message: string;
+    suggestion?: string;
+}
+
+/** Selection payload with an explicit validity verdict. */
+interface DiagnosticSelectionData {
+    solidId?: number;
+    faceId?: number;
+    solidIds?: number[];
+    valid: boolean;
+}
+
+/** Structured result data for `nuke.cad.diagnoseModel`. */
+interface CadDiagnosisData {
+    documentPath: string;
+    success: boolean;
+    valid: boolean;
+    counts: { solids: number; faces: number; triangles: number };
+    manifest: { present: boolean; volumes: number; surfaces: number };
+    selection: DiagnosticSelectionData;
+    hiddenSolidIds: number[];
+    warnings: string[];
+    issues: NukeDiagnosticIssue[];
+}
+
 /**
  * Register the CAD read and export capabilities and publish the active CAD
  * document to the capability context.
@@ -186,6 +289,7 @@ export class NukeCadCapabilities implements NukeCapabilityContribution {
     registerCapabilities(registry: NukeCapabilityRegistry): void {
         registry.register(this.summarizeDocumentCapability());
         registry.register(this.inspectSelectionCapability());
+        registry.register(this.diagnoseModelCapability());
         registry.register(this.exportDagmcCapability());
     }
 
@@ -215,6 +319,22 @@ export class NukeCadCapabilities implements NukeCapabilityContribution {
             annotations: deriveAnnotations('read'),
             when: () => this.stateManager.model !== undefined,
             invoke: async () => this.inspectSelection()
+        };
+    }
+
+    protected diagnoseModelCapability(): NukeCapability {
+        return {
+            id: DIAGNOSE_MODEL_ID,
+            title: 'Diagnose CAD model',
+            description:
+                'Report build state, counts, manifest coverage, selection validity, hidden solids, and per-solid geometry problems.',
+            category: CATEGORY,
+            inputSchema: DIAGNOSE_INPUT_SCHEMA,
+            outputSchema: DIAGNOSE_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: deriveAnnotations('read'),
+            when: () => this.stateManager.model !== undefined,
+            invoke: async () => this.diagnoseModel()
         };
     }
 
@@ -282,6 +402,136 @@ export class NukeCadCapabilities implements NukeCapabilityContribution {
                 hiddenSolidIds: [...this.stateManager.hiddenSolidIds]
             })
         };
+    }
+
+    protected diagnoseModel(): NukeCapabilityResult {
+        const model = this.stateManager.model;
+        if (!model) {
+            return { ok: false, message: 'No CAD document is active.' };
+        }
+        const result = model.result;
+        const summaries = this.stateManager.solidSummaries;
+        const selection = this.stateManager.selection;
+        const hiddenSolidIds = this.stateManager.hiddenSolidIds;
+        const solidCount = result.solidCount ?? 0;
+        const faceCount = result.faceCount ?? 0;
+        const triangleCount = result.triangleCount ?? 0;
+        const warnings = [...(result.warnings ?? [])];
+        const manifest = model.manifest;
+        const manifestVolumes = manifest?.volumes.length ?? 0;
+        const manifestSurfaces = manifest?.surfaces.length ?? 0;
+        const manifestPresent = manifest !== undefined && (manifestVolumes > 0 || manifestSurfaces > 0);
+        const summariesById = new Map(summaries.map((summary) => [summary.solidId, summary]));
+        const selectionData = toDiagnosticSelectionData(selection, summariesById);
+
+        const issues: NukeDiagnosticIssue[] = [];
+        if (!result.success) {
+            issues.push({
+                severity: 'error',
+                code: 'build-failed',
+                category: 'build',
+                message: `The active build failed: ${result.error || 'unknown error'}`,
+                suggestion: 'Fix the reported build error and rebuild the document.'
+            });
+        }
+        if (solidCount === 0) {
+            issues.push({
+                severity: 'error',
+                code: 'no-solids',
+                category: 'geometry',
+                message: 'The active build produced no solid volumes.',
+                suggestion: 'Check for empty bodies, suppressed features, or a failed boolean operation and rebuild.'
+            });
+        }
+        if (solidCount > 0 && triangleCount === 0) {
+            issues.push({
+                severity: 'warning',
+                code: 'no-triangles',
+                category: 'tessellation',
+                message: `The model has ${solidCount} solid(s) but no tessellation triangles.`,
+                suggestion: 'Rebuild the document to regenerate its display tessellation.'
+            });
+        }
+        for (const warning of warnings) {
+            issues.push({
+                severity: 'warning',
+                code: 'build-warning',
+                category: 'build',
+                message: warning,
+                suggestion: 'Review the build warning and rebuild after fixing its cause.'
+            });
+        }
+        if (!manifestPresent) {
+            issues.push({
+                severity: 'warning',
+                code: 'manifest-missing',
+                category: 'manifest',
+                message: 'No region manifest is loaded for the active build.',
+                suggestion: 'Rebuild the document so material regions are written to its .regions.json sidecar.'
+            });
+        } else if (manifestVolumes !== solidCount) {
+            issues.push({
+                severity: 'warning',
+                code: 'manifest-count-mismatch',
+                category: 'manifest',
+                message: `The region manifest lists ${manifestVolumes} volume(s) but the build has ${solidCount} solid(s).`,
+                suggestion: 'Rebuild the document so the manifest matches the active solids.'
+            });
+        }
+        if (!selectionData.valid) {
+            issues.push({
+                severity: 'warning',
+                code: 'selection-stale',
+                category: 'selection',
+                message: 'The current selection references a solid or face that is not part of the active build.',
+                suggestion: 'Reselect geometry in the viewport or clear the stale selection.'
+            });
+        }
+        if (hiddenSolidIds.length > 0) {
+            issues.push({
+                severity: 'info',
+                code: 'hidden-solids',
+                category: 'viewport',
+                message: `${hiddenSolidIds.length} solid(s) are hidden in the viewport; hidden solids are still exported.`,
+                suggestion: 'Reveal hidden solids in the Model Outline to inspect all geometry.'
+            });
+        }
+        for (const summary of summaries) {
+            if (summary.triangleCount === 0) {
+                issues.push({
+                    severity: 'warning',
+                    code: 'solid-no-triangles',
+                    category: 'tessellation',
+                    message: `Solid ${summary.solidId} has no tessellation triangles.`,
+                    suggestion: 'Rebuild to regenerate the display tessellation for this solid.'
+                });
+            }
+            const volume = summary.properties?.volume;
+            if (volume !== undefined && volume <= 0) {
+                issues.push({
+                    severity: 'warning',
+                    code: 'solid-zero-volume',
+                    category: 'geometry',
+                    message: `Solid ${summary.solidId} has non-positive volume (${volume}).`,
+                    suggestion: 'Check the body dimensions and boolean operations; zero-volume solids cannot be exported reliably.'
+                });
+            }
+        }
+
+        const valid = !issues.some((issue) => issue.severity === 'error');
+
+        const data: CadDiagnosisData = {
+            documentPath: model.scriptPath,
+            success: result.success,
+            valid,
+            counts: { solids: solidCount, faces: faceCount, triangles: triangleCount },
+            manifest: { present: manifestPresent, volumes: manifestVolumes, surfaces: manifestSurfaces },
+            selection: selectionData,
+            hiddenSolidIds: [...hiddenSolidIds],
+            warnings,
+            issues: capDiagnosticIssues(issues)
+        };
+        return { ok: true, data };
     }
 
     protected async exportDagmc(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
@@ -460,6 +710,45 @@ function readMeshingOptions(record: Record<string, unknown>): MeshingOptions {
         options.lengthScale = record.lengthScale;
     }
     return options;
+}
+
+/** Keep at most {@link MAX_DIAGNOSTIC_ISSUES} issues, replacing the tail with a truncation notice. */
+function capDiagnosticIssues(issues: readonly NukeDiagnosticIssue[]): NukeDiagnosticIssue[] {
+    if (issues.length <= MAX_DIAGNOSTIC_ISSUES) {
+        return [...issues];
+    }
+    const omitted = issues.length - (MAX_DIAGNOSTIC_ISSUES - 1);
+    return [
+        ...issues.slice(0, MAX_DIAGNOSTIC_ISSUES - 1),
+        {
+            severity: 'info',
+            code: 'findings-truncated',
+            category: 'diagnostics',
+            message: `${omitted} additional finding(s) were omitted from this diagnosis.`,
+            suggestion: 'Fix the highest-severity findings and run the diagnosis again.'
+        }
+    ];
+}
+
+function toDiagnosticSelectionData(selection: CadSelection, summaries: ReadonlyMap<number, SolidSummary>): DiagnosticSelectionData {
+    const referencedSolidIds =
+        selection.solidId !== undefined ? [selection.solidId, ...(selection.solidIds ?? [])] : [...(selection.solidIds ?? [])];
+    let valid = referencedSolidIds.every((solidId) => summaries.has(solidId));
+    if (selection.faceId !== undefined) {
+        const primary = selection.solidId !== undefined ? summaries.get(selection.solidId) : undefined;
+        valid = valid && primary !== undefined && selection.faceId >= 1 && selection.faceId <= primary.faceCount;
+    }
+    const data: DiagnosticSelectionData = { valid };
+    if (selection.solidId !== undefined) {
+        data.solidId = selection.solidId;
+    }
+    if (selection.faceId !== undefined) {
+        data.faceId = selection.faceId;
+    }
+    if (selection.solidIds !== undefined) {
+        data.solidIds = [...selection.solidIds];
+    }
+    return data;
 }
 
 function toSelectionData(selection: CadSelection): SelectionData {

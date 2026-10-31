@@ -21,19 +21,38 @@ Theia confirmation requirement. Never add a write or execute tool to the prompt 
 The agent receives the same active-workspace summary as `#nukeContext`. Missing documents, projects, or datasets are
 reported as `none`; the agent must not invent model state.
 
+## Diagnostics agent
+
+`src/browser/agent/nuke-diagnostics-agent.ts` registers the read-only `Nuke Diagnostics` agent
+(`NUKE_DIAGNOSTICS_AGENT_ID`). It is bound as both `Agent` and `ChatAgent`, uses the `chat` language-model purpose,
+the `nuke-diagnostics-system` prompt set, `#nukeContext`, and a `functions` list of the four diagnostics tools plus
+the read-only support tools:
+
+- diagnostics: `nuke_cad_diagnoseModel`, `nuke_openmc_diagnoseProject`, `nuke_openmc_diagnoseRun`,
+  `nuke_viz_diagnoseStatepoint`;
+- support: `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_openmc_summarizeProject`,
+  `nuke_openmc_validateProject`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`.
+
+The prompt forbids every write, execute, and destructive tool. It requires severity-ordered findings (`error`, then
+`warning`, then `info`), tool-backed evidence for each finding, a separation between observation and hypothesis, and
+at most three safe next steps. It also states that the statepoint diagnosis reads metadata only, not raw tally values
+or per-bin uncertainties, and that a missing diagnostic tool must be reported rather than simulated. Never add a
+state-changing tool to this agent; use the NukeAI agent and its confirmation flow for those actions.
+
 ## Contextual actions
 
 `src/browser/actions/nuke-ai-action-service.ts` owns two entry points:
 
-- `ask(prompt, displayText)` creates or reuses a focused chat session pinned to the NukeAI agent, attaches
+- `ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` creates or reuses a focused chat session pinned to the
+  requested agent, falling back to the default NukeAI agent when the requested one is unavailable, attaches
   `nukeContext`, and sends the prompt with the short display text.
 - `attachContext()` ensures an active session and executes the public `add-context-variable` command for
   `nukeContext`.
 
 `src/browser/actions/nuke-ai-commands.ts` registers the Command Palette entries and
-`src/browser/actions/nuke-ai-tools-contribution.ts` places them in the first Nuke Tools sidebar section. The actions
-are read-only, never import a domain extension, and report failures through `MessageService` instead of failing
-silently.
+`src/browser/actions/nuke-ai-tools-contribution.ts` places them in the first Nuke Tools sidebar section, with the
+four diagnostic commands under a `Diagnostics` subgroup. The actions are read-only, never import a domain extension,
+and report failures through `MessageService` instead of failing silently.
 
 ## Tool result pipeline
 

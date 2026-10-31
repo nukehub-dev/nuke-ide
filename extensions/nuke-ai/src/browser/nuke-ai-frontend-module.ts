@@ -28,11 +28,11 @@
 /**
  * Nuke AI Frontend Module
  *
- * Wires the dedicated NukeAI chat agent, the contextual action commands and
- * service, the Nuke Tools sidebar section, the capability tool bridge, the
- * NukeAI skill root, the `#nukeContext` variable, the read-only resource
- * service, and the opt-in external MCP commands and delegate into the frontend
- * application. The bridge publishes enabled Nuke capabilities to Theia's tool
+ * Wires the dedicated NukeAI and Nuke Diagnostics chat agents, the contextual
+ * action commands and service, the Nuke Tools sidebar section, the capability
+ * tool bridge, the NukeAI skill root, the `#nukeContext` variable, the
+ * read-only resource service, and the opt-in external MCP commands and
+ * delegate into the frontend application. The bridge publishes enabled Nuke capabilities to Theia's tool
  * registry so the AI chat can invoke them directly, without an HTTP or MCP hop.
  *
  * @module nuke-ai/browser
@@ -59,6 +59,7 @@ import { NukeCapabilityDelegateClientImpl, NukeCapabilityDelegateConnectionContr
 import { NukeMcpCommandContribution } from './mcp/nuke-mcp-commands';
 import { bindNukeMcpPreferences } from './mcp/nuke-mcp-preferences';
 import { NukeChatAgent } from './agent/nuke-chat-agent';
+import { NukeDiagnosticsAgent } from './agent/nuke-diagnostics-agent';
 import { NukeAiActionService } from './actions/nuke-ai-action-service';
 import { NukeAiCommandContribution } from './actions/nuke-ai-commands';
 import { NukeAiToolsContribution } from './actions/nuke-ai-tools-contribution';
@@ -68,6 +69,10 @@ export default new ContainerModule((bind) => {
     bind(NukeChatAgent).toSelf().inSingletonScope();
     bind(Agent).toService(NukeChatAgent);
     bind(ChatAgent).toService(NukeChatAgent);
+
+    bind(NukeDiagnosticsAgent).toSelf().inSingletonScope();
+    bind(Agent).toService(NukeDiagnosticsAgent);
+    bind(ChatAgent).toService(NukeDiagnosticsAgent);
 
     bind(NukeAiActionService).toSelf().inSingletonScope();
 
@@ -104,6 +109,7 @@ export default new ContainerModule((bind) => {
 });
 
 export { NukeChatAgent, NUKE_CHAT_AGENT_ID } from './agent/nuke-chat-agent';
+export { NukeDiagnosticsAgent, NUKE_DIAGNOSTICS_AGENT_ID } from './agent/nuke-diagnostics-agent';
 export { NukeAiActionService } from './actions/nuke-ai-action-service';
 export { NukeAiCommandContribution, NukeAiCommands } from './actions/nuke-ai-commands';
 export { NukeAiToolsContribution } from './actions/nuke-ai-tools-contribution';

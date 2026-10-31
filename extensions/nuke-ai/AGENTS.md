@@ -23,6 +23,11 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
   and `ChatAgent`; its prompt references every capability tool and `{{nukeContext}}`, and write/execute tools require
   explicit confirmation.
+- `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
+  bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
+  and read-only support tools. See `docs/user/diagnostics.md`.
+- `NukeAiActionService.ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` resolves the requested agent and falls back
+  to `NukeAI`; the four `nuke.ai.diagnose*` commands sit under the NukeAI `Diagnostics` sidebar subgroup.
 - `src/browser/actions/` owns the read-only NukeAI commands, `NukeAiActionService`, and the NukeAI Nuke Tools
   section. Actions send `#nukeContext` through `ChatService`, never import domain extensions, and report failures.
 - Do not add `@theia/ai-mcp-server`: its generic `/mcp` endpoint starts automatically without auth or origin checks.
@@ -63,6 +68,7 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 ```bash
 npx lerna run build --scope nuke-ai --scope nuke-core
 npx vitest run extensions/nuke-ai/src/browser/agent/nuke-chat-agent.test.ts
+npx vitest run extensions/nuke-ai/src/browser/agent/nuke-diagnostics-agent.test.ts
 npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-action-service.test.ts
 npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-commands.test.ts
 npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-tools-contribution.test.ts

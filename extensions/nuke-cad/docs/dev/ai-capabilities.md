@@ -8,7 +8,7 @@ The implementation lives in
 `src/browser/capabilities/nuke-cad-capabilities.ts`:
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
-  the three capabilities below.
+  the four capabilities below.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
 - Both are bound in `nuke-cad-frontend-module.ts`. The nuke-core frontend module
@@ -20,11 +20,12 @@ active `NukeCadStateManager` model; export delegates to
 
 ## Capabilities
 
-| ID                           | Risk      | Active model required | Purpose                                                |
-| ---------------------------- | --------- | --------------------- | ------------------------------------------------------ |
-| `nuke.cad.summarizeDocument` | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries |
-| `nuke.cad.inspectSelection`  | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids   |
-| `nuke.cad.exportDagmc`       | `execute` | No                    | Build a source file and export DAGMC + region manifest |
+| ID                           | Risk      | Active model required | Purpose                                                     |
+| ---------------------------- | --------- | --------------------- | ----------------------------------------------------------- |
+| `nuke.cad.summarizeDocument` | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries      |
+| `nuke.cad.inspectSelection`  | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids        |
+| `nuke.cad.diagnoseModel`     | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings |
+| `nuke.cad.exportDagmc`       | `execute` | No                    | Build a source file and export DAGMC + region manifest      |
 
 ### `nuke.cad.summarizeDocument`
 
@@ -61,6 +62,44 @@ Output data: `documentPath`, `selection`, `primarySolid`, `selectedSolids`, and
 `selectedSolids` resolves `selection.solidIds`, falling back to
 `[selection.solidId]` for a single selection. Hidden ids come from the viewport
 hide/isolate state.
+
+### `nuke.cad.diagnoseModel`
+
+Input: `{}`.
+
+Read-only diagnosis of the active model. Output data: `documentPath`, `success`,
+`valid`, `counts`, `manifest`, `selection`, `hiddenSolidIds`, `warnings`, and
+`issues`. `valid` is true only when no error-severity issue is present. A
+successful diagnosis returns `ok: true` even when it reports error issues; it
+returns `ok: false` with `No CAD document is active.` only when no document is
+open. The handler reads the current state manager model and never rebuilds it.
+
+`counts` holds `solids`, `faces`, and `triangles` from the active build result.
+`manifest` holds `present`, `volumes`, and `surfaces`; `present` is false for a
+missing or empty manifest. `selection` holds the current ids plus `valid`, which
+is false when a selected solid is absent from `solidSummaries` or the selected
+face is outside the primary solid's face count.
+
+Findings use the shared issue shape `{ severity, code, category?, message,
+suggestion? }`:
+
+| Condition                                      | Severity | Code                      | Category       |
+| ---------------------------------------------- | -------- | ------------------------- | -------------- |
+| Active build failed                            | error    | `build-failed`            | `build`        |
+| Build produced no solids                       | error    | `no-solids`               | `geometry`     |
+| Solids exist but the model has no triangles    | warning  | `no-triangles`            | `tessellation` |
+| One entry per build warning                    | warning  | `build-warning`           | `build`        |
+| Manifest is missing or empty                   | warning  | `manifest-missing`        | `manifest`     |
+| Manifest volume count differs from solid count | warning  | `manifest-count-mismatch` | `manifest`     |
+| Selection references missing solid or face     | warning  | `selection-stale`         | `selection`    |
+| Solids hidden in the viewport                  | info     | `hidden-solids`           | `viewport`     |
+| A solid has no tessellation triangles          | warning  | `solid-no-triangles`      | `tessellation` |
+| A solid has non-positive volume                | warning  | `solid-zero-volume`       | `geometry`     |
+| More than 20 findings were produced            | info     | `findings-truncated`      | `diagnostics`  |
+
+At most 20 issues are returned, including a final `findings-truncated` info
+entry that reports how many findings were omitted. Hidden solids are a
+viewport-only state and do not block export or invalidate the model.
 
 ### `nuke.cad.exportDagmc`
 

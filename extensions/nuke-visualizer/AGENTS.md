@@ -47,6 +47,8 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   returned temp file; both require `vtk` in the active environment.
 - Visualizer AI capabilities live in `src/browser/capabilities/visualizer-capabilities.ts`; previews capture the
   real DAGMC viewport, never the window; see `docs/dev/ai-capabilities.md`.
+- `nuke.viz.diagnoseStatepoint` triages loaded statepoint metadata only (k-effective uncertainty, batch counts, tally
+  coverage); it never reads raw tally values or replaces the loaded file. See `docs/dev/ai-capabilities.md`.
 - Color legend title/vertical-label settings are native-viewer fields (`scalarBarTitle`/`scalarBarVertical`); keep the
   legend as the single source of truth and do not duplicate the title in the viewer header.
 - Mesh quality (`viewer-quality-menu.tsx`) runs `base.mesh-quality` through `runBaseCommand`, then opens the returned

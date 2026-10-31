@@ -33,14 +33,17 @@ import { ChatAgentLocation } from '@theia/ai-chat/lib/common';
 import type { ChatAgent, ChatService, ChatSession } from '@theia/ai-chat/lib/common';
 import type { ChatAgentService } from '@theia/ai-chat/lib/common/chat-agent-service';
 import { NUKE_CHAT_AGENT_ID } from '../agent/nuke-chat-agent';
+import { NUKE_DIAGNOSTICS_AGENT_ID } from '../agent/nuke-diagnostics-agent';
 import { NUKE_CONTEXT_VARIABLE } from '../context/nuke-context-variable-contribution';
 import { ADD_CONTEXT_VARIABLE_COMMAND, NukeAiActionService } from './nuke-ai-action-service';
 
 const agent = { id: NUKE_CHAT_AGENT_ID } as ChatAgent;
+const diagnosticsAgent = { id: NUKE_DIAGNOSTICS_AGENT_ID } as ChatAgent;
 const session = { id: 'session-1' } as ChatSession;
 
 interface HarnessOptions {
     agentAvailable?: boolean;
+    diagnosticsAgentAvailable?: boolean;
     activeSession?: ChatSession;
     undefinedRequest?: boolean;
     createError?: Error;
@@ -53,6 +56,7 @@ function createHarness(options: HarnessOptions = {}): {
     createSession: ReturnType<typeof vi.fn>;
     sendRequest: ReturnType<typeof vi.fn>;
     getActiveSession: ReturnType<typeof vi.fn>;
+    getAgent: ReturnType<typeof vi.fn>;
     executeCommand: ReturnType<typeof vi.fn>;
     messageService: { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
     logger: { error: ReturnType<typeof vi.fn> };
@@ -72,7 +76,12 @@ function createHarness(options: HarnessOptions = {}): {
         return options.undefinedRequest ? undefined : {};
     });
     const getActiveSession = vi.fn(() => activeSession);
-    const getAgent = vi.fn(() => (options.agentAvailable === false ? undefined : agent));
+    const getAgent = vi.fn((id: string) => {
+        if (id === NUKE_DIAGNOSTICS_AGENT_ID) {
+            return options.diagnosticsAgentAvailable === false ? undefined : diagnosticsAgent;
+        }
+        return options.agentAvailable === false ? undefined : agent;
+    });
     const executeCommand = vi.fn(async () => {
         if (options.commandError) {
             throw options.commandError;
@@ -88,7 +97,7 @@ function createHarness(options: HarnessOptions = {}): {
         { executeCommand } as unknown as CommandRegistry,
         logger as unknown as ILogger
     );
-    return { service, createSession, sendRequest, getActiveSession, executeCommand, messageService, logger };
+    return { service, createSession, sendRequest, getActiveSession, getAgent, executeCommand, messageService, logger };
 }
 
 describe('NukeAiActionService', () => {
@@ -97,6 +106,7 @@ describe('NukeAiActionService', () => {
 
         await harness.service.ask('Summarize the active model.', 'Ask About Active Context');
 
+        expect(harness.getAgent).toHaveBeenCalledWith(NUKE_CHAT_AGENT_ID);
         expect(harness.createSession).toHaveBeenCalledWith(ChatAgentLocation.Panel, { focus: true }, agent);
         expect(harness.sendRequest).toHaveBeenCalledWith('session-1', {
             text: 'Summarize the active model.',
@@ -105,6 +115,39 @@ describe('NukeAiActionService', () => {
         });
         expect(harness.messageService.warn).not.toHaveBeenCalled();
         expect(harness.messageService.error).not.toHaveBeenCalled();
+    });
+
+    it('pins the requested diagnostics agent when it is available', async () => {
+        const harness = createHarness();
+
+        await harness.service.ask('Diagnose the active model.', 'Diagnose Active CAD Model', NUKE_DIAGNOSTICS_AGENT_ID);
+
+        expect(harness.getAgent).toHaveBeenCalledWith(NUKE_DIAGNOSTICS_AGENT_ID);
+        expect(harness.createSession).toHaveBeenCalledWith(ChatAgentLocation.Panel, { focus: true }, diagnosticsAgent);
+        expect(harness.sendRequest).toHaveBeenCalledWith('session-1', {
+            text: 'Diagnose the active model.',
+            displayText: 'Diagnose Active CAD Model',
+            variables: [{ variable: NUKE_CONTEXT_VARIABLE }]
+        });
+    });
+
+    it('falls back to the NukeAI agent when the requested agent is unavailable', async () => {
+        const harness = createHarness({ diagnosticsAgentAvailable: false });
+
+        await harness.service.ask('Diagnose the active model.', 'Diagnose Active CAD Model', NUKE_DIAGNOSTICS_AGENT_ID);
+
+        expect(harness.getAgent).toHaveBeenCalledWith(NUKE_DIAGNOSTICS_AGENT_ID);
+        expect(harness.getAgent).toHaveBeenCalledWith(NUKE_CHAT_AGENT_ID);
+        expect(harness.createSession).toHaveBeenCalledWith(ChatAgentLocation.Panel, { focus: true }, agent);
+    });
+
+    it('creates an unpinned session when the requested and fallback agents are unavailable', async () => {
+        const harness = createHarness({ diagnosticsAgentAvailable: false, agentAvailable: false });
+
+        await harness.service.ask('Diagnose the active model.', 'Diagnose Active CAD Model', NUKE_DIAGNOSTICS_AGENT_ID);
+
+        expect(harness.createSession).toHaveBeenCalledWith(ChatAgentLocation.Panel, { focus: true }, undefined);
+        expect(harness.sendRequest).toHaveBeenCalledTimes(1);
     });
 
     it('creates an unpinned focused session when the NukeAI agent is unavailable', async () => {

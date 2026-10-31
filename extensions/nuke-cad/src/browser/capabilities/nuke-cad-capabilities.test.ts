@@ -31,10 +31,16 @@ vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: clas
 
 import { URI } from '@theia/core/lib/common/uri';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
-import type { NukeCapability, NukeCapabilityContext, NukeCapabilityRegistry } from 'nuke-core/lib/common/nuke-capability-protocol';
+import type {
+    NukeCapability,
+    NukeCapabilityContext,
+    NukeCapabilityRegistry,
+    NukeCapabilityResult
+} from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { BuildDocumentRequest, GeometryBuildRequest, GeometryBuildResult, RegionManifestData } from '../../common/nuke-cad-protocol';
 import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import type { CadModel, CadSelection, NukeCadStateManager, SolidSummary } from '../state/nuke-cad-state-manager';
+import type { NukeDiagnosticIssue } from './nuke-cad-capabilities';
 import { NukeCadCapabilities, NukeCadContextContribution } from './nuke-cad-capabilities';
 
 const WORKSPACE = '/workspace/project';
@@ -72,6 +78,34 @@ const SUMMARIES: SolidSummary[] = [
 ];
 
 const CONTEXT: NukeCapabilityContext = { workspaceRoots: [WORKSPACE], activeCadDocument: DOCUMENT_PATH };
+
+interface DiagnosisData {
+    documentPath: string;
+    success: boolean;
+    valid: boolean;
+    counts: { solids: number; faces: number; triangles: number };
+    manifest: { present: boolean; volumes: number; surfaces: number };
+    selection: { solidId?: number; faceId?: number; solidIds?: number[]; valid: boolean };
+    hiddenSolidIds: number[];
+    warnings: string[];
+    issues: NukeDiagnosticIssue[];
+}
+
+function manifestFor(solidCount: number): RegionManifestData {
+    return {
+        version: 1,
+        volumes: Array.from({ length: solidCount }, (_, index) => ({ selector: `region-${index + 1}` })),
+        surfaces: MANIFEST.surfaces
+    };
+}
+
+function diagnosisData(result: NukeCapabilityResult): DiagnosisData {
+    return result.data as DiagnosisData;
+}
+
+function issueCodes(data: DiagnosisData): string[] {
+    return data.issues.map((issue) => issue.code);
+}
 
 interface StateFixture {
     stateManager: NukeCadStateManager;
@@ -501,6 +535,300 @@ describe('NukeCadCapabilities', () => {
         setModel(cadModel());
         expect(summarize.when!(CONTEXT)).toBe(true);
         expect(inspect.when!(CONTEXT)).toBe(true);
+    });
+
+    it('diagnoses a healthy model with no findings', async () => {
+        const model: CadModel = {
+            ...cadModel({ solidCount: 1, faceCount: 6, triangleCount: 60, warnings: [] }),
+            manifest: manifestFor(1)
+        };
+        const { stateManager } = createStateManager({
+            model,
+            selection: { solidId: 1, faceId: 2 },
+            solidSummaries: [SUMMARIES[0]]
+        });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect(diagnosisData(result)).toEqual({
+            documentPath: DOCUMENT_PATH,
+            success: true,
+            valid: true,
+            counts: { solids: 1, faces: 6, triangles: 60 },
+            manifest: { present: true, volumes: 1, surfaces: 1 },
+            selection: { solidId: 1, faceId: 2, valid: true },
+            hiddenSolidIds: [],
+            warnings: [],
+            issues: []
+        });
+        expect(capability.title).toBe('Diagnose CAD model');
+        expect(capability.risk).toBe('read');
+        expect(capability.annotations?.readOnlyHint).toBe(true);
+        expect(capability.requiresConfirmation).toBeUndefined();
+        expect(capability.inputSchema).toEqual({ type: 'object', properties: {}, additionalProperties: false });
+        expect(capability.outputSchema?.properties.counts.type).toBe('object');
+        expect(capability.outputSchema?.properties.manifest.type).toBe('object');
+        expect(capability.outputSchema?.properties.selection.type).toBe('object');
+        expect(capability.outputSchema?.properties.issues.type).toBe('array');
+    });
+
+    it('reports a failed build as an error issue', async () => {
+        const model: CadModel = {
+            ...cadModel({
+                success: false,
+                error: 'OpenCASCADE failed',
+                solidCount: 0,
+                faceCount: 0,
+                triangleCount: 0,
+                warnings: []
+            }),
+            manifest: manifestFor(0)
+        };
+        const { stateManager } = createStateManager({ model, solidSummaries: [] });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = diagnosisData(result);
+
+        expect(result.ok).toBe(true);
+        expect(data.success).toBe(false);
+        expect(data.valid).toBe(false);
+        expect(data.issues).toContainEqual({
+            severity: 'error',
+            code: 'build-failed',
+            category: 'build',
+            message: 'The active build failed: OpenCASCADE failed',
+            suggestion: 'Fix the reported build error and rebuild the document.'
+        });
+        expect(issueCodes(data)).toContain('no-solids');
+    });
+
+    it('reports a build that produced no solids', async () => {
+        const model: CadModel = {
+            ...cadModel({ solidCount: 0, faceCount: 0, triangleCount: 0, warnings: [] }),
+            manifest: manifestFor(0)
+        };
+        const { stateManager } = createStateManager({ model, solidSummaries: [] });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = diagnosisData(result);
+
+        expect(result.ok).toBe(true);
+        expect(data.counts).toEqual({ solids: 0, faces: 0, triangles: 0 });
+        expect(data.valid).toBe(false);
+        expect(data.issues).toContainEqual(expect.objectContaining({ severity: 'error', code: 'no-solids', category: 'geometry' }));
+        expect(issueCodes(data)).not.toContain('no-triangles');
+    });
+
+    it('maps each build warning to a build-warning finding', async () => {
+        const model: CadModel = {
+            ...cadModel({
+                solidCount: 1,
+                faceCount: 6,
+                triangleCount: 60,
+                warnings: ['first warning', 'second warning']
+            }),
+            manifest: manifestFor(1)
+        };
+        const { stateManager } = createStateManager({ model, solidSummaries: [SUMMARIES[0]] });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = diagnosisData(result);
+
+        expect(data.warnings).toEqual(['first warning', 'second warning']);
+        expect(data.issues.filter((issue) => issue.code === 'build-warning')).toEqual([
+            expect.objectContaining({ severity: 'warning', category: 'build', message: 'first warning' }),
+            expect.objectContaining({ severity: 'warning', category: 'build', message: 'second warning' })
+        ]);
+        expect(data.valid).toBe(true);
+    });
+
+    it('reports a missing or empty manifest', async () => {
+        const base = cadModel({ solidCount: 1, faceCount: 6, triangleCount: 60, warnings: [] });
+        const manifests: Array<RegionManifestData | undefined> = [undefined, { version: 1, volumes: [], surfaces: [] }];
+        for (const manifest of manifests) {
+            const { stateManager } = createStateManager({
+                model: { ...base, manifest },
+                solidSummaries: [SUMMARIES[0]]
+            });
+            const { service } = createService();
+            const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+            const result = await capability.invoke({}, CONTEXT);
+            const data = diagnosisData(result);
+
+            expect(result.ok).toBe(true);
+            expect(data.manifest).toEqual({ present: false, volumes: 0, surfaces: 0 });
+            expect(issueCodes(data)).toContain('manifest-missing');
+            expect(issueCodes(data)).not.toContain('manifest-count-mismatch');
+        }
+    });
+
+    it('reports a manifest volume count that does not match the solids', async () => {
+        const model: CadModel = {
+            ...cadModel({ solidCount: 3, faceCount: 18, triangleCount: 180, warnings: [] }),
+            manifest: MANIFEST
+        };
+        const { stateManager } = createStateManager({ model, solidSummaries: SUMMARIES });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = diagnosisData(result);
+
+        expect(result.ok).toBe(true);
+        expect(data.manifest).toEqual({ present: true, volumes: 1, surfaces: 1 });
+        expect(data.issues).toContainEqual(
+            expect.objectContaining({
+                severity: 'warning',
+                code: 'manifest-count-mismatch',
+                category: 'manifest',
+                message: 'The region manifest lists 1 volume(s) but the build has 3 solid(s).'
+            })
+        );
+        expect(issueCodes(data)).not.toContain('manifest-missing');
+    });
+
+    it('reports a stale selection that no longer matches the solid summaries', async () => {
+        const model: CadModel = {
+            ...cadModel({ solidCount: 3, faceCount: 18, triangleCount: 180, warnings: [] }),
+            manifest: manifestFor(3)
+        };
+        const selections: CadSelection[] = [
+            { solidId: 9, solidIds: [1, 9] },
+            { solidId: 1, faceId: 99 }
+        ];
+        for (const selection of selections) {
+            const { stateManager } = createStateManager({ model, selection, solidSummaries: SUMMARIES });
+            const { service } = createService();
+            const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+            const result = await capability.invoke({}, CONTEXT);
+            const data = diagnosisData(result);
+
+            expect(data.selection.valid).toBe(false);
+            expect(issueCodes(data)).toContain('selection-stale');
+            expect(data.valid).toBe(true);
+        }
+    });
+
+    it('reports hidden solids as viewport-only info', async () => {
+        const model: CadModel = {
+            ...cadModel({ solidCount: 1, faceCount: 6, triangleCount: 60, warnings: [] }),
+            manifest: manifestFor(1)
+        };
+        const { stateManager } = createStateManager({
+            model,
+            solidSummaries: [SUMMARIES[0]],
+            hiddenSolidIds: [1]
+        });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = diagnosisData(result);
+
+        expect(data.hiddenSolidIds).toEqual([1]);
+        expect(data.issues).toContainEqual(
+            expect.objectContaining({
+                severity: 'info',
+                code: 'hidden-solids',
+                category: 'viewport',
+                message: '1 solid(s) are hidden in the viewport; hidden solids are still exported.'
+            })
+        );
+        expect(data.valid).toBe(true);
+    });
+
+    it('reports solids without triangles and solids with non-positive volume', async () => {
+        const summaries: SolidSummary[] = [
+            { solidId: 1, faceCount: 6, edgeCount: 12, triangleCount: 0, properties: { volume: 2 } },
+            { solidId: 2, faceCount: 4, edgeCount: 4, triangleCount: 20, properties: { volume: 0 } },
+            { solidId: 3, faceCount: 4, edgeCount: 4, triangleCount: 10, properties: { volume: -1 } }
+        ];
+        const model: CadModel = {
+            ...cadModel({ solidCount: 3, faceCount: 14, triangleCount: 30, warnings: [] }),
+            manifest: manifestFor(3)
+        };
+        const { stateManager } = createStateManager({ model, solidSummaries: summaries });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = diagnosisData(result);
+
+        expect(issueCodes(data)).not.toContain('no-triangles');
+        expect(data.issues).toContainEqual(
+            expect.objectContaining({
+                severity: 'warning',
+                code: 'solid-no-triangles',
+                category: 'tessellation',
+                message: 'Solid 1 has no tessellation triangles.'
+            })
+        );
+        expect(data.issues.filter((issue) => issue.code === 'solid-zero-volume').map((issue) => issue.message)).toEqual([
+            'Solid 2 has non-positive volume (0).',
+            'Solid 3 has non-positive volume (-1).'
+        ]);
+        expect(data.valid).toBe(true);
+    });
+
+    it('caps findings at 20 issues and replaces the tail with a truncation marker', async () => {
+        const warnings = Array.from({ length: 25 }, (_, index) => `warning ${index + 1}`);
+        const model: CadModel = {
+            ...cadModel({ solidCount: 1, faceCount: 6, triangleCount: 60, warnings }),
+            manifest: manifestFor(1)
+        };
+        const { stateManager } = createStateManager({ model, solidSummaries: [SUMMARIES[0]] });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = diagnosisData(result);
+
+        expect(data.issues).toHaveLength(20);
+        expect(data.issues.slice(0, 19).every((issue) => issue.code === 'build-warning')).toBe(true);
+        expect(data.issues[19]).toEqual({
+            severity: 'info',
+            code: 'findings-truncated',
+            category: 'diagnostics',
+            message: '6 additional finding(s) were omitted from this diagnosis.',
+            suggestion: 'Fix the highest-severity findings and run the diagnosis again.'
+        });
+        expect(data.valid).toBe(true);
+    });
+
+    it('returns ok: false when diagnosing without an active model', async () => {
+        const { stateManager } = createStateManager();
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        expect(await capability.invoke({}, CONTEXT)).toEqual({
+            ok: false,
+            message: 'No CAD document is active.'
+        });
+    });
+
+    it('enables diagnoseModel only while a model is active', () => {
+        const { stateManager, setModel } = createStateManager();
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.diagnoseModel')!;
+
+        expect(capability.when!(CONTEXT)).toBe(false);
+
+        setModel(cadModel());
+        expect(capability.when!(CONTEXT)).toBe(true);
+
+        setModel(undefined);
+        expect(capability.when!(CONTEXT)).toBe(false);
     });
 
     it('publishes the active CAD document as capability context', async () => {

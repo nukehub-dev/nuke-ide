@@ -29,9 +29,14 @@
  * Visualizer capabilities
  *
  * Registers the visualizer's AI-facing actions with the neutral nuke-core
- * capability registry: statepoint summaries, statepoint opening, and truthful
- * DAGMC viewport captures. The capability surface stays independent of the AI
- * bridge, so any capability consumer can invoke it.
+ * capability registry: statepoint summaries, metadata-only statepoint
+ * diagnosis, statepoint opening, and truthful DAGMC viewport captures. The
+ * capability surface stays independent of the AI bridge, so any capability
+ * consumer can invoke it.
+ *
+ * Diagnosis triages only the metadata of the currently loaded statepoint; raw
+ * tally values and uncertainties are never read and no file is loaded or
+ * replaced.
  *
  * @module nuke-visualizer/browser/capabilities
  */
@@ -55,8 +60,17 @@ import type { OpenMCStatepointInfo, OpenMCTallyInfo } from '../../common/openmc-
 import type { ScreenshotFormat, ScreenshotOptions, ScreenshotScale } from '../viewer-core/canvas-screenshot';
 
 const SUMMARIZE_STATEPOINT = 'nuke.viz.summarizeStatepoint';
+const DIAGNOSE_STATEPOINT = 'nuke.viz.diagnoseStatepoint';
 const OPEN_STATEPOINT = 'nuke.viz.openStatepoint';
 const CAPTURE_VIEW = 'nuke.viz.captureView';
+
+/** Maximum number of findings returned by a diagnosis. */
+const DIAGNOSTIC_ISSUE_LIMIT = 20;
+const HIGH_KEFF_RELATIVE_UNCERTAINTY = 0.005;
+const NOTABLE_KEFF_RELATIVE_UNCERTAINTY = 0.001;
+const MIN_BATCHES = 50;
+const MIN_GENERATIONS_PER_BATCH = 10;
+const MANY_TALLIES_THRESHOLD = 20;
 
 /** Statepoint summary payload returned by {@link VisualizerCapabilities}. */
 export interface StatepointSummary {
@@ -68,6 +82,38 @@ export interface StatepointSummary {
     readonly nTallies: number;
     readonly tallyIds: readonly number[];
     readonly tallies: readonly Pick<OpenMCTallyInfo, 'id' | 'name' | 'scores' | 'nuclides' | 'hasMesh'>[];
+}
+
+/** Shared diagnostic finding shape rendered by capability consumers. */
+export interface NukeDiagnosticIssue {
+    readonly severity: 'error' | 'warning' | 'info';
+    readonly code: string;
+    readonly category?: string;
+    readonly message: string;
+    readonly suggestion?: string;
+}
+
+/** Tally metadata included in a statepoint diagnosis. */
+export interface StatepointTallyDiagnostic {
+    readonly id: number;
+    readonly name: string;
+    readonly scores: readonly string[];
+    readonly nuclides: readonly string[];
+    readonly hasMesh: boolean;
+}
+
+/** Statepoint diagnosis payload returned by {@link VisualizerCapabilities}. */
+export interface StatepointDiagnosis {
+    readonly file: string;
+    readonly batches: number;
+    readonly generationsPerBatch: number;
+    readonly kEff?: number;
+    readonly kEffStd?: number;
+    readonly relativeKeffUncertainty?: number;
+    readonly nTallies: number;
+    readonly tallies: readonly StatepointTallyDiagnostic[];
+    readonly issues: readonly NukeDiagnosticIssue[];
+    readonly warnings: readonly string[];
 }
 
 /** Capture preview returned by {@link VisualizerCapabilities}. */
@@ -110,6 +156,7 @@ export class VisualizerCapabilities implements NukeCapabilityContribution {
 
     registerCapabilities(registry: NukeCapabilityRegistry): void {
         registry.register(this.summarizeStatepointCapability());
+        registry.register(this.diagnoseStatepointCapability());
         registry.register(this.openStatepointCapability());
         registry.register(this.captureViewCapability());
     }
@@ -138,6 +185,76 @@ export class VisualizerCapabilities implements NukeCapabilityContribution {
                 { description: 'Summarize a statepoint by path', input: { filePath: '/workspace/statepoint.100.h5' } }
             ],
             invoke: (input, context) => this.summarizeStatepoint(input, context)
+        };
+    }
+
+    protected diagnoseStatepointCapability(): NukeCapability {
+        return {
+            id: DIAGNOSE_STATEPOINT,
+            title: 'Diagnose OpenMC statepoint',
+            description:
+                'Triage the loaded OpenMC statepoint metadata: k-effective uncertainty, batch and generation counts, and tally coverage. Reads loaded metadata only; it never changes the loaded statepoint and does not inspect raw tally values or their uncertainties.',
+            category: ['Visualizer', 'Statepoint'],
+            inputSchema: {
+                type: 'object',
+                properties: {},
+                additionalProperties: false
+            },
+            outputSchema: {
+                type: 'object',
+                properties: {
+                    file: { type: 'string' },
+                    batches: { type: 'number' },
+                    generationsPerBatch: { type: 'number' },
+                    kEff: { type: 'number' },
+                    kEffStd: { type: 'number' },
+                    relativeKeffUncertainty: { type: 'number' },
+                    nTallies: { type: 'number' },
+                    tallies: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'number' },
+                                name: { type: 'string' },
+                                scores: { type: 'array', items: { type: 'string' } },
+                                nuclides: { type: 'array', items: { type: 'string' } },
+                                hasMesh: { type: 'boolean' }
+                            },
+                            required: ['id', 'name', 'scores', 'nuclides', 'hasMesh'],
+                            additionalProperties: false
+                        }
+                    },
+                    issues: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                severity: { type: 'string', enum: ['error', 'warning', 'info'] },
+                                code: { type: 'string' },
+                                category: { type: 'string' },
+                                message: { type: 'string' },
+                                suggestion: { type: 'string' }
+                            },
+                            required: ['severity', 'code', 'message'],
+                            additionalProperties: false
+                        }
+                    },
+                    warnings: { type: 'array', items: { type: 'string' } }
+                },
+                required: ['file', 'batches', 'generationsPerBatch', 'nTallies', 'tallies', 'issues', 'warnings'],
+                additionalProperties: false
+            },
+            risk: 'read',
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false
+            },
+            when: () => true,
+            examples: [{ description: 'Diagnose the loaded statepoint', input: {} }],
+            invoke: () => this.diagnoseStatepoint()
         };
     }
 
@@ -239,6 +356,14 @@ export class VisualizerCapabilities implements NukeCapabilityContribution {
         return { ok: true, data: summarizeStatepoint(info, this.openmcService.getCurrentTallies()) };
     }
 
+    protected async diagnoseStatepoint(): Promise<NukeCapabilityResult> {
+        const info = this.openmcService.getCurrentStatepoint();
+        if (!info) {
+            return { ok: false, message: 'No statepoint is loaded.' };
+        }
+        return { ok: true, data: diagnoseStatepoint(info, this.openmcService.getCurrentTallies()) };
+    }
+
     protected async openStatepoint(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
         const record = asRecord(input);
         const filePath = readNonEmptyString(record.filePath);
@@ -328,6 +453,151 @@ function summarizeStatepoint(info: OpenMCStatepointInfo, tallies: readonly OpenM
             hasMesh: tally.hasMesh
         }))
     };
+}
+
+/**
+ * Triage the metadata of the statepoint already loaded in `OpenMCService`.
+ *
+ * Only summary values and tally definitions are inspected; raw tally values
+ * and their uncertainties are not read. The file is never loaded or replaced.
+ */
+function diagnoseStatepoint(info: OpenMCStatepointInfo, tallies: readonly OpenMCTallyInfo[]): StatepointDiagnosis {
+    const findings: NukeDiagnosticIssue[] = [];
+    const kEff = isFiniteNumber(info.kEff) ? info.kEff : undefined;
+    const kEffStd = isFiniteNumber(info.kEffStd) ? info.kEffStd : undefined;
+    let relativeKeffUncertainty: number | undefined;
+
+    if (kEff === undefined || kEffStd === undefined) {
+        findings.push({
+            severity: 'warning',
+            code: 'missing-keff',
+            category: 'convergence',
+            message: 'The loaded statepoint does not report both k-effective and its standard deviation.',
+            suggestion: 'Fixed-source statepoints may legitimately omit k-effective; confirm eigenvalue mode if it is expected.'
+        });
+    } else if (kEff !== 0) {
+        relativeKeffUncertainty = kEffStd / Math.abs(kEff);
+        if (relativeKeffUncertainty > HIGH_KEFF_RELATIVE_UNCERTAINTY) {
+            findings.push({
+                severity: 'warning',
+                code: 'high-keff-uncertainty',
+                category: 'convergence',
+                message: `Relative k-effective uncertainty is ${formatRelativeUncertainty(relativeKeffUncertainty)}, above the 0.5% warning threshold.`,
+                suggestion: 'Run more active batches or generations per batch before relying on the eigenvalue estimate.'
+            });
+        } else if (relativeKeffUncertainty > NOTABLE_KEFF_RELATIVE_UNCERTAINTY) {
+            findings.push({
+                severity: 'info',
+                code: 'high-keff-uncertainty',
+                category: 'convergence',
+                message: `Relative k-effective uncertainty is ${formatRelativeUncertainty(relativeKeffUncertainty)}, above 0.1% but below the 0.5% warning threshold.`,
+                suggestion: 'Acceptable for scoping; tighten the statistics before reporting a final value.'
+            });
+        }
+    }
+
+    if (info.batches < MIN_BATCHES) {
+        findings.push({
+            severity: 'warning',
+            code: 'few-batches',
+            category: 'convergence',
+            message: `Only ${info.batches} batches were run; ${MIN_BATCHES} or more are expected.`,
+            suggestion: 'Increase the number of batches so the eigenvalue estimate averages enough active cycles.'
+        });
+    }
+    if (info.generationsPerBatch < MIN_GENERATIONS_PER_BATCH) {
+        findings.push({
+            severity: 'info',
+            code: 'few-generations',
+            category: 'convergence',
+            message: `Each batch has only ${info.generationsPerBatch} generations; ${MIN_GENERATIONS_PER_BATCH} or more are expected.`,
+            suggestion: 'Increase generations per batch to reduce correlation between generations.'
+        });
+    }
+
+    if (info.nTallies === 0) {
+        findings.push({
+            severity: 'warning',
+            code: 'no-tallies',
+            category: 'tallies',
+            message: 'The loaded statepoint contains no tallies.',
+            suggestion: 'Add a tally to the model before running if this simulation should produce results.'
+        });
+    } else if (info.nTallies > MANY_TALLIES_THRESHOLD) {
+        findings.push({
+            severity: 'info',
+            code: 'many-tallies',
+            category: 'tallies',
+            message: `The statepoint contains ${info.nTallies} tallies; only tally metadata is triaged here.`,
+            suggestion: 'Review the tallies relevant to the question in the statepoint viewer.'
+        });
+    }
+
+    for (const tally of tallies) {
+        if (tally.scores.length === 0) {
+            findings.push({
+                severity: 'warning',
+                code: 'tally-no-scores',
+                category: 'tallies',
+                message: `Tally ${tally.id} (${tally.name}) has no scores.`,
+                suggestion: 'Add at least one score to the tally definition and rerun the model.'
+            });
+        }
+        if (tally.hasMesh) {
+            findings.push({
+                severity: 'info',
+                code: 'mesh-tally',
+                category: 'tallies',
+                message: `Tally ${tally.id} (${tally.name}) is a mesh tally; its spatial distribution needs the statepoint viewer.`,
+                suggestion: 'Open the tally in the statepoint viewer for spatial interpretation.'
+            });
+        }
+    }
+
+    const issues = capDiagnosticIssues(findings);
+    return {
+        file: info.file,
+        batches: info.batches,
+        generationsPerBatch: info.generationsPerBatch,
+        kEff,
+        kEffStd,
+        relativeKeffUncertainty,
+        nTallies: info.nTallies,
+        tallies: tallies.map((tally) => ({
+            id: tally.id,
+            name: tally.name,
+            scores: [...tally.scores],
+            nuclides: [...tally.nuclides],
+            hasMesh: tally.hasMesh
+        })),
+        issues,
+        warnings: issues.filter((issue) => issue.severity === 'warning').map((issue) => issue.message)
+    };
+}
+
+/** Keep at most {@link DIAGNOSTIC_ISSUE_LIMIT} findings, replacing the tail with a truncation notice. */
+function capDiagnosticIssues(findings: readonly NukeDiagnosticIssue[]): NukeDiagnosticIssue[] {
+    if (findings.length <= DIAGNOSTIC_ISSUE_LIMIT) {
+        return [...findings];
+    }
+    const omitted = findings.length - (DIAGNOSTIC_ISSUE_LIMIT - 1);
+    return [
+        ...findings.slice(0, DIAGNOSTIC_ISSUE_LIMIT - 1),
+        {
+            severity: 'info',
+            code: 'findings-truncated',
+            message: `${omitted} additional finding(s) were omitted from this diagnosis.`,
+            suggestion: 'Review the statepoint in the viewer to inspect the remaining tallies.'
+        }
+    ];
+}
+
+function isFiniteNumber(value: number | undefined): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function formatRelativeUncertainty(value: number): string {
+    return `${(value * 100).toFixed(2)}%`;
 }
 
 function validateStatepointPath(filePath: string, context: NukeCapabilityContext): string | undefined {

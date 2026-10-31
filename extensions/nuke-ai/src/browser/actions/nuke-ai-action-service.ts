@@ -29,9 +29,9 @@
  * NukeAI Action Service
  *
  * Bridges NukeAI commands to the Theia chat. Every action opens or reuses a
- * focused panel session, pins the NukeAI agent when it is available, and
- * attaches `#nukeContext` to the request. Failures are reported to the user and
- * never escape to the command handler.
+ * focused panel session, pins the requested agent (falling back to NukeAI when
+ * it is unavailable), and attaches `#nukeContext` to the request. Failures are
+ * reported to the user and never escape to the command handler.
  *
  * @module nuke-ai/browser/actions
  */
@@ -61,11 +61,12 @@ export class NukeAiActionService {
 
     /**
      * Open a focused panel session and send a read-only request with the active
-     * Nuke context attached.
+     * Nuke context attached. `agentId` selects the chat agent; when it is not
+     * available the request falls back to the default NukeAI agent.
      */
-    async ask(prompt: string, displayText: string): Promise<void> {
+    async ask(prompt: string, displayText: string, agentId: string = NUKE_CHAT_AGENT_ID): Promise<void> {
         try {
-            const agent = this.findNukeAgent();
+            const agent = this.resolveAgent(agentId);
             const session = this.chatService.createSession(ChatAgentLocation.Panel, { focus: true }, agent);
             const invocation = await this.chatService.sendRequest(session.id, {
                 text: prompt,
@@ -97,6 +98,15 @@ export class NukeAiActionService {
             this.logger.error('[NukeAI] Failed to attach the active context.', error);
             this.messageService.error(`NukeAI could not attach the active context: ${errorMessage(error)}`);
         }
+    }
+
+    /** Resolve the requested agent, falling back to NukeAI when it is absent. */
+    protected resolveAgent(agentId: string): ChatAgent | undefined {
+        const requested = this.chatAgentService.getAgent(agentId);
+        if (requested || agentId === NUKE_CHAT_AGENT_ID) {
+            return requested;
+        }
+        return this.findNukeAgent();
     }
 
     /** Resolve the NukeAI agent, or undefined when it is disabled or unavailable. */

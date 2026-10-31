@@ -10,7 +10,8 @@ extensions/nuke-ai/skills/
 ├── nuke-cad/SKILL.md
 ├── openmc-studio/SKILL.md
 ├── nuke-visualizer/SKILL.md
-└── nuke-workflow/SKILL.md
+├── nuke-workflow/SKILL.md
+└── nuke-diagnostics/SKILL.md
 ```
 
 The backend `NukeAISkillService` exposes only the root directory over JSON-RPC at
@@ -45,6 +46,7 @@ no qualifier, so the chat exposes them as slash commands:
 - `/openmc-studio`
 - `/nuke-visualizer`
 - `/nuke-workflow`
+- `/nuke-diagnostics`
 
 The same skills appear under **Generic Capabilities → Skills** in the chat input and through the `{{skills}}`
 variable. A slash command loads the skill content through `~{getSkillFileContent}`; the model can also load a skill
@@ -53,10 +55,10 @@ by name when a conversation needs progressive disclosure.
 ## Content rules
 
 - Use only the approved chat tool names:
-  `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_cad_exportDagmc`,
+  `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_cad_exportDagmc`, `nuke_cad_diagnoseModel`,
   `nuke_openmc_summarizeProject`, `nuke_openmc_validateProject`, `nuke_openmc_importCad`,
-  `nuke_openmc_runSimulation`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`,
-  `nuke_viz_openStatepoint`, `nuke_viz_captureView`.
+  `nuke_openmc_runSimulation`, `nuke_openmc_getRunStatus`, `nuke_openmc_diagnoseProject`, `nuke_openmc_diagnoseRun`,
+  `nuke_viz_summarizeStatepoint`, `nuke_viz_openStatepoint`, `nuke_viz_captureView`, `nuke_viz_diagnoseStatepoint`.
 - Call instructions use the sanitized tool names. Each skill includes one short mapping note because the
   capability id stays the stable registry identifier: `nuke.cad.summarizeDocument` is exposed as
   `nuke_cad_summarizeDocument`, and the remaining ids replace dots with underscores in the same way.

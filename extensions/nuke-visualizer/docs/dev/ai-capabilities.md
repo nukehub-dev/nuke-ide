@@ -9,6 +9,7 @@
 | Id                             | Risk  | Purpose                                                               |
 | ------------------------------ | ----- | --------------------------------------------------------------------- |
 | `nuke.viz.summarizeStatepoint` | read  | Summarize the loaded statepoint or one absolute workspace statepoint. |
+| `nuke.viz.diagnoseStatepoint`  | read  | Triage loaded statepoint convergence and tally metadata.              |
 | `nuke.viz.openStatepoint`      | write | Open an absolute workspace statepoint in the statepoint viewer.       |
 | `nuke.viz.captureView`         | read  | Capture the active DAGMC viewport as a truthful image preview.        |
 
@@ -20,6 +21,38 @@ a workspace root, and the file is loaded through `OpenMCService.loadStatepoint`.
 Output data: `file`, `batches`, `generationsPerBatch`, optional `kEff` and `kEffStd`, `nTallies`, `tallyIds`, and one entry per loaded tally with
 `id`, `name`, `scores`, `nuclides`, and `hasMesh`. A null load returns `Failed to load statepoint.`; an empty viewer state returns
 `No statepoint is loaded.`.
+
+### `nuke.viz.diagnoseStatepoint`
+
+Input: `{}`. The capability diagnoses only the statepoint currently loaded in `OpenMCService`; it never loads, replaces, or mutates a
+statepoint.
+
+Output data: `file`, `batches`, `generationsPerBatch`, optional `kEff`, `kEffStd`, and `relativeKeffUncertainty`, `nTallies`, one entry per
+loaded tally (`id`, `name`, `scores`, `nuclides`, `hasMesh`), `issues`, and `warnings` (the messages of warning-severity issues). An empty
+viewer state returns `ok: false` with `No statepoint is loaded.`; a diagnosis that runs returns `ok: true` even when it reports findings.
+
+Findings use the shared diagnostic issue shape (`severity`, `code`, optional `category`, `message`, optional `suggestion`) and are capped at
+20 entries. When the cap drops findings, the final entry is an info `findings-truncated` issue.
+
+| Code                    | Severity | Condition                                  |
+| ----------------------- | -------- | ------------------------------------------ |
+| `missing-keff`          | warning  | `kEff` or `kEffStd` is absent.             |
+| `high-keff-uncertainty` | warning  | `kEffStd / abs(kEff)` > 0.005.             |
+| `high-keff-uncertainty` | info     | `kEffStd / abs(kEff)` > 0.001.             |
+| `few-batches`           | warning  | `batches` < 50.                            |
+| `few-generations`       | info     | `generationsPerBatch` < 10.                |
+| `no-tallies`            | warning  | `nTallies` is 0.                           |
+| `many-tallies`          | info     | `nTallies` > 20.                           |
+| `tally-no-scores`       | warning  | A loaded tally has an empty `scores` list. |
+| `mesh-tally`            | info     | A loaded tally has `hasMesh: true`.        |
+| `findings-truncated`    | info     | More than 20 findings were produced.       |
+
+### Statepoint metadata limitation
+
+`nuke.viz.diagnoseStatepoint` triages loaded statepoint metadata only: convergence summary values and tally definitions already reported by
+`OpenMCService`. It does not read raw tally values, per-bin means, or tally uncertainties, so it cannot identify under-converged tallies,
+zero-valued bins, or statistically noisy results. Use the statepoint viewer's tally tabs for those checks; mesh tallies are reported as
+metadata findings that point to the viewer.
 
 ### `nuke.viz.openStatepoint`
 
@@ -47,6 +80,6 @@ a WebGL error) return `ok: false` with the widget's message.
 
 ## Path scoping
 
-Both statepoint capabilities accept only absolute paths that resolve inside a workspace root. Relative paths and paths outside every root are
-rejected before any file load or viewer open runs. The current-statepoint summary path needs no scoping because it uses state the viewer already
-loaded.
+The path-taking statepoint capabilities (`nuke.viz.summarizeStatepoint` and `nuke.viz.openStatepoint`) accept only absolute paths that resolve
+inside a workspace root. Relative paths and paths outside every root are rejected before any file load or viewer open runs.
+`nuke.viz.diagnoseStatepoint` and the current-statepoint summary path need no scoping because they use state the viewer already loaded.

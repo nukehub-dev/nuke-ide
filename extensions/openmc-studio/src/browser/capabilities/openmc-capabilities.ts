@@ -40,19 +40,31 @@
 import * as path from 'path';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { Event } from '@theia/core/lib/common/event';
+import { URI } from '@theia/core/lib/common/uri';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { NukeCoreService } from 'nuke-core/lib/common';
 import {
     NukeCapabilityContext,
     NukeCapabilityContextContribution,
     NukeCapabilityContribution,
     NukeCapabilityRegistry,
-    NukeCapabilityResult
+    NukeCapabilityResult,
+    NukeJsonSchema,
+    NukeJsonSchemaProperty
 } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
+import { deriveAnnotations, isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import { OpenMCMaterial } from '../../common/openmc-state-schema';
-import { OpenMCStudioBackendService, SimulationRunRequest, ValidationRequest } from '../../common/openmc-studio-protocol';
+import {
+    ActiveSimulationInfo,
+    OpenMCStudioBackendService,
+    SimulationLogResult,
+    SimulationRunRequest,
+    ValidationIssue,
+    ValidationRequest,
+    ValidationResult
+} from '../../common/openmc-studio-protocol';
 import { OpenMCStateManager } from '../openmc-state-manager';
-import { OpenMCEnvironmentService } from '../services/openmc-environment-service';
+import { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from '../services/openmc-environment-service';
 import { OpenMCSimulationRunner } from '../widgets/simulation-dashboard/simulation-runner';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 
@@ -125,6 +137,268 @@ function isWorkspacePath(value: string | undefined, roots: readonly string[]): v
     return typeof value === 'string' && path.isAbsolute(value) && isWithinWorkspace(value, roots);
 }
 
+/** Maximum number of findings returned by a diagnosis. */
+const DIAGNOSTIC_ISSUE_LIMIT = 20;
+/** Default number of run log lines returned by the run diagnosis. */
+const DEFAULT_RUN_LOG_LINES = 80;
+/** Hard cap for the run log line window. */
+const MAX_RUN_LOG_LINES = 200;
+/** Longest log line snippet embedded in a finding message. */
+const MAX_LOG_SNIPPET_LENGTH = 240;
+
+/** Shared diagnostic finding shape rendered by capability consumers. */
+export interface NukeDiagnosticIssue {
+    readonly severity: 'error' | 'warning' | 'info';
+    readonly code: string;
+    readonly category?: string;
+    readonly message: string;
+    readonly suggestion?: string;
+}
+
+/** One log-line classifier used by the run diagnosis. */
+interface LogFindingPattern {
+    readonly code: string;
+    readonly severity: 'error' | 'warning';
+    readonly category: string;
+    readonly label: string;
+    readonly suggestion: string;
+    readonly matches: (line: string) => boolean;
+}
+
+/**
+ * Log classifiers in priority order: a line produces the first matching
+ * finding so a single failure is not reported as both a specific problem and a
+ * generic error/warning line.
+ */
+const LOG_FINDING_PATTERNS: readonly LogFindingPattern[] = [
+    {
+        code: 'lost-particles',
+        severity: 'error',
+        category: 'geometry',
+        label: 'Lost particles reported',
+        suggestion: 'Check the geometry for gaps or thin regions, then re-run with particle tracking to locate the escaping particles.',
+        matches: (line) => /\blost\s+particles?\b/i.test(line) || /\bparticles?\s+outside\b/i.test(line)
+    },
+    {
+        code: 'cross-sections',
+        severity: 'error',
+        category: 'environment',
+        label: 'Cross sections could not be loaded',
+        suggestion: 'Set the OpenMC cross-sections preference or OPENMC_CROSS_SECTIONS to a valid cross_sections.xml file.',
+        matches: (line) =>
+            /cross[ _-]?sections?[^\n]*(?:missing|not found|could not|unable|no such file)/i.test(line) ||
+            /(?:missing|not found|could not find|unable to find|no such file)[^\n]*cross[ _-]?sections?/i.test(line)
+    },
+    {
+        code: 'overlap',
+        severity: 'warning',
+        category: 'geometry',
+        label: 'Overlapping cells reported',
+        suggestion: 'Find the overlapping cell pair and adjust the geometry so every region has a single owner.',
+        matches: (line) => /\boverlap(?:ping|ped)?\b/i.test(line)
+    },
+    {
+        code: 'convergence',
+        severity: 'warning',
+        category: 'convergence',
+        label: 'Convergence problem reported',
+        suggestion: 'Increase inactive or active batches, check the source distribution, and review the model before trusting the result.',
+        matches: (line) =>
+            /\binactive\b/i.test(line) ||
+            /\b(?:did not|does not|not)\s+converg(?:e|ed)\b/i.test(line) ||
+            /\bfail(?:ed|s)? to converge\b/i.test(line)
+    },
+    {
+        code: 'mpi',
+        severity: 'warning',
+        category: 'environment',
+        label: 'MPI failure reported',
+        suggestion: 'Check the MPI runtime, host list, and rank count, then restart the run.',
+        matches: (line) =>
+            /\bmpi(?:run)?\b/i.test(line) && /\b(?:fail(?:ed|ure|s)?|error|abort(?:ed)?|unable|cannot|refused|not found)\b/i.test(line)
+    },
+    {
+        code: 'error-line',
+        severity: 'error',
+        category: 'log',
+        label: 'Error line in the OpenMC log',
+        suggestion: 'Inspect the log around this line and fix the reported error before re-running.',
+        matches: (line) =>
+            /\bERROR\b/.test(line) ||
+            /\bFatal\b/i.test(line) ||
+            /Traceback \(most recent call last\)/i.test(line) ||
+            /segmentation fault/i.test(line) ||
+            /\bkilled\b/i.test(line) ||
+            /\baborted\b/i.test(line)
+    },
+    {
+        code: 'warning-line',
+        severity: 'warning',
+        category: 'log',
+        label: 'Warning in the OpenMC log',
+        suggestion: 'Review the warning; it may affect results even when the run completes.',
+        matches: (line) => /\bWARNING\b/.test(line)
+    }
+];
+
+const DIAGNOSTIC_ISSUE_SCHEMA: NukeJsonSchemaProperty = {
+    type: 'object',
+    properties: {
+        severity: { type: 'string', enum: ['error', 'warning', 'info'] },
+        code: { type: 'string', description: 'Stable finding code.' },
+        category: { type: 'string', description: 'Domain area for the finding.' },
+        message: { type: 'string', description: 'Human-readable finding with the relevant log or validation snippet.' },
+        suggestion: { type: 'string', description: 'Safe next step for the user.' }
+    },
+    required: ['severity', 'code', 'message'],
+    additionalProperties: false
+};
+
+const DIAGNOSE_PROJECT_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+};
+
+const DIAGNOSE_PROJECT_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        projectPath: { type: 'string', description: 'Saved project file, when the project has one.' },
+        name: { type: 'string' },
+        counts: {
+            type: 'object',
+            properties: {
+                surfaces: { type: 'integer' },
+                cells: { type: 'integer' },
+                universes: { type: 'integer' },
+                lattices: { type: 'integer' },
+                materials: { type: 'integer' },
+                tallies: { type: 'integer' },
+                meshes: { type: 'integer' }
+            }
+        },
+        valid: { type: 'boolean', description: 'Whether validation passed and the diagnosis found no error findings.' },
+        readyToRun: { type: 'boolean', description: 'Whether the project can run with the current environment and assets.' },
+        validation: { type: 'object', description: 'Backend validation result (valid flag, issues, summary).' },
+        environment: {
+            type: 'object',
+            properties: {
+                ready: { type: 'boolean' },
+                openmcVersion: { type: 'string' },
+                error: { type: 'string' },
+                warning: { type: 'string' }
+            }
+        },
+        crossSectionsPath: { type: 'string', description: 'Configured cross-sections path, when one is set.' },
+        crossSectionsExists: { type: 'boolean', description: 'Whether the configured cross-sections path exists.' },
+        issues: { type: 'array', items: DIAGNOSTIC_ISSUE_SCHEMA },
+        warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['name', 'counts', 'valid', 'readyToRun', 'validation', 'environment', 'issues', 'warnings'],
+    additionalProperties: false
+};
+
+const DIAGNOSE_RUN_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        workingDirectory: { type: 'string', description: 'Exact active run directory; disambiguates multiple runs.' },
+        logLines: { type: 'integer', minimum: 1, maximum: 200, default: 80 }
+    },
+    additionalProperties: false
+};
+
+const DIAGNOSE_RUN_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        running: { type: 'boolean' },
+        processId: { type: 'string' },
+        workingDirectory: { type: 'string' },
+        startTime: { type: 'string' },
+        logFilePath: { type: 'string' },
+        logTail: { type: 'string', description: 'Last log lines, capped at 16 KiB.' },
+        errorCount: { type: 'integer' },
+        warningCount: { type: 'integer' },
+        findings: { type: 'array', items: DIAGNOSTIC_ISSUE_SCHEMA }
+    },
+    required: ['running', 'errorCount', 'warningCount', 'findings'],
+    additionalProperties: false
+};
+
+/** Extract a readable message from an unknown thrown value. */
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+/** Resolve a project-relative asset path against the saved project directory. */
+function resolveProjectAsset(filePath: string, projectPath: string | undefined): string | undefined {
+    if (path.isAbsolute(filePath)) {
+        return filePath;
+    }
+    return projectPath ? path.resolve(path.dirname(projectPath), filePath) : undefined;
+}
+
+/** Map a backend validation issue to the shared diagnostic shape. */
+function toDiagnosticIssue(issue: ValidationIssue): NukeDiagnosticIssue {
+    const diagnostic: NukeDiagnosticIssue = {
+        severity: issue.severity,
+        code: issue.code ?? `validation-${issue.category}`,
+        category: issue.category,
+        message: issue.message
+    };
+    return issue.suggestion === undefined ? diagnostic : { ...diagnostic, suggestion: issue.suggestion };
+}
+
+/** Read the requested run log line count, clamped to the supported window. */
+function readRunLogLines(value: unknown): number {
+    return Math.min(readPositiveInteger(value) ?? DEFAULT_RUN_LOG_LINES, MAX_RUN_LOG_LINES);
+}
+
+/** Trim a log line to a compact snippet for a finding message. */
+function logSnippet(line: string): string {
+    const trimmed = line.trim();
+    return trimmed.length > MAX_LOG_SNIPPET_LENGTH ? `${trimmed.slice(0, MAX_LOG_SNIPPET_LENGTH - 3)}...` : trimmed;
+}
+
+/** Classify a run log tail into findings, emitting at most one finding per line. */
+function collectLogFindings(logTail: string): NukeDiagnosticIssue[] {
+    const findings: NukeDiagnosticIssue[] = [];
+    for (const rawLine of logTail.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (line.length === 0) {
+            continue;
+        }
+        const pattern = LOG_FINDING_PATTERNS.find((candidate) => candidate.matches(line));
+        if (!pattern) {
+            continue;
+        }
+        findings.push({
+            severity: pattern.severity,
+            code: pattern.code,
+            category: pattern.category,
+            message: `${pattern.label}: ${logSnippet(line)}`,
+            suggestion: pattern.suggestion
+        });
+    }
+    return findings;
+}
+
+/** Keep at most {@link DIAGNOSTIC_ISSUE_LIMIT} findings, replacing the tail with a truncation notice. */
+function capDiagnosticIssues(findings: readonly NukeDiagnosticIssue[]): NukeDiagnosticIssue[] {
+    if (findings.length <= DIAGNOSTIC_ISSUE_LIMIT) {
+        return [...findings];
+    }
+    const omitted = findings.length - (DIAGNOSTIC_ISSUE_LIMIT - 1);
+    return [
+        ...findings.slice(0, DIAGNOSTIC_ISSUE_LIMIT - 1),
+        {
+            severity: 'info',
+            code: 'findings-truncated',
+            message: `${omitted} additional finding(s) were omitted from this diagnosis.`,
+            suggestion: 'Fix the highest-severity findings and run the diagnosis again.'
+        }
+    ];
+}
+
 /**
  * Registers the OpenMC Studio capabilities with the nuke-core registry.
  */
@@ -136,7 +410,8 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
         @inject(OpenMCXMLGenerationService) protected readonly xmlService: OpenMCXMLGenerationService,
         @inject(OpenMCEnvironmentService) protected readonly environmentService: OpenMCEnvironmentService,
         @inject(OpenMCSimulationRunner) protected readonly simulationRunner: OpenMCSimulationRunner,
-        @inject(NukeCoreService) protected readonly nukeCoreService: NukeCoreService
+        @inject(NukeCoreService) protected readonly nukeCoreService: NukeCoreService,
+        @inject(FileService) protected readonly fileService: FileService
     ) {}
 
     registerCapabilities(registry: NukeCapabilityRegistry): void {
@@ -248,6 +523,34 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
             },
             risk: 'read',
             invoke: async (input) => this.getRunStatus(input)
+        });
+
+        registry.register({
+            id: 'nuke.openmc.diagnoseProject',
+            title: 'Diagnose OpenMC project',
+            description:
+                'Run read-only project diagnostics across validation, environment readiness, cross sections, and DAGMC assets without writing files or starting a run.',
+            category: ['OpenMC', 'Diagnostics'],
+            inputSchema: DIAGNOSE_PROJECT_INPUT_SCHEMA,
+            outputSchema: DIAGNOSE_PROJECT_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: deriveAnnotations('read'),
+            when: () => true,
+            invoke: async () => this.diagnoseProject()
+        });
+
+        registry.register({
+            id: 'nuke.openmc.diagnoseRun',
+            title: 'Diagnose OpenMC run',
+            description:
+                'Triage an active OpenMC run: return its log tail and classify lost particles, overlaps, cross-section, convergence, and runtime failures.',
+            category: ['OpenMC', 'Diagnostics'],
+            inputSchema: DIAGNOSE_RUN_INPUT_SCHEMA,
+            outputSchema: DIAGNOSE_RUN_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: deriveAnnotations('read'),
+            when: () => true,
+            invoke: async (input, context) => this.diagnoseRun(input, context)
         });
     }
 
@@ -477,6 +780,231 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
                 startTime: run.startTime,
                 logFilePath: log.logPath,
                 logTail: tailLog(log.logContent ?? '', logLines)
+            }
+        };
+    }
+
+    protected async diagnoseProject(): Promise<NukeCapabilityResult> {
+        const state = this.stateManager.getState();
+        const projectPath = this.stateManager.projectPath;
+
+        let validation: ValidationResult;
+        try {
+            validation = await this.backendService.validateState({ state, level: 'standard' });
+        } catch (error) {
+            return { ok: false, message: `OpenMC project diagnosis failed: ${errorMessage(error)}` };
+        }
+
+        let environmentStatus: OpenMCEnvironmentStatus;
+        try {
+            environmentStatus = await this.environmentService.refreshStatus();
+        } catch (error) {
+            environmentStatus = { ready: false, error: errorMessage(error) };
+        }
+
+        const issues: NukeDiagnosticIssue[] = validation.issues.map(toDiagnosticIssue);
+        const environmentWarnings: string[] = [];
+
+        if (!environmentStatus.ready) {
+            const message = environmentStatus.error ?? 'The OpenMC environment is not ready.';
+            issues.push({
+                severity: 'warning',
+                code: 'environment-not-ready',
+                category: 'environment',
+                message,
+                suggestion: 'Install OpenMC in the selected Python environment or switch to an environment that has it.'
+            });
+            environmentWarnings.push(message);
+        }
+        if (environmentStatus.warning) {
+            issues.push({
+                severity: 'info',
+                code: 'environment-warning',
+                category: 'environment',
+                message: environmentStatus.warning,
+                suggestion: 'Review the environment warning; optional OpenMC features may be unavailable.'
+            });
+            environmentWarnings.push(environmentStatus.warning);
+        }
+
+        const crossSectionsPath = this.nukeCoreService.getCrossSectionsPath();
+        let crossSectionsExists: boolean | undefined;
+        if (!crossSectionsPath) {
+            issues.push({
+                severity: 'warning',
+                code: 'cross-sections-unset',
+                category: 'settings',
+                message: 'No cross-sections path is configured.',
+                suggestion: 'Set the OpenMC cross-sections preference or OPENMC_CROSS_SECTIONS to a cross_sections.xml file.'
+            });
+        } else {
+            try {
+                crossSectionsExists = await this.fileService.exists(new URI(crossSectionsPath));
+            } catch {
+                crossSectionsExists = false;
+            }
+            if (!crossSectionsExists) {
+                issues.push({
+                    severity: 'warning',
+                    code: 'cross-sections-missing',
+                    category: 'settings',
+                    message: `The configured cross-sections file does not exist: ${crossSectionsPath}`,
+                    suggestion: 'Point the OpenMC cross-sections preference at an existing cross_sections.xml file.'
+                });
+            }
+        }
+
+        const dagmcFile = state.settings.dagmcFile;
+        let dagmcMissing = false;
+        if (dagmcFile) {
+            const resolvedDagmcPath = resolveProjectAsset(dagmcFile, projectPath);
+            let dagmcExists = false;
+            if (resolvedDagmcPath) {
+                try {
+                    dagmcExists = (await this.backendService.checkFileExists(resolvedDagmcPath)).exists;
+                } catch {
+                    dagmcExists = false;
+                }
+            }
+            if (!dagmcExists) {
+                dagmcMissing = true;
+                issues.push({
+                    severity: 'error',
+                    code: 'dagmc-missing',
+                    category: 'geometry',
+                    message: `The configured DAGMC geometry file does not exist: ${dagmcFile}`,
+                    suggestion: 'Import the .h5m model again or update the DAGMC file path in settings.'
+                });
+            }
+        }
+
+        const validationReports = (category: ValidationIssue['category']): boolean =>
+            validation.issues.some((issue) => issue.category === category);
+        if (state.materials.length === 0 && !validationReports('materials')) {
+            issues.push({
+                severity: 'warning',
+                code: 'no-materials',
+                category: 'materials',
+                message: 'The project has no materials.',
+                suggestion: 'Add at least one material before running the model.'
+            });
+        }
+        if (state.geometry.cells.length === 0 && !dagmcFile && !validationReports('geometry')) {
+            issues.push({
+                severity: 'warning',
+                code: 'no-geometry',
+                category: 'geometry',
+                message: 'The project has no CSG cells and no DAGMC geometry.',
+                suggestion: 'Add cells in the CSG builder or import a DAGMC model.'
+            });
+        }
+        if (state.tallies.length === 0) {
+            issues.push({
+                severity: 'info',
+                code: 'no-tallies',
+                category: 'tallies',
+                message: 'No tallies are defined; the run will only produce global results such as k-eff.',
+                suggestion: 'Add tallies to score fluxes, reaction rates, or other quantities of interest.'
+            });
+        }
+
+        const valid = validation.valid && !issues.some((issue) => issue.severity === 'error');
+        const readyToRun = valid && environmentStatus.ready && crossSectionsExists !== false && !dagmcMissing;
+        const warnings = [
+            ...new Set([...environmentWarnings, ...issues.filter((issue) => issue.severity === 'warning').map((issue) => issue.message)])
+        ];
+
+        const environment: Record<string, unknown> = { ready: environmentStatus.ready };
+        if (environmentStatus.openmcVersion !== undefined) {
+            environment.openmcVersion = environmentStatus.openmcVersion;
+        }
+        if (environmentStatus.error !== undefined) {
+            environment.error = environmentStatus.error;
+        }
+        if (environmentStatus.warning !== undefined) {
+            environment.warning = environmentStatus.warning;
+        }
+
+        return {
+            ok: true,
+            data: {
+                ...(projectPath !== undefined ? { projectPath } : {}),
+                name: state.metadata.name,
+                counts: {
+                    surfaces: state.geometry.surfaces.length,
+                    cells: state.geometry.cells.length,
+                    universes: state.geometry.universes.length,
+                    lattices: state.geometry.lattices.length,
+                    materials: state.materials.length,
+                    tallies: state.tallies.length,
+                    meshes: state.meshes.length
+                },
+                valid,
+                readyToRun,
+                validation,
+                environment,
+                ...(crossSectionsPath ? { crossSectionsPath, crossSectionsExists: crossSectionsExists ?? false } : {}),
+                issues: capDiagnosticIssues(issues),
+                warnings
+            }
+        };
+    }
+
+    protected async diagnoseRun(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        const record = readRecord(input);
+        const requestedDirectory = readString(record, 'workingDirectory');
+        const logLines = readRunLogLines(record.logLines);
+
+        let active: ActiveSimulationInfo[];
+        try {
+            active = await this.backendService.getActiveSimulations();
+        } catch (error) {
+            return { ok: false, message: `Could not list active OpenMC runs: ${errorMessage(error)}` };
+        }
+
+        let run: ActiveSimulationInfo | undefined;
+        if (requestedDirectory !== undefined) {
+            if (!isWorkspacePath(requestedDirectory, context.workspaceRoots)) {
+                return { ok: false, message: 'workingDirectory must be an absolute path inside the workspace.' };
+            }
+            run = active.find((candidate) => candidate.workingDirectory === requestedDirectory);
+        } else if (active.length === 1) {
+            run = active[0];
+        } else if (active.length > 1) {
+            return {
+                ok: false,
+                message: `Multiple OpenMC runs are active (${active.length}); provide a workingDirectory to choose one.`
+            };
+        }
+
+        if (!run) {
+            return { ok: true, data: { running: false } };
+        }
+
+        let log: SimulationLogResult;
+        try {
+            log = await this.backendService.getSimulationLog(run.processId);
+        } catch (error) {
+            return { ok: false, message: `Could not read the OpenMC run log: ${errorMessage(error)}` };
+        }
+        if (!log.success) {
+            return { ok: false, message: log.error ?? 'Could not read the OpenMC run log.' };
+        }
+
+        const logTail = tailLog(log.logContent ?? '', logLines);
+        const findings = capDiagnosticIssues(collectLogFindings(logTail));
+        return {
+            ok: true,
+            data: {
+                running: true,
+                processId: run.processId,
+                workingDirectory: run.workingDirectory,
+                startTime: run.startTime,
+                logFilePath: log.logPath ?? run.logFilePath,
+                logTail,
+                errorCount: findings.filter((finding) => finding.severity === 'error').length,
+                warningCount: findings.filter((finding) => finding.severity === 'warning').length,
+                findings
             }
         };
     }

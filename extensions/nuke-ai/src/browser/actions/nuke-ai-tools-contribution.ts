@@ -123,6 +123,50 @@ const NUKE_AI_TOOL_ITEMS: readonly Omit<NukeToolsItem, 'sectionOrder'>[] = [
         keywords: ['ai', 'visualizer', 'dagmc', 'capture', 'preview']
     },
     {
+        id: NukeAiCommands.DIAGNOSE_CAD.id,
+        label: 'Diagnose Active CAD Model',
+        commandId: NukeAiCommands.DIAGNOSE_CAD.id,
+        category: ['NukeAI', 'Diagnostics'],
+        categoryOrder: 'a',
+        order: 'a',
+        icon: 'checklist',
+        description: 'Triage the active CAD model and report severity-coded findings with evidence.',
+        keywords: ['ai', 'diagnostics', 'cad', 'model', 'findings', 'severity']
+    },
+    {
+        id: NukeAiCommands.DIAGNOSE_OPENMC.id,
+        label: 'Diagnose OpenMC Project',
+        commandId: NukeAiCommands.DIAGNOSE_OPENMC.id,
+        category: ['NukeAI', 'Diagnostics'],
+        categoryOrder: 'a',
+        order: 'b',
+        icon: 'checklist',
+        description: 'Triage OpenMC project validation, environment readiness, and cross-section state.',
+        keywords: ['ai', 'diagnostics', 'openmc', 'project', 'validation', 'findings']
+    },
+    {
+        id: NukeAiCommands.DIAGNOSE_RUN.id,
+        label: 'Diagnose OpenMC Run',
+        commandId: NukeAiCommands.DIAGNOSE_RUN.id,
+        category: ['NukeAI', 'Diagnostics'],
+        categoryOrder: 'a',
+        order: 'c',
+        icon: 'debug-alt',
+        description: 'Triage the active OpenMC run log for errors, warnings, and lost particles.',
+        keywords: ['ai', 'diagnostics', 'openmc', 'run', 'log', 'errors']
+    },
+    {
+        id: NukeAiCommands.DIAGNOSE_STATEPOINT.id,
+        label: 'Diagnose Active Statepoint',
+        commandId: NukeAiCommands.DIAGNOSE_STATEPOINT.id,
+        category: ['NukeAI', 'Diagnostics'],
+        categoryOrder: 'a',
+        order: 'd',
+        icon: 'graph',
+        description: 'Triage the loaded statepoint metadata: uncertainty, batches, and tally coverage.',
+        keywords: ['ai', 'diagnostics', 'visualizer', 'statepoint', 'k-eff', 'tallies']
+    },
+    {
         id: NukeMcpCommands.ENABLE.id,
         label: 'Enable MCP Endpoint',
         commandId: NukeMcpCommands.ENABLE.id,

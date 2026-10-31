@@ -25,12 +25,13 @@ the file explorer to inspect or delete old previews; the IDE recreates it on the
 
 ## Domain skills
 
-NukeAI ships four skills that load only when a task needs them:
+NukeAI ships five skills that load only when a task needs them:
 
 - `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC.
 - `/openmc-studio` — summarize, validate, import CAD, run, and poll an OpenMC project.
 - `/nuke-visualizer` — summarize or open a statepoint and capture a DAGMC viewport.
 - `/nuke-workflow` — the end-to-end CAD → DAGMC → OpenMC → statepoint → capture handoff.
+- `/nuke-diagnostics` — triage the active CAD model, OpenMC project or run, and loaded statepoint read-only.
 
 Type the slash command in the chat, or open **Generic Capabilities → Skills** in the chat input. The skills only
 describe existing tools; write and execute tools still ask for confirmation.
