@@ -33,7 +33,8 @@
  * failures, at most 32 KiB of compact JSON, and one caption block per preview.
  * Strings are capped at 8 KiB and inline base64 payloads are omitted from the
  * JSON block so a capability cannot flood the model context with logs or
- * binary data. Preview images become Theia image blocks; path previews are
+ * binary data. Structured change sets and their undo tokens travel in the same
+ * bounded JSON block. Preview images become Theia image blocks; path previews are
  * read through {@link FileService} and fall back to a text link when the read
  * fails or the file is too large.
  *
@@ -44,7 +45,7 @@ import { ToolCallContent, ToolCallContentResult } from '@theia/ai-core/lib/commo
 import { URI } from '@theia/core/lib/common/uri';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
 import * as path from 'path';
-import { NukeArtifact, NukeCapabilityResult, NukePreview } from 'nuke-core/lib/common/nuke-capability-protocol';
+import { NukeArtifact, NukeCapabilityResult, NukeChange, NukeChangeSet, NukePreview } from 'nuke-core/lib/common/nuke-capability-protocol';
 import {
     MAX_RENDERED_PREVIEW_BYTES,
     baseMimeType,
@@ -94,7 +95,7 @@ export async function toToolCallContent(
         content.push(await renderPreview(result.preview, fileService));
         content.push({ type: 'text', text: previewSummary(result.preview) });
     }
-    if (result.data !== undefined || result.preview !== undefined) {
+    if (result.data !== undefined || result.preview !== undefined || result.changeSet !== undefined || result.undoToken !== undefined) {
         content.push({ type: 'text', text: buildJson(result, metadata) });
     }
     if (result.artifacts && result.artifacts.length > 0) {
@@ -120,6 +121,12 @@ function buildJson(result: NukeCapabilityResult, metadata?: NukeToolResultMetada
     }
     if (result.warnings && result.warnings.length > 0) {
         payload.warnings = result.warnings.map(truncateString);
+    }
+    if (result.changeSet) {
+        payload.changeSet = boundedChangeSet(result.changeSet);
+    }
+    if (result.undoToken !== undefined) {
+        payload.undoToken = truncateString(result.undoToken);
     }
     if (result.nextActions && result.nextActions.length > 0) {
         payload.nextActions = result.nextActions.map((action) => ({
@@ -165,6 +172,35 @@ function boundedPreview(preview: NukePreview, metadata?: NukeToolResultMetadata)
         bounded.data = truncateString(reference);
     } else {
         bounded.data = PREVIEW_OMITTED;
+    }
+    return bounded;
+}
+
+/** Bound every string in a change set and never inline binary diff values. */
+function boundedChangeSet(changeSet: NukeChangeSet): Record<string, unknown> {
+    const bounded: Record<string, unknown> = {
+        id: truncateString(changeSet.id),
+        title: truncateString(changeSet.title),
+        summary: truncateString(changeSet.summary),
+        changes: changeSet.changes.map(boundedChange)
+    };
+    if (changeSet.applyCapability !== undefined) {
+        bounded.applyCapability = truncateString(changeSet.applyCapability);
+    }
+    return bounded;
+}
+
+function boundedChange(change: NukeChange): Record<string, unknown> {
+    const bounded: Record<string, unknown> = {
+        path: truncateString(change.path),
+        label: truncateString(change.label),
+        kind: change.kind
+    };
+    if (change.before !== undefined) {
+        bounded.before = truncateValue(change.before);
+    }
+    if (change.after !== undefined) {
+        bounded.after = truncateValue(change.after);
     }
     return bounded;
 }

@@ -22,10 +22,11 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   provider's screens or styling.
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
   and `ChatAgent`; its prompt references every capability tool and `{{nukeContext}}`, and write/execute tools require
-  explicit confirmation.
+  explicit confirmation. The settings-edit section requires `nuke_openmc_previewSettings` before
+  `nuke_openmc_applySettings`, a shown diff, confirmation, and undo reporting; see `docs/user/safe-edits.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
-  and read-only support tools. See `docs/user/diagnostics.md`.
+  and read-only support tools, never the settings preview or apply tools. See `docs/user/diagnostics.md`.
 - `NukeAiActionService.ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` resolves the requested agent and falls back
   to `NukeAI`; the four `nuke.ai.diagnose*` commands sit under the NukeAI `Diagnostics` sidebar subgroup.
 - `src/browser/actions/` owns the read-only NukeAI commands, `NukeAiActionService`, and the NukeAI Nuke Tools
@@ -35,13 +36,17 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/capabilities/nuke-tool-schema.ts` converts capability ids and JSON schemas into sanitized tool names and
   `ToolRequestParameters`; the bridge registers both `ToolRequest.id` and `ToolRequest.name` as that name while the
   capability id stays the registry/MCP/resource identifier.
-- `src/browser/capabilities/nuke-tool-result.ts` renders `NukeCapabilityResult` as bounded `ToolCallContent`: 8 KiB per string, 32 KiB per JSON payload, `[truncated]` markers, and no inline base64 or binary payloads.
-- `src/browser/capabilities/nuke-tool-call-summary.ts` parses finished `nuke_*` results into a normalized summary;
-  `nuke-tool-call-card.tsx` is the pure card rendering status, counts, issues, warnings, previews, artifacts, and
-  executable next actions; `nuke-tool-call-renderer.tsx` binds the Theia renderer, opener service, and parsed card props.
+- `src/browser/capabilities/nuke-tool-result.ts` renders `NukeCapabilityResult` as bounded `ToolCallContent`: 8 KiB per
+  string, 32 KiB per JSON payload, `[truncated]` markers, and no inline base64 or binary payloads. The JSON payload
+  carries `changeSet` and `undoToken` when present.
+- `src/browser/capabilities/nuke-tool-call-summary.ts` parses finished `nuke_*` results into a normalized summary,
+  including a safe `changeSet` diff and `undoToken`; `nuke-tool-call-card.tsx` is the pure card rendering status,
+  counts, issues, warnings, previews, artifacts, executable next actions, and the diff with **Apply with NukeAI** and
+  **Undo**; `nuke-tool-call-renderer.tsx` binds the Theia renderer, opener service, and parsed card props.
 - `NukeNextActionService` runs read-only next actions in place and replaces the card result through `updateResult`;
-  write/execute/destructive actions only open a NukeAI prompt that keeps the normal confirmation flow.
-  See `docs/dev/agent-and-cards.md`.
+  write/execute/destructive actions only open a NukeAI prompt that keeps the normal confirmation flow. `applyChangeSet`
+  requires a `write`/`execute` apply capability and never invokes it; `undo` confirms through `MessageService.warn` and
+  calls `NukeUndoService.undo`, updating the card only on success. See `docs/dev/agent-and-cards.md`.
 - The pure card helper claims only finished, non-awaiting `nuke_*` calls (priority 30) and returns -1 otherwise so
   Theia keeps progress and confirmation UI; see `docs/dev/agent-and-cards.md`.
 - `src/browser/preview/` persists truthful previews and command-to-preview trajectory lines under `.nuke-ide/ai/previews`; see `docs/dev/preview.md`.

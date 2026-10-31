@@ -41,6 +41,7 @@
  * - {@link NukeCoreBackendServiceInterface} proxy via {@link @theia/core/lib/browser#WebSocketConnectionProvider}
  * - {@link NukeCoreService}, {@link EnvironmentActionsHelper}, {@link NukeCoreVisibilityService}
  *   as local singletons
+ * - {@link NukeUndoService} as a local singleton
  *
  * @module nuke-core/browser
  * @see {@link ./nuke-core-menus | Nuke Core Menus}
@@ -71,6 +72,7 @@ import {
 import { EnvironmentActionsHelper, NukeCoreService, NukeCoreVisibilityService } from './services';
 import { NukeCapabilityContextServiceImpl } from './capabilities/nuke-capability-context-service';
 import { NukeCapabilityRegistryImpl } from './capabilities/nuke-capability-registry';
+import { NukeUndoService, NukeUndoServiceImpl } from './capabilities/nuke-undo-service';
 import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
 import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
@@ -114,6 +116,7 @@ export default new ContainerModule(
         bindContributionProvider(bind, NukeCapabilityContextContribution);
         bind(NukeCapabilityRegistry).to(NukeCapabilityRegistryImpl).inSingletonScope();
         bind(NukeCapabilityContextService).to(NukeCapabilityContextServiceImpl).inSingletonScope();
+        bind(NukeUndoService).to(NukeUndoServiceImpl).inSingletonScope();
 
         // Backend service proxy
         bind<NukeCoreBackendServiceInterface>(NukeCoreBackendService)

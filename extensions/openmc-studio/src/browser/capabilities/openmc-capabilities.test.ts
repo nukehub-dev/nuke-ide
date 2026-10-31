@@ -49,6 +49,7 @@ import type {
     NukeCapabilityRegistry,
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
+import type { NukeUndoEntry, NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import type { DAGMCInfo, OpenMCMaterial, OpenMCSettings, OpenMCState } from '../../common/openmc-state-schema';
 import type {
     ActiveSimulationInfo,
@@ -69,6 +70,7 @@ import type { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from '../servi
 import type { OpenMCSimulationRunner } from '../widgets/simulation-dashboard/simulation-runner';
 import type { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { OpenMCCapabilities, OpenMCContextContribution } from './openmc-capabilities';
+import { OpenMCSettingsProposalService } from './openmc-settings-proposal-service';
 
 const WORKSPACE = '/workspace';
 
@@ -208,6 +210,49 @@ class FakeFileService {
     exists = vi.fn(async (uri: URI): Promise<boolean> => this.existingPaths.has(uri.path.toString()));
 }
 
+class TestProposalService extends OpenMCSettingsProposalService {
+    readonly clock = { now: 1_000_000 };
+    protected counter = 0;
+
+    protected override now(): number {
+        return this.clock.now;
+    }
+
+    protected override createId(): string {
+        this.counter += 1;
+        return `proposal-${this.counter}`;
+    }
+}
+
+class FakeUndoService implements NukeUndoService {
+    readonly entries = new Map<string, NukeUndoEntry>();
+    readonly onDidChange = Event.None;
+    protected counter = 0;
+
+    register(entry: NukeUndoEntry): string {
+        this.counter += 1;
+        const token = `undo-${this.counter}`;
+        this.entries.set(token, entry);
+        return token;
+    }
+
+    has(token: string): boolean {
+        return this.entries.has(token);
+    }
+
+    async undo(token: string): Promise<NukeCapabilityResult> {
+        const entry = this.entries.get(token);
+        if (!entry) {
+            return { ok: false, message: 'This change can no longer be undone.' };
+        }
+        const result = await entry.undo();
+        if (result.ok) {
+            this.entries.delete(token);
+        }
+        return result;
+    }
+}
+
 class FakeRegistry implements NukeCapabilityRegistry {
     readonly capabilities = new Map<string, NukeCapability>();
     readonly onDidChange = Event.None;
@@ -238,6 +283,8 @@ interface Harness {
     runner: FakeRunner;
     nukeCore: FakeNukeCoreService;
     fileService: FakeFileService;
+    proposalService: TestProposalService;
+    undoService: FakeUndoService;
     registry: FakeRegistry;
     invoke(id: string, input: unknown, workspaceRoots?: readonly string[]): Promise<NukeCapabilityResult>;
 }
@@ -250,6 +297,8 @@ function createHarness(options: { state?: OpenMCState; projectPath?: string } = 
     const runner = new FakeRunner();
     const nukeCore = new FakeNukeCoreService();
     const fileService = new FakeFileService();
+    const proposalService = new TestProposalService();
+    const undoService = new FakeUndoService();
     const registry = new FakeRegistry();
     const capabilities = new OpenMCCapabilities(
         stateManager as unknown as OpenMCStateManager,
@@ -258,7 +307,9 @@ function createHarness(options: { state?: OpenMCState; projectPath?: string } = 
         environment as unknown as OpenMCEnvironmentService,
         runner as unknown as OpenMCSimulationRunner,
         nukeCore as unknown as NukeCoreService,
-        fileService as unknown as FileService
+        fileService as unknown as FileService,
+        proposalService,
+        undoService
     );
     capabilities.registerCapabilities(registry);
     return {
@@ -269,6 +320,8 @@ function createHarness(options: { state?: OpenMCState; projectPath?: string } = 
         runner,
         nukeCore,
         fileService,
+        proposalService,
+        undoService,
         registry,
         invoke: (id, input, workspaceRoots = [WORKSPACE]) => {
             const capability = registry.get(id);
@@ -1049,6 +1102,258 @@ describe('OpenMC run diagnostics', () => {
             additionalProperties: false
         });
         expect(capability.outputSchema?.type).toBe('object');
+    });
+});
+
+describe('OpenMC settings capabilities', () => {
+    interface SettingsChangeData {
+        proposalId: string;
+        summary: string;
+        changes: Array<{ path: string; label: string; kind: string; before?: unknown; after?: unknown }>;
+    }
+
+    it('previews a diff and stores a proposal without mutating state', async () => {
+        const harness = createHarness();
+
+        const result = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [
+                { path: 'run.particles', value: 2000 },
+                { path: 'verbosity', value: 3 }
+            ],
+            summary: 'Tune run'
+        });
+
+        expect(result.ok).toBe(true);
+        const data = result.data as SettingsChangeData;
+        expect(data.summary).toBe('Tune run');
+        expect(data.changes).toEqual([
+            { path: 'run.particles', label: 'Particles per batch', kind: 'update', before: 1000, after: 2000 },
+            { path: 'verbosity', label: 'Verbosity', kind: 'update', before: undefined, after: 3 }
+        ]);
+        expect(result.changeSet).toEqual({
+            id: data.proposalId,
+            title: 'OpenMC settings change',
+            summary: 'Tune run',
+            changes: data.changes,
+            applyCapability: 'nuke.openmc.applySettings'
+        });
+        expect(result.nextActions).toEqual([
+            { capability: 'nuke.openmc.applySettings', reason: 'Apply the previewed settings change after confirmation.' }
+        ]);
+        expect(harness.proposalService.get(data.proposalId)).toBeDefined();
+        expect(harness.stateManager.settingsUpdates).toEqual([]);
+        expect(harness.stateManager.state.settings.run).toEqual({ mode: 'eigenvalue', particles: 1000, inactive: 10, batches: 50 });
+    });
+
+    it('generates a summary when the request omits one', async () => {
+        const harness = createHarness();
+
+        const result = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [
+                { path: 'run.batches', value: 80 },
+                { path: 'threads', value: 8 }
+            ]
+        });
+
+        expect((result.data as SettingsChangeData).summary).toBe('Update 2 OpenMC run settings.');
+    });
+
+    it('rejects invalid, out-of-scope, duplicate, and no-op requests without changing state', async () => {
+        const harness = createHarness();
+        const cases: Array<{ input: unknown; message: string }> = [
+            { input: { changes: [] }, message: 'between 1 and 20' },
+            {
+                input: { changes: Array.from({ length: 21 }, (_, index) => ({ path: 'run.particles', value: index + 1 })) },
+                message: 'between 1 and 20'
+            },
+            { input: { changes: [{ path: 'run.particles', value: 0 }] }, message: 'greater than or equal to 1' },
+            { input: { changes: [{ path: 'sources', value: [] }] }, message: 'not a supported OpenMC settings path' },
+            { input: { changes: [{ path: 'run.particles', value: 1000 }] }, message: 'already set to the requested value' },
+            {
+                input: {
+                    changes: [
+                        { path: 'run.particles', value: 2000 },
+                        { path: 'run.particles', value: 3000 }
+                    ]
+                },
+                message: 'only be changed once'
+            },
+            { input: { changes: [{ path: 'seed' }] }, message: 'needs a value' },
+            { input: { changes: 'nope' }, message: 'changes array' }
+        ];
+
+        for (const testCase of cases) {
+            const result = await harness.invoke('nuke.openmc.previewSettings', testCase.input);
+            expect(result.ok).toBe(false);
+            expect(result.message).toContain(testCase.message);
+        }
+        expect(harness.stateManager.settingsUpdates).toEqual([]);
+    });
+
+    it('applies a live proposal, removes it, and registers an undo', async () => {
+        const harness = createHarness();
+        const preview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [
+                { path: 'run.particles', value: 2000 },
+                { path: 'verbosity', value: 3 }
+            ],
+            summary: 'Tune run'
+        });
+        const data = preview.data as SettingsChangeData;
+
+        const result = await harness.invoke('nuke.openmc.applySettings', { proposalId: data.proposalId });
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toEqual({ proposalId: data.proposalId, summary: 'Tune run', changes: data.changes });
+        expect(result.changeSet).toEqual({
+            id: data.proposalId,
+            title: 'OpenMC settings change',
+            summary: 'Tune run',
+            changes: data.changes
+        });
+        expect('applyCapability' in result.changeSet!).toBe(false);
+        expect(result.undoToken).toBe('undo-1');
+        expect(harness.undoService.has('undo-1')).toBe(true);
+        expect(result.nextActions).toEqual([
+            { capability: 'nuke.openmc.diagnoseProject', reason: 'Check the project after applying the settings change.' }
+        ]);
+        expect(harness.stateManager.settingsUpdates).toHaveLength(1);
+        expect(harness.stateManager.settingsUpdates[0]).toMatchObject({ run: { particles: 2000 }, verbosity: 3 });
+        expect(harness.stateManager.state.settings.run).toMatchObject({ particles: 2000 });
+        expect(harness.stateManager.state.settings.verbosity).toBe(3);
+        expect(harness.proposalService.get(data.proposalId)).toBeUndefined();
+    });
+
+    it('preserves an unrelated settings edit made after the preview', async () => {
+        const harness = createHarness();
+        const preview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'run.particles', value: 2000 }]
+        });
+        const proposalId = (preview.data as SettingsChangeData).proposalId;
+        harness.stateManager.updateSettings({ seed: 7 });
+
+        const result = await harness.invoke('nuke.openmc.applySettings', { proposalId });
+
+        expect(result.ok).toBe(true);
+        expect(harness.stateManager.state.settings.run).toMatchObject({ particles: 2000 });
+        expect(harness.stateManager.state.settings.seed).toBe(7);
+    });
+
+    it('rejects missing, expired, and stale proposals', async () => {
+        const harness = createHarness();
+
+        const missing = await harness.invoke('nuke.openmc.applySettings', { proposalId: 'missing' });
+        expect(missing.ok).toBe(false);
+        expect(missing.message).toContain('missing or has expired');
+
+        const missingId = await harness.invoke('nuke.openmc.applySettings', {});
+        expect(missingId.ok).toBe(false);
+        expect(missingId.message).toContain('proposalId');
+
+        const expiredPreview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'run.batches', value: 80 }]
+        });
+        const expiredId = (expiredPreview.data as SettingsChangeData).proposalId;
+        harness.proposalService.clock.now += 10 * 60 * 1000;
+        const expired = await harness.invoke('nuke.openmc.applySettings', { proposalId: expiredId });
+        expect(expired.ok).toBe(false);
+        expect(expired.message).toContain('missing or has expired');
+
+        const stalePreview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'run.particles', value: 2000 }]
+        });
+        const staleId = (stalePreview.data as SettingsChangeData).proposalId;
+        (harness.stateManager.state.settings.run as { particles: number }).particles = 1500;
+        const stale = await harness.invoke('nuke.openmc.applySettings', { proposalId: staleId });
+        expect(stale).toEqual({ ok: false, message: 'Settings changed since the preview. Preview again.' });
+        expect(harness.stateManager.state.settings.run).toMatchObject({ particles: 1500 });
+        expect(harness.stateManager.settingsUpdates).toHaveLength(0);
+    });
+
+    it('undo restores only the changed paths and keeps unrelated edits', async () => {
+        const harness = createHarness();
+        const preview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [
+                { path: 'run.particles', value: 2000 },
+                { path: 'verbosity', value: 3 }
+            ]
+        });
+        const proposalId = (preview.data as SettingsChangeData).proposalId;
+        const applied = await harness.invoke('nuke.openmc.applySettings', { proposalId });
+        const token = applied.undoToken!;
+        harness.stateManager.updateSettings({ seed: 7 });
+
+        const result = await harness.undoService.undo(token);
+
+        expect(result).toEqual({ ok: true, message: 'Settings change undone.' });
+        expect(harness.stateManager.state.settings.run).toMatchObject({ particles: 1000, batches: 50 });
+        expect(harness.stateManager.state.settings.verbosity).toBeUndefined();
+        expect(harness.stateManager.state.settings.seed).toBe(7);
+        const undoUpdate = harness.stateManager.settingsUpdates[2];
+        expect(undoUpdate).not.toHaveProperty('sources');
+        expect(undoUpdate).not.toHaveProperty('seed');
+        expect(undoUpdate.verbosity).toBeUndefined();
+        expect(undoUpdate.run).toMatchObject({ particles: 1000, batches: 50 });
+        expect(harness.undoService.has(token)).toBe(false);
+    });
+
+    it('rejects undo when a changed path was edited again', async () => {
+        const harness = createHarness();
+        const preview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'run.particles', value: 2000 }]
+        });
+        const proposalId = (preview.data as SettingsChangeData).proposalId;
+        const applied = await harness.invoke('nuke.openmc.applySettings', { proposalId });
+        const token = applied.undoToken!;
+        (harness.stateManager.state.settings.run as { particles: number }).particles = 1500;
+
+        const result = await harness.undoService.undo(token);
+
+        expect(result.ok).toBe(false);
+        expect(result.message).toContain('can no longer be undone');
+        expect(harness.stateManager.state.settings.run).toMatchObject({ particles: 1500 });
+        expect(harness.undoService.has(token)).toBe(true);
+    });
+
+    it('declares read/write risk, confirmation, annotations, and availability', () => {
+        const harness = createHarness();
+        const preview = harness.registry.capabilities.get('nuke.openmc.previewSettings')!;
+        const apply = harness.registry.capabilities.get('nuke.openmc.applySettings')!;
+
+        expect(preview.when!({ workspaceRoots: [WORKSPACE] })).toBe(true);
+        expect(preview.risk).toBe('read');
+        expect(preview.requiresConfirmation).toBeUndefined();
+        expect(preview.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+        expect(preview.inputSchema).toEqual({
+            type: 'object',
+            properties: {
+                changes: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: { path: { type: 'string' }, value: {} },
+                        required: ['path', 'value'],
+                        additionalProperties: false
+                    }
+                },
+                summary: { type: 'string' }
+            },
+            required: ['changes'],
+            additionalProperties: false
+        });
+        expect(preview.outputSchema?.type).toBe('object');
+
+        expect(apply.when!({ workspaceRoots: [WORKSPACE] })).toBe(true);
+        expect(apply.risk).toBe('write');
+        expect(apply.requiresConfirmation).toBe(true);
+        expect(apply.annotations).toEqual({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
+        expect(apply.inputSchema).toEqual({
+            type: 'object',
+            properties: { proposalId: { type: 'string', description: 'Proposal id returned by nuke.openmc.previewSettings.' } },
+            required: ['proposalId'],
+            additionalProperties: false
+        });
+        expect(apply.outputSchema?.type).toBe('object');
     });
 });
 

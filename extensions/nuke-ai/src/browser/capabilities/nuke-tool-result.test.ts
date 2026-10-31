@@ -92,6 +92,94 @@ describe('toToolCallContent', () => {
         });
     });
 
+    it('includes a change set and undo token in the JSON payload', async () => {
+        const content = (
+            await toToolCallContent({
+                ok: true,
+                message: 'Settings preview ready.',
+                data: { proposalId: 'proposal-1' },
+                changeSet: {
+                    id: 'proposal-1',
+                    title: 'Run settings',
+                    summary: 'Increase batches and particles per batch.',
+                    changes: [
+                        { path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 },
+                        { path: 'run.particles', label: 'Particles per batch', kind: 'update', before: 1000, after: 5000 }
+                    ],
+                    applyCapability: 'nuke.openmc.applySettings'
+                },
+                undoToken: 'undo-1'
+            })
+        ).content;
+
+        expect(jsonBlock(content)).toEqual({
+            ok: true,
+            data: { proposalId: 'proposal-1' },
+            changeSet: {
+                id: 'proposal-1',
+                title: 'Run settings',
+                summary: 'Increase batches and particles per batch.',
+                changes: [
+                    { path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 },
+                    { path: 'run.particles', label: 'Particles per batch', kind: 'update', before: 1000, after: 5000 }
+                ],
+                applyCapability: 'nuke.openmc.applySettings'
+            },
+            undoToken: 'undo-1'
+        });
+    });
+
+    it('renders a JSON block for a change set without data or preview', async () => {
+        const content = (
+            await toToolCallContent({
+                ok: true,
+                changeSet: {
+                    id: 'proposal-1',
+                    title: 'Run settings',
+                    summary: 'Batches change.',
+                    changes: [{ path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 }]
+                }
+            })
+        ).content;
+        const json = jsonBlock(content);
+
+        expect(json.changeSet).toEqual({
+            id: 'proposal-1',
+            title: 'Run settings',
+            summary: 'Batches change.',
+            changes: [{ path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 }]
+        });
+        expect(json.undoToken).toBeUndefined();
+    });
+
+    it('omits inline base64 from change set values', async () => {
+        const content = (
+            await toToolCallContent({
+                ok: true,
+                changeSet: {
+                    id: 'proposal-1',
+                    title: 'Preview',
+                    summary: 'Image change.',
+                    changes: [
+                        {
+                            path: 'preview',
+                            label: 'Preview',
+                            kind: 'update',
+                            before: `data:image/png;base64,${'A'.repeat(500)}`,
+                            after: 'B'.repeat(9000)
+                        }
+                    ]
+                }
+            })
+        ).content;
+        const json = jsonBlock(content);
+        const changeSet = json.changeSet as { changes: { before: string; after: string }[] };
+
+        expect(changeSet.changes[0].before).toBe('[base64 omitted]');
+        expect(changeSet.changes[0].after).toBe('[base64 omitted]');
+        expect(JSON.stringify(json)).not.toContain('AAAAAAAA');
+    });
+
     it('falls back to Done. and Failed. when no message is provided', async () => {
         const success = textBlocks((await toToolCallContent({ ok: true })).content);
         expect(success).toEqual(['Done.']);

@@ -67,6 +67,24 @@ export interface NukeToolCallNextAction {
     readonly reason: string;
 }
 
+/** One normalized path-level edit proposed or applied by a tool. */
+export interface NukeToolCallChange {
+    readonly path: string;
+    readonly label: string;
+    readonly kind: 'add' | 'update' | 'remove';
+    readonly before?: unknown;
+    readonly after?: unknown;
+}
+
+/** A normalized structured preview of the edits a write capability will apply. */
+export interface NukeToolCallChangeSet {
+    readonly id: string;
+    readonly title: string;
+    readonly summary: string;
+    readonly changes: readonly NukeToolCallChange[];
+    readonly applyCapability?: string;
+}
+
 /** One label/value pair shown in a card's summary grid. */
 export interface NukeToolCallSummaryEntry {
     readonly label: string;
@@ -79,6 +97,8 @@ export interface NukeToolCallSummary {
     readonly message?: string;
     readonly data?: unknown;
     readonly warnings: readonly string[];
+    readonly changeSet?: NukeToolCallChangeSet;
+    readonly undoToken?: string;
     readonly nextActions: readonly NukeToolCallNextAction[];
     readonly artifacts: readonly NukeToolCallArtifact[];
     readonly images: readonly NukeToolCallImage[];
@@ -104,6 +124,8 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
     nuke_cad_exportDagmc: 'DAGMC export',
     nuke_openmc_summarizeProject: 'OpenMC project',
     nuke_openmc_validateProject: 'OpenMC validation',
+    nuke_openmc_previewSettings: 'Settings preview',
+    nuke_openmc_applySettings: 'Settings applied',
     nuke_openmc_importCad: 'DAGMC import',
     nuke_openmc_runSimulation: 'OpenMC run',
     nuke_openmc_getRunStatus: 'Run status',
@@ -156,6 +178,8 @@ export function summarizeNukeToolResult(result: ToolCallResult): NukeToolCallSum
     const data = envelope && 'data' in envelope ? envelope.data : hasPlainData ? plainData : undefined;
     const ok = envelope && typeof envelope.ok === 'boolean' ? envelope.ok : undefined;
     const warnings = collectWarnings(envelope, data);
+    const changeSet = normalizeChangeSet(envelope?.changeSet);
+    const undoToken = normalizeUndoToken(envelope?.undoToken);
     const nextActions = normalizeNextActions(envelope?.nextActions);
     const artifacts = normalizeArtifacts(envelope?.artifacts);
     const message = firstNonEmpty(rawText) ?? envelopeMessage(envelope) ?? errors[0] ?? plainObjectMessage(plainData);
@@ -165,6 +189,8 @@ export function summarizeNukeToolResult(result: ToolCallResult): NukeToolCallSum
         message,
         data,
         warnings,
+        ...(changeSet ? { changeSet } : {}),
+        ...(undoToken ? { undoToken } : {}),
         nextActions,
         artifacts,
         images,
@@ -380,6 +406,8 @@ function asEnvelope(value: unknown): Record<string, unknown> | undefined {
         typeof value.ok === 'boolean' ||
         'data' in value ||
         'warnings' in value ||
+        'changeSet' in value ||
+        'undoToken' in value ||
         'nextActions' in value ||
         'artifacts' in value ||
         'handle' in value;
@@ -440,6 +468,68 @@ function normalizeArtifacts(value: unknown): NukeToolCallArtifact[] {
         });
     }
     return artifacts;
+}
+
+function normalizeChangeSet(value: unknown): NukeToolCallChangeSet | undefined {
+    if (!isRecord(value) || !Array.isArray(value.changes)) {
+        return undefined;
+    }
+    const changes: NukeToolCallChange[] = [];
+    for (const entry of value.changes) {
+        if (!isRecord(entry)) {
+            continue;
+        }
+        const path = typeof entry.path === 'string' ? entry.path : '';
+        if (path.length === 0) {
+            continue;
+        }
+        const label = typeof entry.label === 'string' && entry.label.trim().length > 0 ? entry.label : path;
+        changes.push({
+            path,
+            label,
+            kind: entry.kind === 'add' || entry.kind === 'remove' ? entry.kind : 'update',
+            before: entry.before,
+            after: entry.after
+        });
+    }
+    if (changes.length === 0) {
+        return undefined;
+    }
+    const applyCapability =
+        typeof value.applyCapability === 'string' && value.applyCapability.length > 0 ? value.applyCapability : undefined;
+    return {
+        id: typeof value.id === 'string' ? value.id : '',
+        title: typeof value.title === 'string' && value.title.trim().length > 0 ? value.title : 'Proposed changes',
+        summary: typeof value.summary === 'string' ? value.summary : '',
+        changes,
+        applyCapability
+    };
+}
+
+function normalizeUndoToken(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+/** Format one diff value for a card row, bounded like other summary values. */
+export function formatChangeValue(value: unknown): string {
+    if (value === undefined) {
+        return '\u2014';
+    }
+    if (value === null) {
+        return 'null';
+    }
+    if (typeof value === 'string') {
+        return truncateSummaryValue(value.length === 0 ? '""' : value);
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return truncateSummaryValue(String(value));
+    }
+    try {
+        const serialized = JSON.stringify(toJsonSafe(value));
+        return truncateSummaryValue(serialized ?? String(value));
+    } catch {
+        return truncateSummaryValue(String(value));
+    }
 }
 
 function stringEntries(value: unknown): string[] {

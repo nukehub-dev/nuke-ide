@@ -56,6 +56,8 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   feature and keep `docs/user/index.md`/`simulation-dashboard.md` free of full-coverage claims. See `docs/dev/xml-generation.md`.
 - NukeAI capabilities live in `src/browser/capabilities/openmc-capabilities.ts`; they orchestrate existing state, XML, environment,
   and runner services instead of reimplementing XML or run logic. See `docs/dev/ai-capabilities.md`.
+- `nuke.openmc.previewSettings`/`applySettings` edit only whitelisted basic run/settings paths through in-memory proposals (max 20,
+  10-minute TTL); apply registers a session undo that restores only the changed paths. See `docs/dev/ai-capabilities.md`.
 - `nuke.openmc.diagnoseProject` / `diagnoseRun` are read-only: project diagnosis aggregates validation, environment, cross-section,
   and DAGMC findings; run diagnosis triages an active run's log tail. Findings cap at 20 with `findings-truncated`.
 

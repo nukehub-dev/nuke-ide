@@ -31,7 +31,9 @@
  * Executes follow-up capabilities suggested by a finished Nuke tool card.
  * Read-only capabilities run directly and replace the card result. Write,
  * execute, and destructive capabilities never run from the card: they open a
- * NukeAI chat prompt so the normal confirmation flow stays in charge.
+ * NukeAI chat prompt so the normal confirmation flow stays in charge. A
+ * structured change set applies through the same chat path, and an applied
+ * change is undone only after an explicit notification confirmation.
  *
  * @module nuke-ai/browser/capabilities
  */
@@ -44,24 +46,34 @@ import {
     NukeCapability,
     NukeCapabilityContext,
     NukeCapabilityContextService,
-    NukeCapabilityRegistry
+    NukeCapabilityRegistry,
+    NukeChangeSet
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { validateCapabilityInput } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
+import { NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import { NukeAiActionService } from '../actions/nuke-ai-action-service';
+import { NukeToolCallChangeSet } from './nuke-tool-call-summary';
 import { toToolName } from './nuke-tool-schema';
 
 /** Chat response surface needed to replace a finished card's result. */
 export type NukeNextActionResponse = Pick<ToolCallChatResponseContent, 'updateResult'>;
 
+/** Change-set shape accepted by the card, whether parsed or fresh from a capability. */
+export type NukeApplyChangeSet = NukeChangeSet | NukeToolCallChangeSet;
+
+const UNDO_ACTION = 'Undo';
+
 /** Run read-only next actions in place and route state-changing actions to chat. */
 @injectable()
 export class NukeNextActionService {
     protected readonly running = new Set<string>();
+    protected readonly undoing = new Set<string>();
 
     constructor(
         @inject(NukeCapabilityRegistry) protected readonly capabilityRegistry: NukeCapabilityRegistry,
         @inject(NukeCapabilityContextService) protected readonly contextService: NukeCapabilityContextService,
         @inject(NukeAiActionService) protected readonly actionService: NukeAiActionService,
+        @inject(NukeUndoService) protected readonly undoService: NukeUndoService,
         @inject(MessageService) protected readonly messageService: MessageService,
         @inject(ILogger) protected readonly logger: ILogger
     ) {}
@@ -125,6 +137,62 @@ export class NukeNextActionService {
         }
     }
 
+    /**
+     * Route a structured change set to NukeAI. The card never applies a change
+     * set directly: the apply capability must exist and be write or execute,
+     * and the chat prompt keeps the normal confirmation flow in charge.
+     */
+    async applyChangeSet(changeSet: NukeApplyChangeSet): Promise<void> {
+        const capabilityId = changeSet.applyCapability?.trim();
+        if (!capabilityId) {
+            this.messageService.warn('This change has no apply capability. Ask NukeAI to preview the settings change again.');
+            return;
+        }
+        const capability = this.capabilityRegistry.get(capabilityId);
+        if (!capability) {
+            this.messageService.warn(`NukeAI could not find the apply capability "${capabilityId}" for this change.`);
+            return;
+        }
+        if (capability.risk !== 'write' && capability.risk !== 'execute') {
+            this.messageService.warn(`${capability.title} cannot apply this change from the card. Ask NukeAI to preview it again.`);
+            return;
+        }
+        try {
+            await this.actionService.ask(this.buildApplyPrompt(changeSet, capability), 'Apply settings changes');
+        } catch (error) {
+            this.logger.error(`[NukeAI] Failed to ask to apply change set ${changeSet.id}:`, error);
+            this.messageService.error(`NukeAI could not start applying this change: ${errorMessage(error)}`);
+        }
+    }
+
+    /**
+     * Undo an applied change after an explicit confirmation. The card result is
+     * replaced only when the undo handler reports success.
+     */
+    async undo(token: string, response: NukeNextActionResponse): Promise<void> {
+        if (this.undoing.has(token)) {
+            return;
+        }
+        this.undoing.add(token);
+        try {
+            const choice = await this.messageService.warn('Undo this change and restore the previous settings?', UNDO_ACTION);
+            if (choice !== UNDO_ACTION) {
+                return;
+            }
+            const result = await this.undoService.undo(token);
+            if (result.ok) {
+                response.updateResult(result);
+                return;
+            }
+            this.messageService.error(result.message ?? 'The change could not be undone.');
+        } catch (error) {
+            this.logger.error(`[NukeAI] Failed to undo change ${token}:`, error);
+            this.messageService.error(`NukeAI could not undo this change: ${errorMessage(error)}`);
+        } finally {
+            this.undoing.delete(token);
+        }
+    }
+
     protected isAvailable(capability: NukeCapability, context: NukeCapabilityContext): boolean {
         try {
             return capability.when ? capability.when(context) : true;
@@ -132,6 +200,24 @@ export class NukeNextActionService {
             this.logger.error(`[NukeAI] Availability check failed for ${capability.id}:`, error);
             return false;
         }
+    }
+
+    protected buildApplyPrompt(changeSet: NukeApplyChangeSet, capability: NukeCapability): string {
+        const toolName = toToolName(capability.id);
+        const lines = [
+            `Apply the NukeIDE change "${changeSet.title}" (proposal "${changeSet.id}") with the \`${toolName}\` tool.`,
+            `Capability: ${capability.id}.`,
+            `Summary: ${changeSet.summary}`
+        ];
+        if (changeSet.changes.length > 0) {
+            lines.push(`Changed paths: ${changeSet.changes.map((change) => change.path).join(', ')}.`);
+        }
+        lines.push(
+            'Preview the change first and show every before and after value.',
+            'Apply only the exact paths from the proposal and never invent values.',
+            'This is a write action: ask for confirmation before applying, then report whether the change can be undone.'
+        );
+        return lines.join('\n');
     }
 
     protected buildPrompt(capabilityId: string, capability: NukeCapability | undefined, reason: string): string {

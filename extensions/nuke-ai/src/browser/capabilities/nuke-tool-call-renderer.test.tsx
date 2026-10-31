@@ -43,7 +43,9 @@ function createRenderer(canRunDirectly = true): NukeToolCallRenderer {
     const nextActionService = {
         canRunDirectly: vi.fn(() => canRunDirectly),
         run: vi.fn(),
-        ask: vi.fn()
+        ask: vi.fn(),
+        applyChangeSet: vi.fn(),
+        undo: vi.fn()
     };
     (renderer as unknown as { openerService: unknown }).openerService = { getOpener: vi.fn() };
     (renderer as unknown as { nextActionService: NukeNextActionService }).nextActionService =
@@ -115,5 +117,38 @@ describe('NukeToolCallRenderer', () => {
 
         expect(html).toContain('Ask NukeAI');
         expect(html).not.toContain('>Run<');
+    });
+
+    it('renders apply and undo actions for a change-set result', () => {
+        const renderer = createRenderer(true);
+        const content = response({
+            name: 'nuke_openmc_previewSettings',
+            result: {
+                content: [
+                    { type: 'text', text: 'Settings preview ready.' },
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            ok: true,
+                            changeSet: {
+                                id: 'proposal-1',
+                                title: 'Run settings',
+                                summary: 'Increase batches.',
+                                changes: [{ path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 }],
+                                applyCapability: 'nuke.openmc.applySettings'
+                            },
+                            undoToken: 'undo-1'
+                        })
+                    }
+                ]
+            }
+        });
+        const html = renderToStaticMarkup(renderer.render(content, {} as ResponseNode) as React.ReactElement);
+
+        expect(html).toContain('Settings preview');
+        expect(html).toContain('Changes');
+        expect(html).toContain('run.batches');
+        expect(html).toContain('Apply with NukeAI');
+        expect(html).toContain('nuke-tool-card-undo-button');
     });
 });

@@ -58,6 +58,13 @@ instead: it opens a focused chat prompt that asks NukeAI to inspect the current 
 ask for confirmation before writing, executing, or destructive work. The card never performs those steps itself, so the
 normal confirmation flow still applies.
 
+## Safe settings edits
+
+OpenMC run settings use a dedicated preview → apply → undo loop. NukeAI previews the change as a **Changes** diff
+card, applies it only after explicit confirmation with **Apply with NukeAI**, and offers **Undo** for an applied
+change. See [Safe OpenMC Settings Edits](safe-edits.md) for the supported settings, the confirmation behavior, and the
+in-memory undo lifetime.
+
 ## The NukeAI agent
 
 The NukeAI agent is pinned automatically when you use an action. To start a chat yourself, open **AI Chat** and choose

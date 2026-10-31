@@ -76,6 +76,8 @@ export class NukeToolCallRenderer implements ChatResponsePartRenderer<ToolCallCh
                 canRunDirectly={(capabilityId) => this.nextActionService.canRunDirectly(capabilityId)}
                 onRunAction={(action) => this.nextActionService.run(action.capability, response)}
                 onAskAction={(action) => this.nextActionService.ask(action.capability, action.reason)}
+                onApplyChangeSet={(changeSet) => this.nextActionService.applyChangeSet(changeSet)}
+                onUndo={(undoToken) => this.nextActionService.undo(undoToken, response)}
             />
         );
     }

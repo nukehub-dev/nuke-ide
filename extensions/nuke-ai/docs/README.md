@@ -14,6 +14,8 @@ The AI chat and capability tools become useful as domain extensions publish capa
 
 → Read [**Nuke Diagnostics**](user/diagnostics.md) for the read-only diagnostics agent and the CAD, OpenMC project/run, and statepoint diagnostic actions.
 
+→ Read [**Safe OpenMC Settings Edits**](user/safe-edits.md) for previewing a settings diff, applying it with confirmation, and undoing it in-session.
+
 → Read [**External MCP Clients**](user/mcp-clients.md) to connect an external MCP client to the opt-in, read-only endpoint.
 
 ### 🛠️ I want to develop or extend it
@@ -47,6 +49,7 @@ Covers the in-process capability-to-tool flow, tool naming, schema and result co
 | Schema mapping    | Converts capability JSON Schema into `ToolRequestParameters`                          |
 | Result mapping    | Renders structured results as bounded text, errors, previews, and artifact lines      |
 | Result cards      | Finished Nuke tool calls render as status cards with counts, warnings, and previews   |
+| Settings edits    | Preview a diff, apply with confirmation, and undo an OpenMC settings change           |
 | Preview history   | Persists truthful previews and a replayable command-to-preview trajectory             |
 | Refresh           | Rebuilds the tool set when capabilities or ambient context change                     |
 | Skills            | Ships domain guidance as plugin-tier `SKILL.md` slash commands                        |

@@ -114,6 +114,28 @@ export interface NukeNextAction {
     readonly reason: string;
 }
 
+/** Kind of edit described by a {@link NukeChange}. */
+export type NukeChangeKind = 'add' | 'update' | 'remove';
+
+/** One path-level edit proposed or applied by a capability. */
+export interface NukeChange {
+    readonly path: string;
+    readonly label: string;
+    readonly kind: NukeChangeKind;
+    readonly before?: unknown;
+    readonly after?: unknown;
+}
+
+/** Structured preview of the edits a write capability will apply. */
+export interface NukeChangeSet {
+    readonly id: string;
+    readonly title: string;
+    readonly summary: string;
+    readonly changes: readonly NukeChange[];
+    /** Write capability that applies this proposal; omitted after apply. */
+    readonly applyCapability?: string;
+}
+
 /** Structured result envelope returned by every capability invocation. */
 export interface NukeCapabilityResult {
     readonly ok: boolean;
@@ -122,6 +144,7 @@ export interface NukeCapabilityResult {
     readonly warnings?: readonly string[];
     readonly artifacts?: readonly NukeArtifact[];
     readonly preview?: NukePreview;
+    readonly changeSet?: NukeChangeSet;
     readonly undoToken?: string;
     readonly nextActions?: readonly NukeNextAction[];
     readonly handle?: string;

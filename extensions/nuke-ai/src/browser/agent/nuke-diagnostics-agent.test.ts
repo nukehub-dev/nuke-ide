@@ -42,7 +42,13 @@ const CAPABILITY_IDS = [
     'nuke.viz.summarizeStatepoint'
 ];
 
-const WRITE_TOOL_NAMES = ['nuke_cad_exportDagmc', 'nuke_openmc_importCad', 'nuke_openmc_runSimulation', 'nuke_viz_openStatepoint'];
+const WRITE_TOOL_NAMES = [
+    'nuke_cad_exportDagmc',
+    'nuke_openmc_applySettings',
+    'nuke_openmc_importCad',
+    'nuke_openmc_runSimulation',
+    'nuke_viz_openStatepoint'
+];
 
 function promptTemplate(): string {
     return new NukeDiagnosticsAgent().prompts[0].defaultVariant.template;
@@ -122,5 +128,7 @@ describe('NukeDiagnosticsAgent', () => {
         for (const toolName of WRITE_TOOL_NAMES) {
             expect(prompt).not.toContain(toolName);
         }
+        expect(prompt).not.toContain('nuke_openmc_previewSettings');
+        expect(prompt).not.toContain('nuke.openmc.previewSettings');
     });
 });

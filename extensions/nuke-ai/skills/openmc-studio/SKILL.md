@@ -1,6 +1,6 @@
 ---
 name: openmc-studio
-description: Summarize, validate, import CAD, run, and poll an OpenMC Studio project. Use when a user asks about the active model, wants to import a DAGMC model, or needs a simulation run and its status.
+description: Summarize, validate, edit settings, import CAD, run, and poll an OpenMC Studio project. Use when a user asks about the active model, wants to change run settings safely, import a DAGMC model, or needs a simulation run and its status.
 ---
 
 # OpenMC Studio
@@ -43,6 +43,48 @@ Call `nuke_openmc_validateProject` with:
 A successful validation returns the backend validation result. A failure returns `ok: false` with the validation
 issues and an error/warning count. Never call `nuke_openmc_runSimulation` while validation has errors; fix the model
 or report the issues to the user first.
+
+## Preview, apply, and undo settings
+
+Change basic run settings only through the preview, apply, and undo flow. Never describe a setting as changed until an
+apply result confirms it.
+
+1. **Preview** with `nuke_openmc_previewSettings`:
+
+   - `changes` - 1 to 20 objects with a supported `path` and its proposed `value`.
+   - optional `summary` - a short description shown with the diff.
+
+   The preview is read-only. It validates every path and value, rejects the whole request on any error, rejects a
+   request that changes nothing, and returns a `changeSet` diff plus the apply capability. Show every changed path with
+   its before and after value.
+
+2. **Apply** with `nuke_openmc_applySettings` and `{ "proposalId": "<id from the preview>" }`. Apply only after the
+   user explicitly confirms the shown diff. The capability requires confirmation and rejects a stale proposal when the
+   settings changed since the preview; preview again instead of guessing values. The apply result returns the same
+   change set plus an `undoToken`.
+
+3. **Undo** reports whether the change can be undone in this session. The user confirms **Undo** in the card or chat
+   before the reverse handler runs. An undo token is one-shot: a redeemed, expired, or unknown token returns
+   `This change can no longer be undone.` Undo state is in memory only and does not survive an IDE restart or reload.
+
+Supported paths:
+
+| Path                      | Rule                                                      |
+| ------------------------- | --------------------------------------------------------- |
+| `run.particles`           | integer >= 1                                              |
+| `run.inactive`            | integer >= 0; only when the current run mode has inactive |
+| `run.batches`             | integer >= 1                                              |
+| `seed`                    | integer >= 0                                              |
+| `threads`                 | integer >= 1                                              |
+| `verbosity`               | integer 1 to 10                                           |
+| `energyMode`              | `continuous-energy` or `multigroup`                       |
+| `photonTransport`         | boolean                                                   |
+| `electronTreatment`       | `led` or `ttb`                                            |
+| `atomicRelaxation`        | boolean                                                   |
+| `sourceRejectionFraction` | number from 0 to 1                                        |
+
+Materials, tallies, sources, geometry, and advanced settings are out of scope for this flow. Report the rejection
+message instead of trying another path.
 
 ## Import a NukeCAD DAGMC model
 

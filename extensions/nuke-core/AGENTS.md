@@ -25,6 +25,8 @@ All files under `extensions/nuke-core/` except generated artifacts (`lib/`, `nod
 - Items may set `iconClass` to a full theme-aware icon class list; it takes precedence over the codicon `icon` name.
 - Commands must already exist in the Theia `CommandRegistry`; the sidebar only invokes them.
 - `src/browser/capabilities/` owns the cross-extension capability contract; see `docs/dev/capability-registry.md`.
+- Write capabilities preview edits as a `changeSet` and return an `undoToken` after apply; register the reverse handler with the
+  singleton `NukeUndoService`. Undo is in-memory and session-scoped; see `docs/dev/capability-registry.md`.
 
 ## Work Guidance
 

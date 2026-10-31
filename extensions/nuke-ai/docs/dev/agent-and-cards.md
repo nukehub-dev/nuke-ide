@@ -9,7 +9,7 @@ for finished Nuke capability calls.
 
 - extends `AbstractStreamParsingChatAgent` and is bound as both `Agent` and `ChatAgent`;
 - uses the `chat` language-model purpose and the `nuke-system` prompt;
-- declares `nuke.context` and the eleven capability tool names in its `functions` list;
+- declares `nuke.context` and the thirteen capability tool names in its `functions` list;
 - references every capability tool through `~{toolName}` in the prompt, where `toolName` is the sanitized name
   registered by the bridge (for example `nuke_cad_summarizeDocument`), not the capability id, so the model receives
   the typed tools without a separate registration step.
@@ -17,6 +17,10 @@ for finished Nuke capability calls.
 The system prompt introduces the CAD → DAGMC → OpenMC → statepoint workflow, lists read-only tools first, and tells
 the model to ask before a write, execute, or destructive tool. Export, import, run, and viewer-open tools keep their
 Theia confirmation requirement. Never add a write or execute tool to the prompt without a matching confirmation path.
+
+The settings-edit section requires NukeAI to preview with `nuke_openmc_previewSettings`, show the diff, apply with
+`nuke_openmc_applySettings` only after explicit confirmation, and report undo availability from the apply result. The
+read-only Diagnostics agent never receives either tool; see [Safe OpenMC Settings Edits](../user/safe-edits.md).
 
 The agent receives the same active-workspace summary as `#nukeContext`. Missing documents, projects, or datasets are
 reported as `none`; the agent must not invent model state.
@@ -61,13 +65,17 @@ A capability returns a `NukeCapabilityResult`. `nuke-tool-result.ts` converts it
 
 1. A human-readable text block, plus an error block first when `ok` is false.
 2. Optional image or HTML preview blocks with a caption block.
-3. A compact JSON block with `{ ok, data, warnings, nextActions, handle, artifacts }`.
+3. A compact JSON block with `{ ok, data, warnings, changeSet, undoToken, nextActions, handle, artifacts }`.
 4. One artifact line per path or URI.
 
 The result content is bounded: strings are capped at 8 KiB, the JSON payload at 32 KiB, and inline base64 data is
-omitted from text. `nuke-tool-call-summary.ts` parses that content without trusting it. It accepts `undefined`, a
-string, a plain object, or `ToolCallContent`; malformed JSON stays visible as text; images become data URLs; error and
-HTML blocks are collected separately; and every field is optional.
+omitted from text. A `changeSet` is bounded field by field: every id, title, summary, label, path, and capability id is
+truncated like other strings, and each before/after value passes through the same value truncation as `data`, so a
+diff can never inline base64. `undoToken` is a short opaque string and is emitted only when the capability returns one.
+`nuke-tool-call-summary.ts` parses that content without trusting it. It accepts `undefined`, a string, a plain
+object, or `ToolCallContent`; malformed JSON stays visible as text; images become data URLs; error and HTML blocks are
+collected separately; and every field is optional. A malformed change set (missing changes, a non-array, or rows
+without a path) is dropped instead of rendered, and an empty or non-string `undoToken` is ignored.
 
 ## Renderer and card contract
 
@@ -102,6 +110,19 @@ because it has a partial result.
   tool. The normal Theia confirmation flow remains in charge.
 - Invocation failures are logged and reported as `NukeAI could not run ...` without changing the card result.
 
+`applyChangeSet(changeSet)` handles the preview → apply handoff. It requires a non-empty `applyCapability` that exists
+in the registry and has `write` or `execute` risk; a missing, unknown, or weaker capability warns and does nothing.
+Otherwise it sends a prompt through `NukeAiActionService.ask` with the display text `Apply settings changes`. The
+prompt names the proposal id, summary, and capability (both the id and sanitized tool name) and the changed paths,
+requires a fresh preview and a shown diff, and asks for confirmation before applying. The card never invokes the apply
+capability itself.
+
+`undo(token, response)` is the only path that calls `NukeUndoService.undo`. It first shows `MessageService.warn` with
+an `Undo` action and awaits the choice; cancelling returns without touching state. On confirmation it calls the undo
+service and replaces the card through `response.updateResult(result)` only when the result has `ok: true`. A failed
+undo result is reported through the message service and keeps the card unchanged; a thrown error is logged and
+reported, and the method never rejects. A duplicate concurrent undo of the same token is ignored.
+
 ## Card anatomy
 
 Each card contains, in order:
@@ -111,6 +132,11 @@ Each card contains, in order:
 - a two-column summary grid built from `summaryEntries` (CAD counts, OpenMC validation counters, run status,
   statepoint k-eff and batches, then generic primitive fields);
 - an issues list from `data.issues`, with severity, category, and suggested fix;
+- a **Changes** section for `summary.changeSet`: the proposal title and summary, then one row per change with its label,
+  path, and before → after value; a `changeSet` without an apply capability (already applied) shows only **Undo**;
+- **Apply with NukeAI** only when `changeSet.applyCapability` is present, and **Undo** when `summary.undoToken` is
+  present; both are disabled when their callback is missing, and an undo token without a change set renders a
+  standalone **Undo** section;
 - error and warning lists;
 - image previews as `<img src="data:...">` figures, never raw base64 text;
 - HTML previews in `<iframe sandbox="" srcDoc={...} title={...}>`;
@@ -134,6 +160,8 @@ card:
   `--theia-foreground`, `--theia-descriptionForeground`, `--theia-focusBorder`, `--theia-successForeground`,
   `--theia-warningForeground`, and `--theia-errorForeground`;
 - sets `container-type: inline-size` and switches the summary grid to one column at `@container (max-width: 420px)`;
+- draws the change diff as a bordered list, stacks each row from two columns to one at the same container width, and
+  colors the before value with `--theia-errorForeground` and the after value with `--theia-successForeground`;
 - keeps artifact targets truncated with a leading ellipsis while preserving the full path in the parsed data and
   raw details.
 

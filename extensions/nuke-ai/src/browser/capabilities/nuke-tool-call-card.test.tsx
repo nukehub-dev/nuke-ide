@@ -72,9 +72,17 @@ function collectActionButtons(
     node: React.ReactNode,
     found: React.ReactElement<ActionButtonProps>[] = []
 ): React.ReactElement<ActionButtonProps>[] {
+    return collectButtons(node, 'nuke-tool-card-action-button', found);
+}
+
+function collectButtons(
+    node: React.ReactNode,
+    className: string,
+    found: React.ReactElement<ActionButtonProps>[] = []
+): React.ReactElement<ActionButtonProps>[] {
     if (Array.isArray(node)) {
         for (const child of node) {
-            collectActionButtons(child, found);
+            collectButtons(child, className, found);
         }
         return found;
     }
@@ -82,10 +90,16 @@ function collectActionButtons(
         return found;
     }
     const props = node.props;
-    if (typeof props.className === 'string' && props.className.split(/\s+/).includes('nuke-tool-card-action-button')) {
+    if (typeof props.className === 'string' && props.className.split(/\s+/).includes(className)) {
         found.push(node);
     }
-    collectActionButtons(props.children, found);
+    // Card sections are pure, hook-free function components, so the test traversal
+    // can expand them to reach the buttons instead of rendering the whole tree.
+    if (typeof node.type === 'function') {
+        collectButtons((node.type as (componentProps: ActionButtonProps) => React.ReactNode)(props), className, found);
+        return found;
+    }
+    collectButtons(props.children, className, found);
     return found;
 }
 
@@ -249,6 +263,135 @@ describe('NukeToolCard', () => {
         expect(buttons[0].props.children).toBe('Run');
         expect(buttons[0].props.disabled).toBe(true);
         expect(buttons[0].props.onClick).toBeUndefined();
+    });
+
+    it('renders a Changes section with diff rows, Apply with NukeAI, and Undo', () => {
+        const onApplyChangeSet = vi.fn();
+        const onUndo = vi.fn();
+        const changeSet = {
+            id: 'proposal-1',
+            title: 'Run settings',
+            summary: 'Increase batches and particles per batch.',
+            changes: [
+                { path: 'run.batches', label: 'Batches', kind: 'update' as const, before: 100, after: 200 },
+                { path: 'run.particles', label: 'Particles per batch', kind: 'update' as const, before: 1000, after: 5000 }
+            ],
+            applyCapability: 'nuke.openmc.applySettings'
+        };
+        const tree = NukeToolCard({
+            toolName: 'nuke_openmc_previewSettings',
+            summary: summary({ changeSet, undoToken: 'undo-1' }),
+            issues: [],
+            status: 'done',
+            details: {},
+            onApplyChangeSet,
+            onUndo
+        });
+        const html = renderToStaticMarkup(tree as React.ReactElement);
+
+        expect(html).toContain('Settings preview');
+        expect(html).toContain('Changes');
+        expect(html).toContain('Run settings');
+        expect(html).toContain('Increase batches and particles per batch.');
+        expect(html).toContain('nuke-tool-card-change-set');
+        expect(html).toContain('data-kind="update"');
+        expect(html).toContain('Batches');
+        expect(html).toContain('run.batches');
+        expect(html).toContain('>100<');
+        expect(html).toContain('>200<');
+        expect(html).toContain('Particles per batch');
+        expect(html).toContain('\u2192');
+        expect(html).toContain('Apply with NukeAI');
+        expect(html).toContain('nuke-tool-card-apply-button');
+        expect(html).toContain('Undo');
+        expect(html).toContain('nuke-tool-card-undo-button');
+
+        const applyButtons = collectButtons(tree, 'nuke-tool-card-apply-button');
+        expect(applyButtons).toHaveLength(1);
+        expect(applyButtons[0].props.disabled).toBe(false);
+        applyButtons[0].props.onClick?.();
+        expect(onApplyChangeSet).toHaveBeenCalledWith(changeSet);
+
+        const undoButtons = collectButtons(tree, 'nuke-tool-card-undo-button');
+        expect(undoButtons).toHaveLength(1);
+        expect(undoButtons[0].props.disabled).toBe(false);
+        undoButtons[0].props.onClick?.();
+        expect(onUndo).toHaveBeenCalledWith('undo-1');
+    });
+
+    it('renders disabled Apply and Undo buttons when their callbacks are missing', () => {
+        const tree = NukeToolCard({
+            toolName: 'nuke_openmc_previewSettings',
+            summary: summary({
+                changeSet: {
+                    id: 'proposal-1',
+                    title: 'Run settings',
+                    summary: 'Increase batches.',
+                    changes: [{ path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 }],
+                    applyCapability: 'nuke.openmc.applySettings'
+                },
+                undoToken: 'undo-1'
+            }),
+            issues: [],
+            status: 'done',
+            details: {}
+        });
+
+        const applyButtons = collectButtons(tree, 'nuke-tool-card-apply-button');
+        const undoButtons = collectButtons(tree, 'nuke-tool-card-undo-button');
+        expect(applyButtons).toHaveLength(1);
+        expect(applyButtons[0].props.disabled).toBe(true);
+        expect(applyButtons[0].props.onClick).toBeUndefined();
+        expect(undoButtons).toHaveLength(1);
+        expect(undoButtons[0].props.disabled).toBe(true);
+        expect(undoButtons[0].props.onClick).toBeUndefined();
+    });
+
+    it('renders only Undo after a change set is applied', () => {
+        const tree = NukeToolCard({
+            toolName: 'nuke_openmc_applySettings',
+            summary: summary({
+                changeSet: {
+                    id: 'proposal-1',
+                    title: 'Run settings',
+                    summary: 'Applied.',
+                    changes: [{ path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 }]
+                },
+                undoToken: 'undo-1'
+            }),
+            issues: [],
+            status: 'done',
+            details: {},
+            onUndo: vi.fn()
+        });
+
+        expect(collectButtons(tree, 'nuke-tool-card-apply-button')).toHaveLength(0);
+        expect(collectButtons(tree, 'nuke-tool-card-undo-button')).toHaveLength(1);
+    });
+
+    it('renders a standalone Undo section when only an undo token is present', () => {
+        const html = renderCard({ summary: summary({ undoToken: 'undo-1' }), onUndo: vi.fn() });
+
+        expect(html).toContain('Change');
+        expect(html).toContain('Undo');
+        expect(html).toContain('nuke-tool-card-undo-button');
+        expect(html).not.toContain('nuke-tool-card-change-set');
+    });
+
+    it('renders an em dash for a missing before or after value', () => {
+        const html = renderCard({
+            summary: summary({
+                changeSet: {
+                    id: 'proposal-1',
+                    title: 'Run settings',
+                    summary: 'Add a setting.',
+                    changes: [{ path: 'seed', label: 'Seed', kind: 'add', after: 7 }]
+                }
+            })
+        });
+
+        expect(html).toContain('\u2014');
+        expect(html).toContain('>7<');
     });
 });
 

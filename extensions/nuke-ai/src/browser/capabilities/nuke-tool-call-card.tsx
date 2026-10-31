@@ -29,8 +29,10 @@
  * Nuke Tool Call Card
  *
  * Pure presentational card markup for a finished Nuke capability call. The card
- * owns only summary formatting and rendering; opening artifacts stays with the
- * Theia-aware renderer so this module can run in a plain Node test environment.
+ * owns only summary formatting and rendering; opening artifacts, applying a
+ * change set, and undoing an applied change stay with the Theia-aware renderer
+ * and next-action service so this module can run in a plain Node test
+ * environment.
  *
  * @module nuke-ai/browser/capabilities
  */
@@ -38,10 +40,12 @@
 import * as React from '@theia/core/shared/react';
 import {
     NukeToolCallArtifact,
+    NukeToolCallChangeSet,
     NukeToolCallHtml,
     NukeToolCallImage,
     NukeToolCallSummary,
     NukeToolCallSummaryEntry,
+    formatChangeValue,
     formatJsonDetails,
     summaryEntries,
     toolLabel
@@ -85,6 +89,8 @@ export interface NukeToolCardProps {
     readonly canRunDirectly?: (capabilityId: string) => boolean;
     readonly onRunAction?: (action: NukeToolCardAction) => void | Promise<void>;
     readonly onAskAction?: (action: NukeToolCardAction) => void | Promise<void>;
+    readonly onApplyChangeSet?: (changeSet: NukeToolCallChangeSet) => void | Promise<void>;
+    readonly onUndo?: (undoToken: string) => void | Promise<void>;
 }
 
 /**
@@ -163,7 +169,9 @@ export function NukeToolCard({
     onOpenArtifact,
     canRunDirectly,
     onRunAction,
-    onAskAction
+    onAskAction,
+    onApplyChangeSet,
+    onUndo
 }: NukeToolCardProps): React.ReactNode {
     const entries = summaryEntries(summary.data);
     const errors = summary.errors.filter((error) => error !== summary.message);
@@ -185,6 +193,18 @@ export function NukeToolCard({
             {summary.message && <p className="nuke-tool-card-message">{summary.message}</p>}
 
             {entries.length > 0 && <SummaryGrid entries={entries} />}
+
+            {summary.changeSet && (
+                <ChangeSet changeSet={summary.changeSet} undoToken={summary.undoToken} onApply={onApplyChangeSet} onUndo={onUndo} />
+            )}
+
+            {!summary.changeSet && summary.undoToken && (
+                <CardSection title="Change">
+                    <div className="nuke-tool-card-change-actions">
+                        <UndoButton token={summary.undoToken} onUndo={onUndo} />
+                    </div>
+                </CardSection>
+            )}
 
             {issues.length > 0 && <IssueList issues={issues} />}
 
@@ -282,6 +302,75 @@ function SummaryGrid({ entries }: { entries: readonly NukeToolCallSummaryEntry[]
                 </div>
             ))}
         </dl>
+    );
+}
+
+function ChangeSet({
+    changeSet,
+    undoToken,
+    onApply,
+    onUndo
+}: {
+    changeSet: NukeToolCallChangeSet;
+    undoToken?: string;
+    onApply?: NukeToolCardProps['onApplyChangeSet'];
+    onUndo?: NukeToolCardProps['onUndo'];
+}): React.ReactNode {
+    const canApply = changeSet.applyCapability !== undefined;
+    return (
+        <CardSection title="Changes">
+            <div className="nuke-tool-card-change-set">
+                <div className="nuke-tool-card-change-heading">
+                    <span className="nuke-tool-card-change-title">{changeSet.title}</span>
+                    {changeSet.summary.length > 0 && <span className="nuke-tool-card-change-summary">{changeSet.summary}</span>}
+                </div>
+                <ul className="nuke-tool-card-list nuke-tool-card-changes">
+                    {changeSet.changes.map((change, index) => (
+                        <li key={`${index}-${change.path}`} className="nuke-tool-card-change" data-kind={change.kind}>
+                            <span className="nuke-tool-card-change-body">
+                                <span className="nuke-tool-card-change-label">{change.label}</span>
+                                <span className="nuke-tool-card-change-path">{change.path}</span>
+                            </span>
+                            <span className="nuke-tool-card-change-values">
+                                <span className="nuke-tool-card-change-before">{formatChangeValue(change.before)}</span>
+                                <span className="nuke-tool-card-change-arrow" aria-hidden="true">
+                                    {'\u2192'}
+                                </span>
+                                <span className="nuke-tool-card-change-after">{formatChangeValue(change.after)}</span>
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+                {(canApply || undoToken) && (
+                    <div className="nuke-tool-card-change-actions">
+                        {canApply && (
+                            <button
+                                type="button"
+                                className="theia-button nuke-tool-card-apply-button"
+                                onClick={onApply ? () => void onApply(changeSet) : undefined}
+                                disabled={!onApply}
+                            >
+                                Apply with NukeAI
+                            </button>
+                        )}
+                        {undoToken && <UndoButton token={undoToken} onUndo={onUndo} />}
+                    </div>
+                )}
+            </div>
+        </CardSection>
+    );
+}
+
+function UndoButton({ token, onUndo }: { token: string; onUndo?: NukeToolCardProps['onUndo'] }): React.ReactNode {
+    return (
+        <button
+            type="button"
+            className="theia-button secondary nuke-tool-card-undo-button"
+            onClick={onUndo ? () => void onUndo(token) : undefined}
+            disabled={!onUndo}
+        >
+            Undo
+        </button>
     );
 }
 

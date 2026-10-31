@@ -30,6 +30,7 @@ import { ToolCallContent, ToolCallContentResult } from '@theia/ai-core/lib/commo
 import {
     MAX_JSON_DETAILS_LENGTH,
     MAX_SUMMARY_VALUE_LENGTH,
+    formatChangeValue,
     formatJsonDetails,
     summarizeNukeToolResult,
     summaryEntries,
@@ -69,6 +70,88 @@ describe('summarizeNukeToolResult', () => {
         expect(summary.artifacts).toEqual([{ kind: 'file', label: 'DAGMC model', path: '/workspace/model.h5m', uri: undefined }]);
         expect(summary.rawText).toEqual(['Exported the DAGMC model.', 'DAGMC model: /workspace/model.h5m']);
         expect(summary.errors).toEqual([]);
+    });
+
+    it('parses a change set and undo token from the envelope', () => {
+        const summary = summarizeNukeToolResult(
+            content({
+                type: 'text',
+                text: JSON.stringify({
+                    ok: true,
+                    changeSet: {
+                        id: 'proposal-1',
+                        title: 'Run settings',
+                        summary: 'Increase batches.',
+                        changes: [
+                            { path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 },
+                            { path: 'run.inactive', label: 'Inactive batches', kind: 'update', before: 10, after: 20 }
+                        ],
+                        applyCapability: 'nuke.openmc.applySettings'
+                    },
+                    undoToken: 'undo-1'
+                })
+            })
+        );
+
+        expect(summary.changeSet).toEqual({
+            id: 'proposal-1',
+            title: 'Run settings',
+            summary: 'Increase batches.',
+            changes: [
+                { path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 },
+                { path: 'run.inactive', label: 'Inactive batches', kind: 'update', before: 10, after: 20 }
+            ],
+            applyCapability: 'nuke.openmc.applySettings'
+        });
+        expect(summary.undoToken).toBe('undo-1');
+    });
+
+    it('accepts a change set without an apply capability after apply', () => {
+        const summary = summarizeNukeToolResult({
+            ok: true,
+            changeSet: {
+                id: 'proposal-1',
+                title: 'Run settings',
+                summary: 'Applied.',
+                changes: [{ path: 'run.batches', label: 'Batches', kind: 'update', before: 100, after: 200 }]
+            },
+            undoToken: 'undo-1'
+        });
+
+        expect(summary.changeSet?.applyCapability).toBeUndefined();
+        expect(summary.undoToken).toBe('undo-1');
+    });
+
+    it('keeps malformed change sets and undo tokens out of the summary', () => {
+        const malformed = [
+            { ok: true, changeSet: 'not-a-change-set' },
+            { ok: true, changeSet: { id: 'proposal-1', changes: 'not-an-array' } },
+            { ok: true, changeSet: { id: 'proposal-1', changes: [] } },
+            { ok: true, changeSet: { id: 'proposal-1', changes: [{ label: 'Missing path' }] } },
+            { ok: true, undoToken: 42 },
+            { ok: true, undoToken: '   ' }
+        ];
+
+        for (const payload of malformed) {
+            const summary = summarizeNukeToolResult(payload);
+            expect(summary.changeSet).toBeUndefined();
+            expect(summary.undoToken).toBeUndefined();
+        }
+    });
+
+    it('fills a missing change title and label with safe defaults', () => {
+        const summary = summarizeNukeToolResult({
+            changeSet: {
+                changes: [{ path: 'run.batches' }]
+            }
+        });
+
+        expect(summary.changeSet?.title).toBe('Proposed changes');
+        expect(summary.changeSet?.id).toBe('');
+        expect(summary.changeSet?.summary).toBe('');
+        expect(summary.changeSet?.changes).toEqual([
+            { path: 'run.batches', label: 'run.batches', kind: 'update', before: undefined, after: undefined }
+        ]);
     });
 
     it('accepts a plain string result as the message', () => {
@@ -181,6 +264,8 @@ describe('toolLabel', () => {
         expect(toolLabel('nuke_cad_exportDagmc')).toBe('DAGMC export');
         expect(toolLabel('nuke_openmc_summarizeProject')).toBe('OpenMC project');
         expect(toolLabel('nuke_openmc_validateProject')).toBe('OpenMC validation');
+        expect(toolLabel('nuke_openmc_previewSettings')).toBe('Settings preview');
+        expect(toolLabel('nuke_openmc_applySettings')).toBe('Settings applied');
         expect(toolLabel('nuke_openmc_importCad')).toBe('DAGMC import');
         expect(toolLabel('nuke_openmc_runSimulation')).toBe('OpenMC run');
         expect(toolLabel('nuke_openmc_getRunStatus')).toBe('Run status');
@@ -326,6 +411,26 @@ describe('summaryEntries', () => {
         expect(summaryEntries(undefined)).toEqual([]);
         expect(summaryEntries('text')).toEqual([]);
         expect(summaryEntries([1, 2])).toEqual([]);
+    });
+});
+
+describe('formatChangeValue', () => {
+    it('formats primitive, missing, and structured diff values', () => {
+        expect(formatChangeValue(undefined)).toBe('\u2014');
+        expect(formatChangeValue(null)).toBe('null');
+        expect(formatChangeValue(200)).toBe('200');
+        expect(formatChangeValue(false)).toBe('false');
+        expect(formatChangeValue('continuous-energy')).toBe('continuous-energy');
+        expect(formatChangeValue('')).toBe('""');
+        expect(formatChangeValue({ mode: 'multigroup' })).toBe('{"mode":"multigroup"}');
+        expect(formatChangeValue([1, 2])).toBe('[1,2]');
+    });
+
+    it('bounds long diff values', () => {
+        const formatted = formatChangeValue('x'.repeat(MAX_SUMMARY_VALUE_LENGTH * 2));
+
+        expect(formatted).toHaveLength(MAX_SUMMARY_VALUE_LENGTH);
+        expect(formatted.endsWith('\u2026')).toBe(true);
     });
 });
 

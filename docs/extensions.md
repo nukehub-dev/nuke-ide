@@ -26,6 +26,7 @@ Optional extension for the AI runtime and its integration with NukeIDE capabilit
 - NukeAI chat with agents, skills (progressive disclosure), and a themed Welcome screen
 - Exposes every enabled Nuke capability as a typed AI chat tool
 - Read-only diagnostics agent for CAD model health, OpenMC project readiness and failed runs, and statepoint convergence and tally coverage
+- Preview/apply/undo OpenMC run-setting edits with a before/after diff and explicit confirmation
 - Names, validates, and bounds tool arguments and results before they reach the model
 - Refreshes the tool set when capabilities or ambient context change
 - Calls capability handlers in-process; no HTTP or MCP hop on the internal path

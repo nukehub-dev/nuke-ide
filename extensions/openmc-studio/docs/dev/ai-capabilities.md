@@ -13,8 +13,32 @@
 | `nuke.openmc.getRunStatus`     | `read`    | Optional exact `workingDirectory`, `logLines` (1-200, default 40)               | `running: false`, or the matching run's process ID, directory, start time, log path, and capped log tail. |
 | `nuke.openmc.diagnoseProject`  | `read`    | `{}`                                                                            | Validation, environment, cross-section, and DAGMC findings plus `valid`, `readyToRun`, and counts.        |
 | `nuke.openmc.diagnoseRun`      | `read`    | Optional exact `workingDirectory`, `logLines` (1-200, default 80)               | Active-run identity, capped log tail, error/warning counts, and classified log findings.                  |
+| `nuke.openmc.previewSettings`  | `read`    | `changes` (1-20 `{ path, value }`), optional `summary`                          | Proposal id, summary, and labelled before/after diff plus a `changeSet` for `applySettings`.              |
+| `nuke.openmc.applySettings`    | `write`   | `proposalId` from `previewSettings`                                             | Applied diff, a `changeSet` without `applyCapability`, an `undoToken`, and a diagnosis follow-up.         |
 
-`importCad` and `runSimulation` require confirmation. Every capability is enabled regardless of whether a project is saved; handlers reject paths outside the workspace roots instead of hiding the action. The two diagnostics are read-only and never write files, change project state, or start/stop runs.
+`importCad`, `runSimulation`, and `applySettings` require confirmation. Every capability is enabled regardless of whether a project is saved; handlers reject paths outside the workspace roots instead of hiding the action. The two diagnostics are read-only and never write files, change project state, or start/stop runs. `previewSettings` is read-only and never mutates project state.
+
+## Safe settings edits
+
+`previewSettings` validates and diffs basic run/settings paths, then stores the current settings snapshot in memory for ten minutes (at most twenty live proposals). `applySettings` rejects a missing or expired proposal, rejects a stale preview with `Settings changed since the preview. Preview again.`, applies the stored after-settings through `OpenMCStateManager.updateSettings`, removes the proposal, and registers an in-memory undo. Undo verifies that every changed path still equals the applied value, restores only those paths on the current settings, and returns `Settings change undone.`; undo does not survive an IDE restart.
+
+Supported paths only:
+
+| Path                      | Rule                                                              |
+| ------------------------- | ----------------------------------------------------------------- |
+| `run.particles`           | Integer >= 1                                                      |
+| `run.inactive`            | Integer >= 0; only when the current run mode has inactive batches |
+| `run.batches`             | Integer >= 1                                                      |
+| `seed`                    | Integer >= 0                                                      |
+| `threads`                 | Integer >= 1                                                      |
+| `verbosity`               | Integer 1-10                                                      |
+| `energyMode`              | `continuous-energy` or `multigroup`                               |
+| `photonTransport`         | Boolean                                                           |
+| `electronTreatment`       | `led` or `ttb`                                                    |
+| `atomicRelaxation`        | Boolean                                                           |
+| `sourceRejectionFraction` | Number 0-1                                                        |
+
+Sources, output, random ray, CMFD, geometry, materials, and tallies are deliberately unsupported. A request with any unknown path, invalid value, duplicate path, or unchanged value is rejected as a whole.
 
 ## Rules
 

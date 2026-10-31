@@ -54,6 +54,7 @@ import { OpenMCXMLGenerationService } from './xml-generator/xml-generation-servi
 import { OpenMCSimulationRunner } from './widgets/simulation-dashboard/simulation-runner';
 import { OpenMCPythonExporter } from './script-generator/python-exporter';
 import { OpenMCCapabilities, OpenMCContextContribution } from './capabilities/openmc-capabilities';
+import { OpenMCSettingsProposalService } from './capabilities/openmc-settings-proposal-service';
 
 // New modular services
 import { OpenMCEnvironmentService, OpenMCHealthService, OpenMCInstallerService } from './services';
@@ -168,6 +169,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCXMLGenerationService).toSelf().inSingletonScope();
     bind(OpenMCSimulationRunner).toSelf().inSingletonScope();
     bind(OpenMCPythonExporter).toSelf().inSingletonScope();
+    bind(OpenMCSettingsProposalService).toSelf().inSingletonScope();
 
     // ============================================================================
     // Environment & Health Services
