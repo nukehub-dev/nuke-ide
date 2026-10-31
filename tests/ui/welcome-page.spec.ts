@@ -22,6 +22,7 @@ test('Welcome page renders the Nuke layout without duplicate registrations', asy
 
     await expect(page.locator('.gs-header-title')).toHaveText('NukeIDE');
     await expect(page.locator('.gs-left-column')).toBeVisible();
+    await expect(page.locator('.gs-quote-text')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('.gs-main-column')).toHaveCount(0);
 
     expect(duplicateWarnings).toEqual([]);

@@ -449,7 +449,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad docs: corrected the sketch segment limit, exported-helix note, and edge-overlay description.
 - nuke-core + nuke-cad + nuke-visualizer + openmc-studio: sidebar panels scroll natively; PerfectScrollbar's overlay no longer covers panel content.
 - nuke-docs: relative images, cross-page anchors, and cross-extension docs links resolve; the sidebar discovers every extension docs folder and hides `AGENTS.md`.
-- nuke-essentials: Welcome renders immediately and shares Theia's view/command registration instead of duplicating it.
+- nuke-essentials: Welcome renders immediately with a fallback quote and shares Theia's view/command registration instead of duplicating it.
 - nuke-essentials: empty-state card centers itself in wide sidebars instead of hugging the left.
 - nuke-essentials: active ribbon actions keep readable icon contrast in light themes, and text inputs use border-box sizing app-wide.
 - nuke-essentials: color picker popup portals to the document body so it never clips in narrow sidebars.

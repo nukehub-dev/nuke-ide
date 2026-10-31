@@ -40,6 +40,13 @@ import { WorkspaceCommands, WorkspaceService } from '@theia/workspace/lib/browse
 import { QuoteService, Quote } from '../../common/quote-protocol';
 import { Logo } from '../../theme/browser/components';
 
+/** Shown until the backend quote RPC connects, so the Welcome page never starts blank. */
+const DEFAULT_QUOTE: Quote = {
+    text: 'Nothing in life is to be feared, it is only to be understood. Now is the time to understand more, so that we may fear less.',
+    author: 'Marie Curie',
+    category: 'science'
+};
+
 /**
  * Default implementation of the `GettingStartedWidget`.
  * The widget is displayed when there are currently no workspaces present.
@@ -93,7 +100,7 @@ export class GettingStartedWidget extends ReactWidget {
      */
     protected readonly neutronicsWorkshopUrl = 'https://github.com/fusion-energy/neutronics-workshop';
 
-    protected selectedQuote: Quote | undefined;
+    protected selectedQuote: Quote = DEFAULT_QUOTE;
 
     @inject(ApplicationServer)
     protected readonly appServer: ApplicationServer;
@@ -137,6 +144,9 @@ export class GettingStartedWidget extends ReactWidget {
         // Render the static shell immediately; application info, recent
         // workspaces, and the quote hydrate asynchronously below.
         this.update();
+        // The quote is independent of the slower extension/workspace lookups.
+        // Start it now so it appears as soon as the backend responds.
+        void this.loadQuote();
 
         this.applicationInfo = await this.appServer.getApplicationInfo();
         this.recentWorkspaces = await this.workspaceService.recentWorkspaces();
@@ -145,9 +155,32 @@ export class GettingStartedWidget extends ReactWidget {
         const extensions = await this.appServer.getExtensionsInfos();
         this.aiIsIncluded = extensions.find((ext) => ext.name === '@theia/ai-core') !== undefined;
 
-        // Load a random quote from the backend service
-        this.selectedQuote = await this.quoteService.getRandomQuote();
         this.update();
+    }
+
+    protected async loadQuote(attempt = 0): Promise<void> {
+        if (this.isDisposed) {
+            return;
+        }
+        try {
+            const quote = await Promise.race([
+                this.quoteService.getRandomQuote(),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Quote request timed out')), 2000))
+            ]);
+            if (!quote) {
+                throw new Error('No quote returned');
+            }
+            this.selectedQuote = quote;
+            this.update();
+        } catch (error) {
+            // A restored Welcome tab can be constructed before the backend
+            // WebSocket is ready, so the first RPC may fail or stay pending.
+            if (attempt < 10) {
+                setTimeout(() => void this.loadQuote(attempt + 1), 1000);
+                return;
+            }
+            console.warn('[nuke-essentials] Failed to load the Welcome quote', error);
+        }
     }
 
     protected override onActivateRequest(msg: Message): void {
