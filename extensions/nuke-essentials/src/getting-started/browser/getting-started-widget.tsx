@@ -134,6 +134,9 @@ export class GettingStartedWidget extends ReactWidget {
         this.title.label = GettingStartedWidget.LABEL;
         this.title.caption = GettingStartedWidget.LABEL;
         this.title.closable = true;
+        // Render the static shell immediately; application info, recent
+        // workspaces, and the quote hydrate asynchronously below.
+        this.update();
 
         this.applicationInfo = await this.appServer.getApplicationInfo();
         this.recentWorkspaces = await this.workspaceService.recentWorkspaces();

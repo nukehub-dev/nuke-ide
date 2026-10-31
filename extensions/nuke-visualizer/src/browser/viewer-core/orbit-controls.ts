@@ -50,7 +50,7 @@
  * pure and testable): widgets pass their camera and renderer canvas in and
  * get a disposable handle back. `OrbitControls` itself loads through the
  * same dynamic `import('three/examples/jsm/controls/OrbitControls.js')`
- * style as nuke-cad's viewport, so webpack bundles it identically.
+ * style as nuke-cad's viewport, so the bundler resolves it identically.
  *
  * The fit math over plain min/max triples is pure and vitest-covered; only
  * `createOrbitControls` touches the DOM and three.js.

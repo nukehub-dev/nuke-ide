@@ -76,13 +76,11 @@ function ensureWorker(): Worker | undefined {
         return worker;
     }
     try {
-        // Webpack 5 natively bundles `new Worker(new URL(..., import.meta.url))`
-        // as a worker entry; tsc emits CommonJS for this package, so the
-        // meta-property needs a local suppression (webpack sees the real thing).
-        // The `.js` specifier maps to the `.ts` source here and exists verbatim
-        // in the compiled `lib/` output, which is where webpack resolves it.
-        // @ts-ignore TS1470 — import.meta requires ESM emit; webpack handles it.
-        const created = new Worker(new URL('./tess-parse.worker.js', import.meta.url));
+        // The worker is emitted as a top-level esbuild entry beside the page
+        // bundle. Resolve it from the page URL so this CommonJS-compiled module
+        // does not need `import.meta` (which would make esbuild treat the
+        // CommonJS `exports` object as an undefined ESM global).
+        const created = new Worker(new URL('tess-parse.worker.js', document.baseURI));
         created.onmessage = (event: MessageEvent<{ seq: number; data?: ParsedTessData; error?: string }>) => {
             const entry = pending.get(event.data.seq);
             if (entry === undefined) {

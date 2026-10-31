@@ -240,7 +240,7 @@ Constraint kinds must keep the planegcs-verbatim representation stable so saved
 
 ## WASM loading
 
-The PlaneGCS library is LGPL-2.0-or-later. The browser app bundles the WASM as a
-webpack `asset/resource`; `src/browser/sketch/planegcs-wasm-url.ts` resolves the
-emitted public URL with `require('@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm')`.
+The PlaneGCS library is LGPL-2.0-or-later. The browser app bundles the WASM through esbuild's `.wasm`
+`dataurl` loader; `src/browser/sketch/planegcs-wasm-url.ts` resolves the emitted
+URL with `require('@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm')`.
 Vitest runs in Node and uses the package's default Node wasm resolution.

@@ -51,7 +51,7 @@ Keep the manifest curated: remove screenshots that no longer document a flow. Gi
 
 ## Native docs widget
 
-Open it from the IDE via `Help → Documentation` or the Getting Started page.
+Open it from the IDE via `Help → Documentation` or the Welcome page.
 
 Features:
 

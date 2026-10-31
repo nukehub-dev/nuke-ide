@@ -14,8 +14,8 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.74.1",
-    "systeminformation": "^5.32.0"
+    "@theia/core": "1.76.0",
+    "systeminformation": "^5.33.19"
   },
   "devDependencies": {
     "rimraf": "^6.1.3",

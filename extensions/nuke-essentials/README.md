@@ -42,7 +42,7 @@ A welcome panel shown on first launch with:
 - NukeIDE tips and quotes
 - Recent projects
 
-Re-open it anytime via **Help → Getting Started**.
+Re-open it anytime via **Help → Welcome**.
 
 ### 💬 AI Chat Welcome
 

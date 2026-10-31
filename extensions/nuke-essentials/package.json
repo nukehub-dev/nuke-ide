@@ -23,19 +23,19 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.74.1",
-    "@theia/debug": "1.74.1",
-    "@theia/editor": "1.74.1",
-    "@theia/filesystem": "1.74.1",
-    "@theia/keymaps": "1.74.1",
-    "@theia/monaco": "1.74.1",
-    "@theia/test": "1.74.1",
-    "@theia/workspace": "1.74.1",
-    "@theia/plugin-ext-vscode": "1.74.1",
-    "@theia/ai-chat": "1.74.1",
-    "@theia/ai-chat-ui": "1.74.1",
-    "@theia/ai-core": "1.74.1",
-    "@theia/ai-ide": "1.74.1"
+    "@theia/core": "1.76.0",
+    "@theia/debug": "1.76.0",
+    "@theia/editor": "1.76.0",
+    "@theia/filesystem": "1.76.0",
+    "@theia/keymaps": "1.76.0",
+    "@theia/monaco": "1.76.0",
+    "@theia/test": "1.76.0",
+    "@theia/workspace": "1.76.0",
+    "@theia/plugin-ext-vscode": "1.76.0",
+    "@theia/ai-chat": "1.76.0",
+    "@theia/ai-chat-ui": "1.76.0",
+    "@theia/ai-core": "1.76.0",
+    "@theia/ai-ide": "1.76.0"
   },
   "devDependencies": {
     "rimraf": "^6.1.3",

@@ -4,7 +4,7 @@ Welcome to NukeIDE! This guide will help you get up and running quickly.
 
 ## What You'll Need
 
-- **Node.js** >= 22.13.0
+- **Node.js** >= 24.0.0
 - **Yarn** >= 1.7.0 and < 2
 - **Python** 3.13 for the tested backend profile (OpenMC 0.16 also runs on Python 3.12; OpenMC 0.15.3 supports older interpreters)
 

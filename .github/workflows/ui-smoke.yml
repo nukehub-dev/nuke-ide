@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Enable Corepack
         run: corepack enable
@@ -53,13 +53,13 @@ jobs:
 
       - name: Compile extensions
         # --ignore-scripts skips the lerna prepare build, so extensions must
-        # be compiled explicitly: webpack resolves sibling packages via
+        # be compiled explicitly: the bundle resolves sibling packages via
         # <extension>/lib/... (same reason as ci.yml's Compile steps). Without
         # this the bundle fails with `Can't resolve 'nuke-*/lib/...'`.
         run: npx lerna run build
 
       - name: Rebuild native modules
-        # Scriptless installs skip native builds; webpack fails resolving
+        # Scriptless installs skip native builds; the bundle fails resolving
         # keytar.node / cpufeatures.node / drivelist.node without them
         # (same pitfall as build.yml's Rebuild step, which covers the
         # Electron bundle — the browser bundle needs them too).

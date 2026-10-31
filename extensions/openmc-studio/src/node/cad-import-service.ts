@@ -45,7 +45,7 @@ import * as os from 'os';
 
 import { CAD_PACKAGES, DAGMC_PACKAGES } from '../common/packages';
 
-// Use CommonJS require for Node.js modules to ensure proper externalization by webpack
+// Use CommonJS require for Node.js modules to ensure proper externalization by esbuild
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cp = require('child_process');
 

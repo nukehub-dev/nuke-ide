@@ -267,9 +267,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Platform: Theia 1.73.1 to 1.74.1 with the deprecated Vercel AI provider removed; Electron shell moves to 43.4.0.
-- Platform: lerna 9 to 10 (Node.js >= 22.13.0) and markdown-it 14 to 15 in nuke-docs.
+- Platform: Theia 1.73.1 to 1.76.0; Electron shell moves to 43.8.5 and Node.js to >=24.
+- Platform: Theia 1.76 bundles with esbuild after upstream removed webpack; applications use editable `esbuild.mjs` entrypoints.
+- Platform: lerna 9 to 10 and markdown-it 14 to 15 in nuke-docs.
 - Platform: React 18 to 19 for all extension widgets with no component API changes.
+- Platform: React 19.3, Playwright 1.64, Prettier 3.9.10, and Vitest 4.1.12 refresh within existing ranges.
+- Platform: planegcs 1.3, simple-git 4, Lerna 10.1, and Electron builder/updater updates.
+- Platform: three, Plotly, and Vitest 5 remain on their current majors for separate migrations.
 - docs: product and extension guides match the current UI, package pins, OpenMC 0.16 support, and CAD schema.
 - docs: screenshot captures are quantized to indexed PNGs, cutting the committed image payload by roughly half with no visible UI artifacts.
 - nuke-cad: CadQuery is optional and no longer bundled; build123d/OCP remains the default CAD and script stack.
@@ -323,6 +327,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
 - docs: GitHub-rendered guides use portable relative links, so extension and product pages no longer return 404.
+- nuke-cad: tessellation parsing uses an explicit esbuild worker entry, fixing the CommonJS/ESM crash when opening a CAD document.
 - nuke-cad: environment health check includes `svgelements` alongside the other build123d helpers.
 - nuke-cad: command search moved off the ribbon into a floating bottom-left launcher, so a dense toolbar can no longer hide a section under its button.
 - nuke-cad: running a command from the viewport command search returns focus to the viewport, so Escape and viewport shortcuts keep working (for example, ending Measure).
@@ -444,6 +449,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad docs: corrected the sketch segment limit, exported-helix note, and edge-overlay description.
 - nuke-core + nuke-cad + nuke-visualizer + openmc-studio: sidebar panels scroll natively; PerfectScrollbar's overlay no longer covers panel content.
 - nuke-docs: relative images, cross-page anchors, and cross-extension docs links resolve; the sidebar discovers every extension docs folder and hides `AGENTS.md`.
+- nuke-essentials: Welcome renders immediately and shares Theia's view/command registration instead of duplicating it.
 - nuke-essentials: empty-state card centers itself in wide sidebars instead of hugging the left.
 - nuke-essentials: active ribbon actions keep readable icon contrast in light themes, and text inputs use border-box sizing app-wide.
 - nuke-essentials: color picker popup portals to the document body so it never clips in narrow sidebars.

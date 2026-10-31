@@ -29,7 +29,7 @@
  * Static Frontend Server
  *
  * Custom {@link BackendApplicationServer} that replaces Theia's default
- * `express.static` mount for the built frontend. Theia's webpack build does
+ * `express.static` mount for the built frontend. Theia's esbuild build does
  * not content-hash its JS output (`bundle.js` and lazy chunks keep stable
  * names across builds), so a cached HTML shell or bundle can reference stale
  * code after a redeploy and the browser has no URL-level signal that anything
