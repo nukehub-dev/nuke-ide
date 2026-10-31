@@ -28,8 +28,9 @@ Optional extension for the AI runtime and its integration with NukeIDE capabilit
 - Names, validates, and bounds tool arguments and results before they reach the model
 - Refreshes the tool set when capabilities or ambient context change
 - Calls capability handlers in-process; no HTTP or MCP hop on the internal path
+- Offers an opt-in, token-protected, loopback-only MCP endpoint for external agents with a read-only CAD catalog
 
-[Documentation](../extensions/nuke-ai/docs/README.md) · [User Guide](../extensions/nuke-ai/docs/user/getting-started.md) · [Developer Guide](../extensions/nuke-ai/docs/dev/architecture.md) · [Adding a Capability](../extensions/nuke-ai/docs/dev/adding-a-capability.md)
+[Documentation](../extensions/nuke-ai/docs/README.md) · [User Guide](../extensions/nuke-ai/docs/user/getting-started.md) · [MCP Clients](../extensions/nuke-ai/docs/user/mcp-clients.md) · [Developer Guide](../extensions/nuke-ai/docs/dev/architecture.md) · [External MCP](../extensions/nuke-ai/docs/dev/mcp.md) · [Adding a Capability](../extensions/nuke-ai/docs/dev/adding-a-capability.md)
 
 ---
 

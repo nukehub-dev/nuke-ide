@@ -29,6 +29,7 @@
     "test:python:cov": "python -m pytest --cov --cov-report=term-missing --cov-report=xml",
     "test:ts": "node scripts/copy-cad-samples.js && vitest run",
     "test:ui": "playwright test",
+    "test:mcp": "NUKE_MCP_E2E=1 playwright test tests/ui/mcp-endpoint.spec.ts",
     "docs:screenshots": "node scripts/docs-screenshots.js",
     "docs:screenshots:check": "node scripts/check-docs-screenshots.js",
     "docs:screenshots:optimize": "node scripts/optimize-docs-screenshots.js",

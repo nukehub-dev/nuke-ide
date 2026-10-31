@@ -28,9 +28,9 @@ The AI chat and the capability handlers both live in the frontend. Registering a
 
 - no serialization or authentication boundary is added between the model and the handler;
 - an invocation sees the live frontend services and ambient context;
-- nothing new listens on the network.
+- nothing new listens on the network for this internal path.
 
-External MCP exposure is a separate concern and is not part of the internal bridge.
+External MCP exposure is a separate, opt-in surface; see [External MCP](mcp.md). It does not change this in-process path.
 
 ## Registration and refresh
 

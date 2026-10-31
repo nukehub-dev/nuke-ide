@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - docs: `yarn docs:screenshots` regenerates docs images; `yarn docs:screenshots:check` validates the manifest, references, and PNGs.
 - nuke-ai: AI runtime, providers, and chat theming move to an optional extension; NUKE_EXCLUDE_EXTENSIONS=nuke-ai omits it.
 - nuke-ai: NukeAI gains domain skills, an active-workspace context variable, and read-only project resources.
+- nuke-ai: opt-in, token-protected MCP endpoint exposes read-only NukeIDE context to external agents.
 - nuke-ai: tool results can show truthful viewport previews and keep a replayable command-to-preview history.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.

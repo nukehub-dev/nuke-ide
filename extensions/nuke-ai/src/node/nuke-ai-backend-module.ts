@@ -28,17 +28,24 @@
 /**
  * Nuke AI Backend Module
  *
- * Wires the skill-root service over JSON-RPC. The capability tool bridge runs
- * in the frontend because capabilities invoke frontend services directly.
+ * Wires the skill-root service and the MCP capability delegate over JSON-RPC,
+ * and registers the opt-in external MCP contribution on the external API
+ * router. The capability tool bridge runs in the frontend because capabilities
+ * invoke frontend services directly.
  *
  * @module nuke-ai/node
  */
 
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { ConnectionHandler } from '@theia/core/lib/common/messaging';
-import { JsonRpcConnectionHandler } from '@theia/core/lib/common/messaging/proxy-factory';
+import { JsonRpcConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging/proxy-factory';
+import { ExternalApiContribution } from '@theia/external-api/lib/node/external-api-contribution';
+import { NukeCapabilityDelegate, NukeCapabilityDelegateClient, NukeCapabilityDelegatePath } from '../common/nuke-capability-delegate';
 import { NukeAISkillService, NukeAISkillServicePath } from '../common/nuke-ai-protocol';
 import { NukeAISkillServiceImpl } from './skills/nuke-skill-service';
+import { NukeCapabilityDelegateImpl } from './mcp/nuke-capability-delegate';
+import { NukeAIMcpConfigService } from './mcp/nuke-mcp-config-service';
+import { NukeMcpContribution } from './mcp/nuke-mcp-contribution';
 
 export default new ContainerModule((bind) => {
     bind(NukeAISkillServiceImpl).toSelf().inSingletonScope();
@@ -48,4 +55,21 @@ export default new ContainerModule((bind) => {
             (ctx) => new JsonRpcConnectionHandler(NukeAISkillServicePath, () => ctx.container.get<NukeAISkillService>(NukeAISkillService))
         )
         .inSingletonScope();
+
+    bind(NukeAIMcpConfigService).toSelf().inSingletonScope();
+    bind(NukeCapabilityDelegateImpl).toSelf().inSingletonScope();
+    bind(NukeCapabilityDelegate).toService(NukeCapabilityDelegateImpl);
+    bind(ConnectionHandler)
+        .toDynamicValue(
+            (ctx) =>
+                new RpcConnectionHandler<NukeCapabilityDelegateClient>(NukeCapabilityDelegatePath, (client) => {
+                    const delegate = ctx.container.get<NukeCapabilityDelegateImpl>(NukeCapabilityDelegateImpl);
+                    delegate.setClient(client);
+                    return delegate;
+                })
+        )
+        .inSingletonScope();
+
+    bind(NukeMcpContribution).toSelf().inSingletonScope();
+    bind(ExternalApiContribution).toService(NukeMcpContribution);
 });

@@ -65,4 +65,5 @@ absolute segments, empty names, and paths that would escape the root are rejecte
 or failed resource returns a clear error string rather than rejecting the caller.
 
 `NukeResourceService` is bound as a frontend singleton. No UI is added; an external consumer can map these
-descriptors without changing their read behavior.
+descriptors without changing their read behavior. The opt-in external MCP endpoint reads `nuke://context` and
+`nuke://cad/document` through the same service (see [External MCP](mcp.md)).

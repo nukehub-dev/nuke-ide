@@ -2,7 +2,7 @@
 
 `nuke-ai` connects the IDE's AI chat to actions that domain extensions publish through the Nuke capability registry. Each enabled capability appears as a typed tool, so the assistant can call real extension services instead of driving the UI.
 
-The extension has no user-facing panel or IDE command of its own. Its tools become visible as domain extensions adopt the capability contract, and its skills appear as chat slash commands.
+The extension has no user-facing panel. Its commands enable or disable the external MCP endpoint, and its tools become visible as domain extensions adopt the capability contract. Its skills appear as chat slash commands.
 
 ## Using capability tools
 
@@ -37,6 +37,13 @@ Attach `#nukeContext` to a request to include the active CAD document, OpenMC pr
 roots. Missing fields appear as `none`; if the context cannot be collected, the variable resolves to
 `context unavailable` instead of failing the request.
 
+## External MCP clients
+
+The command **NukeAI: Enable MCP Endpoint** starts a token-protected MCP server on `127.0.0.1`, and
+**NukeAI: Disable MCP Endpoint** stops it and removes the token. The endpoint exposes a read-only CAD summary,
+context resources, and a workflow prompt. See [External MCP Clients](mcp-clients.md) for the client configuration and
+security notes.
+
 ## Troubleshooting
 
 If a capability does not appear in the chat:
@@ -46,4 +53,5 @@ If a capability does not appear in the chat:
 3. Reload the IDE after installing an extension that adds capabilities.
 
 For the developer contract, see [Architecture](../dev/architecture.md), [Adding a Capability](../dev/adding-a-capability.md),
-[Skills](../dev/skills.md), and [Context and Resources](../dev/context-and-resources.md).
+[Skills](../dev/skills.md), [Context and Resources](../dev/context-and-resources.md), and [External MCP](../dev/mcp.md).
+For external clients, see [MCP Clients](mcp-clients.md).
