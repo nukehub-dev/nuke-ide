@@ -64,8 +64,15 @@ import { NukeAIMcpConfigService } from './nuke-mcp-config-service';
 /** Maximum concurrent MCP sessions held by one contribution build. */
 export const MAX_MCP_SESSIONS = 16;
 
+/** Keep the advertised server version in sync with the released extension version. */
+const { version: MCP_SERVER_VERSION } = require('../../../package.json') as { version: string };
+
 /** MCP server identity reported during initialization. */
-const MCP_SERVER_INFO = { name: 'nuke-ide', version: '0.1.3' };
+const MCP_SERVER_INFO = { name: 'nuke-ide', version: MCP_SERVER_VERSION };
+
+/** Converted once; every session reuses the same validated schemas. */
+const SPIKE_INPUT_ZOD = toZodSchema(SPIKE_CAPABILITY.inputSchema);
+const SPIKE_OUTPUT_ZOD = SPIKE_CAPABILITY.outputSchema ? toZodSchema(SPIKE_CAPABILITY.outputSchema) : undefined;
 
 const TOOL_DESCRIPTION = `${SPIKE_CAPABILITY.description} Example: {"includeSolids": true} returns one summary per solid in addition to the model totals.`;
 
@@ -153,7 +160,17 @@ export class NukeMcpContribution implements ExternalApiContribution {
         }
 
         const session = await this.createSession(sessions);
-        await session.transport.handleRequest(request, response, request.body);
+        try {
+            await session.transport.handleRequest(request, response, request.body);
+        } catch (error) {
+            // An initialization request that fails before the session id is
+            // registered would otherwise leak its server and transport until
+            // the next routing rebuild.
+            if (!session.transport.sessionId) {
+                await session.server.close().catch(() => undefined);
+            }
+            throw error;
+        }
     }
 
     protected async createSession(sessions: Map<string, McpSession>): Promise<McpSession> {
@@ -193,8 +210,8 @@ export class NukeMcpContribution implements ExternalApiContribution {
             {
                 title: SPIKE_CAPABILITY.title,
                 description: TOOL_DESCRIPTION,
-                inputSchema: toZodSchema(SPIKE_CAPABILITY.inputSchema),
-                outputSchema: SPIKE_CAPABILITY.outputSchema ? toZodSchema(SPIKE_CAPABILITY.outputSchema) : undefined,
+                inputSchema: SPIKE_INPUT_ZOD,
+                outputSchema: SPIKE_OUTPUT_ZOD,
                 annotations: SPIKE_CAPABILITY.annotations
             },
             async (args) => this.invokeSpikeTool(args)

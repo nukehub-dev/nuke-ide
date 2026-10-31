@@ -146,16 +146,23 @@ export class NukeMcpCommandContribution implements CommandContribution {
         const token = globalThis.crypto.randomUUID();
         const configUri = resolveMcpConfigUri(await this.envVariables.getConfigDirUri());
         const config: NukeMcpFileConfig = { enabled: true, token, port };
-        await this.fileService.write(configUri, `${JSON.stringify(config, null, 2)}\n`);
+        try {
+            await this.fileService.write(configUri, `${JSON.stringify(config, null, 2)}\n`);
 
-        // Write the token before turning delivery on so the endpoint never
-        // starts unprotected, even briefly.
-        await this.setUserPreference('nuke.ai.mcp.enabled', true);
-        await this.setUserPreference('nuke.ai.mcp.port', port);
-        await this.setUserPreference('externalApi.token', token);
-        await this.setUserPreference('externalApi.hostname', '127.0.0.1');
-        await this.setUserPreference('externalApi.port', port);
-        await this.setUserPreference('externalApi.delivery', 'separatePort');
+            // Write the token before turning delivery on so the endpoint never
+            // starts unprotected, even briefly.
+            await this.setUserPreference('nuke.ai.mcp.enabled', true);
+            await this.setUserPreference('nuke.ai.mcp.port', port);
+            await this.setUserPreference('externalApi.token', token);
+            await this.setUserPreference('externalApi.hostname', '127.0.0.1');
+            await this.setUserPreference('externalApi.port', port);
+            await this.setUserPreference('externalApi.delivery', 'separatePort');
+        } catch (error) {
+            await this.rollbackEnable(configUri);
+            this.logger.error('[NukeAI] Failed to enable the MCP endpoint.', error);
+            this.messageService.error(`Failed to enable the MCP endpoint: ${errorMessage(error)}`);
+            return;
+        }
 
         const snippet = buildMcpClientConfigSnippet(port, token);
         const message = [`MCP endpoint: ${mcpEndpointUrl(port)}`, `Bearer token: ${token}`, '', 'Client configuration:', snippet].join(
@@ -169,19 +176,45 @@ export class NukeMcpCommandContribution implements CommandContribution {
     }
 
     protected async disable(): Promise<void> {
-        await this.setUserPreference('externalApi.delivery', 'off');
-        await this.setUserPreference('nuke.ai.mcp.enabled', false);
-        await this.setUserPreference('externalApi.token', undefined);
-        await this.setUserPreference('nuke.ai.mcp.port', undefined);
+        try {
+            await this.setUserPreference('externalApi.delivery', 'off');
+            await this.setUserPreference('nuke.ai.mcp.enabled', false);
+            await this.setUserPreference('externalApi.token', undefined);
+            await this.setUserPreference('nuke.ai.mcp.port', undefined);
 
-        const configUri = resolveMcpConfigUri(await this.envVariables.getConfigDirUri());
-        if (await this.fileService.exists(configUri)) {
-            await this.fileService.delete(configUri, { useTrash: false });
+            const configUri = resolveMcpConfigUri(await this.envVariables.getConfigDirUri());
+            await this.deleteConfigFile(configUri);
+            this.messageService.info('MCP endpoint disabled.');
+        } catch (error) {
+            this.logger.error('[NukeAI] Failed to disable the MCP endpoint.', error);
+            this.messageService.error(`Failed to disable the MCP endpoint: ${errorMessage(error)}`);
         }
-        this.messageService.info('MCP endpoint disabled.');
+    }
+
+    /** Remove partial state when enabling fails before the endpoint is usable. */
+    protected async rollbackEnable(configUri: URI): Promise<void> {
+        await this.deleteConfigFile(configUri);
+        await this.setUserPreference('externalApi.delivery', 'off').catch(() => undefined);
+        await this.setUserPreference('externalApi.token', undefined).catch(() => undefined);
+        await this.setUserPreference('nuke.ai.mcp.enabled', false).catch(() => undefined);
+        await this.setUserPreference('nuke.ai.mcp.port', undefined).catch(() => undefined);
+    }
+
+    protected async deleteConfigFile(configUri: URI): Promise<void> {
+        try {
+            if (await this.fileService.exists(configUri)) {
+                await this.fileService.delete(configUri, { useTrash: false });
+            }
+        } catch (error) {
+            this.logger.warn('[NukeAI] Could not remove the MCP config file.', error);
+        }
     }
 
     protected setUserPreference(name: string, value: unknown): Promise<void> {
         return this.preferences.set(name, value, PreferenceScope.User);
     }
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
