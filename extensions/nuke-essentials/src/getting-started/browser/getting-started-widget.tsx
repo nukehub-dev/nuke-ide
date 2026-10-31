@@ -91,7 +91,7 @@ export class GettingStartedWidget extends ReactWidget {
     protected recentWorkspaces: string[] = [];
 
     /**
-     * Indicates whether the "ai-core" extension is available.
+     * Indicates whether the "nuke-ai" extension is available.
      */
     protected aiIsIncluded: boolean;
 
@@ -153,7 +153,7 @@ export class GettingStartedWidget extends ReactWidget {
         this.home = new URI(await this.environments.getHomeDirUri()).path.toString();
 
         const extensions = await this.appServer.getExtensionsInfos();
-        this.aiIsIncluded = extensions.find((ext) => ext.name === '@theia/ai-core') !== undefined;
+        this.aiIsIncluded = extensions.find((ext) => ext.name === 'nuke-ai') !== undefined;
 
         this.update();
     }

@@ -10,6 +10,7 @@ and OpenFOAM cases.
 - [Backend pipeline](backend-pipeline.md) — script/document build, selectors, and export flow
 - [Document schema](document-schema.md) — `.nuke-cad` schema v3 blocks and validation
 - [GUI modeler architecture](gui-modeler-architecture.md) — viewport, sketch session, feature tree, and commands
+- [AI capabilities](ai-capabilities.md) — capability registry contract, CAD actions, and DAGMC export
 
 ## Subsystems
 

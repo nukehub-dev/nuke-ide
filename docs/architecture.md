@@ -13,6 +13,7 @@ nuke-ide/
 │
 ├── extensions/            # Theia extensions (plugins)
 │   ├── nuke-core/         # Python env management, health checks, status bar
+│   ├── nuke-ai/           # AI runtime and capability-backed tools
 │   ├── nuke-visualizer/   # 3D/2D visualization framework
 │   ├── openmc-studio/     # No-code OpenMC simulation workspace
 │   ├── nuke-cad/          # Parametric CAD / meshing / FEM
@@ -48,6 +49,12 @@ Each extension in `extensions/` is a self-contained Theia package with:
 - `docs/` — Extension-specific documentation, served in the IDE
 
 Extensions communicate via **JSON-RPC** over WebSocket. The frontend uses **inversify** for dependency injection.
+
+## AI Integration
+
+`nuke-ai` owns NukeIDE's AI runtime, language-model provider packages, and NukeAI chat theming. It is optional at build time: `NUKE_EXCLUDE_EXTENSIONS=nuke-ai` removes NukeAI and its tools; the Theia plugin host still pulls a few inert `@theia/ai-*` modules transitively (`@theia/ai-core`, `@theia/ai-core-ui`, `@theia/ai-mcp`). Required extensions must not import `@theia/ai-*`.
+
+`nuke-ai` also exposes cross-extension actions to the IDE's AI chat. Domain extensions register `NukeCapability` handlers with the neutral registry in `nuke-core`; the `nuke-ai` bridge turns each enabled capability into a typed Theia tool. Tool invocation stays in the frontend process — no HTTP or MCP hop is involved.
 
 ## Python Integration
 

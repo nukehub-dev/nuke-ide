@@ -45,6 +45,7 @@ import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar
 // Protocol imports
 import { OpenMCStudioBackendService, OpenMCStudioClient, OPENMC_STUDIO_BACKEND_PATH } from '../common/openmc-studio-protocol';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
+import { NukeCapabilityContribution, NukeCapabilityContextContribution } from 'nuke-core/lib/common/nuke-capability-protocol';
 
 // Service imports
 import { OpenMCStudioService } from './openmc-studio-service';
@@ -52,6 +53,7 @@ import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCXMLGenerationService } from './xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './widgets/simulation-dashboard/simulation-runner';
 import { OpenMCPythonExporter } from './script-generator/python-exporter';
+import { OpenMCCapabilities, OpenMCContextContribution } from './capabilities/openmc-capabilities';
 
 // New modular services
 import { OpenMCEnvironmentService, OpenMCHealthService, OpenMCInstallerService } from './services';
@@ -173,6 +175,16 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCEnvironmentService).toSelf().inSingletonScope();
     bind(OpenMCHealthService).toSelf().inSingletonScope();
     bind(OpenMCInstallerService).toSelf().inSingletonScope();
+
+    // ============================================================================
+    // Nuke Capability Contributions
+    // ============================================================================
+    // The capability contribution providers are bound once by nuke-core.
+    bind(OpenMCCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCCapabilities);
+
+    bind(OpenMCContextContribution).toSelf().inSingletonScope();
+    bind(NukeCapabilityContextContribution).toService(OpenMCContextContribution);
 
     // ============================================================================
     // Command Modules

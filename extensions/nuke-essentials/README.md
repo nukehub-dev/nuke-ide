@@ -44,10 +44,6 @@ A welcome panel shown on first launch with:
 
 Re-open it anytime via **Help → Welcome**.
 
-### 💬 AI Chat Welcome
-
-Custom welcome message provider for the Theia AI chat panel.
-
 ### 🧹 View Filter
 
 Filters out built-in Theia contributions that NukeIDE does not need as a nuclear simulation IDE, via Theia's `ContributionFilterRegistry`. Currently removes the **Debug** view (Run menu, debug commands/keybindings) and all **Testing** views. It also closes any of those widgets restored from stale layout state on startup (`STALE_WIDGET_IDS`). Edit `FILTERED_CONTRIBUTIONS` in `src/view-filter/browser/view-filter-contribution.ts` to change the list.

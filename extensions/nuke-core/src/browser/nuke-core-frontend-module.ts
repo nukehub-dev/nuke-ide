@@ -62,7 +62,15 @@ import {
     NUKE_CORE_BACKEND_PATH
 } from '../common/nuke-core-protocol';
 import { NukeToolsContribution } from '../common/nuke-tools-protocol';
+import {
+    NukeCapabilityContribution,
+    NukeCapabilityContextContribution,
+    NukeCapabilityContextService,
+    NukeCapabilityRegistry
+} from '../common/nuke-capability-protocol';
 import { EnvironmentActionsHelper, NukeCoreService, NukeCoreVisibilityService } from './services';
+import { NukeCapabilityContextServiceImpl } from './capabilities/nuke-capability-context-service';
+import { NukeCapabilityRegistryImpl } from './capabilities/nuke-capability-registry';
 import { bindNukeCorePreferences } from './nuke-core-preferences';
 import { NukeCoreMenuContribution } from './nuke-core-menus';
 import { NukePreferenceLayoutProvider } from './nuke-core-preference-layout';
@@ -100,6 +108,12 @@ export default new ContainerModule(
 
         // Preferences
         bindNukeCorePreferences(bind);
+
+        // Cross-extension capability contract
+        bindContributionProvider(bind, NukeCapabilityContribution);
+        bindContributionProvider(bind, NukeCapabilityContextContribution);
+        bind(NukeCapabilityRegistry).to(NukeCapabilityRegistryImpl).inSingletonScope();
+        bind(NukeCapabilityContextService).to(NukeCapabilityContextServiceImpl).inSingletonScope();
 
         // Backend service proxy
         bind<NukeCoreBackendServiceInterface>(NukeCoreBackendService)

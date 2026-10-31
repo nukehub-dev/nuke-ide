@@ -24,6 +24,7 @@ All files under `extensions/nuke-core/` except generated artifacts (`lib/`, `nod
 - Items may declare `enabled` and `onDidChangeEnabled` so the sidebar dims rows that require state (e.g., an opened OpenMC Studio project) and refreshes when that state changes.
 - Items may set `iconClass` to a full theme-aware icon class list; it takes precedence over the codicon `icon` name.
 - Commands must already exist in the Theia `CommandRegistry`; the sidebar only invokes them.
+- `src/browser/capabilities/` owns the cross-extension capability contract; see `docs/dev/capability-registry.md`.
 
 ## Work Guidance
 

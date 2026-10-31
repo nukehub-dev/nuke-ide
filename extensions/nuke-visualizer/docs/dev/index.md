@@ -14,6 +14,7 @@ This section is for developers who want to understand, modify, or extend `nuke-v
 | [**Output Viewers**](output-viewers.md)   | The OutputViewerRegistry and the convert → parse → render pipeline |
 | [**Adding a Plugin**](adding-a-plugin.md) | Step-by-step guide to creating a new visualization plugin          |
 | [**Python Backends**](python-backends.md) | Conventions for Python server scripts                              |
+| [**AI Capabilities**](ai-capabilities.md) | Capability registry actions and truthful viewport capture          |
 
 ## Code Organization
 

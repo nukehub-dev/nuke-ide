@@ -1,0 +1,75 @@
+{
+  "private": true,
+  "name": "nuke-ai",
+  "version": "0.1.3",
+  "description": "AI runtime and capability-backed tools for NukeIDE",
+  "license": "BSD-2-Clause",
+  "keywords": [
+    "theia-extension",
+    "nuclear",
+    "ai",
+    "tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nukehub-dev/nuke-ide.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nukehub-dev/nuke-ide/issues"
+  },
+  "homepage": "https://github.com/nukehub-dev/nuke-ide",
+  "files": [
+    "lib",
+    "skills",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/ai-anthropic": "1.76.0",
+    "@theia/ai-chat": "1.76.0",
+    "@theia/ai-chat-ui": "1.76.0",
+    "@theia/ai-claude-code": "1.76.0",
+    "@theia/ai-code-completion": "1.76.0",
+    "@theia/ai-codex": "1.76.0",
+    "@theia/ai-copilot": "1.76.0",
+    "@theia/ai-core": "1.76.0",
+    "@theia/ai-core-ui": "1.76.0",
+    "@theia/ai-editor": "1.76.0",
+    "@theia/ai-external-api": "1.76.0",
+    "@theia/ai-google": "1.76.0",
+    "@theia/ai-history": "1.76.0",
+    "@theia/ai-huggingface": "1.76.0",
+    "@theia/ai-ide": "1.76.0",
+    "@theia/ai-llamafile": "1.76.0",
+    "@theia/ai-mcp": "1.76.0",
+    "@theia/ai-mcp-ui": "1.76.0",
+    "@theia/ai-ollama": "1.76.0",
+    "@theia/ai-openai": "1.76.0",
+    "@theia/ai-registry": "1.76.0",
+    "@theia/ai-scanoss": "1.76.0",
+    "@theia/ai-terminal": "1.76.0",
+    "@theia/ai-tool-sketchpad": "1.76.0",
+    "@theia/core": "1.76.0",
+    "@theia/filesystem": "1.76.0",
+    "@theia/workspace": "1.76.0",
+    "nuke-core": "0.1.3"
+  },
+  "devDependencies": {
+    "rimraf": "^6.1.3",
+    "typescript": "~7.0.2"
+  },
+  "scripts": {
+    "prepare": "yarn clean && yarn build",
+    "clean": "rimraf --glob lib *.tsbuildinfo",
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/nuke-ai-frontend-module",
+      "backend": "lib/node/nuke-ai-backend-module"
+    },
+    {
+      "frontend": "lib/browser/welcome/nuke-ai-chat-frontend-module"
+    }
+  ]
+}

@@ -109,6 +109,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Package requirements live in `src/common/packages.json` (single source of truth;
   `health` group → `CAD_HEALTH_PACKAGES` for `checkCadEnvironment`, rest reference
   data; shared specs must match nuke-core's registry). See `docs/dev/backend-pipeline.md`.
+- CAD AI capabilities live in `src/browser/capabilities/nuke-cad-capabilities.ts`, use the
+  nuke-core capability contract, and delegate to existing CAD services; never expose raw
+  commands. See `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
   floating bottom-left command-search launcher (`/`) over the shared `cad-command-registry.ts` table

@@ -18,6 +18,21 @@ The foundational extension for Python environment management and shared infrastr
 
 ---
 
+### Nuke AI
+
+Optional extension for the AI runtime and its integration with NukeIDE capabilities. Excluding it with `NUKE_EXCLUDE_EXTENSIONS=nuke-ai` removes NukeAI and its tools; see [Architecture](architecture.md#ai-integration) for the remaining inert Theia AI modules.
+
+- Bundles the Theia AI runtime and language-model provider packages
+- NukeAI chat with agents, skills (progressive disclosure), and a themed Welcome screen
+- Exposes every enabled Nuke capability as a typed AI chat tool
+- Names, validates, and bounds tool arguments and results before they reach the model
+- Refreshes the tool set when capabilities or ambient context change
+- Calls capability handlers in-process; no HTTP or MCP hop on the internal path
+
+[Documentation](../extensions/nuke-ai/docs/README.md) · [User Guide](../extensions/nuke-ai/docs/user/getting-started.md) · [Developer Guide](../extensions/nuke-ai/docs/dev/architecture.md) · [Adding a Capability](../extensions/nuke-ai/docs/dev/adding-a-capability.md)
+
+---
+
 ### Nuke Visualizer
 
 Advanced 3D and 2D visualization for nuclear engineering data.

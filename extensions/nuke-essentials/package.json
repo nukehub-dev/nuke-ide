@@ -31,11 +31,7 @@
     "@theia/monaco": "1.76.0",
     "@theia/test": "1.76.0",
     "@theia/workspace": "1.76.0",
-    "@theia/plugin-ext-vscode": "1.76.0",
-    "@theia/ai-chat": "1.76.0",
-    "@theia/ai-chat-ui": "1.76.0",
-    "@theia/ai-core": "1.76.0",
-    "@theia/ai-ide": "1.76.0"
+    "@theia/plugin-ext-vscode": "1.76.0"
   },
   "devDependencies": {
     "rimraf": "^6.1.3",
@@ -58,9 +54,6 @@
     {
       "frontend": "lib/getting-started/browser/getting-started-frontend-module",
       "backend": "lib/node/quote-backend-module"
-    },
-    {
-      "frontend": "lib/ai-chat/browser/nuke-ai-chat-frontend-module"
     },
     {
       "frontend": "lib/theme/browser/theme-frontend-module"

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - docs: workflow screenshots cover OpenMC Studio settings, runs, materials, tallies, CSG/DAGMC, and dose.
 - docs: Nuke CAD screenshots cover sketch tools and the Feature Tree; Visualizer adds four-pane comparison.
 - docs: `yarn docs:screenshots` regenerates docs images; `yarn docs:screenshots:check` validates the manifest, references, and PNGs.
+- nuke-ai: AI runtime, providers, and chat theming move to an optional extension; NUKE_EXCLUDE_EXTENSIONS=nuke-ai omits it.
+- nuke-ai: NukeAI gains domain skills, an active-workspace context variable, and read-only project resources.
+- nuke-ai: tool results can show truthful viewport previews and keep a replayable command-to-preview history.
+- nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
 - nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.
@@ -135,6 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-core: Nuke Tools sidebar aggregates every Nuke command in a searchable, categorized, state-aware left-panel view.
 - nuke-essentials: shared UI components (dialog, toolbar, empty state, loading overlay, panel, form layout) on the theme module.
 - nuke-essentials + nuke-visualizer + nuke-cad: shared viewer chrome (orientation cube, nav bar, view badge, status line) in all 3D views.
+- nuke-visualizer: NukeAI can summarize and open statepoints and capture the active DAGMC viewport.
 - nuke-visualizer: OpenMC analysis adds entropy convergence, photon contact dose, decay-photon spectra, and an ICRP dose-coefficient reference tab.
 - nuke-visualizer: ParaView-style color mapping with a 34-preset library, custom range, invert/log toggles, and component selection.
 - nuke-visualizer: native 3D output viewers (tracks, collision-track, weight-windows, voxel) render in-IDE with instant color-by.
@@ -210,6 +215,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: legacy VTK volume meshes render unshared boundary faces as surfaces instead of wireframe cages.
 - nuke-visualizer: viewer bottom bars add Viewer Settings, Dataset Inspector, and DAGMC Outline shortcuts.
 - nuke-visualizer: DAGMC Outline adds Hide all, selected-volume Frame/Hide/Isolate/Clear actions, and filter-aware sections.
+- openmc-studio: NukeAI can summarize, validate, import DAGMC models, run simulations, and poll run status.
 - openmc-studio: per-distribution source bias (energy/time, isotropic direction, point-cloud/mesh arrays), correct `<ufs_mesh>` XML, and a weight-window list with reusable file, enable toggle, and collision/surface checkpoints round-trip through XML and Python export.
 - openmc-studio: rect/hex lattices, cell transforms + density, periodic pairs, and boundary albedo round-trip through XML and Python export.
 - openmc-studio: CSG Builder adds cell transforms, a searchable fill picker, periodic pairing, lattice editors, and a validation banner.

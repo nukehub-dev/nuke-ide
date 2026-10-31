@@ -14,6 +14,7 @@ This section is for developers who want to understand, modify, or extend `openmc
 | [**Python Backends**](python-backends.md) | Conventions for Python service scripts (statepoint reading, DAGMC editing, depletion, optimization) |
 | [**XML Generation**](xml-generation.md)   | How the state model becomes OpenMC XML (and back via import)                                        |
 | [**Shutdown Dose**](shutdown-dose.md)     | R2S/D1S driver-only contract, progress protocol, cell volumes, and Python export boundary           |
+| [**AI Capabilities**](ai-capabilities.md) | Capability IDs, risk levels, validation/environment gates, and run-status polling                   |
 | [**Adding a Widget**](adding-a-widget.md) | Step-by-step guide to adding a new widget or dashboard tab                                          |
 | [**Testing**](testing.md)                 | Python/TypeScript unit tests and the e2e layer (env vars, profiles, conventions)                    |
 

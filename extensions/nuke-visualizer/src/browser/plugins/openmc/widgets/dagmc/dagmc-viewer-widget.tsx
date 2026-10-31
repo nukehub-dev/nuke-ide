@@ -54,6 +54,7 @@ import {
     captureRendererScreenshot,
     copyScreenshotDataUrl,
     downloadScreenshotDataUrl,
+    screenshotMimeType,
     type ScreenshotOptions
 } from '../../../../viewer-core/canvas-screenshot';
 import { ViewerExportMenu } from '../viewer-export-menu';
@@ -1834,27 +1835,46 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         this.updateTallyVolumeVisibility();
     }
 
-    /** Download a screenshot of the current canvas (one-click PNG by default). */
-    saveScreenshot(options: ScreenshotOptions = {}): void {
-        if (!this.renderer || !this.scene || !this.camera || this.blocks.length === 0) {
-            return;
+    /**
+     * Capture the visible viewport as an image for capability previews.
+     *
+     * @throws when the renderer/scene/camera is not ready or no geometry is loaded.
+     */
+    async captureScreenshot(options: ScreenshotOptions = {}): Promise<{ dataUrl: string; mimeType: string }> {
+        if (!this.renderer || !this.scene || !this.camera) {
+            throw new Error('The DAGMC viewport is not ready to capture.');
+        }
+        if (this.blocks.length === 0) {
+            throw new Error('No DAGMC geometry is loaded to capture.');
         }
         const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
         this.renderScene();
-        downloadScreenshotDataUrl(dataUrl, {
-            ...options,
-            filename: buildScreenshotFilename(this.vtmUri?.path.base ?? 'dagmc', new Date(), options.format ?? 'png')
-        });
+        return { dataUrl, mimeType: screenshotMimeType(options.format ?? 'png') };
+    }
+
+    /** Download a screenshot of the current canvas (one-click PNG by default). */
+    async saveScreenshot(options: ScreenshotOptions = {}): Promise<void> {
+        if (!this.renderer || !this.scene || !this.camera || this.blocks.length === 0) {
+            return;
+        }
+        try {
+            const { dataUrl } = await this.captureScreenshot(options);
+            downloadScreenshotDataUrl(dataUrl, {
+                ...options,
+                filename: buildScreenshotFilename(this.vtmUri?.path.base ?? 'dagmc', new Date(), options.format ?? 'png')
+            });
+        } catch (error) {
+            this.messageService.warn(error instanceof Error ? error.message : String(error));
+        }
     }
 
     /** Copy the current canvas to the clipboard (falls back to a visible warning). */
     async copyScreenshot(options: ScreenshotOptions = {}): Promise<void> {
-        if (!this.renderer || !this.scene || !this.camera) {
+        if (!this.renderer || !this.scene || !this.camera || this.blocks.length === 0) {
             return;
         }
-        const dataUrl = captureRendererScreenshot(this.renderer, this.scene, this.camera, this.host ?? this.renderer.domElement, options);
-        this.renderScene();
         try {
+            const { dataUrl } = await this.captureScreenshot(options);
             await copyScreenshotDataUrl(dataUrl);
         } catch (error) {
             this.messageService.warn(error instanceof Error ? error.message : String(error));

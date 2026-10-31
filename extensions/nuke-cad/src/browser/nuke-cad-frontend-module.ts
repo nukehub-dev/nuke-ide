@@ -36,9 +36,11 @@ import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { OpenHandler, WidgetFactory } from '@theia/core/lib/browser';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
+import { NukeCapabilityContribution, NukeCapabilityContextContribution } from 'nuke-core/lib/common/nuke-capability-protocol';
 
 import { NukeCadBackendService, NukeCadBackendServicePath } from '../common/nuke-cad-protocol';
 import { NukeCadFrontendService } from './nuke-cad-frontend-service';
+import { NukeCadCapabilities, NukeCadContextContribution } from './capabilities/nuke-cad-capabilities';
 import { bindNukeCadPreferences, NukeCadPreferences } from './nuke-cad-preferences';
 import { NukeCadStateManager } from './state/nuke-cad-state-manager';
 import { CadDocumentStore } from './document/cad-document-store';
@@ -68,6 +70,11 @@ export default new ContainerModule((bind) => {
         })
         .inSingletonScope();
     bind(NukeCadBackendService).toService(NukeCadFrontendService);
+
+    bind(NukeCadCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(NukeCadCapabilities);
+    bind(NukeCadContextContribution).toSelf().inSingletonScope();
+    bind(NukeCapabilityContextContribution).toService(NukeCadContextContribution);
 
     bind(NukeCadCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(NukeCadCommandContribution);

@@ -54,6 +54,8 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   into it; unsupported constructs are reported, never silently dropped. DAGMC `<dagmc_universe>` preserves the filename only;
   mesh metadata is loaded by the DAGMC Editor. `docs/user/coverage.md` is the user-facing support matrix; update it with each
   feature and keep `docs/user/index.md`/`simulation-dashboard.md` free of full-coverage claims. See `docs/dev/xml-generation.md`.
+- NukeAI capabilities live in `src/browser/capabilities/openmc-capabilities.ts`; they orchestrate existing state, XML, environment,
+  and runner services instead of reimplementing XML or run logic. See `docs/dev/ai-capabilities.md`.
 
 ## Work Guidance
 

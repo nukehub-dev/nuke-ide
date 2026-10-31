@@ -1,0 +1,513 @@
+// *****************************************************************************
+// Copyright (C) 2026 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class FileService {} }));
+
+import { URI } from '@theia/core/lib/common/uri';
+import type { FileService } from '@theia/filesystem/lib/browser/file-service';
+import type { NukeCapability, NukeCapabilityContext, NukeCapabilityRegistry } from 'nuke-core/lib/common/nuke-capability-protocol';
+import type { BuildDocumentRequest, GeometryBuildRequest, GeometryBuildResult, RegionManifestData } from '../../common/nuke-cad-protocol';
+import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
+import type { CadModel, CadSelection, NukeCadStateManager, SolidSummary } from '../state/nuke-cad-state-manager';
+import { NukeCadCapabilities, NukeCadContextContribution } from './nuke-cad-capabilities';
+
+const WORKSPACE = '/workspace/project';
+const DOCUMENT_PATH = `${WORKSPACE}/pincell.nuke-cad`;
+const OUTPUT_DIRECTORY = `${WORKSPACE}/out`;
+
+const MANIFEST: RegionManifestData = {
+    version: 1,
+    volumes: [{ selector: 'fuel', material: 'uo2' }],
+    surfaces: [{ selector: 'outer', role: 'boundary' }]
+};
+
+const SUMMARIES: SolidSummary[] = [
+    {
+        solidId: 1,
+        bodyId: 'body-1',
+        faceCount: 6,
+        edgeCount: 12,
+        triangleCount: 60,
+        properties: { volume: 12.5, area: 30 }
+    },
+    {
+        solidId: 2,
+        bodyId: 'body-2',
+        faceCount: 8,
+        edgeCount: 14,
+        triangleCount: 80
+    },
+    {
+        solidId: 3,
+        faceCount: 4,
+        edgeCount: 6,
+        triangleCount: 40
+    }
+];
+
+const CONTEXT: NukeCapabilityContext = { workspaceRoots: [WORKSPACE], activeCadDocument: DOCUMENT_PATH };
+
+interface StateFixture {
+    stateManager: NukeCadStateManager;
+    setModel: (model: CadModel | undefined) => void;
+}
+
+function createStateManager(
+    initial: {
+        model?: CadModel;
+        selection?: CadSelection;
+        solidSummaries?: readonly SolidSummary[];
+        hiddenSolidIds?: readonly number[];
+    } = {}
+): StateFixture {
+    let model = initial.model;
+    const fake = {
+        get model(): CadModel | undefined {
+            return model;
+        },
+        get scriptPath(): string | undefined {
+            return model?.scriptPath;
+        },
+        selection: initial.selection ?? {},
+        solidSummaries: initial.solidSummaries ?? [],
+        hiddenSolidIds: initial.hiddenSolidIds ?? [],
+        onModelChange: () => ({ dispose: () => undefined }),
+        onSelectionChange: () => ({ dispose: () => undefined }),
+        onSolidSummariesChange: () => ({ dispose: () => undefined })
+    };
+    return {
+        stateManager: fake as unknown as NukeCadStateManager,
+        setModel: (next) => {
+            model = next;
+        }
+    };
+}
+
+interface ServiceCapture {
+    documents: BuildDocumentRequest[];
+    geometries: GeometryBuildRequest[];
+}
+
+function createService(overrides: Partial<GeometryBuildResult> = {}): {
+    service: NukeCadFrontendService;
+    capture: ServiceCapture;
+} {
+    const capture: ServiceCapture = { documents: [], geometries: [] };
+    const result: GeometryBuildResult = {
+        success: true,
+        dagmcSuccess: true,
+        dagmcPath: `${WORKSPACE}/pincell.h5m`,
+        stepPath: `${WORKSPACE}/pincell.step`,
+        outputDirectory: WORKSPACE,
+        regionManifest: MANIFEST,
+        selectorMap: { fuel: [1], shield: [2] },
+        warnings: ['build warning'],
+        dagmcWarnings: ['dagmc warning'],
+        ...overrides
+    };
+    const service = {
+        buildDocument: async (request: BuildDocumentRequest) => {
+            capture.documents.push(request);
+            return result;
+        },
+        buildGeometry: async (request: GeometryBuildRequest) => {
+            capture.geometries.push(request);
+            return result;
+        }
+    } as unknown as NukeCadFrontendService;
+    return { service, capture };
+}
+
+type FakeFileService = FileService & { exists: ReturnType<typeof vi.fn> };
+
+function createFileService(existing: readonly string[] = []): FakeFileService {
+    const paths = new Set(existing);
+    return {
+        exists: vi.fn(async (uri: URI) => paths.has(uri.path.toString()))
+    } as unknown as FakeFileService;
+}
+
+function register(capabilities: NukeCadCapabilities): Map<string, NukeCapability> {
+    const registered = new Map<string, NukeCapability>();
+    const registry = {
+        register: (capability: NukeCapability) => {
+            registered.set(capability.id, capability);
+        }
+    } as unknown as NukeCapabilityRegistry;
+    capabilities.registerCapabilities(registry);
+    return registered;
+}
+
+function checkedManifestPaths(fileService: FakeFileService): string[] {
+    return fileService.exists.mock.calls.map((call) => (call[0] as URI).path.toString());
+}
+
+function cadModel(overrides: Partial<GeometryBuildResult> = {}): CadModel {
+    return {
+        scriptPath: DOCUMENT_PATH,
+        manifest: MANIFEST,
+        result: {
+            success: true,
+            scriptPath: DOCUMENT_PATH,
+            solidCount: 3,
+            faceCount: 18,
+            triangleCount: 180,
+            boundingBox: { min: [0, 0, 0], max: [10, 20, 30] },
+            warnings: ['display build warning'],
+            ...overrides
+        }
+    };
+}
+
+describe('NukeCadCapabilities', () => {
+    it('summarizes the active model with counts, manifest, selection, and solids', async () => {
+        const { stateManager } = createStateManager({
+            model: cadModel(),
+            selection: { solidId: 1, faceId: 2, solidIds: [1, 2] },
+            solidSummaries: SUMMARIES,
+            hiddenSolidIds: [3]
+        });
+        const { service, capture } = createService();
+        const capabilities = register(new NukeCadCapabilities(stateManager, service, createFileService()));
+        const capability = capabilities.get('nuke.cad.summarizeDocument')!;
+
+        const result = await capability.invoke({ includeSolids: true }, CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({
+            documentPath: DOCUMENT_PATH,
+            success: true,
+            solidCount: 3,
+            faceCount: 18,
+            triangleCount: 180,
+            boundingBox: { min: [0, 0, 0], max: [10, 20, 30] },
+            warnings: ['display build warning'],
+            selection: { solidId: 1, faceId: 2, solidIds: [1, 2] },
+            manifest: { volumes: MANIFEST.volumes, surfaces: MANIFEST.surfaces },
+            solids: [
+                { solidId: 1, bodyId: 'body-1', faceCount: 6, edgeCount: 12, triangleCount: 60, properties: { volume: 12.5, area: 30 } },
+                { solidId: 2, bodyId: 'body-2', faceCount: 8, edgeCount: 14, triangleCount: 80 },
+                { solidId: 3, faceCount: 4, edgeCount: 6, triangleCount: 40 }
+            ]
+        });
+        expect(capture.documents).toHaveLength(0);
+        expect(capture.geometries).toHaveLength(0);
+        expect(capability.risk).toBe('read');
+        expect(capability.annotations?.readOnlyHint).toBe(true);
+        expect(capability.outputSchema?.properties.documentPath.type).toBe('string');
+        expect(capability.outputSchema?.properties.selection.type).toBe('object');
+        expect(capability.outputSchema?.properties.solids.type).toBe('array');
+    });
+
+    it('omits per-solid summaries unless includeSolids is true', async () => {
+        const { stateManager } = createStateManager({ model: cadModel(), solidSummaries: SUMMARIES });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.summarizeDocument')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect((result.data as { solids?: unknown }).solids).toBeUndefined();
+    });
+
+    it('returns ok: false when no CAD document is active', async () => {
+        const { stateManager } = createStateManager();
+        const { service } = createService();
+        const capabilities = register(new NukeCadCapabilities(stateManager, service, createFileService()));
+        const expected = { ok: false, message: 'No CAD document is active.' };
+
+        expect(await capabilities.get('nuke.cad.summarizeDocument')!.invoke({}, CONTEXT)).toEqual(expected);
+        expect(await capabilities.get('nuke.cad.inspectSelection')!.invoke({}, CONTEXT)).toEqual(expected);
+    });
+
+    it('inspects the primary solid, multi-selected solids, and hidden ids', async () => {
+        const { stateManager } = createStateManager({
+            model: cadModel(),
+            selection: { solidId: 2, faceId: 7, solidIds: [1, 2] },
+            solidSummaries: SUMMARIES,
+            hiddenSolidIds: [3]
+        });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.inspectSelection')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toEqual({
+            documentPath: DOCUMENT_PATH,
+            selection: { solidId: 2, faceId: 7, solidIds: [1, 2] },
+            primarySolid: { solidId: 2, bodyId: 'body-2', faceCount: 8, edgeCount: 14, triangleCount: 80 },
+            selectedSolids: [
+                { solidId: 1, bodyId: 'body-1', faceCount: 6, edgeCount: 12, triangleCount: 60, properties: { volume: 12.5, area: 30 } },
+                { solidId: 2, bodyId: 'body-2', faceCount: 8, edgeCount: 14, triangleCount: 80 }
+            ],
+            hiddenSolidIds: [3]
+        });
+    });
+
+    it('falls back to the primary solid when only one solid is selected', async () => {
+        const { stateManager } = createStateManager({
+            model: cadModel(),
+            selection: { solidId: 1 },
+            solidSummaries: SUMMARIES
+        });
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.inspectSelection')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+        const data = result.data as { selectedSolids: SolidSummary[]; hiddenSolidIds: number[] };
+
+        expect(data.selectedSolids.map((solid) => solid.solidId)).toEqual([1]);
+        expect(data.hiddenSolidIds).toEqual([]);
+    });
+
+    it('exports a .nuke-cad document with DAGMC on, mesh off, and only the provided meshing options', async () => {
+        const { stateManager } = createStateManager({ model: cadModel() });
+        const { service, capture } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke(
+            {
+                documentPath: DOCUMENT_PATH,
+                outputDirectory: OUTPUT_DIRECTORY,
+                meshEngine: 'netgen',
+                meshSize: 0.5,
+                lengthScale: 0.01
+            },
+            CONTEXT
+        );
+
+        expect(result.ok).toBe(true);
+        expect(capture.documents).toEqual([
+            {
+                scriptPath: DOCUMENT_PATH,
+                outputDirectory: OUTPUT_DIRECTORY,
+                exportDagmc: true,
+                exportMesh: false,
+                meshEngine: 'netgen',
+                meshSize: 0.5,
+                lengthScale: 0.01
+            }
+        ]);
+        expect(capture.geometries).toHaveLength(0);
+        expect(result.data).toMatchObject({
+            documentPath: DOCUMENT_PATH,
+            dagmcPath: `${WORKSPACE}/pincell.h5m`,
+            stepPath: `${WORKSPACE}/pincell.step`,
+            selectorMap: { fuel: [1], shield: [2] },
+            warnings: ['build warning'],
+            dagmcWarnings: ['dagmc warning'],
+            outputDirectory: WORKSPACE
+        });
+        expect((result.data as { regionManifestPath?: string }).regionManifestPath).toBeUndefined();
+        expect(result.artifacts).toEqual([
+            { kind: 'file', label: 'DAGMC model', path: `${WORKSPACE}/pincell.h5m` },
+            { kind: 'file', label: 'STEP model', path: `${WORKSPACE}/pincell.step` }
+        ]);
+        expect(result.nextActions).toEqual([
+            {
+                capability: 'nuke.openmc.importCad',
+                reason: 'Import the DAGMC model and region manifest into OpenMC Studio.'
+            }
+        ]);
+    });
+
+    it('uses buildGeometry with the right source type for scripts and exchange files', async () => {
+        const sources: Array<[string, 'script' | 'step']> = [
+            ['pincell.py', 'script'],
+            ['pincell.step', 'step'],
+            ['pincell.stp', 'step'],
+            ['pincell.brep', 'step']
+        ];
+        for (const [fileName, sourceType] of sources) {
+            const { stateManager } = createStateManager();
+            const { service, capture } = createService();
+            const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+            const sourcePath = `${WORKSPACE}/${fileName}`;
+
+            const result = await capability.invoke({ documentPath: sourcePath }, CONTEXT);
+
+            expect(result.ok).toBe(true);
+            expect(capture.documents).toHaveLength(0);
+            expect(capture.geometries).toEqual([{ scriptPath: sourcePath, exportDagmc: true, exportMesh: false, sourceType }]);
+        }
+    });
+
+    it('rejects unsupported source extensions before building', async () => {
+        const { stateManager } = createStateManager();
+        const { service, capture } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({ documentPath: `${WORKSPACE}/pincell.igs` }, CONTEXT);
+
+        expect(result.ok).toBe(false);
+        expect(result.message).toContain('Unsupported CAD source');
+        expect(capture.documents).toHaveLength(0);
+        expect(capture.geometries).toHaveLength(0);
+    });
+
+    it('rejects relative paths and paths outside the workspace before building', async () => {
+        const { stateManager } = createStateManager();
+        const { service, capture } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+
+        const relative = await capability.invoke({ documentPath: 'pincell.nuke-cad' }, CONTEXT);
+        expect(relative.ok).toBe(false);
+        expect(relative.message).toContain('must be an absolute path');
+
+        const outside = await capability.invoke({ documentPath: '/outside/pincell.nuke-cad' }, CONTEXT);
+        expect(outside.ok).toBe(false);
+        expect(outside.message).toContain('outside the workspace');
+
+        const outputOutside = await capability.invoke({ documentPath: DOCUMENT_PATH, outputDirectory: '/outside/output' }, CONTEXT);
+        expect(outputOutside.ok).toBe(false);
+        expect(outputOutside.message).toContain('CAD output directory is outside the workspace');
+
+        expect(capture.documents).toHaveLength(0);
+        expect(capture.geometries).toHaveLength(0);
+    });
+
+    it('requires a document path when no model is active', async () => {
+        const { stateManager } = createStateManager();
+        const { service } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({}, CONTEXT);
+
+        expect(result).toEqual({
+            ok: false,
+            message: 'No CAD document is active and no documentPath was provided.'
+        });
+    });
+
+    it('propagates build failures', async () => {
+        const { stateManager } = createStateManager();
+        const { service } = createService({ success: false, error: 'Build failed in the geometry service.' });
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({ documentPath: DOCUMENT_PATH }, CONTEXT);
+
+        expect(result).toEqual({
+            ok: false,
+            message: 'Build failed in the geometry service.',
+            data: { warnings: ['build warning'] }
+        });
+    });
+
+    it('propagates DAGMC export failures', async () => {
+        const { stateManager } = createStateManager();
+        const { service } = createService({ dagmcSuccess: false, dagmcError: 'DAGMC sense error.' });
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({ documentPath: DOCUMENT_PATH }, CONTEXT);
+
+        expect(result.ok).toBe(false);
+        expect(result.message).toBe('DAGMC sense error.');
+        expect(result.data).toMatchObject({
+            documentPath: DOCUMENT_PATH,
+            stepPath: `${WORKSPACE}/pincell.step`,
+            warnings: ['build warning'],
+            dagmcWarnings: ['dagmc warning'],
+            outputDirectory: WORKSPACE
+        });
+    });
+
+    it('returns the source-side manifest sidecar when it exists', async () => {
+        const manifestPath = `${WORKSPACE}/pincell.regions.json`;
+        const { stateManager } = createStateManager();
+        const { service } = createService();
+        const fileService = createFileService([manifestPath]);
+        const capability = register(new NukeCadCapabilities(stateManager, service, fileService)).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({ documentPath: DOCUMENT_PATH }, CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({ regionManifestPath: manifestPath, regionManifest: MANIFEST });
+        expect(result.artifacts).toContainEqual({ kind: 'file', label: 'Region manifest', path: manifestPath });
+        expect(checkedManifestPaths(fileService)).toContain(manifestPath);
+    });
+
+    it('checks an explicit output directory for the manifest sidecar', async () => {
+        const documentPath = `${WORKSPACE}/parts/part.nuke-cad`;
+        const manifestPath = `${OUTPUT_DIRECTORY}/part.regions.json`;
+        const { stateManager } = createStateManager();
+        const { service } = createService();
+        const fileService = createFileService([manifestPath]);
+        const capability = register(new NukeCadCapabilities(stateManager, service, fileService)).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({ documentPath, outputDirectory: OUTPUT_DIRECTORY }, CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect((result.data as { regionManifestPath?: string }).regionManifestPath).toBe(manifestPath);
+        expect(checkedManifestPaths(fileService)).toContain(manifestPath);
+    });
+
+    it('omits the manifest when no sidecar exists', async () => {
+        const { stateManager } = createStateManager();
+        const { service } = createService();
+        const fileService = createFileService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, fileService)).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({ documentPath: DOCUMENT_PATH }, CONTEXT);
+        const data = result.data as { regionManifestPath?: string; regionManifest?: unknown };
+
+        expect(result.ok).toBe(true);
+        expect(data.regionManifestPath).toBeUndefined();
+        expect(data.regionManifest).toBeUndefined();
+        expect(result.artifacts?.some((artifact) => artifact.label === 'Region manifest')).toBe(false);
+        expect(fileService.exists).toHaveBeenCalledTimes(1);
+    });
+
+    it('enables the read capabilities only while a model is active and always enables export', async () => {
+        const { stateManager, setModel } = createStateManager();
+        const { service } = createService();
+        const capabilities = register(new NukeCadCapabilities(stateManager, service, createFileService()));
+        const summarize = capabilities.get('nuke.cad.summarizeDocument')!;
+        const inspect = capabilities.get('nuke.cad.inspectSelection')!;
+        const exportDagmc = capabilities.get('nuke.cad.exportDagmc')!;
+
+        expect(summarize.when!(CONTEXT)).toBe(false);
+        expect(inspect.when!(CONTEXT)).toBe(false);
+        expect(exportDagmc.when!(CONTEXT)).toBe(true);
+        expect(exportDagmc.risk).toBe('execute');
+        expect(exportDagmc.requiresConfirmation).toBe(true);
+
+        setModel(cadModel());
+        expect(summarize.when!(CONTEXT)).toBe(true);
+        expect(inspect.when!(CONTEXT)).toBe(true);
+    });
+
+    it('publishes the active CAD document as capability context', async () => {
+        const { stateManager } = createStateManager({ model: cadModel() });
+        const contribution = new NukeCadContextContribution(stateManager);
+
+        expect(await contribution.getContext()).toEqual({ activeCadDocument: DOCUMENT_PATH });
+        expect(contribution.onDidChangeContext).toBe(stateManager.onModelChange);
+    });
+});
