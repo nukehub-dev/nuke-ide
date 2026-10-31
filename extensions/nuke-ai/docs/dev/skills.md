@@ -52,11 +52,14 @@ by name when a conversation needs progressive disclosure.
 
 ## Content rules
 
-- Use only capability ids that exist in the capability registry. The current approved set is:
-  `nuke.cad.summarizeDocument`, `nuke.cad.inspectSelection`, `nuke.cad.exportDagmc`,
-  `nuke.openmc.summarizeProject`, `nuke.openmc.validateProject`, `nuke.openmc.importCad`,
-  `nuke.openmc.runSimulation`, `nuke.openmc.getRunStatus`, `nuke.viz.summarizeStatepoint`,
-  `nuke.viz.openStatepoint`, `nuke.viz.captureView`.
+- Use only the approved chat tool names:
+  `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_cad_exportDagmc`,
+  `nuke_openmc_summarizeProject`, `nuke_openmc_validateProject`, `nuke_openmc_importCad`,
+  `nuke_openmc_runSimulation`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`,
+  `nuke_viz_openStatepoint`, `nuke_viz_captureView`.
+- Call instructions use the sanitized tool names. Each skill includes one short mapping note because the
+  capability id stays the stable registry identifier: `nuke.cad.summarizeDocument` is exposed as
+  `nuke_cad_summarizeDocument`, and the remaining ids replace dots with underscores in the same way.
 - State that write and execute tools ask for confirmation and require explicit user intent.
 - Keep paths absolute and inside the workspace, as the capabilities enforce.
 - Keep each skill under roughly 150 lines; split into sibling files referenced relative to `SKILL.md` only when

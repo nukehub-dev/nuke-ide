@@ -9,9 +9,14 @@ Use this skill when the user asks about the active CAD model, needs a DAGMC mode
 whether a CAD document is ready for simulation. Geometry authoring stays in the CAD viewport and Feature Tree;
 this capability set only reads the active model and exports it.
 
+## Tool names
+
+Capability ids are stable registry identifiers. Chat calls use sanitized tool names: `nuke.cad.summarizeDocument` is
+exposed as `nuke_cad_summarizeDocument`, and the other ids in this skill follow the same dots-to-underscores mapping.
+
 ## Start with a summary
 
-Call `nuke.cad.summarizeDocument` with `{}` first. It reports the active document path, build success, solid, face,
+Call `nuke_cad_summarizeDocument` with `{}` first. It reports the active document path, build success, solid, face,
 and triangle counts, the bounding box, warnings, the current selection, and the region manifest.
 
 - Set `{ "includeSolids": true }` only when per-solid detail is needed. The response then adds one entry per
@@ -20,12 +25,12 @@ and triangle counts, the bounding box, warnings, the current selection, and the 
   guess a path.
 - Treat `warnings` as actionable. A model with failed booleans or overlap warnings is not a clean export candidate.
 
-Use `nuke.cad.inspectSelection` when the user refers to "the selected body" or "this face". It returns the primary
+Use `nuke_cad_inspectSelection` when the user refers to "the selected body" or "this face". It returns the primary
 solid, every highlighted solid, and the hidden solid ids. Pass no arguments.
 
 ## Inspect before export
 
-Always summarize the active document before calling `nuke.cad.exportDagmc`. The summary confirms that the model
+Always summarize the active document before calling `nuke_cad_exportDagmc`. The summary confirms that the model
 that will be exported is the model the user is discussing.
 
 The export inputs are:
@@ -40,7 +45,7 @@ The export inputs are:
 Only pass `documentPath` when exporting a different source than the active document. Only pass `outputDirectory`
 when the user asked for a specific location. Leave meshing options unset unless the user requested them.
 
-`nuke.cad.exportDagmc` is an execute-risk tool: it rebuilds geometry and writes STEP, DAGMC, cache, and manifest
+`nuke_cad_exportDagmc` is an execute-risk tool: it rebuilds geometry and writes STEP, DAGMC, cache, and manifest
 files. It asks for confirmation. Run it only with explicit user intent, such as "export this model to DAGMC".
 
 ## Path rules
@@ -70,13 +75,13 @@ material assignments.
 
 ## Handoff to OpenMC
 
-When export succeeds, the next step is `nuke.openmc.importCad` with:
+When export succeeds, the next step is `nuke_openmc_importCad` with:
 
 - `h5mPath` = the exported `dagmcPath`
 - `manifestPath` = the exported `regionManifestPath` when present
 
 Both values must be absolute workspace paths. The import is a write operation and asks for confirmation. After
-import, validate the project with `nuke.openmc.validateProject` before starting a run.
+import, validate the project with `nuke_openmc_validateProject` before starting a run.
 
 ## Boundaries
 

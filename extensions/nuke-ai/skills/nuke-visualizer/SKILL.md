@@ -8,9 +8,14 @@ description: Summarize or open an OpenMC statepoint and capture a DAGMC viewport
 Use this skill for OpenMC statepoint results and DAGMC viewport captures. The visualizer is a read-only analysis
 surface here; it does not edit tallies or simulation inputs.
 
+## Tool names
+
+Capability ids are stable registry identifiers. Chat calls use sanitized tool names: `nuke.viz.summarizeStatepoint` is
+exposed as `nuke_viz_summarizeStatepoint`, and the other ids in this skill follow the same dots-to-underscores mapping.
+
 ## Summarize a statepoint
 
-Call `nuke.viz.summarizeStatepoint` with `{}` to use the statepoint already loaded in the viewer, or with
+Call `nuke_viz_summarizeStatepoint` with `{}` to use the statepoint already loaded in the viewer, or with
 `{ "filePath": "<absolute workspace path>" }` to load a specific file.
 
 The response reports the file, batches, generations per batch, k-effective and its standard deviation when present,
@@ -22,17 +27,17 @@ clear error message; do not assume a partial statepoint is valid.
 
 ## Open a statepoint
 
-Call `nuke.viz.openStatepoint` with a required absolute `filePath` inside a workspace root. It reuses an already
+Call `nuke_viz_openStatepoint` with a required absolute `filePath` inside a workspace root. It reuses an already
 open statepoint viewer for the same file or opens a new one, then activates it.
 
 Opening a viewer is a write-risk tool because it changes the workspace UI. It asks for confirmation and must be run
 with explicit user intent, such as "open this statepoint" or "show me the results".
 
-After opening, the natural follow-up is `nuke.viz.summarizeStatepoint` with `{}` to confirm what was loaded.
+After opening, the natural follow-up is `nuke_viz_summarizeStatepoint` with `{}` to confirm what was loaded.
 
 ## Capture a DAGMC viewport
 
-Call `nuke.viz.captureView` with optional:
+Call `nuke_viz_captureView` with optional:
 
 - `format` - `png` (default), `jpeg`, or `webp`.
 - `scale` - `1` (default), `2`, or `4`.

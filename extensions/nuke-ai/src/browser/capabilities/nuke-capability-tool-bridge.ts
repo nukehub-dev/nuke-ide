@@ -200,9 +200,11 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
     }
 
     protected registerCapability(capability: NukeCapability): void {
+        // Theia keys tools by id and models call them by name, so both must use the sanitized tool name.
+        const toolName = toToolName(capability.id);
         const tool: ToolRequest = {
-            id: capability.id,
-            name: toToolName(capability.id),
+            id: toolName,
+            name: toolName,
             description: describeCapability(capability),
             parameters: toToolParameters(capability.inputSchema),
             providerName: PROVIDER_NAME,

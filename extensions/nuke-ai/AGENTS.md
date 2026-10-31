@@ -20,10 +20,21 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/welcome/nuke-ai-chat-frontend-module.ts` rebinds `ChatWelcomeMessageProvider` to
   `NukeChatWelcomeMessageProvider` (priority 101) and keeps `ChatSessionsWelcomeMessageProvider`; do not change the
   provider's screens or styling.
+- `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
+  and `ChatAgent`; its prompt references every capability tool and `{{nukeContext}}`, and write/execute tools require
+  explicit confirmation.
+- `src/browser/actions/` owns the read-only NukeAI commands, `NukeAiActionService`, and the NukeAI Nuke Tools
+  section. Actions send `#nukeContext` through `ChatService`, never import domain extensions, and report failures.
 - Do not add `@theia/ai-mcp-server`: its generic `/mcp` endpoint starts automatically without auth or origin checks.
   External MCP is a separate opt-in contribution; see `docs/dev/mcp.md`.
-- `src/browser/capabilities/nuke-tool-schema.ts` converts capability ids and JSON schemas into `ToolRequest` names and `ToolRequestParameters`; it throws for non-object input schemas.
+- `src/browser/capabilities/nuke-tool-schema.ts` converts capability ids and JSON schemas into sanitized tool names and
+  `ToolRequestParameters`; the bridge registers both `ToolRequest.id` and `ToolRequest.name` as that name while the
+  capability id stays the registry/MCP/resource identifier.
 - `src/browser/capabilities/nuke-tool-result.ts` renders `NukeCapabilityResult` as bounded `ToolCallContent`: 8 KiB per string, 32 KiB per JSON payload, `[truncated]` markers, and no inline base64 or binary payloads.
+- `src/browser/capabilities/nuke-tool-call-summary.ts` parses finished `nuke_*` results into a normalized summary;
+  `nuke-tool-call-renderer.tsx` renders status, counts, issues, warnings, previews, artifacts, and textual next actions.
+- The card renderer claims only finished, non-awaiting `nuke_*` calls (priority 30) and returns -1 otherwise so Theia
+  keeps progress and confirmation UI; see `docs/dev/agent-and-cards.md`.
 - `src/browser/preview/` persists truthful previews and command-to-preview trajectory lines under `.nuke-ide/ai/previews`; see `docs/dev/preview.md`.
 - `src/browser/capabilities/nuke-capability-tool-bridge.ts` keeps one tool per enabled capability under provider name `nuke-ai`. It unregisters stale tools before every refresh, debounces changes, coalesces concurrent refreshes, and disposes subscriptions and registrations on stop.
 - `nuke-core` owns the capability contract and registry; import them from `nuke-core/lib/...`, never from another extension's `src/`.
@@ -47,8 +58,13 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 
 ```bash
 npx lerna run build --scope nuke-ai --scope nuke-core
+npx vitest run extensions/nuke-ai/src/browser/agent/nuke-chat-agent.test.ts
+npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-action-service.test.ts
+npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-commands.test.ts
+npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-tools-contribution.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-schema.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-result.test.ts
+npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-call-summary.test.ts
 npx vitest run extensions/nuke-ai/src/browser/preview/nuke-preview-store.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-capability-tool-bridge.test.ts
 npx vitest run extensions/nuke-ai/src/node/skills/nuke-skill-service.test.ts

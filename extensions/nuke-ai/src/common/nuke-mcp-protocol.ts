@@ -141,7 +141,11 @@ export const SPIKE_CAPABILITY: NukeCapabilityDescriptor = {
 
 /** Prompt text describing the CAD to DAGMC to OpenMC to visualizer flow. */
 export const NUKE_WORKFLOW_PROMPT = [
-    'Walk through the NukeIDE CAD-to-simulation workflow without changing anything:',
+    'Walk through the NukeIDE CAD-to-simulation workflow without changing anything.',
+    '',
+    'This endpoint exposes one read-only tool, `nuke_cad_summarize_document` (capability',
+    '`nuke.cad.summarizeDocument`). The other capability IDs below describe the workflow but are not',
+    'callable through this endpoint.',
     '',
     '1. Read `nuke.cad.summarizeDocument` for the active CAD document.',
     '2. Use `nuke.cad.inspectSelection` when a viewport selection matters.',

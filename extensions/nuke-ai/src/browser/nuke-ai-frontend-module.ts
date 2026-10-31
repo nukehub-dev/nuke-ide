@@ -28,21 +28,27 @@
 /**
  * Nuke AI Frontend Module
  *
- * Wires the capability tool bridge, the NukeAI skill root, the
- * `#nukeContext` variable, the read-only resource service, and the opt-in
- * external MCP commands and delegate into the frontend application. The bridge
- * publishes enabled Nuke capabilities to Theia's tool registry so the AI chat
- * can invoke them directly, without an HTTP or MCP hop.
+ * Wires the dedicated NukeAI chat agent, the contextual action commands and
+ * service, the Nuke Tools sidebar section, the capability tool bridge, the
+ * NukeAI skill root, the `#nukeContext` variable, the read-only resource
+ * service, and the opt-in external MCP commands and delegate into the frontend
+ * application. The bridge publishes enabled Nuke capabilities to Theia's tool
+ * registry so the AI chat can invoke them directly, without an HTTP or MCP hop.
  *
  * @module nuke-ai/browser
  */
 
 import { ContainerModule } from '@theia/core/shared/inversify';
+import { Agent } from '@theia/ai-core';
+import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 import { CommandContribution } from '@theia/core/lib/common/command';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser/frontend-application-contribution';
+import { ChatResponsePartRenderer } from '@theia/ai-chat-ui/lib/browser/chat-response-part-renderer';
 import { AIVariableContribution } from '@theia/ai-core/lib/common/variable-service';
 import { SkillDirectoryContribution } from '@theia/ai-core/lib/browser/skill-service';
+import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
 import { NukeCapabilityToolBridge } from './capabilities/nuke-capability-tool-bridge';
+import { NukeToolCallRenderer } from './capabilities/nuke-tool-call-renderer';
 import { NukePreviewStore } from './preview/nuke-preview-store';
 import { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';
 import { NukeContextVariableContribution } from './context/nuke-context-variable-contribution';
@@ -51,11 +57,31 @@ import { NukeCapabilityDelegateClient } from '../common/nuke-capability-delegate
 import { NukeCapabilityDelegateClientImpl, NukeCapabilityDelegateConnectionContribution } from './mcp/nuke-capability-delegate-client';
 import { NukeMcpCommandContribution } from './mcp/nuke-mcp-commands';
 import { bindNukeMcpPreferences } from './mcp/nuke-mcp-preferences';
+import { NukeChatAgent } from './agent/nuke-chat-agent';
+import { NukeAiActionService } from './actions/nuke-ai-action-service';
+import { NukeAiCommandContribution } from './actions/nuke-ai-commands';
+import { NukeAiToolsContribution } from './actions/nuke-ai-tools-contribution';
+import './capabilities/nuke-tool-call.css';
 
 export default new ContainerModule((bind) => {
+    bind(NukeChatAgent).toSelf().inSingletonScope();
+    bind(Agent).toService(NukeChatAgent);
+    bind(ChatAgent).toService(NukeChatAgent);
+
+    bind(NukeAiActionService).toSelf().inSingletonScope();
+
+    bind(NukeAiCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(NukeAiCommandContribution);
+
+    bind(NukeAiToolsContribution).toSelf().inSingletonScope();
+    bind(NukeToolsContribution).toService(NukeAiToolsContribution);
+
     bind(NukeCapabilityToolBridge).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(NukeCapabilityToolBridge);
     bind(NukePreviewStore).toSelf().inSingletonScope();
+
+    bind(NukeToolCallRenderer).toSelf().inSingletonScope();
+    bind(ChatResponsePartRenderer).toService(NukeToolCallRenderer);
 
     bind(NukeSkillDirectoryContribution).toSelf().inSingletonScope();
     bind(SkillDirectoryContribution).toService(NukeSkillDirectoryContribution);
@@ -75,7 +101,12 @@ export default new ContainerModule((bind) => {
     bind(CommandContribution).toService(NukeMcpCommandContribution);
 });
 
+export { NukeChatAgent, NUKE_CHAT_AGENT_ID } from './agent/nuke-chat-agent';
+export { NukeAiActionService } from './actions/nuke-ai-action-service';
+export { NukeAiCommandContribution, NukeAiCommands } from './actions/nuke-ai-commands';
+export { NukeAiToolsContribution } from './actions/nuke-ai-tools-contribution';
 export { NukeCapabilityToolBridge } from './capabilities/nuke-capability-tool-bridge';
+export { NukeToolCallRenderer } from './capabilities/nuke-tool-call-renderer';
 export { NukePreviewStore } from './preview/nuke-preview-store';
 export { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';
 export { NukeContextVariableContribution } from './context/nuke-context-variable-contribution';

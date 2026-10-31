@@ -2,11 +2,15 @@
 
 `nuke-ai` connects the IDE's AI chat to actions that domain extensions publish through the Nuke capability registry. Each enabled capability appears as a typed tool, so the assistant can call real extension services instead of driving the UI.
 
-The extension has no user-facing panel. Its commands enable or disable the external MCP endpoint, and its tools become visible as domain extensions adopt the capability contract. Its skills appear as chat slash commands.
+The extension has no dedicated panel of its own. Its actions live in the first section of the Nuke Tools sidebar and in the Command Palette, and its tools become visible as domain extensions adopt the capability contract. Its skills appear as chat slash commands.
+
+Choose the **NukeAI** agent in **AI Chat** for a dedicated assistant, or use the sidebar actions to ask a focused
+read-only question about the active model. **NukeAI: Attach Active Context** adds the `#nukeContext` chip to the
+active chat. See [NukeAI Actions](actions.md) for the full action list and the read-only guarantee.
 
 ## Using capability tools
 
-Once a domain capability is available, open the AI chat and ask about the active CAD document, OpenMC project, or visualizer dataset. The assistant chooses a capability tool from its description and asks for confirmation according to the action's risk:
+Once a domain capability is available, open the AI chat and ask about the active CAD document, OpenMC project, or visualizer dataset. The assistant chooses a capability tool from its description and asks for confirmation according to the action's risk. Tools use sanitized names: the capability id `nuke.cad.summarizeDocument`, for example, is exposed as `nuke_cad_summarizeDocument`.
 
 - Read-only tools run without an extra always-allow confirmation.
 - Write and execute tools ask for confirmation before auto-approval.

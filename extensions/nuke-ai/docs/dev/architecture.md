@@ -47,14 +47,16 @@ Change events are debounced with `setTimeout(0)`. Concurrent refreshes share one
 
 ## Tool shape
 
-- **id** — the capability id, for example `nuke.cad.exportDagmc`.
-- **name** — the capability id sanitized to `[A-Za-z0-9_-]`, with repeated underscores collapsed and a 128-character cap, for example `nuke_cad_exportDagmc`.
+- **id** — the sanitized tool name, for example `nuke_cad_exportDagmc`. Theia's `ToolInvocationRegistry` keys tools by this id.
+- **name** — the same sanitized tool name, for example `nuke_cad_exportDagmc`. Model tool calls and confirmation UI use this name.
 - **description** — the capability description plus up to three `Example: ...` lines.
 - **parameters** — the capability input schema converted to `ToolRequestParameters`.
 - **providerName** — `nuke-ai`.
 - **confirmAlwaysAllow** — `undefined` for `read`, `true` for `write` and `execute`, and a warning string for `destructive`.
 - **getArgumentsShortLabel** — uses the first present key from `path`, `documentPath`, `projectPath`, `statepointPath`, `workingDirectory`, or `query`.
 - **handler** — parses the argument JSON, validates required keys and top-level types, merges the ambient context, bridges cancellation to an `AbortSignal`, captures a preview bundle when the result has a preview or artifacts, and converts the result.
+
+The capability id, for example `nuke.cad.exportDagmc`, remains the stable registry identifier used by `NukeCapabilityRegistry`, external MCP, resources, preview records, and logs. The bridge derives both tool fields from it with `toToolName`, so tool lookup, confirmation, model calls, and `~{...}` prompt references all resolve against the same sanitized name.
 
 Schema conversion preserves JSON Schema keywords recursively, including nested `properties`, `required`, `items`, `anyOf`, `enum`, `default`, `minimum`, `maximum`, and `pattern`. The top-level `additionalProperties` keyword is dropped because Theia's `ToolRequestParameters` does not declare it; nested occurrences are preserved.
 

@@ -49,6 +49,20 @@ const ALLOWED_CAPABILITY_IDS = new Set([
     'nuke.viz.captureView'
 ]);
 
+const ALLOWED_TOOL_NAMES = [
+    'nuke_cad_summarizeDocument',
+    'nuke_cad_inspectSelection',
+    'nuke_cad_exportDagmc',
+    'nuke_openmc_summarizeProject',
+    'nuke_openmc_validateProject',
+    'nuke_openmc_importCad',
+    'nuke_openmc_runSimulation',
+    'nuke_openmc_getRunStatus',
+    'nuke_viz_summarizeStatepoint',
+    'nuke_viz_openStatepoint',
+    'nuke_viz_captureView'
+];
+
 function createLogger(): ILogger & { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn> } {
     return {
         info: vi.fn(),
@@ -143,7 +157,7 @@ describe('NukeAISkillServiceImpl', () => {
         expect(parsed.content).not.toContain('name:');
     });
 
-    it('uses only the approved capability ids and mentions confirmation in every skill', () => {
+    it('uses only approved tool names, maps them from capability ids, and mentions confirmation in every skill', () => {
         const contents = SKILL_NAMES.map((name) => readSkill(name).content);
         const combined = contents.join('\n');
         const used = new Set(combined.match(/nuke\.[a-z]+\.[A-Za-z]+/g) ?? []);
@@ -151,11 +165,18 @@ describe('NukeAISkillServiceImpl', () => {
         for (const id of used) {
             expect(ALLOWED_CAPABILITY_IDS.has(id), `unexpected capability id ${id}`).toBe(true);
         }
-        for (const id of ALLOWED_CAPABILITY_IDS) {
-            expect(combined, `missing capability ${id}`).toContain(id);
+        for (const toolName of ALLOWED_TOOL_NAMES) {
+            expect(combined, `missing tool ${toolName}`).toContain(toolName);
         }
         for (const content of contents) {
             expect(content.toLowerCase()).toContain('confirmation');
+            expect(content.toLowerCase()).toContain('capability id');
+            const mappings = [...content.matchAll(/`(nuke\.[a-z]+\.[A-Za-z]+)` is\s+exposed as `([^`]+)`/g)];
+            expect(mappings.length, 'missing capability-id-to-tool mapping').toBeGreaterThan(0);
+            for (const [, capabilityId, toolName] of mappings) {
+                expect(ALLOWED_TOOL_NAMES).toContain(toolName);
+                expect(toolName).toBe(capabilityId.replace(/\./g, '_'));
+            }
         }
     });
 });

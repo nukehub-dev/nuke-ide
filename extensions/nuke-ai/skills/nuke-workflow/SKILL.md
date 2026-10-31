@@ -11,18 +11,23 @@ CAD document -> DAGMC export -> OpenMC import -> validation -> run -> status -> 
 
 Each step is a separate capability. Do not skip a verification step to save time.
 
+## Tool names
+
+Capability ids are stable registry identifiers. Chat calls use sanitized tool names: `nuke.cad.summarizeDocument` is
+exposed as `nuke_cad_summarizeDocument`, and every id below follows the same dots-to-underscores mapping.
+
 ## 1. Confirm the CAD model
 
-Call `nuke.cad.summarizeDocument` with `{}`.
+Call `nuke_cad_summarizeDocument` with `{}`.
 
 Check `success`, `solidCount`, warnings, and the active `documentPath`. Add `{ "includeSolids": true }` when you need
-per-solid detail. Use `nuke.cad.inspectSelection` with `{}` when the user refers to a specific selected body or face.
+per-solid detail. Use `nuke_cad_inspectSelection` with `{}` when the user refers to a specific selected body or face.
 
 If no CAD document is active, stop and ask the user to open one.
 
 ## 2. Export DAGMC
 
-Call `nuke.cad.exportDagmc` with:
+Call `nuke_cad_exportDagmc` with:
 
 ```json
 {
@@ -44,7 +49,7 @@ If `dagmcPath` is missing or the export failed, stop. Do not import a partial mo
 
 ## 3. Import into OpenMC Studio
 
-Call `nuke.openmc.importCad` with:
+Call `nuke_openmc_importCad` with:
 
 ```json
 {
@@ -58,7 +63,7 @@ It creates placeholder materials for new manifest names and points settings at t
 
 ## 4. Validate
 
-Call `nuke.openmc.validateProject` with `{ "level": "standard" }`. Add a `checks` object only when the user wants a
+Call `nuke_openmc_validateProject` with `{ "level": "standard" }`. Add a `checks` object only when the user wants a
 narrower inspection.
 
 If validation fails, report the errors and do not run. Fixing may require the user to edit geometry, materials,
@@ -66,7 +71,7 @@ settings, or tallies in OpenMC Studio.
 
 ## 5. Run
 
-Call `nuke.openmc.runSimulation` with:
+Call `nuke_openmc_runSimulation` with:
 
 ```json
 {
@@ -84,7 +89,7 @@ The response includes the process id, generated files, and warnings.
 
 ## 6. Poll status
 
-Call `nuke.openmc.getRunStatus` with `{ "workingDirectory": "/workspace/run", "logLines": 40 }`.
+Call `nuke_openmc_getRunStatus` with `{ "workingDirectory": "/workspace/run", "logLines": 40 }`.
 
 A run that is still active returns its process id, start time, log path, and log tail. `{ "running": false }` means
 no matching active run remains. A completed run usually leaves a statepoint such as
@@ -92,15 +97,15 @@ no matching active run remains. A completed run usually leaves a statepoint such
 
 ## 7. Summarize results
 
-Call `nuke.viz.summarizeStatepoint` with `{ "filePath": "/workspace/run/statepoint.100.h5" }`.
+Call `nuke_viz_summarizeStatepoint` with `{ "filePath": "/workspace/run/statepoint.100.h5" }`.
 
 Report batches, k-effective and its standard deviation when present, and the tallies with their scores and mesh
-status. Use `nuke.viz.openStatepoint` with the same absolute `filePath` when the user wants to inspect results in
+status. Use `nuke_viz_openStatepoint` with the same absolute `filePath` when the user wants to inspect results in
 the viewer. Opening is a write-risk tool and asks for confirmation.
 
 ## 8. Capture evidence
 
-Call `nuke.viz.captureView` with `{ "format": "png", "caption": "DAGMC model" }`.
+Call `nuke_viz_captureView` with `{ "format": "png", "caption": "DAGMC model" }`.
 
 Only DAGMC viewports are captured. The image is the real current viewport, so it reflects the camera, clipping,
 selection, color-by, and visibility state, and includes only visible geometry.
@@ -121,9 +126,9 @@ Never claim a later step succeeded when an earlier step failed. Never invent pat
 
 ## Confirmation rule
 
-Read tools (`nuke.cad.summarizeDocument`, `nuke.cad.inspectSelection`, `nuke.openmc.summarizeProject`,
-`nuke.openmc.validateProject`, `nuke.openmc.getRunStatus`, `nuke.viz.summarizeStatepoint`,
-`nuke.viz.captureView`) run without an always-allow prompt.
+Read tools (`nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_openmc_summarizeProject`,
+`nuke_openmc_validateProject`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`,
+`nuke_viz_captureView`) run without an always-allow prompt.
 
-Write and execute tools (`nuke.cad.exportDagmc`, `nuke.openmc.importCad`, `nuke.openmc.runSimulation`,
-`nuke.viz.openStatepoint`) ask for confirmation and must be run with explicit user intent.
+Write and execute tools (`nuke_cad_exportDagmc`, `nuke_openmc_importCad`, `nuke_openmc_runSimulation`,
+`nuke_viz_openStatepoint`) ask for confirmation and must be run with explicit user intent.

@@ -51,7 +51,8 @@ bind(NukeCapabilityContribution).toService(ExampleCapabilityContribution);
 
 ## Contract rules
 
-- **Id** — `nuke.<domain>.<verbNoun>`, lowercase domain and camel-case verb noun, for example `nuke.openmc.run`.
+- **Id** — `nuke.<domain>.<verbNoun>`, lowercase domain and camel-case verb noun, for example `nuke.openmc.run`. The id stays the stable registry, MCP, resource, preview, and log identifier.
+- **Tool name** — the chat exposes the sanitized id: non-alphanumeric characters become `_`, repeated underscores collapse, and the result is capped at 128 characters. For example, `nuke.example.describeProject` becomes `nuke_example_describeProject`, and both `ToolRequest.id` and `ToolRequest.name` use that value.
 - **Description** — explain when to use the action. The bridge appends up to three example descriptions as `Example: ...` lines.
 - **Input schema** — must be a top-level object schema with a `properties` map. Nested schemas, arrays, enums, defaults, and numeric or pattern constraints are preserved.
 - **Risk** — choose the weakest accurate level:

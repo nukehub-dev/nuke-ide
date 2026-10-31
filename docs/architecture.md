@@ -56,6 +56,8 @@ Extensions communicate via **JSON-RPC** over WebSocket. The frontend uses **inve
 
 `nuke-ai` also exposes cross-extension actions to the IDE's AI chat. Domain extensions register `NukeCapability` handlers with the neutral registry in `nuke-core`; the `nuke-ai` bridge turns each enabled capability into a typed Theia tool. Tool invocation stays in the frontend process — no HTTP or MCP hop is involved.
 
+A dedicated **NukeAI** chat agent carries the nuclear workflow instructions and the `#nukeContext` snapshot. Context-aware commands in the Nuke Tools sidebar and the Command Palette open a focused chat with that agent; they are read-only, while export, import, run, and viewer-opening tools still require explicit confirmation.
+
 ## Python Integration
 
 Many extensions rely on Python backends:

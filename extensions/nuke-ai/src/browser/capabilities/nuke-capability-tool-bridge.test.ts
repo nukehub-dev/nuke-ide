@@ -43,6 +43,7 @@ import {
 import { NukePreviewBundle, NukePreviewSession } from '../../common/nuke-preview-protocol';
 import { NukePreviewStore } from '../preview/nuke-preview-store';
 import { NukeCapabilityToolBridge } from './nuke-capability-tool-bridge';
+import { toToolName } from './nuke-tool-schema';
 
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class FileService {} }));
 vi.mock('@theia/workspace/lib/browser', () => ({ WorkspaceService: class WorkspaceService {} }));
@@ -218,7 +219,7 @@ describe('NukeCapabilityToolBridge', () => {
         vi.useRealTimers();
     });
 
-    it('registers one tool per enabled capability with id, name, parameters, and provider', async () => {
+    it('registers one tool per enabled capability with sanitized id and name, parameters, and provider', async () => {
         const dagmc = capability({
             id: 'nuke.cad.exportDagmc',
             title: 'Export DAGMC',
@@ -238,8 +239,10 @@ describe('NukeCapabilityToolBridge', () => {
 
         await bridge.onStart();
 
-        expect([...toolRegistry.tools.keys()]).toEqual(['nuke.cad.exportDagmc', 'nuke.openmc.run']);
-        const tool = toolRegistry.tools.get('nuke.cad.exportDagmc') as ToolRequest;
+        expect([...toolRegistry.tools.keys()]).toEqual([toToolName(dagmc.id), toToolName(run.id)]);
+        expect(toToolName(dagmc.id)).toBe('nuke_cad_exportDagmc');
+        const tool = toolRegistry.tools.get(toToolName(dagmc.id)) as ToolRequest;
+        expect(tool.id).toBe('nuke_cad_exportDagmc');
         expect(tool.name).toBe('nuke_cad_exportDagmc');
         expect(tool.providerName).toBe('nuke-ai');
         expect(tool.description).toContain('Export the active CAD document as DAGMC.');
@@ -260,7 +263,7 @@ describe('NukeCapabilityToolBridge', () => {
 
         expect(first).toBe(second);
         await Promise.all([first, second]);
-        expect(toolRegistry.tools.has('nuke.example.coalesced')).toBe(true);
+        expect(toolRegistry.tools.has(toToolName('nuke.example.coalesced'))).toBe(true);
     });
 
     it('skips capabilities whose when predicate is false and logs the skipped ids', async () => {
@@ -270,7 +273,7 @@ describe('NukeCapabilityToolBridge', () => {
 
         await bridge.onStart();
 
-        expect([...toolRegistry.tools.keys()]).toEqual(['nuke.example.enabled']);
+        expect([...toolRegistry.tools.keys()]).toEqual([toToolName(enabled.id)]);
         const messages = logger.info.mock.calls.map((call) => String(call[0])).join('\n');
         expect(messages).toContain('Registered 1 capability tool(s)');
         expect(messages).toContain('nuke.example.disabled');
@@ -284,19 +287,19 @@ describe('NukeCapabilityToolBridge', () => {
         const { contextService, toolRegistry, bridge } = setup({ capabilities: [documentCapability] });
         await bridge.onStart();
 
-        expect(toolRegistry.tools.has('nuke.cad.describeDocument')).toBe(false);
+        expect(toolRegistry.tools.has(toToolName(documentCapability.id))).toBe(false);
 
         contextService.context = { workspaceRoots: ['/workspace'], activeCadDocument: '/workspace/model.nuke-cad' };
         contextService.fireChange();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(toolRegistry.tools.has('nuke.cad.describeDocument')).toBe(true);
+        expect(toolRegistry.tools.has(toToolName(documentCapability.id))).toBe(true);
 
         contextService.context = { workspaceRoots: ['/workspace'] };
         contextService.fireChange();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(toolRegistry.tools.has('nuke.cad.describeDocument')).toBe(false);
+        expect(toolRegistry.tools.has(toToolName(documentCapability.id))).toBe(false);
     });
 
     it('re-registers on registry change and removes stale tools', async () => {
@@ -305,20 +308,20 @@ describe('NukeCapabilityToolBridge', () => {
         const { registry, toolRegistry, bridge } = setup({ capabilities: [first, second] });
         await bridge.onStart();
 
-        expect([...toolRegistry.tools.keys()]).toEqual(['nuke.example.first', 'nuke.example.second']);
+        expect([...toolRegistry.tools.keys()]).toEqual([toToolName(first.id), toToolName(second.id)]);
 
         registry.capabilities = [first];
         registry.fireChange();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect([...toolRegistry.tools.keys()]).toEqual(['nuke.example.first']);
+        expect([...toolRegistry.tools.keys()]).toEqual([toToolName(first.id)]);
 
         const third = capability({ id: 'nuke.example.third' });
         registry.capabilities = [first, third];
         registry.fireChange();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect([...toolRegistry.tools.keys()]).toEqual(['nuke.example.first', 'nuke.example.third']);
+        expect([...toolRegistry.tools.keys()]).toEqual([toToolName(first.id), toToolName(third.id)]);
     });
 
     it('maps risk to confirmAlwaysAllow', async () => {
@@ -333,10 +336,10 @@ describe('NukeCapabilityToolBridge', () => {
 
         await bridge.onStart();
 
-        expect(toolRegistry.tools.get('nuke.example.readRisk')?.confirmAlwaysAllow).toBeUndefined();
-        expect(toolRegistry.tools.get('nuke.example.writeRisk')?.confirmAlwaysAllow).toBe(true);
-        expect(toolRegistry.tools.get('nuke.example.executeRisk')?.confirmAlwaysAllow).toBe(true);
-        expect(toolRegistry.tools.get('nuke.example.destructiveRisk')?.confirmAlwaysAllow).toBe(
+        expect(toolRegistry.tools.get(toToolName('nuke.example.readRisk'))?.confirmAlwaysAllow).toBeUndefined();
+        expect(toolRegistry.tools.get(toToolName('nuke.example.writeRisk'))?.confirmAlwaysAllow).toBe(true);
+        expect(toolRegistry.tools.get(toToolName('nuke.example.executeRisk'))?.confirmAlwaysAllow).toBe(true);
+        expect(toolRegistry.tools.get(toToolName('nuke.example.destructiveRisk'))?.confirmAlwaysAllow).toBe(
             'This tool can overwrite or delete data. Review every argument before allowing auto-approval.'
         );
     });
@@ -344,7 +347,7 @@ describe('NukeCapabilityToolBridge', () => {
     it('builds short labels from the first recognized argument', async () => {
         const { toolRegistry, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.labels' })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.example.labels') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.labels')) as ToolRequest;
 
         expect(tool.getArgumentsShortLabel?.('{"query":"box"}')).toEqual({
             label: 'box',
@@ -371,7 +374,7 @@ describe('NukeCapabilityToolBridge', () => {
         }));
         const { toolRegistry, bridge } = setup({ capabilities: [capability({ id: 'nuke.cad.exportDagmc', invoke })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.cad.exportDagmc') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.cad.exportDagmc')) as ToolRequest;
 
         const result = await tool.handler('{"path":"/tmp/model"}', { toolCallId: 'call-1' });
 
@@ -391,7 +394,7 @@ describe('NukeCapabilityToolBridge', () => {
         const invoke = vi.fn(async () => ({ ok: true, message: 'Done.', data: { path: '/tmp/model' } }));
         const { toolRegistry, previewStore, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.noPreview', invoke })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.example.noPreview') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.noPreview')) as ToolRequest;
 
         const content = contentOf(await tool.handler('{"path":"/tmp/model"}'));
 
@@ -416,7 +419,7 @@ describe('NukeCapabilityToolBridge', () => {
         const invoke = vi.fn(async () => result);
         const { toolRegistry, previewStore, bridge } = setup({ capabilities: [capability({ id: 'nuke.viz.captureView', invoke })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.viz.captureView') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.viz.captureView')) as ToolRequest;
 
         const first = contentOf(await tool.handler('{"path":"/tmp/model"}', { toolCallId: 'call-1' }));
         const second = contentOf(await tool.handler('{"path":"/tmp/model"}', { toolCallId: 'call-2' }));
@@ -443,7 +446,7 @@ describe('NukeCapabilityToolBridge', () => {
         });
         previewStore.capture.mockRejectedValueOnce(new Error('disk full'));
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.viz.captureView') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.viz.captureView')) as ToolRequest;
 
         const content = contentOf(await tool.handler('{"path":"/tmp/model"}'));
 
@@ -455,7 +458,7 @@ describe('NukeCapabilityToolBridge', () => {
     it('returns an error for invalid JSON arguments', async () => {
         const { toolRegistry, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.invalidJson' })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.example.invalidJson') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.invalidJson')) as ToolRequest;
 
         const content = contentOf(await tool.handler('{not json'));
 
@@ -466,7 +469,7 @@ describe('NukeCapabilityToolBridge', () => {
     it('returns an error for input that fails schema validation', async () => {
         const { toolRegistry, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.invalidInput' })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.example.invalidInput') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.invalidInput')) as ToolRequest;
 
         const content = contentOf(await tool.handler('{}'));
 
@@ -480,7 +483,7 @@ describe('NukeCapabilityToolBridge', () => {
         });
         const { toolRegistry, logger, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.throws', invoke })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.example.throws') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.throws')) as ToolRequest;
 
         const content = contentOf(await tool.handler('{"path":"/tmp/model"}'));
 
@@ -506,7 +509,7 @@ describe('NukeCapabilityToolBridge', () => {
         });
         const { toolRegistry, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.cancel', invoke })] });
         await bridge.onStart();
-        const tool = toolRegistry.tools.get('nuke.example.cancel') as ToolRequest;
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.cancel')) as ToolRequest;
         const source = new CancellationTokenSource();
 
         const resultPromise = tool.handler('{"path":"/tmp/model"}', { cancellationToken: source.token });
@@ -531,7 +534,7 @@ describe('NukeCapabilityToolBridge', () => {
 
         await bridge.onStart();
 
-        expect([...toolRegistry.tools.keys()]).toEqual(['nuke.example.good']);
+        expect([...toolRegistry.tools.keys()]).toEqual([toToolName(good.id)]);
         expect(logger.error).toHaveBeenCalledTimes(1);
     });
 

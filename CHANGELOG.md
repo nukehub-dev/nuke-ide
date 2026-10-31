@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: NukeAI gains domain skills, an active-workspace context variable, and read-only project resources.
 - nuke-ai: opt-in, token-protected MCP endpoint exposes read-only NukeIDE context to external agents.
 - nuke-ai: tool results can show truthful viewport previews and keep a replayable command-to-preview history.
+- nuke-ai: NukeAI adds a dedicated agent, context-aware actions in the Nuke Tools sidebar, and a one-click context chip.
+- nuke-ai: NukeAI tool results render as compact cards with status, counts, warnings, previews, artifacts, and next actions.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
@@ -331,6 +333,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
+- nuke-ai: capability tools use one sanitized id and name, so AI confirmations, parameter labels, and result cards resolve the correct tool.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
 - docs: GitHub-rendered guides use portable relative links, so extension and product pages no longer return 404.

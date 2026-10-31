@@ -1,0 +1,346 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ * **************************************************************************** */
+
+.nuke-tool-card {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 6px 0;
+    padding: 12px 14px;
+    overflow-wrap: anywhere;
+    color: var(--theia-foreground, #cccccc);
+    background: var(--theia-editorWidget-background, rgba(127, 127, 127, 0.08));
+    border: 1px solid var(--theia-editorWidget-border, var(--theia-widget-border, #454545));
+    border-radius: 6px;
+    font-size: var(--theia-ui-font-size1, 13px);
+    line-height: 1.45;
+}
+
+.nuke-tool-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.nuke-tool-card-icon {
+    flex: 0 0 auto;
+    font-size: 15px;
+}
+
+.nuke-tool-card-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-tool-card-status {
+    flex: 0 0 auto;
+    padding: 1px 8px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.nuke-tool-card-done .nuke-tool-card-icon,
+.nuke-tool-card-done .nuke-tool-card-status {
+    color: var(--theia-successForeground, #89d185);
+}
+
+.nuke-tool-card-warning .nuke-tool-card-icon,
+.nuke-tool-card-warning .nuke-tool-card-status {
+    color: var(--theia-warningForeground, #cca700);
+}
+
+.nuke-tool-card-failed .nuke-tool-card-icon,
+.nuke-tool-card-failed .nuke-tool-card-status {
+    color: var(--theia-errorForeground, #f48771);
+}
+
+.nuke-tool-card-message {
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.nuke-tool-card-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.nuke-tool-card-section-title {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.nuke-tool-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 16px;
+    margin: 0;
+}
+
+.nuke-tool-card-entry {
+    display: flex;
+    min-width: 0;
+    gap: 8px;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--theia-editorWidget-border, #454545);
+}
+
+.nuke-tool-card-entry dt {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-tool-card-entry dd {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-tool-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.nuke-tool-card-list li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.nuke-tool-card-errors li {
+    color: var(--theia-errorForeground, #f48771);
+}
+
+.nuke-tool-card-warnings li {
+    color: var(--theia-warningForeground, #cca700);
+}
+
+.nuke-tool-card-issue-badge {
+    flex: 0 0 auto;
+    padding: 0 6px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.nuke-tool-card-issue-error {
+    color: var(--theia-errorForeground, #f48771);
+}
+
+.nuke-tool-card-issue-warning {
+    color: var(--theia-warningForeground, #cca700);
+}
+
+.nuke-tool-card-issue-info {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+}
+
+.nuke-tool-card-issue-message {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.nuke-tool-card-issue-meta,
+.nuke-tool-card-issue-suggestion {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 12px;
+}
+
+.nuke-tool-card-issue-suggestion {
+    flex-basis: 100%;
+    padding-left: 2px;
+}
+
+.nuke-tool-card-images,
+.nuke-tool-card-html-blocks {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.nuke-tool-card-figure {
+    margin: 0;
+}
+
+.nuke-tool-card-image {
+    display: block;
+    max-width: 100%;
+    max-height: 360px;
+    border: 1px solid var(--theia-editorWidget-border, #454545);
+    border-radius: 4px;
+    object-fit: contain;
+}
+
+.nuke-tool-card-html {
+    display: block;
+    width: 100%;
+    min-height: 160px;
+    background: #ffffff;
+    border: 1px solid var(--theia-editorWidget-border, #454545);
+    border-radius: 4px;
+}
+
+.nuke-tool-card-artifacts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.nuke-tool-card-artifact {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 4px 9px;
+    color: var(--theia-foreground, #cccccc);
+    background: transparent;
+    border: 1px solid var(--theia-editorWidget-border, #454545);
+    border-radius: 4px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+}
+
+.nuke-tool-card-artifact:hover {
+    background: var(--theia-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.nuke-tool-card-artifact:focus-visible {
+    outline: 1px solid var(--theia-focusBorder, #007fd4);
+    outline-offset: 1px;
+}
+
+.nuke-tool-card-artifact-static {
+    cursor: default;
+}
+
+.nuke-tool-card-artifact-label,
+.nuke-tool-card-artifact-target {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-tool-card-artifact-target {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 11px;
+}
+
+.nuke-tool-card-actions li {
+    flex-direction: column;
+    gap: 1px;
+    padding-left: 8px;
+    border-left: 2px solid var(--theia-focusBorder, #007fd4);
+}
+
+.nuke-tool-card-action-label {
+    font-weight: 600;
+}
+
+.nuke-tool-card-action-reason {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+}
+
+.nuke-tool-card-details {
+    min-width: 0;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 12px;
+}
+
+.nuke-tool-card-details > summary {
+    cursor: pointer;
+    user-select: none;
+}
+
+.nuke-tool-card-details > summary:focus-visible {
+    outline: 1px solid var(--theia-focusBorder, #007fd4);
+    outline-offset: 1px;
+}
+
+.nuke-tool-card-details-json {
+    max-height: 320px;
+    margin: 6px 0 0;
+    padding: 8px;
+    overflow: auto;
+    color: var(--theia-foreground, #cccccc);
+    background: var(--theia-textCodeBlock-background, rgba(0, 0, 0, 0.18));
+    border-radius: 4px;
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: var(--theia-code-font-size, 12px);
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+@container (max-width: 420px) {
+    .nuke-tool-card-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .nuke-tool-card-artifact {
+        width: 100%;
+    }
+
+    .nuke-tool-card-artifact-target {
+        margin-left: auto;
+    }
+}
