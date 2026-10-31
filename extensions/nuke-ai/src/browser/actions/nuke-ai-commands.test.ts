@@ -63,11 +63,14 @@ function createHarness(): {
 }
 
 describe('NukeAI commands', () => {
-    it('registers every contextual action and the context chip action', () => {
+    it('registers every contextual action, the settings review, and the context chip action', () => {
         const { registry } = createHarness();
 
-        expect([...registry.handlers.keys()]).toEqual(NUKE_AI_ACTIONS.map((action) => action.command.id));
-        expect(registry.handlers.size).toBe(12);
+        expect([...registry.handlers.keys()]).toEqual([
+            ...NUKE_AI_ACTIONS.map((action) => action.command.id),
+            NukeAiCommands.PREVIEW_SETTINGS.id
+        ]);
+        expect(registry.handlers.size).toBe(14);
     });
 
     it('uses unique command ids and the NukeAI category', () => {
@@ -102,7 +105,7 @@ describe('NukeAI commands', () => {
             expect(action.displayText.length).toBeLessThanOrEqual(30);
         }
 
-        expect(actions.ask).toHaveBeenCalledTimes(11);
+        expect(actions.ask).toHaveBeenCalledTimes(12);
         expect(actions.attachContext).not.toHaveBeenCalled();
     });
 
@@ -117,7 +120,18 @@ describe('NukeAI commands', () => {
         expect(NukeAiPrompts.DIAGNOSE_RUN).toContain('nuke_openmc_diagnoseRun');
         expect(NukeAiPrompts.EXPLAIN_STATEPOINT).toContain('nuke_viz_summarizeStatepoint');
         expect(NukeAiPrompts.DIAGNOSE_STATEPOINT).toContain('nuke_viz_diagnoseStatepoint');
+        expect(NukeAiPrompts.PREVIEW_SETTINGS).toContain('nuke_openmc_previewSettings');
+        expect(NukeAiPrompts.REFRESH_RUN).toContain('nuke_openmc_getRunStatus');
         expect(NukeAiPrompts.CAPTURE_VIEW).toContain('nuke_viz_captureView');
+    });
+
+    it('routes the settings review action through the read-only chat flow', async () => {
+        const { registry, actions } = createHarness();
+
+        await registry.execute(NukeAiCommands.PREVIEW_SETTINGS.id);
+
+        expect(actions.ask).toHaveBeenCalledWith(NukeAiPrompts.PREVIEW_SETTINGS, 'Review OpenMC Settings');
+        expect(NukeAiPrompts.PREVIEW_SETTINGS.toLowerCase()).toContain('read-only');
     });
 
     it('routes the four diagnostic actions to the Nuke Diagnostics agent', async () => {

@@ -34,6 +34,7 @@
  * @module nuke-core/common
  */
 export * from './nuke-core-protocol';
+export * from './nuke-context-action-protocol';
 
 // Re-export backend service interface
 export { NukeCoreBackendServiceInterface, NukeCoreBackendService } from './nuke-core-protocol';

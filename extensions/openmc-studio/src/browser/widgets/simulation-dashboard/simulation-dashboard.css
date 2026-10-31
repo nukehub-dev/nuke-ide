@@ -1175,6 +1175,41 @@
     margin: 0 4px;
 }
 
+/* NukeAI validation/run action groups */
+.simulation-dashboard .nuke-ai-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 22px;
+    margin-bottom: 20px;
+}
+
+.simulation-dashboard .nuke-ai-action-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.simulation-dashboard .nuke-ai-action-group-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.simulation-dashboard .nuke-ai-action-group-label .codicon {
+    color: var(--theia-focusBorder);
+}
+
+.simulation-dashboard .nuke-ai-actions button {
+    padding: 5px 12px;
+    font-size: var(--theia-ui-font-size1);
+}
+
 /* Validation Results */
 .simulation-dashboard .validation-results {
     background: var(--theia-editorWidget-background);

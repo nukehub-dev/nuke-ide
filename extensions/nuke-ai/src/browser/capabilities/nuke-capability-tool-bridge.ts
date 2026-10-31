@@ -55,6 +55,8 @@ import {
 import { validateCapabilityInput } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import { NukePreviewBundle, NukePreviewSession } from '../../common/nuke-preview-protocol';
 import { NukePreviewStore } from '../preview/nuke-preview-store';
+import { NukeAiMetricsService } from './nuke-ai-metrics-service';
+import { NukeEditJournal } from './nuke-edit-journal';
 import { toToolName, toToolParameters } from './nuke-tool-schema';
 import { toToolCallContent } from './nuke-tool-result';
 
@@ -80,7 +82,9 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
         @inject(ToolInvocationRegistry) protected readonly toolRegistry: ToolInvocationRegistry,
         @inject(ILogger) protected readonly logger: ILogger,
         @inject(NukePreviewStore) protected readonly previewStore: NukePreviewStore,
-        @inject(FileService) protected readonly fileService: FileService
+        @inject(FileService) protected readonly fileService: FileService,
+        @inject(NukeAiMetricsService) protected readonly metrics: NukeAiMetricsService,
+        @inject(NukeEditJournal) protected readonly editJournal: NukeEditJournal
     ) {}
 
     async onStart(): Promise<void> {
@@ -216,48 +220,83 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
     }
 
     protected async invokeCapability(capability: NukeCapability, argString: string, ctx?: ToolInvocationContext): Promise<ToolCallResult> {
-        let input: unknown;
+        const startedAt = Date.now();
+        let ok = false;
         try {
-            input = argString && argString.trim().length > 0 ? JSON.parse(argString) : {};
-        } catch (error) {
-            return createToolCallError(`Invalid JSON arguments: ${errorMessage(error)}`);
-        }
-        const inputErrors = validateCapabilityInput(capability, input);
-        if (inputErrors.length > 0) {
-            return createToolCallError(inputErrors.join('; '));
-        }
-        const baseContext = await this.readContext();
-        const controller = new AbortController();
-        const token = ctx?.cancellationToken;
-        let cancellationListener: Disposable | undefined;
-        if (token) {
-            if (token.isCancellationRequested) {
-                controller.abort();
-            } else {
-                cancellationListener = token.onCancellationRequested(() => controller.abort());
-            }
-        }
-        try {
-            let result: NukeCapabilityResult;
+            let input: unknown;
             try {
-                result = await capability.invoke(input, { ...baseContext, signal: controller.signal });
+                input = argString && argString.trim().length > 0 ? JSON.parse(argString) : {};
             } catch (error) {
-                this.logger.error(`[NukeAi] Capability ${capability.id} failed:`, error);
-                return createToolCallError(`Capability failed: ${errorMessage(error)}`);
+                return createToolCallError(`Invalid JSON arguments: ${errorMessage(error)}`);
             }
-            const bundle = await this.capturePreview(capability, input, result);
+            const inputErrors = validateCapabilityInput(capability, input);
+            if (inputErrors.length > 0) {
+                return createToolCallError(inputErrors.join('; '));
+            }
+            const baseContext = await this.readContext();
+            const controller = new AbortController();
+            const token = ctx?.cancellationToken;
+            let cancellationListener: Disposable | undefined;
+            if (token) {
+                if (token.isCancellationRequested) {
+                    controller.abort();
+                } else {
+                    cancellationListener = token.onCancellationRequested(() => controller.abort());
+                }
+            }
             try {
-                return await toToolCallContent(
-                    result,
-                    this.fileService,
-                    bundle?.previewPath ? { previewPath: bundle.previewPath } : undefined
-                );
-            } catch (error) {
-                this.logger.error(`[NukeAi] Failed to render the result of ${capability.id}:`, error);
-                return createToolCallError(`Failed to render capability result: ${errorMessage(error)}`);
+                let result: NukeCapabilityResult;
+                try {
+                    result = await capability.invoke(input, { ...baseContext, signal: controller.signal });
+                } catch (error) {
+                    this.logger.error(`[NukeAi] Capability ${capability.id} failed:`, error);
+                    return createToolCallError(`Capability failed: ${errorMessage(error)}`);
+                }
+                ok = result.ok;
+                const bundle = await this.capturePreview(capability, input, result);
+                await this.recordEditJournal(capability, result);
+                try {
+                    return await toToolCallContent(
+                        result,
+                        this.fileService,
+                        bundle?.previewPath ? { previewPath: bundle.previewPath } : undefined
+                    );
+                } catch (error) {
+                    this.logger.error(`[NukeAi] Failed to render the result of ${capability.id}:`, error);
+                    return createToolCallError(`Failed to render capability result: ${errorMessage(error)}`);
+                }
+            } finally {
+                cancellationListener?.dispose();
             }
         } finally {
-            cancellationListener?.dispose();
+            await this.recordMetrics(capability, ok, Date.now() - startedAt);
+        }
+    }
+
+    /** Record one invocation for the local journal; journaling never fails the tool call. */
+    protected async recordMetrics(capability: NukeCapability, ok: boolean, durationMs: number): Promise<void> {
+        try {
+            await this.metrics.record({
+                capabilityId: capability.id,
+                version: capability.version ?? 1,
+                risk: capability.risk,
+                ok,
+                durationMs
+            });
+        } catch (error) {
+            this.logger.error(`[NukeAi] Failed to record metrics for ${capability.id}:`, error);
+        }
+    }
+
+    /** Journal results that carry a change set or undo token; failures never fail the tool call. */
+    protected async recordEditJournal(capability: NukeCapability, result: NukeCapabilityResult): Promise<void> {
+        if (!result.changeSet && !result.undoToken) {
+            return;
+        }
+        try {
+            await this.editJournal.record(capability.id, result);
+        } catch (error) {
+            this.logger.error(`[NukeAi] Failed to journal the edit for ${capability.id}:`, error);
         }
     }
 

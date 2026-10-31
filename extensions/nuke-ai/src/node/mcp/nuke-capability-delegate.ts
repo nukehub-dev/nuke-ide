@@ -37,7 +37,12 @@
 
 import { injectable } from '@theia/core/shared/inversify';
 import { NukeCapabilityResult } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { NukeCapabilityDelegate, NukeCapabilityDelegateClient, NukeCapabilityDescriptor } from '../../common/nuke-capability-delegate';
+import {
+    NukeCapabilityDelegate,
+    NukeCapabilityDelegateClient,
+    NukeCapabilityDescriptor,
+    NukeMcpResourceDescriptor
+} from '../../common/nuke-capability-delegate';
 
 /** Message returned when no frontend has opened the delegate RPC channel. */
 export const FRONTEND_NOT_CONNECTED = 'NukeIDE frontend is not connected.';
@@ -53,6 +58,10 @@ export class NukeCapabilityDelegateImpl implements NukeCapabilityDelegate {
 
     listCapabilities(): Promise<NukeCapabilityDescriptor[]> {
         return this.getClient().listCapabilities();
+    }
+
+    listResources(): Promise<NukeMcpResourceDescriptor[]> {
+        return this.getClient().listResources();
     }
 
     invoke(capabilityId: string, input: unknown): Promise<NukeCapabilityResult> {

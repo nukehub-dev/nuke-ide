@@ -26,8 +26,16 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
+import type { NukeContextAction } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { VIEWER_SHADING_MODES } from '../../../../viewer-core/shading-mode';
-import { buildDagmcContextMenuItems } from './dagmc-context-menu';
+import { buildDagmcContextMenuItems, nukeAiContextActionMenuId } from './dagmc-context-menu';
+
+const nukeAiAction = (id: string, label: string, commandId: string): NukeContextAction => ({
+    id,
+    scope: 'visualizer.dagmc',
+    label,
+    commandId
+});
 
 describe('buildDagmcContextMenuItems', () => {
     it('keeps the shared view actions and inserts the volume group before shading', () => {
@@ -89,5 +97,58 @@ describe('buildDagmcContextMenuItems', () => {
         expect(items.find((item) => item.id === 'show-all-volumes')?.disabled).toBe(true);
         expect(items.find((item) => item.id === 'show-all-volumes')?.separatorAbove).toBeFalsy();
         expect(items.find((item) => item.id === 'hide-volume')?.separatorAbove).toBe(true);
+    });
+
+    it('appends the NukeAI group after shading and keeps the selection group above', () => {
+        const actions = [
+            nukeAiAction('nuke-ai.visualizer.dagmc.captureView', 'Capture View', 'nuke.ai.captureView'),
+            nukeAiAction('nuke-ai.visualizer.dagmc.diagnoseStatepoint', 'Diagnose Statepoint', 'nuke.ai.diagnoseStatepoint')
+        ];
+        const items = buildDagmcContextMenuItems({
+            shading: 'shaded',
+            clipChecked: false,
+            selectedVolumeId: 7,
+            hasHiddenVolumes: false,
+            nukeAiActions: actions
+        });
+
+        expect(items.map((item) => item.id)).toEqual([
+            'fit',
+            'screenshot',
+            'clip',
+            'hide-volume',
+            'isolate-volume',
+            'show-all-volumes',
+            ...VIEWER_SHADING_MODES.map((mode) => `shading:${mode.id}`),
+            nukeAiContextActionMenuId(actions[0]),
+            nukeAiContextActionMenuId(actions[1])
+        ]);
+        const firstNukeAi = items.find((item) => item.id === nukeAiContextActionMenuId(actions[0]));
+        expect(firstNukeAi).toMatchObject({
+            label: 'Capture View',
+            icon: 'codicon-beaker',
+            separatorAbove: true
+        });
+        expect(items.find((item) => item.id === nukeAiContextActionMenuId(actions[1]))?.separatorAbove).toBeUndefined();
+        // The volume selection group still sits before shading and before NukeAI.
+        expect(items.findIndex((item) => item.id === 'hide-volume')).toBe(3);
+        expect(items.findIndex((item) => item.id === 'hide-volume')).toBeLessThan(
+            items.findIndex((item) => item.id.startsWith('shading:'))
+        );
+        expect(items.findIndex((item) => item.id.startsWith('shading:'))).toBeLessThan(
+            items.findIndex((item) => item.id === nukeAiContextActionMenuId(actions[0]))
+        );
+    });
+
+    it('renders no NukeAI group when no action is enabled', () => {
+        const items = buildDagmcContextMenuItems({
+            shading: 'shaded',
+            clipChecked: false,
+            selectedVolumeId: null,
+            hasHiddenVolumes: false,
+            nukeAiActions: []
+        });
+
+        expect(items.some((item) => item.id.startsWith('nuke-ai:'))).toBe(false);
     });
 });

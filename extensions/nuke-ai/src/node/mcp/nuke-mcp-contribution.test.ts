@@ -35,33 +35,121 @@ import { ILogger } from '@theia/core/lib/common/logger';
 import { ExternalApiRouter } from '@theia/external-api/lib/node/external-api-router';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { NukeCapabilityDelegate } from '../../common/nuke-capability-delegate';
+import { NukeCapabilityDelegate, NukeMcpResourceDescriptor } from '../../common/nuke-capability-delegate';
 import {
-    NUKE_WORKFLOW_PROMPT_NAME,
-    SPIKE_CAD_RESOURCE_URI,
-    SPIKE_CAPABILITY,
-    SPIKE_CONTEXT_RESOURCE_URI,
-    SPIKE_TOOL_NAME
+    MCP_CAD_RESOURCE_URI,
+    MCP_CONTEXT_RESOURCE_URI,
+    MCP_OPENMC_RESOURCE_URI,
+    MCP_SKILL_RESOURCE_PREFIX,
+    MCP_VISUALIZER_RESOURCE_URI,
+    NUKE_DIAGNOSTICS_PROMPT_NAME,
+    NUKE_WORKFLOW_PROMPT_NAME
 } from '../../common/nuke-mcp-protocol';
+import type { NukeCapabilityDescriptor } from '../../common/nuke-capability-delegate';
 import { FRONTEND_NOT_CONNECTED } from './nuke-capability-delegate';
 import { NukeAIMcpConfig, NukeAIMcpConfigService } from './nuke-mcp-config-service';
 import { MCP_DISABLED_MESSAGE } from './nuke-mcp-auth';
-import { MAX_MCP_SESSIONS, NukeMcpContribution, redactMcpInput } from './nuke-mcp-contribution';
+import { MCP_SESSION_IDLE_MS, MCP_TOOL_RATE_LIMIT } from './nuke-mcp-session-registry';
+import { NukeMcpContribution, redactMcpInput } from './nuke-mcp-contribution';
 
 const TOKEN = 'test-token';
 const AUTHORIZATION = `Bearer ${TOKEN}`;
 
+const CAD_TOOL = 'nuke_cad_summarize_document';
+const INSPECT_TOOL = 'nuke_cad_inspect_selection';
+const OPENMC_DIAGNOSE_TOOL = 'nuke_openmc_diagnose_project';
+const VIZ_SUMMARIZE_TOOL = 'nuke_viz_summarize_statepoint';
+const WRITE_TOOL = 'nuke_openmc_run_simulation';
+
 const SUMMARY = {
     documentPath: '/workspace/model.nuke-cad',
     success: true,
-    solidCount: 2,
-    faceCount: 12,
-    triangleCount: 24,
-    boundingBox: { min: [0, 0, 0], max: [1, 1, 1] },
-    warnings: [],
-    selection: { solidId: 1 },
-    manifest: { volumes: [], surfaces: [] }
+    selection: { solidId: 1 }
 };
+
+function capability(id: string, overrides: Partial<NukeCapabilityDescriptor> = {}): NukeCapabilityDescriptor {
+    return {
+        id,
+        title: `Title ${id}`,
+        description: `Read-only description for ${id}.`,
+        category: ['Test'],
+        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+        risk: 'read',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        ...overrides
+    };
+}
+
+const CAD_CAPABILITY = capability('nuke.cad.summarizeDocument', {
+    title: 'Summarize CAD document',
+    description: 'Return build counts, selection, and manifest coverage for the active CAD document.',
+    inputSchema: {
+        type: 'object',
+        properties: { includeSolids: { type: 'boolean', default: false } },
+        additionalProperties: false
+    },
+    outputSchema: {
+        type: 'object',
+        properties: {
+            documentPath: { type: 'string' },
+            success: { type: 'boolean' },
+            selection: {
+                type: 'object',
+                properties: { solidId: { type: 'integer' } },
+                additionalProperties: false
+            }
+        },
+        required: ['documentPath', 'success', 'selection'],
+        additionalProperties: false
+    },
+    examples: [{ description: 'Summarize the active document', input: { includeSolids: true } }]
+});
+
+const INSPECT_CAPABILITY = capability('nuke.cad.inspectSelection', {
+    title: 'Inspect CAD selection',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: true }
+});
+
+const OPENMC_DIAGNOSE_CAPABILITY = capability('nuke.openmc.diagnoseProject', {
+    title: 'Diagnose OpenMC project'
+});
+
+const VIZ_SUMMARIZE_CAPABILITY = capability('nuke.viz.summarizeStatepoint', {
+    title: 'Summarize OpenMC statepoint'
+});
+
+const RESOURCES: NukeMcpResourceDescriptor[] = [
+    {
+        uri: MCP_CONTEXT_RESOURCE_URI,
+        name: 'Nuke context',
+        description: 'Active NukeIDE context.',
+        mimeType: 'application/json'
+    },
+    {
+        uri: MCP_CAD_RESOURCE_URI,
+        name: 'Nuke CAD document',
+        description: 'Active CAD document.',
+        mimeType: 'application/json'
+    },
+    {
+        uri: MCP_OPENMC_RESOURCE_URI,
+        name: 'Nuke OpenMC project',
+        description: 'Active OpenMC project.',
+        mimeType: 'application/json'
+    },
+    {
+        uri: MCP_VISUALIZER_RESOURCE_URI,
+        name: 'Nuke visualizer dataset',
+        description: 'Active visualizer dataset.',
+        mimeType: 'application/json'
+    },
+    {
+        uri: `${MCP_SKILL_RESOURCE_PREFIX}nuke-workflow`,
+        name: 'nuke-workflow',
+        description: 'Workflow skill.',
+        mimeType: 'text/markdown'
+    }
+];
 
 const INITIALIZE_REQUEST = {
     jsonrpc: '2.0',
@@ -77,6 +165,7 @@ const INITIALIZE_REQUEST = {
 interface FakeDelegate {
     readonly setClient: ReturnType<typeof vi.fn>;
     readonly listCapabilities: ReturnType<typeof vi.fn>;
+    readonly listResources: ReturnType<typeof vi.fn>;
     readonly invoke: ReturnType<typeof vi.fn>;
     readonly readResource: ReturnType<typeof vi.fn>;
     readonly readUris: string[];
@@ -99,15 +188,18 @@ afterEach(async () => {
 });
 
 function createLogger(): ILogger & {
+    debug: ReturnType<typeof vi.fn>;
     info: ReturnType<typeof vi.fn>;
     warn: ReturnType<typeof vi.fn>;
     error: ReturnType<typeof vi.fn>;
 } {
     return {
+        debug: vi.fn(),
         info: vi.fn(),
         warn: vi.fn(),
         error: vi.fn()
     } as unknown as ILogger & {
+        debug: ReturnType<typeof vi.fn>;
         info: ReturnType<typeof vi.fn>;
         warn: ReturnType<typeof vi.fn>;
         error: ReturnType<typeof vi.fn>;
@@ -118,8 +210,20 @@ function createDelegate(): FakeDelegate {
     const readUris: string[] = [];
     return {
         setClient: vi.fn(),
-        listCapabilities: vi.fn(async () => [SPIKE_CAPABILITY]),
-        invoke: vi.fn(async () => ({ ok: true, data: SUMMARY })),
+        listCapabilities: vi.fn(async () => [
+            CAD_CAPABILITY,
+            INSPECT_CAPABILITY,
+            OPENMC_DIAGNOSE_CAPABILITY,
+            VIZ_SUMMARIZE_CAPABILITY,
+            capability('nuke.openmc.runSimulation', { risk: 'execute', requiresConfirmation: true }),
+            capability('nuke.cad.exportDagmc', { risk: 'execute' }),
+            capability('nuke.openmc.previewSettings'),
+            capability('nuke.openmc.validateProject', { requiresConfirmation: true })
+        ]),
+        listResources: vi.fn(async () => RESOURCES),
+        invoke: vi.fn(async (capabilityId: string) =>
+            capabilityId === 'nuke.cad.summarizeDocument' ? { ok: true, data: SUMMARY } : { ok: true, data: { capabilityId } }
+        ),
         readResource: vi.fn(async (uri: string) => {
             readUris.push(uri);
             return JSON.stringify({ uri });
@@ -209,6 +313,10 @@ async function initializeSession(harness: Harness): Promise<string> {
     return sessionId as string;
 }
 
+function textOf(result: unknown): string {
+    return ((result as { content?: unknown }).content as Array<{ type: string; text: string }>)[0].text;
+}
+
 describe('NukeMcpContribution authentication', () => {
     it('returns 404 when the config file is missing', async () => {
         const harness = await createHarness({ config: null });
@@ -286,9 +394,9 @@ describe('NukeMcpContribution authentication', () => {
         expect(JSON.parse(response.body).error.code).toBe(-32000);
     });
 
-    it(`caps the session map at ${MAX_MCP_SESSIONS} sessions`, async () => {
+    it('caps the session map at 16 sessions', async () => {
         const harness = await createHarness();
-        for (let index = 0; index < MAX_MCP_SESSIONS; index += 1) {
+        for (let index = 0; index < 16; index += 1) {
             await initializeSession(harness);
         }
 
@@ -304,77 +412,219 @@ describe('NukeMcpContribution authentication', () => {
 });
 
 describe('NukeMcpContribution MCP contract', () => {
-    it('round-trips tools, output schema, structured content, annotations, resources, and prompts', async () => {
+    it('round-trips the live read-only catalog, resources, prompts, and audit rows', async () => {
         const harness = await createHarness();
         const { client } = await connectClient(harness);
         try {
             const tools = await client.listTools();
-            expect(tools.tools).toHaveLength(1);
-            const tool = tools.tools[0];
-            expect(tool.name).toBe(SPIKE_TOOL_NAME);
-            expect(tool.title).toBe(SPIKE_CAPABILITY.title);
-            expect(tool.annotations).toMatchObject({
+            expect(tools.tools.map((tool) => tool.name)).toEqual([CAD_TOOL, INSPECT_TOOL, OPENMC_DIAGNOSE_TOOL, VIZ_SUMMARIZE_TOOL]);
+            expect(tools.tools.map((tool) => tool.name)).not.toContain(WRITE_TOOL);
+            const cadTool = tools.tools[0];
+            expect(cadTool.title).toBe('Summarize CAD document');
+            expect(cadTool.annotations).toMatchObject({
                 readOnlyHint: true,
                 destructiveHint: false,
                 idempotentHint: true,
                 openWorldHint: false
             });
-            expect(tool.outputSchema).toMatchObject({ type: 'object' });
-            expect((tool.outputSchema as { required?: string[] }).required).toEqual(['documentPath', 'success', 'selection']);
+            expect(cadTool.description).toContain('Summarize the active document');
+            expect(cadTool.outputSchema).toMatchObject({ type: 'object' });
+            expect((cadTool.outputSchema as { required?: string[] }).required).toEqual(['documentPath', 'success', 'selection']);
 
-            const call = await client.callTool({ name: SPIKE_TOOL_NAME, arguments: { includeSolids: true } });
+            const call = await client.callTool({ name: CAD_TOOL, arguments: { includeSolids: true } });
             expect(call.isError).toBeFalsy();
             expect(call.structuredContent).toEqual(SUMMARY);
             expect(call.content).toEqual([{ type: 'text', text: JSON.stringify({ ok: true, data: SUMMARY }) }]);
-            expect(harness.delegate.invoke).toHaveBeenCalledWith(SPIKE_CAPABILITY.id, { includeSolids: true });
+            expect(harness.delegate.invoke).toHaveBeenCalledWith('nuke.cad.summarizeDocument', { includeSolids: true });
+
+            const inspect = await client.callTool({ name: INSPECT_TOOL, arguments: { token: 'secret' } });
+            expect(inspect.structuredContent).toEqual({ capabilityId: 'nuke.cad.inspectSelection' });
+            expect(harness.delegate.invoke).toHaveBeenLastCalledWith('nuke.cad.inspectSelection', { token: 'secret' });
 
             const resources = await client.listResources();
-            expect(resources.resources.map((resource) => resource.uri).sort()).toEqual(
-                [SPIKE_CAD_RESOURCE_URI, SPIKE_CONTEXT_RESOURCE_URI].sort()
-            );
-
-            const resource = await client.readResource({ uri: SPIKE_CONTEXT_RESOURCE_URI });
-            expect(harness.delegate.readUris).toContain(SPIKE_CONTEXT_RESOURCE_URI);
-            const resourceText = (resource.contents[0] as { text?: string }).text;
-            expect(resourceText).toBe(JSON.stringify({ uri: SPIKE_CONTEXT_RESOURCE_URI }));
+            expect(resources.resources.map((resource) => resource.uri).sort()).toEqual(RESOURCES.map((resource) => resource.uri).sort());
+            const context = await client.readResource({ uri: MCP_CONTEXT_RESOURCE_URI });
+            expect(harness.delegate.readUris).toContain(MCP_CONTEXT_RESOURCE_URI);
+            expect((context.contents[0] as { text?: string }).text).toBe(JSON.stringify({ uri: MCP_CONTEXT_RESOURCE_URI }));
+            for (const uri of [MCP_CAD_RESOURCE_URI, MCP_OPENMC_RESOURCE_URI, MCP_VISUALIZER_RESOURCE_URI]) {
+                const resource = await client.readResource({ uri });
+                expect((resource.contents[0] as { text?: string }).text).toBe(JSON.stringify({ uri }));
+            }
+            const skill = await client.readResource({ uri: `${MCP_SKILL_RESOURCE_PREFIX}nuke-workflow` });
+            expect(skill.contents[0].mimeType).toBe('text/markdown');
 
             const prompts = await client.listPrompts();
-            expect(prompts.prompts.map((prompt) => prompt.name)).toEqual([NUKE_WORKFLOW_PROMPT_NAME]);
-            const prompt = await client.getPrompt({ name: NUKE_WORKFLOW_PROMPT_NAME });
-            const promptText = (prompt.messages[0].content as { type: string; text: string }).text;
-            expect(promptText).toContain('nuke.cad.summarizeDocument');
-            expect(promptText).toContain('nuke.openmc.runSimulation');
-            expect(promptText).toContain('nuke.viz.openStatepoint');
-
-            const invocationLogs = harness.logger.info.mock.calls.filter(([message]) =>
-                String(message).includes(`MCP tool=${SPIKE_TOOL_NAME}`)
+            expect(prompts.prompts.map((prompt) => prompt.name).sort()).toEqual(
+                [NUKE_DIAGNOSTICS_PROMPT_NAME, NUKE_WORKFLOW_PROMPT_NAME].sort()
             );
-            expect(invocationLogs).toHaveLength(1);
-            expect(String(invocationLogs[0][0])).toContain('ok=true');
-            expect(String(invocationLogs[0][0])).toContain('durationMs=');
+            const workflow = await client.getPrompt({ name: NUKE_WORKFLOW_PROMPT_NAME });
+            const workflowText = (workflow.messages[0].content as { type: string; text: string }).text;
+            expect(workflowText).toContain(CAD_TOOL);
+            expect(workflowText).toContain(OPENMC_DIAGNOSE_TOOL);
+            expect(workflowText).toContain(VIZ_SUMMARIZE_TOOL);
+            expect(workflowText).not.toContain('nuke.openmc.runSimulation');
+            expect(workflowText).not.toContain('nuke.cad.exportDagmc');
+            const diagnostics = await client.getPrompt({ name: NUKE_DIAGNOSTICS_PROMPT_NAME });
+            const diagnosticsText = (diagnostics.messages[0].content as { type: string; text: string }).text;
+            expect(diagnosticsText).toContain(OPENMC_DIAGNOSE_TOOL);
+            expect(diagnosticsText).toContain('Prioritize findings by severity');
+
+            const audit = harness.contribution.getAuditEntries(2);
+            expect(audit).toHaveLength(2);
+            expect(audit[0].tool).toBe(INSPECT_TOOL);
+            expect(audit[1].tool).toBe(CAD_TOOL);
+            expect(audit[0].inputHash).toMatch(/^[0-9a-f]{16}$/);
+            expect(audit[0].inputSummary).toContain('[redacted]');
+            expect(audit[0].inputSummary).not.toContain('secret');
+
+            const invocationLogs = harness.logger.info.mock.calls.filter(([message]) => String(message).includes('MCP tool='));
+            expect(invocationLogs).toHaveLength(2);
+            for (const [message] of invocationLogs) {
+                expect(String(message)).not.toContain('includeSolids');
+                expect(String(message)).not.toContain('secret');
+                expect(String(message)).toContain('inputHash=');
+            }
+            expect(JSON.stringify(harness.logger.info.mock.calls)).not.toContain(TOKEN);
         } finally {
             await client.close();
         }
     });
 
     it('returns a tool error when the frontend delegate is not connected', async () => {
-        const delegate = {
-            ...createDelegate(),
-            invoke: vi.fn(async () => {
-                throw new Error(FRONTEND_NOT_CONNECTED);
-            })
-        } as FakeDelegate;
+        const delegate = createDelegate();
+        delegate.invoke.mockRejectedValue(new Error(FRONTEND_NOT_CONNECTED));
         const harness = await createHarness({ delegate });
         const { client } = await connectClient(harness);
         try {
-            const result = await client.callTool({ name: SPIKE_TOOL_NAME, arguments: {} });
+            const result = await client.callTool({ name: CAD_TOOL, arguments: {} });
 
             expect(result.isError).toBe(true);
-            expect((result.content as Array<{ type: string; text: string }>)[0].text).toBe(FRONTEND_NOT_CONNECTED);
-            expect(result.structuredContent).toEqual({ ok: false });
+            expect(textOf(result)).toBe(FRONTEND_NOT_CONNECTED);
+            expect(result.structuredContent).toEqual(undefined);
+            expect(harness.contribution.getAuditEntries(1)[0]).toMatchObject({ tool: CAD_TOOL, ok: false });
         } finally {
             await client.close();
         }
+    });
+
+    it('opens a session with no tools and the context fallback when the frontend catalog is unavailable', async () => {
+        const delegate = createDelegate();
+        delegate.listCapabilities.mockRejectedValue(new Error(FRONTEND_NOT_CONNECTED));
+        delegate.listResources.mockRejectedValue(new Error(FRONTEND_NOT_CONNECTED));
+        const harness = await createHarness({ delegate });
+        const { client } = await connectClient(harness);
+        try {
+            expect((await client.listTools()).tools).toEqual([]);
+            expect((await client.listResources()).resources.map((resource) => resource.uri)).toEqual([MCP_CONTEXT_RESOURCE_URI]);
+            expect((await client.listPrompts()).prompts.map((prompt) => prompt.name).sort()).toEqual(
+                [NUKE_DIAGNOSTICS_PROMPT_NAME, NUKE_WORKFLOW_PROMPT_NAME].sort()
+            );
+            expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('catalog unavailable'));
+            expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('resource catalog unavailable'));
+        } finally {
+            await client.close();
+        }
+    });
+
+    it('rejects unexposed tool calls in the raw handler', async () => {
+        const harness = await createHarness();
+        const { client } = await connectClient(harness);
+        try {
+            await expect(client.callTool({ name: WRITE_TOOL, arguments: {} })).rejects.toThrow(/not exposed/);
+
+            expect(harness.delegate.invoke).not.toHaveBeenCalled();
+            expect(harness.contribution.getAuditEntries(1)[0]).toMatchObject({
+                tool: WRITE_TOOL,
+                ok: false,
+                inputSummary: '[rejected tool call]'
+            });
+        } finally {
+            await client.close();
+        }
+    });
+
+    it('filters resources outside the read-only scope', async () => {
+        const delegate = createDelegate();
+        delegate.listResources.mockResolvedValue([
+            ...RESOURCES,
+            { uri: 'file:///etc/passwd', name: 'passwd', description: 'escape', mimeType: 'text/plain' },
+            { uri: 'nuke://skills/../secret', name: 'escape', description: 'escape', mimeType: 'text/plain' },
+            { uri: MCP_CONTEXT_RESOURCE_URI, name: 'duplicate', description: 'duplicate', mimeType: 'text/plain' }
+        ]);
+        const harness = await createHarness({ delegate });
+        const { client } = await connectClient(harness);
+        try {
+            const resources = await client.listResources();
+            const uris = resources.resources.map((resource) => resource.uri);
+            expect(uris).toEqual(RESOURCES.map((resource) => resource.uri));
+            expect(uris).not.toContain('file:///etc/passwd');
+            expect(uris).not.toContain('nuke://skills/../secret');
+        } finally {
+            await client.close();
+        }
+    });
+
+    it('returns a resource error without stopping the server', async () => {
+        const delegate = createDelegate();
+        delegate.readResource.mockImplementation(async (uri: string) => {
+            if (uri === MCP_CAD_RESOURCE_URI) {
+                throw new Error('backend offline');
+            }
+            return JSON.stringify({ uri });
+        });
+        const harness = await createHarness({ delegate });
+        const { client } = await connectClient(harness);
+        try {
+            await expect(client.readResource({ uri: MCP_CAD_RESOURCE_URI })).rejects.toThrow(/backend offline/);
+            await expect(client.readResource({ uri: 'nuke://missing' })).rejects.toThrow();
+            expect((await client.listTools()).tools).toHaveLength(4);
+            expect(harness.logger.warn).toHaveBeenCalledWith(
+                expect.stringContaining(`MCP resource read failed for ${MCP_CAD_RESOURCE_URI}`)
+            );
+        } finally {
+            await client.close();
+        }
+    });
+
+    it(`rate-limits one session at ${MCP_TOOL_RATE_LIMIT} calls per minute and audits the excess`, async () => {
+        const harness = await createHarness();
+        const { client } = await connectClient(harness);
+        try {
+            for (let index = 0; index < MCP_TOOL_RATE_LIMIT; index += 1) {
+                const result = await client.callTool({ name: INSPECT_TOOL, arguments: {} });
+                expect(result.isError).toBeFalsy();
+            }
+
+            const limited = await client.callTool({ name: INSPECT_TOOL, arguments: {} });
+            expect(limited.isError).toBe(true);
+            expect(textOf(limited)).toContain('Rate limit exceeded');
+            expect(harness.contribution.getAuditEntries(1)[0]).toMatchObject({
+                tool: INSPECT_TOOL,
+                ok: false
+            });
+            expect(harness.contribution.getAuditEntries(1)[0].inputSummary).toContain('[rate limited]');
+        } finally {
+            await client.close();
+        }
+    });
+
+    it('clears sessions when the routing rebuilds', async () => {
+        const harness = await createHarness();
+        const sessionId = await initializeSession(harness);
+
+        harness.router.toDispose.dispose();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        const afterDispose = await requestStatus(harness, {
+            method: 'POST',
+            headers: {
+                Authorization: AUTHORIZATION,
+                'Content-Type': 'application/json',
+                'mcp-session-id': sessionId
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list' })
+        });
+        expect(afterDispose.status).toBe(404);
     });
 
     it('closes and deregisters a session on DELETE', async () => {
@@ -415,5 +665,11 @@ describe('NukeMcpContribution MCP contract', () => {
         expect(redacted.nested.password).toBe('[redacted]');
         expect(String(redacted.long).length).toBeLessThanOrEqual(200);
         expect(String(redacted.long)).toContain('[truncated]');
+    });
+});
+
+describe('NukeMcpContribution idle policy', () => {
+    it('exposes a 30-minute idle timeout', () => {
+        expect(MCP_SESSION_IDLE_MS).toBe(30 * 60 * 1000);
     });
 });

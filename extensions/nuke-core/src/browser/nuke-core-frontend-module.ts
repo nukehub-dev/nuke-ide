@@ -63,6 +63,8 @@ import {
     NUKE_CORE_BACKEND_PATH
 } from '../common/nuke-core-protocol';
 import { NukeToolsContribution } from '../common/nuke-tools-protocol';
+import { NukeContextActionContribution, NukeContextActionRegistry } from '../common/nuke-context-action-protocol';
+import { NukeContextActionRegistryImpl } from './context-actions/nuke-context-action-registry';
 import {
     NukeCapabilityContribution,
     NukeCapabilityContextContribution,
@@ -117,6 +119,10 @@ export default new ContainerModule(
         bind(NukeCapabilityRegistry).to(NukeCapabilityRegistryImpl).inSingletonScope();
         bind(NukeCapabilityContextService).to(NukeCapabilityContextServiceImpl).inSingletonScope();
         bind(NukeUndoService).to(NukeUndoServiceImpl).inSingletonScope();
+
+        // Neutral contextual menu actions (domain widgets render, contributors register)
+        bindContributionProvider(bind, NukeContextActionContribution);
+        bind(NukeContextActionRegistry).to(NukeContextActionRegistryImpl).inSingletonScope();
 
         // Backend service proxy
         bind<NukeCoreBackendServiceInterface>(NukeCoreBackendService)

@@ -186,7 +186,8 @@ import {
     toggleDagmcMaterial,
     toggleDagmcVolume
 } from './dagmc-toggle-model';
-import { buildDagmcContextMenuItems } from './dagmc-context-menu';
+import { NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
+import { buildDagmcContextMenuItems, nukeAiContextActionMenuId } from './dagmc-context-menu';
 import { ViewerMeasureLabel, type ViewerMeasureHandle } from '../viewer-measure';
 import {
     DagmcIsolateActions,
@@ -281,6 +282,9 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
 
     @inject(CommandRegistry)
     protected readonly commands!: CommandRegistry;
+
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions!: NukeContextActionRegistry;
 
     protected vtmUri: URI | undefined;
     protected blocks: DagmcBlockModel[] = [];
@@ -3341,21 +3345,36 @@ export class DagmcViewerWidget extends ReactWidget implements ViewerSettingsHost
         });
     }
 
-    /** View-action menu: fit, screenshot, clip toggle, per-mode shading. */
+    /** View-action menu: fit, screenshot, clip toggle, per-mode shading, then NukeAI. */
     private openContextMenu(clientX: number, clientY: number): void {
         if (this.blocks.length === 0) {
             return;
         }
         this.contextMenuClose?.();
+        // Neutral context actions: the registry filters `when`; a missing
+        // command (for example an exclusion build without NukeAI) is omitted.
+        const nukeAiActions = this.contextActions
+            .getActions('visualizer.dagmc')
+            .filter((action) => this.commands.getCommand(action.commandId) !== undefined);
+        const commandByMenuId = new Map(nukeAiActions.map((action) => [nukeAiContextActionMenuId(action), action.commandId]));
         this.contextMenuClose = openViewerContextMenu(
             { x: clientX, y: clientY },
             buildDagmcContextMenuItems({
                 shading: this.shading,
                 clipChecked: anyClipEnabled(this.clip),
                 selectedVolumeId: this.selectedVolumeId,
-                hasHiddenVolumes: this.blocks.some((block) => !this.isBlockVisible(block))
+                hasHiddenVolumes: this.blocks.some((block) => !this.isBlockVisible(block)),
+                nukeAiActions
             }),
-            (id) => this.handleContextMenuAction(id)
+            (id) => {
+                const commandId = commandByMenuId.get(id);
+                if (commandId !== undefined) {
+                    void this.commands.executeCommand(commandId);
+                    this.update();
+                    return;
+                }
+                this.handleContextMenuAction(id);
+            }
         );
     }
 

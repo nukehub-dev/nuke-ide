@@ -154,6 +154,15 @@ export interface NukeCapabilityResult {
 export interface NukeCapability {
     /** Stable identifier: `nuke.<domain>.<verbNoun>`. */
     readonly id: string;
+    /**
+     * Additive contract version. Defaults to `1` when omitted.
+     *
+     * Adding optional input fields, results, tags, or examples stays backward
+     * compatible and keeps the version. A breaking change to the input/output
+     * schema or to the meaning of an existing field bumps it. Consumers report
+     * the version; they do not negotiate or enforce it.
+     */
+    readonly version?: number;
     readonly title: string;
     readonly description: string;
     readonly category: readonly string[];

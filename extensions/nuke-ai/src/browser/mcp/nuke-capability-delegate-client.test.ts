@@ -34,29 +34,75 @@ import {
     NukeCapabilityRegistry,
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { SPIKE_CAPABILITY } from '../../common/nuke-mcp-protocol';
-import type { NukeResourceService } from '../resources/nuke-resource-service';
+import type { NukeResourceDescriptor, NukeResourceService } from '../resources/nuke-resource-service';
 import { NukeCapabilityDelegateClientImpl, toCapabilityDescriptor } from './nuke-capability-delegate-client';
 
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({
     FileService: Symbol('FileService')
 }));
 
-interface TestSetup {
-    readonly client: NukeCapabilityDelegateClientImpl;
-    readonly invoke: ReturnType<typeof vi.fn>;
-    readonly read: ReturnType<typeof vi.fn>;
-    readonly context: NukeCapabilityContext;
-}
+const SUMMARIZE_ID = 'nuke.cad.summarizeDocument';
 
-function capability(invokeResult: NukeCapabilityResult = { ok: true, data: { success: true } }): NukeCapability {
+function cadCapability(invokeResult: NukeCapabilityResult = { ok: true, data: { success: true } }): NukeCapability {
     return {
-        ...SPIKE_CAPABILITY,
+        id: SUMMARIZE_ID,
+        title: 'Summarize CAD document',
+        description: 'Return build counts for the active CAD document.',
+        category: ['CAD'],
+        inputSchema: {
+            type: 'object',
+            properties: {
+                includeSolids: { type: 'boolean', default: false }
+            },
+            additionalProperties: false
+        },
+        outputSchema: {
+            type: 'object',
+            properties: {
+                success: { type: 'boolean' }
+            },
+            required: ['success'],
+            additionalProperties: false
+        },
+        risk: 'read',
+        annotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false
+        },
         invoke: vi.fn(async () => invokeResult)
     };
 }
 
-function setup(candidate: NukeCapability = capability(), enabled = true): TestSetup {
+function resources(): NukeResourceDescriptor[] {
+    return [
+        {
+            uri: 'nuke://context',
+            name: 'Nuke context',
+            description: 'Active workspace.',
+            mimeType: 'application/json',
+            read: vi.fn(async () => '{}')
+        },
+        {
+            uri: 'nuke://skills/nuke-workflow',
+            name: 'nuke-workflow',
+            description: 'Workflow skill.',
+            mimeType: 'text/markdown',
+            read: vi.fn(async () => '# Workflow')
+        }
+    ];
+}
+
+interface TestSetup {
+    readonly client: NukeCapabilityDelegateClientImpl;
+    readonly invoke: ReturnType<typeof vi.fn>;
+    readonly read: ReturnType<typeof vi.fn>;
+    readonly getResources: ReturnType<typeof vi.fn>;
+    readonly context: NukeCapabilityContext;
+}
+
+function setup(candidate: NukeCapability = cadCapability(), enabled = true): TestSetup {
     const context: NukeCapabilityContext = {
         workspaceRoots: ['/workspace'],
         activeCadDocument: '/workspace/model.nuke-cad'
@@ -74,11 +120,13 @@ function setup(candidate: NukeCapability = capability(), enabled = true): TestSe
         onDidChangeContext: Event.None
     } as unknown as NukeCapabilityContextService;
     const read = vi.fn(async (uri: string) => `resource:${uri}`);
-    const resourceService = { read } as unknown as NukeResourceService;
+    const getResources = vi.fn(async () => resources());
+    const resourceService = { read, getResources } as unknown as NukeResourceService;
     return {
         client: new NukeCapabilityDelegateClientImpl(registry, contextService, resourceService),
         invoke: candidate.invoke as unknown as ReturnType<typeof vi.fn>,
         read,
+        getResources,
         context
     };
 }
@@ -90,36 +138,67 @@ describe('NukeCapabilityDelegateClientImpl', () => {
         const descriptors = await client.listCapabilities();
 
         expect(descriptors).toHaveLength(1);
-        expect(descriptors[0]).toEqual(toCapabilityDescriptor(capability()));
+        expect(descriptors[0]).toEqual(toCapabilityDescriptor(cadCapability()));
         expect(descriptors[0]).not.toHaveProperty('invoke');
         expect(descriptors[0]).not.toHaveProperty('when');
         expect(descriptors[0]).toMatchObject({
-            id: SPIKE_CAPABILITY.id,
-            title: SPIKE_CAPABILITY.title,
+            id: SUMMARIZE_ID,
+            version: 1,
+            title: 'Summarize CAD document',
             risk: 'read',
-            inputSchema: SPIKE_CAPABILITY.inputSchema,
-            outputSchema: SPIKE_CAPABILITY.outputSchema
+            inputSchema: expect.objectContaining({ type: 'object' }),
+            outputSchema: expect.objectContaining({ type: 'object' })
         });
     });
 
     it('omits capabilities disabled by the registry context', async () => {
-        const { client } = setup(capability(), false);
+        const { client } = setup(cadCapability(), false);
 
         expect(await client.listCapabilities()).toEqual([]);
     });
 
+    it('projects resource metadata without the frontend read callback', async () => {
+        const { client, getResources } = setup();
+
+        const descriptors = await client.listResources();
+
+        expect(getResources).toHaveBeenCalledTimes(1);
+        expect(descriptors).toEqual([
+            {
+                uri: 'nuke://context',
+                name: 'Nuke context',
+                description: 'Active workspace.',
+                mimeType: 'application/json'
+            },
+            {
+                uri: 'nuke://skills/nuke-workflow',
+                name: 'nuke-workflow',
+                description: 'Workflow skill.',
+                mimeType: 'text/markdown'
+            }
+        ]);
+        expect(descriptors[0]).not.toHaveProperty('read');
+    });
+
+    it('propagates a resource catalog failure to the backend', async () => {
+        const { client, getResources } = setup();
+        getResources.mockRejectedValueOnce(new Error('frontend not connected'));
+
+        await expect(client.listResources()).rejects.toThrow('frontend not connected');
+    });
+
     it('invokes a known capability with the ambient context', async () => {
         const result = { ok: true, data: { solidCount: 1 } };
-        const { client, invoke, context } = setup(capability(result));
+        const { client, invoke, context } = setup(cadCapability(result));
 
-        expect(await client.invoke(SPIKE_CAPABILITY.id, { includeSolids: true })).toEqual(result);
+        expect(await client.invoke(SUMMARIZE_ID, { includeSolids: true })).toEqual(result);
         expect(invoke).toHaveBeenCalledWith({ includeSolids: true }, context);
     });
 
     it('rejects invalid input before calling the capability', async () => {
         const { client, invoke } = setup();
 
-        const result = await client.invoke(SPIKE_CAPABILITY.id, { includeSolids: 'yes' });
+        const result = await client.invoke(SUMMARIZE_ID, { includeSolids: 'yes' });
 
         expect(result.ok).toBe(false);
         expect(result.message).toContain('includeSolids');
@@ -137,9 +216,9 @@ describe('NukeCapabilityDelegateClientImpl', () => {
     });
 
     it('returns an error result when the capability is unavailable in the context', async () => {
-        const { client } = setup({ ...capability(), when: () => false });
+        const { client } = setup({ ...cadCapability(), when: () => false });
 
-        const result = await client.invoke(SPIKE_CAPABILITY.id, {});
+        const result = await client.invoke(SUMMARIZE_ID, {});
 
         expect(result.ok).toBe(false);
         expect(result.message).toContain('not available');
@@ -147,14 +226,14 @@ describe('NukeCapabilityDelegateClientImpl', () => {
 
     it('turns a thrown capability error into a failed result', async () => {
         const candidate = {
-            ...capability(),
+            ...cadCapability(),
             invoke: vi.fn(async () => {
                 throw new Error('backend exploded');
             })
         };
         const { client } = setup(candidate);
 
-        expect(await client.invoke(SPIKE_CAPABILITY.id, {})).toEqual({
+        expect(await client.invoke(SUMMARIZE_ID, {})).toEqual({
             ok: false,
             message: 'Capability nuke.cad.summarizeDocument failed: backend exploded'
         });
@@ -165,23 +244,5 @@ describe('NukeCapabilityDelegateClientImpl', () => {
 
         expect(await client.readResource('nuke://context')).toBe('resource:nuke://context');
         expect(read).toHaveBeenCalledWith('nuke://context');
-    });
-
-    it('keeps the spike capability read-only and structurally complete', () => {
-        expect(SPIKE_CAPABILITY).toMatchObject({
-            id: 'nuke.cad.summarizeDocument',
-            title: 'Summarize CAD document',
-            risk: 'read',
-            annotations: {
-                readOnlyHint: true,
-                destructiveHint: false,
-                idempotentHint: true,
-                openWorldHint: false
-            }
-        });
-        expect(SPIKE_CAPABILITY.inputSchema.properties.includeSolids).toMatchObject({ type: 'boolean', default: false });
-        expect(SPIKE_CAPABILITY.outputSchema?.required).toEqual(['documentPath', 'success', 'selection']);
-        expect(SPIKE_CAPABILITY.outputSchema?.properties.selection).toBeDefined();
-        expect(SPIKE_CAPABILITY.outputSchema?.properties.solids).toBeDefined();
     });
 });

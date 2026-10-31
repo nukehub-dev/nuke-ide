@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: NukeAI previews, applies, and undoes OpenMC material additions, updates, and removals.
 - nuke-ai: NukeAI previews, applies, and undoes OpenMC tally additions, updates, and removals.
 - nuke-ai: the diagnostics agent can compare statepoints and analyze tally series.
+- nuke-ai: external MCP exposes a live read-only catalog of CAD, OpenMC, and Visualizer tools with resources, prompts, rate limits, and audit logging.
+- nuke-ai: NukeAI actions appear directly in the CAD viewport, OpenMC validation/run, DAGMC, and tally menus.
+- nuke-ai: NukeAI adds welcome quick actions, model setup guidance, a run-status refresh, and a read-only preview gallery.
+- nuke-ai: capability tools expose a local catalog and local metrics/edit journals; undo remains session-scoped.
 - nuke-cad: NukeAI can diagnose the active CAD model without rebuilding it.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.

@@ -41,16 +41,23 @@
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { Agent } from '@theia/ai-core';
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
+import { bindViewContribution, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution } from '@theia/core/lib/common/command';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser/frontend-application-contribution';
 import { ChatResponsePartRenderer } from '@theia/ai-chat-ui/lib/browser/chat-response-part-renderer';
 import { AIVariableContribution } from '@theia/ai-core/lib/common/variable-service';
 import { SkillDirectoryContribution } from '@theia/ai-core/lib/browser/skill-service';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
+import { NukeContextActionContribution } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { NukeCapabilityToolBridge } from './capabilities/nuke-capability-tool-bridge';
+import { NukeAiMetricsService } from './capabilities/nuke-ai-metrics-service';
+import { NukeEditJournal } from './capabilities/nuke-edit-journal';
 import { NukeNextActionService } from './capabilities/nuke-next-action-service';
 import { NukeToolCallRenderer } from './capabilities/nuke-tool-call-renderer';
 import { NukePreviewStore } from './preview/nuke-preview-store';
+import { NukePreviewGalleryService } from './preview/nuke-preview-gallery-service';
+import { NukePreviewGalleryWidget } from './preview/nuke-preview-gallery-widget';
+import { NukePreviewGalleryContribution } from './preview/nuke-preview-gallery-commands';
 import { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';
 import { NukeContextVariableContribution } from './context/nuke-context-variable-contribution';
 import { NukeResourceService } from './resources/nuke-resource-service';
@@ -63,6 +70,9 @@ import { NukeDiagnosticsAgent } from './agent/nuke-diagnostics-agent';
 import { NukeAiActionService } from './actions/nuke-ai-action-service';
 import { NukeAiCommandContribution } from './actions/nuke-ai-commands';
 import { NukeAiToolsContribution } from './actions/nuke-ai-tools-contribution';
+import { NukeAiContextActionContribution } from './actions/nuke-ai-context-actions';
+import { NukeAiCapabilityCatalogCommandContribution } from './commands/nuke-ai-capability-catalog-command';
+import { NukeAiMetricsCommandContribution } from './commands/nuke-ai-metrics-command';
 import './capabilities/nuke-tool-call.css';
 
 export default new ContainerModule((bind) => {
@@ -82,9 +92,29 @@ export default new ContainerModule((bind) => {
     bind(NukeAiToolsContribution).toSelf().inSingletonScope();
     bind(NukeToolsContribution).toService(NukeAiToolsContribution);
 
+    bind(NukeAiContextActionContribution).toSelf().inSingletonScope();
+    bind(NukeContextActionContribution).toService(NukeAiContextActionContribution);
+
     bind(NukeCapabilityToolBridge).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(NukeCapabilityToolBridge);
+    bind(NukeAiMetricsService).toSelf().inSingletonScope();
+    bind(NukeEditJournal).toSelf().inSingletonScope();
     bind(NukePreviewStore).toSelf().inSingletonScope();
+    bind(NukePreviewGalleryService).toSelf().inSingletonScope();
+
+    bind(NukeAiCapabilityCatalogCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(NukeAiCapabilityCatalogCommandContribution);
+    bind(NukeAiMetricsCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(NukeAiMetricsCommandContribution);
+
+    bindViewContribution(bind, NukePreviewGalleryContribution);
+    bind(NukePreviewGalleryWidget).toSelf();
+    bind(WidgetFactory)
+        .toDynamicValue(({ container }) => ({
+            id: NukePreviewGalleryWidget.ID,
+            createWidget: () => container.get(NukePreviewGalleryWidget)
+        }))
+        .inSingletonScope();
 
     bind(NukeNextActionService).toSelf().inSingletonScope();
     bind(NukeToolCallRenderer).toSelf().inSingletonScope();
@@ -113,10 +143,21 @@ export { NukeDiagnosticsAgent, NUKE_DIAGNOSTICS_AGENT_ID } from './agent/nuke-di
 export { NukeAiActionService } from './actions/nuke-ai-action-service';
 export { NukeAiCommandContribution, NukeAiCommands } from './actions/nuke-ai-commands';
 export { NukeAiToolsContribution } from './actions/nuke-ai-tools-contribution';
+export { NukeAiContextActionContribution } from './actions/nuke-ai-context-actions';
 export { NukeCapabilityToolBridge } from './capabilities/nuke-capability-tool-bridge';
+export { NukeAiMetricsService, summarizeMetrics } from './capabilities/nuke-ai-metrics-service';
+export type { NukeAiMetricEntry, NukeAiMetricRecord, NukeAiMetricSummary } from './capabilities/nuke-ai-metrics-service';
+export { NukeEditJournal, hashUndoToken } from './capabilities/nuke-edit-journal';
+export type { NukeEditJournalEntry } from './capabilities/nuke-edit-journal';
+export { NukeAiCapabilityCatalogCommand, NukeAiCapabilityCatalogCommandContribution } from './commands/nuke-ai-capability-catalog-command';
+export { NukeAiMetricsCommand, NukeAiMetricsCommandContribution } from './commands/nuke-ai-metrics-command';
 export { NukeNextActionService } from './capabilities/nuke-next-action-service';
 export { NukeToolCallRenderer } from './capabilities/nuke-tool-call-renderer';
 export { NukePreviewStore } from './preview/nuke-preview-store';
+export { NukePreviewGalleryService } from './preview/nuke-preview-gallery-service';
+export type { NukePreviewGalleryEntry } from './preview/nuke-preview-gallery-service';
+export { NukePreviewGalleryWidget, NukePreviewGalleryView } from './preview/nuke-preview-gallery-widget';
+export { NukePreviewGalleryContribution, NukePreviewGalleryCommands } from './preview/nuke-preview-gallery-commands';
 export { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';
 export { NukeContextVariableContribution } from './context/nuke-context-variable-contribution';
 export { NukeResourceService } from './resources/nuke-resource-service';

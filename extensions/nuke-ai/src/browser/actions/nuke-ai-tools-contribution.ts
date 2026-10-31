@@ -123,6 +123,17 @@ const NUKE_AI_TOOL_ITEMS: readonly Omit<NukeToolsItem, 'sectionOrder'>[] = [
         keywords: ['ai', 'visualizer', 'dagmc', 'capture', 'preview']
     },
     {
+        id: NukeAiCommands.REFRESH_RUN.id,
+        label: 'Refresh Active Run Status',
+        commandId: NukeAiCommands.REFRESH_RUN.id,
+        category: ['NukeAI', 'Run'],
+        categoryOrder: 'a',
+        order: 'a',
+        icon: 'refresh',
+        description: 'Ask NukeAI for the current OpenMC run state, working directory, and recent log output.',
+        keywords: ['ai', 'openmc', 'run', 'status', 'refresh', 'log']
+    },
+    {
         id: NukeAiCommands.DIAGNOSE_CAD.id,
         label: 'Diagnose Active CAD Model',
         commandId: NukeAiCommands.DIAGNOSE_CAD.id,

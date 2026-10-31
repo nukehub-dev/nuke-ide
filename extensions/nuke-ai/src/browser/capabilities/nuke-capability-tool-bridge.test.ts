@@ -42,7 +42,9 @@ import {
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { NukePreviewBundle, NukePreviewSession } from '../../common/nuke-preview-protocol';
 import { NukePreviewStore } from '../preview/nuke-preview-store';
+import { NukeAiMetricsService } from './nuke-ai-metrics-service';
 import { NukeCapabilityToolBridge } from './nuke-capability-tool-bridge';
+import { NukeEditJournal } from './nuke-edit-journal';
 import { toToolName } from './nuke-tool-schema';
 
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class FileService {} }));
@@ -145,6 +147,14 @@ class FakePreviewStore {
     );
 }
 
+class FakeMetricsService {
+    readonly record = vi.fn(async () => undefined);
+}
+
+class FakeEditJournal {
+    readonly record = vi.fn(async () => undefined);
+}
+
 function createLogger(): ILogger & { info: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> } {
     return {
         info: vi.fn(),
@@ -183,6 +193,8 @@ function setup(options: SetupOptions = {}): {
     toolRegistry: FakeToolRegistry;
     logger: ILogger & { info: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
     previewStore: FakePreviewStore;
+    metrics: FakeMetricsService;
+    editJournal: FakeEditJournal;
     bridge: NukeCapabilityToolBridge;
 } {
     const registry = new FakeCapabilityRegistry();
@@ -194,15 +206,19 @@ function setup(options: SetupOptions = {}): {
     const toolRegistry = new FakeToolRegistry();
     const logger = createLogger();
     const previewStore = new FakePreviewStore();
+    const metrics = new FakeMetricsService();
+    const editJournal = new FakeEditJournal();
     const bridge = new NukeCapabilityToolBridge(
         registry,
         contextService,
         toolRegistry,
         logger,
         previewStore as unknown as NukePreviewStore,
-        {} as FileService
+        {} as FileService,
+        metrics as unknown as NukeAiMetricsService,
+        editJournal as unknown as NukeEditJournal
     );
-    return { registry, contextService, toolRegistry, logger, previewStore, bridge };
+    return { registry, contextService, toolRegistry, logger, previewStore, metrics, editJournal, bridge };
 }
 
 function contentOf(result: unknown): ToolCallContentResult[] {
@@ -388,6 +404,111 @@ describe('NukeCapabilityToolBridge', () => {
         expect(content[0]).toEqual({ type: 'text', text: 'Exported.' });
         expect(content[1]).toMatchObject({ type: 'text' });
         expect(content[2]).toEqual({ type: 'text', text: 'DAGMC: /tmp/model.h5m' });
+    });
+
+    it('records one metric per successful invocation with the capability version and risk', async () => {
+        const { toolRegistry, metrics, bridge } = setup({
+            capabilities: [capability({ id: 'nuke.example.metric', version: 4, risk: 'write' })]
+        });
+        await bridge.onStart();
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.metric')) as ToolRequest;
+
+        await tool.handler('{"path":"/tmp/model"}');
+
+        expect(metrics.record).toHaveBeenCalledTimes(1);
+        expect(metrics.record).toHaveBeenCalledWith({
+            capabilityId: 'nuke.example.metric',
+            version: 4,
+            risk: 'write',
+            ok: true,
+            durationMs: expect.any(Number)
+        });
+    });
+
+    it('records an unsuccessful metric for a returned error and a thrown error', async () => {
+        const failed = capability({ id: 'nuke.example.failed', invoke: async () => ({ ok: false, message: 'No.' }) });
+        const thrown = capability({
+            id: 'nuke.example.thrown',
+            invoke: async () => {
+                throw new Error('boom');
+            }
+        });
+        const { toolRegistry, metrics, bridge } = setup({ capabilities: [failed, thrown] });
+        await bridge.onStart();
+
+        await (toolRegistry.tools.get(toToolName(failed.id)) as ToolRequest).handler('{"path":"/tmp/model"}');
+        await (toolRegistry.tools.get(toToolName(thrown.id)) as ToolRequest).handler('{"path":"/tmp/model"}');
+
+        expect(metrics.record).toHaveBeenCalledTimes(2);
+        expect(metrics.record).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ capabilityId: failed.id, version: 1, ok: false, risk: 'read' })
+        );
+        expect(metrics.record).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({ capabilityId: thrown.id, version: 1, ok: false, risk: 'read' })
+        );
+    });
+
+    it('records an unsuccessful metric when the invocation is cancelled', async () => {
+        const invoke = vi.fn(async (_input: unknown, context: NukeCapabilityContext) =>
+            context.signal?.aborted ? { ok: false, message: 'Cancelled.' } : { ok: true, message: 'Finished.' }
+        );
+        const { toolRegistry, metrics, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.cancelled', invoke })] });
+        await bridge.onStart();
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.cancelled')) as ToolRequest;
+        const source = new CancellationTokenSource();
+        source.cancel();
+
+        await tool.handler('{"path":"/tmp/model"}', { cancellationToken: source.token });
+
+        expect(metrics.record).toHaveBeenCalledWith(expect.objectContaining({ capabilityId: 'nuke.example.cancelled', ok: false }));
+        source.dispose();
+    });
+
+    it('journals results that carry a change set or undo token and skips plain results', async () => {
+        const changeSet = {
+            id: 'proposal-1',
+            title: 'Run settings',
+            summary: 'Increase batches.',
+            changes: [{ path: 'run.batches', label: 'Batches', kind: 'update' as const, before: 100, after: 200 }]
+        };
+        const journaled = capability({
+            id: 'nuke.example.journaled',
+            invoke: async () => ({ ok: true, changeSet, undoToken: 'undo-1' })
+        });
+        const plain = capability({ id: 'nuke.example.plain', invoke: async () => ({ ok: true, message: 'Done.' }) });
+        const { toolRegistry, editJournal, bridge } = setup({ capabilities: [journaled, plain] });
+        await bridge.onStart();
+
+        await (toolRegistry.tools.get(toToolName(journaled.id)) as ToolRequest).handler('{"path":"/tmp/model"}');
+        await (toolRegistry.tools.get(toToolName(plain.id)) as ToolRequest).handler('{"path":"/tmp/model"}');
+
+        expect(editJournal.record).toHaveBeenCalledTimes(1);
+        expect(editJournal.record).toHaveBeenCalledWith(journaled.id, { ok: true, changeSet, undoToken: 'undo-1' });
+    });
+
+    it('still returns the tool result when metrics and journaling fail', async () => {
+        const changeSet = {
+            id: 'proposal-1',
+            title: 'Run settings',
+            summary: 'Increase batches.',
+            changes: []
+        };
+        const invoke = vi.fn(async () => ({ ok: true, message: 'Applied.', changeSet }));
+        const { toolRegistry, logger, metrics, editJournal, bridge } = setup({
+            capabilities: [capability({ id: 'nuke.example.journalFailure', invoke })]
+        });
+        metrics.record.mockRejectedValueOnce(new Error('metrics failed'));
+        editJournal.record.mockRejectedValueOnce(new Error('journal failed'));
+        await bridge.onStart();
+        const tool = toolRegistry.tools.get(toToolName('nuke.example.journalFailure')) as ToolRequest;
+
+        const content = contentOf(await tool.handler('{"path":"/tmp/model"}'));
+
+        expect(content[0]).toEqual({ type: 'text', text: 'Applied.' });
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to record metrics'), expect.any(Error));
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to journal the edit'), expect.any(Error));
     });
 
     it('does not create or capture a preview session when the result has nothing to preview', async () => {

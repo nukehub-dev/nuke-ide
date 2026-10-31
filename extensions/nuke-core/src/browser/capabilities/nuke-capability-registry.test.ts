@@ -103,6 +103,60 @@ describe('NukeCapabilityRegistry', () => {
         expect(logger.error).toHaveBeenCalledTimes(1);
     });
 
+    it('defaults a missing version to 1 and keeps valid versions', () => {
+        const { registry } = createRegistry();
+        registry.register(capability({ id: 'nuke.example.defaultVersion' }));
+        registry.register(capability({ id: 'nuke.example.versioned', version: 3 }));
+
+        expect(registry.get('nuke.example.defaultVersion')?.version).toBe(1);
+        expect(registry.get('nuke.example.versioned')?.version).toBe(3);
+    });
+
+    it('rejects non-integer and non-positive versions', () => {
+        const invalid: unknown[] = [0, -1, 1.5, '2', Number.NaN, Number.POSITIVE_INFINITY];
+        for (const version of invalid) {
+            const { registry, logger } = createRegistry();
+            registry.register(capability({ id: 'nuke.example.badVersion', version: version as number }));
+            expect(registry.getAll()).toHaveLength(0);
+            expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('version must be an integer >= 1'));
+        }
+        expect(validateCapability(capability({ version: 0 }))).toContain('version must be an integer >= 1 when provided');
+    });
+
+    it('logs a duplicate id once and keeps the first registration', () => {
+        const { registry, logger } = createRegistry();
+        registry.register(capability({ id: 'nuke.example.duplicate', title: 'First' }));
+        registry.register(capability({ id: 'nuke.example.duplicate', title: 'Second' }));
+        registry.register(capability({ id: 'nuke.example.duplicate', title: 'Third' }));
+
+        expect(registry.getAll()).toHaveLength(1);
+        expect(registry.get('nuke.example.duplicate')?.title).toBe('First');
+        expect(logger.error).toHaveBeenCalledTimes(1);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Duplicate capability id nuke.example.duplicate'));
+    });
+
+    it('logs the first duplicate contribution collision once with both sources', async () => {
+        class FirstContribution implements NukeCapabilityContribution {
+            registerCapabilities(registry: NukeCapabilityRegistryImpl): void {
+                registry.register(capability({ id: 'nuke.example.duplicateContribution', title: 'First' }));
+            }
+        }
+        class SecondContribution implements NukeCapabilityContribution {
+            registerCapabilities(registry: NukeCapabilityRegistryImpl): void {
+                registry.register(capability({ id: 'nuke.example.duplicateContribution', title: 'Second' }));
+            }
+        }
+        const { registry, logger } = createRegistry([new FirstContribution(), new SecondContribution()]);
+
+        await registry.initialize();
+
+        expect(registry.get('nuke.example.duplicateContribution')?.title).toBe('First');
+        expect(logger.error).toHaveBeenCalledTimes(1);
+        const message = String(logger.error.mock.calls[0][0]);
+        expect(message).toContain('contribution FirstContribution');
+        expect(message).toContain('contribution SecondContribution');
+    });
+
     it('rejects invalid ids, schemas, risks, and invoke handlers', () => {
         const invalid: NukeCapability[] = [
             capability({ id: 'nuke.bad' }),

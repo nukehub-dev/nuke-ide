@@ -66,6 +66,8 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   catalog names or numeric MT values, and filters/triggers/derivatives are preserved and not editable.
 - `nuke.openmc.diagnoseProject` / `diagnoseRun` are read-only: project diagnosis aggregates validation, environment, cross-section,
   and DAGMC findings; run diagnosis triages an active run's log tail. Findings cap at 20 with `findings-truncated`.
+- The Simulation dashboard validation/run toolbar renders `openmc.validation` / `openmc.run` actions from nuke-core's neutral
+  context-action registry; missing commands are omitted. See `nuke-core/docs/dev/context-actions.md`.
 
 ## Work Guidance
 

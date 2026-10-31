@@ -51,7 +51,8 @@ import {
     NukeCapabilityDelegate,
     NukeCapabilityDelegateClient,
     NukeCapabilityDescriptor,
-    NukeCapabilityDelegatePath
+    NukeCapabilityDelegatePath,
+    NukeMcpResourceDescriptor
 } from '../../common/nuke-capability-delegate';
 import { NukeResourceService } from '../resources/nuke-resource-service';
 
@@ -59,6 +60,7 @@ import { NukeResourceService } from '../resources/nuke-resource-service';
 export function toCapabilityDescriptor(capability: NukeCapability): NukeCapabilityDescriptor {
     return {
         id: capability.id,
+        version: capability.version ?? 1,
         title: capability.title,
         description: capability.description,
         category: capability.category,
@@ -86,6 +88,16 @@ export class NukeCapabilityDelegateClientImpl implements NukeCapabilityDelegateC
         await this.capabilityRegistry.ready;
         const context = await this.contextService.getContext();
         return this.capabilityRegistry.getEnabled(context).map(toCapabilityDescriptor);
+    }
+
+    async listResources(): Promise<NukeMcpResourceDescriptor[]> {
+        const resources = await this.resourceService.getResources();
+        return resources.map((resource) => ({
+            uri: resource.uri,
+            name: resource.name,
+            description: resource.description,
+            mimeType: resource.mimeType
+        }));
     }
 
     async invoke(capabilityId: string, input: unknown): Promise<NukeCapabilityResult> {

@@ -30,9 +30,9 @@
  *
  * Small, pure helpers used by the MCP contribution's defense-in-depth checks.
  * The external API server already rejects cross-origin requests and verifies
- * its configured token; the MCP endpoint repeats both checks against the
- * config-file token so it cannot serve unprotected if the two configurations
- * drift apart.
+ * its configured token; the MCP endpoint repeats the origin and bearer checks
+ * against the config-file token and additionally rejects non-loopback peers so
+ * it cannot serve unprotected if the two configurations drift apart.
  *
  * @module nuke-ai/node/mcp
  */
@@ -45,6 +45,17 @@ export const MCP_DISABLED_MESSAGE = 'MCP is disabled until a token is configured
 /** True when the request carries an `Origin` header. */
 export function hasOrigin(headers: { origin?: string | string[] }): boolean {
     return headers.origin !== undefined;
+}
+
+/** True only for IPv4 or IPv6 loopback peers. */
+export function isLoopbackAddress(address: string | undefined): boolean {
+    if (address === undefined || address.length === 0) {
+        return false;
+    }
+    if (address === '::1' || address === '::ffff:127.0.0.1') {
+        return true;
+    }
+    return address.startsWith('127.') || address.startsWith('::ffff:127.');
 }
 
 /** Compare two strings without leaking their contents through timing. */

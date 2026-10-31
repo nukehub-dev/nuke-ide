@@ -97,6 +97,16 @@ export const NukeAiCommands = {
         label: 'NukeAI: Diagnose Active Statepoint',
         category: 'NukeAI'
     } as Command,
+    PREVIEW_SETTINGS: {
+        id: 'nuke.ai.previewSettings',
+        label: 'NukeAI: Review OpenMC Settings',
+        category: 'NukeAI'
+    } as Command,
+    REFRESH_RUN: {
+        id: 'nuke.ai.refreshRun',
+        label: 'NukeAI: Refresh Active Run Status',
+        category: 'NukeAI'
+    } as Command,
     CAPTURE_VIEW: {
         id: 'nuke.ai.captureView',
         label: 'NukeAI: Capture DAGMC View',
@@ -167,13 +177,24 @@ export const NukeAiPrompts = {
         'at most three safe next steps. Note that this diagnoses statepoint metadata, not raw tally values or per-bin',
         'uncertainties. This is read-only: do not open, overwrite, or delete files.'
     ].join(' '),
+    PREVIEW_SETTINGS: [
+        'Call nuke_openmc_summarizeProject for the active OpenMC project and review its current run settings. Call',
+        'nuke_openmc_previewSettings only when the user supplies a concrete proposed change, show the before/after',
+        'diff, and ask for confirmation before anything is applied. This is read-only until the user confirms: do not',
+        'apply settings, edit files, or start a run.'
+    ].join(' '),
+    REFRESH_RUN: [
+        'Call nuke_openmc_getRunStatus for the active OpenMC run and summarize the current state, working directory,',
+        'and recent log tail. Explain what the status means and name the next safe check. This is read-only: do not',
+        'start, cancel, or restart the run.'
+    ].join(' '),
     CAPTURE_VIEW: [
         'Call nuke_viz_captureView for the active DAGMC viewport, then describe what the preview shows and its',
         'limitations. This is read-only: do not change the camera, open files, or write or modify any other files.'
     ].join(' ')
 };
 
-/** All NukeAI actions in their sidebar order. */
+/** NukeAI sidebar actions in display order, with their chat prompts. */
 export const NUKE_AI_ACTIONS: readonly NukeAiActionDefinition[] = [
     { command: NukeAiCommands.ASK, displayText: 'Ask About Active Context', prompt: NukeAiPrompts.ASK },
     { command: NukeAiCommands.ATTACH_CONTEXT, displayText: 'Attach Active Context' },
@@ -182,6 +203,7 @@ export const NUKE_AI_ACTIONS: readonly NukeAiActionDefinition[] = [
     { command: NukeAiCommands.VALIDATE_OPENMC, displayText: 'Validate OpenMC Project', prompt: NukeAiPrompts.VALIDATE_OPENMC },
     { command: NukeAiCommands.EXPLAIN_RUN, displayText: 'Explain OpenMC Run', prompt: NukeAiPrompts.EXPLAIN_RUN },
     { command: NukeAiCommands.EXPLAIN_STATEPOINT, displayText: 'Explain Active Statepoint', prompt: NukeAiPrompts.EXPLAIN_STATEPOINT },
+    { command: NukeAiCommands.REFRESH_RUN, displayText: 'Refresh Run Status', prompt: NukeAiPrompts.REFRESH_RUN },
     { command: NukeAiCommands.CAPTURE_VIEW, displayText: 'Capture DAGMC View', prompt: NukeAiPrompts.CAPTURE_VIEW },
     {
         command: NukeAiCommands.DIAGNOSE_CAD,
@@ -226,5 +248,8 @@ export class NukeAiCommandContribution implements CommandContribution {
                 commands.registerCommand(action.command, { execute: () => this.actions.ask(prompt, action.displayText, agentId) });
             }
         }
+        commands.registerCommand(NukeAiCommands.PREVIEW_SETTINGS, {
+            execute: () => this.actions.ask(NukeAiPrompts.PREVIEW_SETTINGS, 'Review OpenMC Settings')
+        });
     }
 }

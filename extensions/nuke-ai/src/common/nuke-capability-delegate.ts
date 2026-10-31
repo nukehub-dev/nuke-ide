@@ -40,6 +40,14 @@ import type { NukeCapability, NukeCapabilityResult } from 'nuke-core/lib/common/
 /** Tool/resource projection; no handler or live predicate crosses the RPC boundary. */
 export type NukeCapabilityDescriptor = Omit<NukeCapability, 'invoke' | 'when'>;
 
+/** Read-only resource projection; the read callback stays in the frontend. */
+export interface NukeMcpResourceDescriptor {
+    readonly uri: string;
+    readonly name: string;
+    readonly description: string;
+    readonly mimeType: string;
+}
+
 /** JSON-RPC path for the capability delegate. */
 export const NukeCapabilityDelegatePath = '/services/nuke-ai/capability-delegate';
 
@@ -49,6 +57,7 @@ export const NukeCapabilityDelegateClient = Symbol('NukeCapabilityDelegateClient
 /** Frontend implementation exposed to the backend over RPC. */
 export interface NukeCapabilityDelegateClient {
     listCapabilities(): Promise<NukeCapabilityDescriptor[]>;
+    listResources(): Promise<NukeMcpResourceDescriptor[]>;
     invoke(capabilityId: string, input: unknown): Promise<NukeCapabilityResult>;
     readResource(uri: string): Promise<string>;
 }

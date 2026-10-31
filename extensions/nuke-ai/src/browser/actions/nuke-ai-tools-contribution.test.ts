@@ -52,11 +52,12 @@ function registeredItems(): NukeToolsItem[] {
 }
 
 describe('NukeAiToolsContribution', () => {
-    it('registers eight contextual actions, four diagnostics actions, and two external MCP controls', () => {
+    it('registers eight contextual actions, one run action, four diagnostics actions, and two external MCP controls', () => {
         const items = registeredItems();
 
-        expect(items).toHaveLength(14);
+        expect(items).toHaveLength(15);
         expect(items.filter((item) => item.category.length === 1)).toHaveLength(8);
+        expect(items.filter((item) => item.category.join('/') === 'NukeAI/Run')).toHaveLength(1);
         expect(items.filter((item) => item.category.join('/') === 'NukeAI/Diagnostics')).toHaveLength(4);
         expect(items.filter((item) => item.category.join('/') === 'NukeAI/External MCP')).toHaveLength(2);
     });
@@ -98,6 +99,14 @@ describe('NukeAiToolsContribution', () => {
             'graph',
             'device-camera'
         ]);
+    });
+
+    it('maps the run refresh action to its command and subgroup', () => {
+        const items = registeredItems().filter((item) => item.category.join('/') === 'NukeAI/Run');
+
+        expect(items.map((item) => item.commandId)).toEqual([NukeAiCommands.REFRESH_RUN.id]);
+        expect(items.map((item) => item.label)).toEqual(['Refresh Active Run Status']);
+        expect(items.map((item) => item.icon)).toEqual(['refresh']);
     });
 
     it('maps the four diagnostics actions to their NukeAI commands and codicons', () => {

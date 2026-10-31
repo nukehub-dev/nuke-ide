@@ -31,21 +31,36 @@
  * The shared viewer menu covers view actions; DAGMC adds the selection-aware
  * volume actions already present in the bottom bar and outline, so a
  * right-click on a selected volume can hide/isolate it without leaving the
- * canvas. Pure and vitest-covered.
+ * canvas. A trailing NukeAI group carries the neutral `visualizer.dagmc`
+ * context actions. Pure and vitest-covered.
  *
  * @module nuke-visualizer/browser/plugins/openmc/widgets/dagmc
  */
 
+import type { NukeContextAction } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import {
     buildViewerContextMenuItems,
     type ViewerContextMenuItem,
     type ViewerContextMenuState
 } from '../../../../viewer-core/viewer-context-menu';
 
+/** Id prefix that routes a row to the neutral context-action command. */
+export const NUKE_AI_CONTEXT_ACTION_MENU_PREFIX = 'nuke-ai:';
+
+/** Stable menu id for one context action. */
+export function nukeAiContextActionMenuId(action: NukeContextAction): string {
+    return `${NUKE_AI_CONTEXT_ACTION_MENU_PREFIX}${action.id}`;
+}
+
 export interface DagmcContextMenuState extends ViewerContextMenuState {
     readonly selectedVolumeId: number | null;
     /** True when any volume, material, or group is currently hidden. */
     readonly hasHiddenVolumes: boolean;
+    /**
+     * Enabled `visualizer.dagmc` context actions from the neutral nuke-core
+     * registry. The caller filters `when` and missing commands. Defaults to [].
+     */
+    readonly nukeAiActions?: readonly NukeContextAction[];
 }
 
 /**
@@ -80,5 +95,11 @@ export function buildDagmcContextMenuItems(state: DagmcContextMenuState): Viewer
     ];
     const firstShading = items.findIndex((item) => item.id.startsWith('shading:'));
     items.splice(firstShading < 0 ? items.length : firstShading, 0, ...selectionItems);
-    return items;
+    const nukeAiItems: ViewerContextMenuItem[] = (state.nukeAiActions ?? []).map((action, index) => ({
+        id: nukeAiContextActionMenuId(action),
+        label: action.label,
+        icon: 'codicon-beaker',
+        separatorAbove: index === 0 ? true : undefined
+    }));
+    return [...items, ...nukeAiItems];
 }

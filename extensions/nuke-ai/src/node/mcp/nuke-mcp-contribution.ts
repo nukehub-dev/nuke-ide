@@ -28,11 +28,15 @@
 /**
  * Nuke MCP Contribution
  *
- * Hosts a small, read-only MCP endpoint on Theia's external API router. The
- * endpoint is disabled unless `<configDir>/nuke-ai-mcp.json` says otherwise,
- * requires a matching bearer token, and rejects cross-origin requests. Each
- * MCP session gets its own `McpServer` and `StreamableHTTPServerTransport`
- * because the SDK connects a server to exactly one transport.
+ * Hosts a read-only MCP endpoint on Theia's external API router. The endpoint
+ * is disabled unless `<configDir>/nuke-ai-mcp.json` says otherwise, requires a
+ * matching bearer token, accepts only loopback peers, and rejects cross-origin
+ * requests. Each MCP session gets its own `McpServer`,
+ * `StreamableHTTPServerTransport`, and catalog built from the live frontend
+ * capability registry.
+ *
+ * Only the explicit read-only allowlist can cross this boundary. Write,
+ * execute, and destructive capabilities stay in the in-process AI chat.
  *
  * @module nuke-ai/node/mcp
  */
@@ -45,24 +49,36 @@ import { ExternalApiContribution } from '@theia/external-api/lib/node/external-a
 import { ExternalApiRouter } from '@theia/external-api/lib/node/external-api-router';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { CallToolResult, isInitializeRequest, ReadResourceResult } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResult, ErrorCode, McpError, isInitializeRequest, ReadResourceResult } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'crypto';
-import { fromJSONSchema } from 'zod';
-import type { NukeJsonSchema } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { NukeCapabilityDelegate } from '../../common/nuke-capability-delegate';
+import type { NukeCapabilityResult } from 'nuke-core/lib/common/nuke-capability-protocol';
+import { NukeCapabilityDelegate, NukeCapabilityDescriptor, NukeMcpResourceDescriptor } from '../../common/nuke-capability-delegate';
 import {
-    NUKE_WORKFLOW_PROMPT,
+    buildDiagnosticsPrompt,
+    buildWorkflowPrompt,
+    isAllowedMcpCapability,
+    isAllowedMcpResourceUri,
+    isReadOnlyMcpCapability,
+    MCP_CONTEXT_RESOURCE_URI,
+    MCP_MAX_RESOURCES,
+    NUKE_DIAGNOSTICS_PROMPT_NAME,
     NUKE_WORKFLOW_PROMPT_NAME,
-    SPIKE_CAD_RESOURCE_URI,
-    SPIKE_CAPABILITY,
-    SPIKE_CONTEXT_RESOURCE_URI,
-    SPIKE_TOOL_NAME
+    NukeMcpToolSummary
 } from '../../common/nuke-mcp-protocol';
-import { hasOrigin, isAuthorizedBearer, MCP_DISABLED_MESSAGE } from './nuke-mcp-auth';
+import { hasOrigin, isAuthorizedBearer, isLoopbackAddress, MCP_DISABLED_MESSAGE } from './nuke-mcp-auth';
+import { MCP_AUDIT_LIMIT, MCP_AUDIT_SUMMARY_LIMIT, NukeMcpAuditEntry, NukeMcpAuditLog, summarizeMcpInput } from './nuke-mcp-audit';
+import { buildReadOnlyToolCatalog, NukeMcpCatalogTool } from './nuke-mcp-catalog';
 import { NukeAIMcpConfigService } from './nuke-mcp-config-service';
+import {
+    MAX_MCP_SESSIONS,
+    MCP_TOOL_RATE_LIMIT,
+    MCP_TOOL_RATE_WINDOW_MS,
+    NukeMcpManagedSession,
+    NukeMcpSessionRegistry
+} from './nuke-mcp-session-registry';
 
-/** Maximum concurrent MCP sessions held by one contribution build. */
-export const MAX_MCP_SESSIONS = 16;
+export { MAX_MCP_SESSIONS, MCP_SESSION_IDLE_MS, MCP_TOOL_RATE_LIMIT, MCP_TOOL_RATE_WINDOW_MS } from './nuke-mcp-session-registry';
+export { redactMcpInput } from './nuke-mcp-audit';
 
 /** Keep the advertised server version in sync with the released extension version. */
 const { version: MCP_SERVER_VERSION } = require('../../../package.json') as { version: string };
@@ -70,27 +86,26 @@ const { version: MCP_SERVER_VERSION } = require('../../../package.json') as { ve
 /** MCP server identity reported during initialization. */
 const MCP_SERVER_INFO = { name: 'nuke-ide', version: MCP_SERVER_VERSION };
 
-/** Converted once; every session reuses the same validated schemas. */
-const SPIKE_INPUT_ZOD = toZodSchema(SPIKE_CAPABILITY.inputSchema);
-const SPIKE_OUTPUT_ZOD = SPIKE_CAPABILITY.outputSchema ? toZodSchema(SPIKE_CAPABILITY.outputSchema) : undefined;
+/** Static context descriptor registered when the frontend catalog is unavailable. */
+const CONTEXT_FALLBACK: NukeMcpResourceDescriptor = {
+    uri: MCP_CONTEXT_RESOURCE_URI,
+    name: 'Nuke context',
+    description: 'Active NukeIDE workspace roots, CAD document, OpenMC project, and visualizer dataset.',
+    mimeType: 'application/json'
+};
 
-const TOOL_DESCRIPTION = `${SPIKE_CAPABILITY.description} Example: {"includeSolids": true} returns one summary per solid in addition to the model totals.`;
-
-const SENSITIVE_KEY = /(authorization|token|api[_-]?key|secret|password)/i;
-const MAX_LOG_STRING = 200;
-const TRUNCATION_SUFFIX = '... [truncated]';
-const MAX_LOG_DEPTH = 5;
-const MAX_LOG_ENTRIES = 50;
-
-interface McpSession {
-    readonly server: McpServer;
-    readonly transport: StreamableHTTPServerTransport;
+interface McpSession extends NukeMcpManagedSession {
+    readonly tools: ReadonlyMap<string, NukeMcpCatalogTool>;
 }
 
-/** External MCP endpoint for the read-only CAD summary catalog. */
+/** External MCP endpoint for the live read-only catalog. */
 @injectable()
 export class NukeMcpContribution implements ExternalApiContribution {
     readonly path = '/nuke-ai-mcp';
+
+    protected readonly audit = new NukeMcpAuditLog(MCP_AUDIT_LIMIT);
+    protected sessionRegistry: NukeMcpSessionRegistry<McpSession> | undefined;
+    protected pendingSessions = 0;
 
     constructor(
         @inject(NukeAIMcpConfigService) protected readonly configService: NukeAIMcpConfigService,
@@ -99,17 +114,38 @@ export class NukeMcpContribution implements ExternalApiContribution {
     ) {}
 
     configure(router: ExternalApiRouter): void {
-        const sessions = new Map<string, McpSession>();
-        router.toDispose.push(Disposable.create(() => void this.closeSessions(sessions)));
+        const previous = this.sessionRegistry;
+        if (previous) {
+            void previous.dispose();
+        }
+        const registry = new NukeMcpSessionRegistry<McpSession>((session) => this.closeSession(session));
+        this.sessionRegistry = registry;
+        router.toDispose.push(
+            Disposable.create(() => {
+                void registry.dispose();
+                if (this.sessionRegistry === registry) {
+                    this.sessionRegistry = undefined;
+                }
+            })
+        );
         router.raw.use(express.json({ limit: '1mb' }));
         router.raw.all('/', (request, response) => {
-            void this.handle(request, response, sessions);
+            void this.handle(request, response, registry);
         });
     }
 
-    protected async handle(request: express.Request, response: express.Response, sessions: Map<string, McpSession>): Promise<void> {
+    /** Recent audit rows, newest first; read-only and never persisted. */
+    getAuditEntries(limit = 20): readonly NukeMcpAuditEntry[] {
+        return this.audit.recent(limit);
+    }
+
+    protected async handle(
+        request: express.Request,
+        response: express.Response,
+        registry: NukeMcpSessionRegistry<McpSession>
+    ): Promise<void> {
         try {
-            await this.handleRequest(request, response, sessions);
+            await this.handleRequest(request, response, registry);
         } catch (error) {
             this.logger.error('[NukeAI] MCP request failed.', error);
             if (!response.headersSent) {
@@ -120,7 +156,11 @@ export class NukeMcpContribution implements ExternalApiContribution {
         }
     }
 
-    protected async handleRequest(request: express.Request, response: express.Response, sessions: Map<string, McpSession>): Promise<void> {
+    protected async handleRequest(
+        request: express.Request,
+        response: express.Response,
+        registry: NukeMcpSessionRegistry<McpSession>
+    ): Promise<void> {
         const config = await this.configService.getConfig();
         if (!config || !config.enabled) {
             this.writeError(response, 404, 'MCP is not enabled.');
@@ -134,6 +174,10 @@ export class NukeMcpContribution implements ExternalApiContribution {
             this.writeError(response, 403, 'Cross-origin requests are not allowed.');
             return;
         }
+        if (!isLoopbackAddress(request.socket?.remoteAddress)) {
+            this.writeError(response, 403, 'MCP only accepts loopback connections.');
+            return;
+        }
         if (!isAuthorizedBearer(request.headers.authorization, config.token)) {
             this.writeError(response, 401, 'Unauthorized.');
             return;
@@ -141,9 +185,12 @@ export class NukeMcpContribution implements ExternalApiContribution {
 
         const sessionId = getSessionId(request);
         if (sessionId !== undefined) {
-            const session = sessions.get(sessionId);
+            const session = registry.get(sessionId);
             if (!session) {
                 this.writeJsonRpcError(response, 404, -32001, 'Session not found', request.body);
+                return;
+            }
+            if (this.rejectUnsafeToolCalls(request.body, session, sessionId, response)) {
                 return;
             }
             await session.transport.handleRequest(request, response, request.body);
@@ -154,12 +201,18 @@ export class NukeMcpContribution implements ExternalApiContribution {
             this.writeJsonRpcError(response, 400, -32000, 'Bad Request: Mcp-Session-Id header is required', request.body);
             return;
         }
-        if (sessions.size >= MAX_MCP_SESSIONS) {
+        if (registry.size + this.pendingSessions >= MAX_MCP_SESSIONS) {
             this.writeError(response, 503, 'Too many active MCP sessions. Try again later.');
             return;
         }
 
-        const session = await this.createSession(sessions);
+        this.pendingSessions += 1;
+        let session: McpSession;
+        try {
+            session = await this.createSession(registry);
+        } finally {
+            this.pendingSessions -= 1;
+        }
         try {
             await session.transport.handleRequest(request, response, request.body);
         } catch (error) {
@@ -167,98 +220,237 @@ export class NukeMcpContribution implements ExternalApiContribution {
             // registered would otherwise leak its server and transport until
             // the next routing rebuild.
             if (!session.transport.sessionId) {
-                await session.server.close().catch(() => undefined);
+                await this.closeSession(session);
             }
             throw error;
         }
     }
 
-    protected async createSession(sessions: Map<string, McpSession>): Promise<McpSession> {
-        const server = this.createServer();
+    protected async createSession(registry: NukeMcpSessionRegistry<McpSession>): Promise<McpSession> {
         let initializedId: string | undefined;
+        let session: McpSession | undefined;
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sessionId) => {
                 initializedId = sessionId;
-                sessions.set(sessionId, { server, transport });
-                this.logger.info(`[NukeAI] MCP session opened (${sessions.size} active).`);
+                if (!session || !registry.open(sessionId, session)) {
+                    this.logger.warn('[NukeAI] MCP session rejected because the session limit was reached.');
+                    void transport.close().catch(() => undefined);
+                    return;
+                }
+                this.logger.info(`[NukeAI] MCP session opened (${registry.size} active).`);
             },
             onsessionclosed: (sessionId) => {
-                sessions.delete(sessionId);
-                this.logger.info(`[NukeAI] MCP session closed (${sessions.size} active).`);
+                registry.delete(sessionId);
+                this.logger.info(`[NukeAI] MCP session closed (${registry.size} active).`);
             }
         });
-        transport.onerror = (error) => this.logger.warn('[NukeAI] MCP transport error.', error);
+        transport.onerror = () => this.logger.warn('[NukeAI] MCP transport error.');
         transport.onclose = () => {
             if (initializedId !== undefined) {
-                sessions.delete(initializedId);
+                registry.delete(initializedId);
             }
         };
         try {
-            await server.connect(transport);
+            const created = await this.createServer(() => initializedId, registry);
+            session = { server: created.server, transport, tools: created.tools };
+            await created.server.connect(transport);
+            return session;
         } catch (error) {
-            await server.close().catch(() => undefined);
+            if (session) {
+                await this.closeSession(session);
+            } else {
+                await transport.close().catch(() => undefined);
+            }
             throw error;
         }
-        return { server, transport };
     }
 
-    protected createServer(): McpServer {
-        const server = new McpServer(MCP_SERVER_INFO);
-        server.registerTool(
-            SPIKE_TOOL_NAME,
-            {
-                title: SPIKE_CAPABILITY.title,
-                description: TOOL_DESCRIPTION,
-                inputSchema: SPIKE_INPUT_ZOD,
-                outputSchema: SPIKE_OUTPUT_ZOD,
-                annotations: SPIKE_CAPABILITY.annotations
-            },
-            async (args) => this.invokeSpikeTool(args)
-        );
-        server.registerResource(
-            'nuke-context',
-            SPIKE_CONTEXT_RESOURCE_URI,
-            {
-                title: 'Nuke context',
-                description: 'Active NukeIDE workspace roots, CAD document, OpenMC project, and visualizer dataset.',
-                mimeType: 'application/json'
-            },
-            async (uri) => this.readSpikeResource(uri.toString())
-        );
-        server.registerResource(
-            'nuke-cad-document',
-            SPIKE_CAD_RESOURCE_URI,
-            {
-                title: 'Nuke CAD document',
-                description: 'Build counts, selection, and manifest for the active CAD document.',
-                mimeType: 'application/json'
-            },
-            async (uri) => this.readSpikeResource(uri.toString())
-        );
+    protected async createServer(
+        getSessionId: () => string | undefined,
+        registry: NukeMcpSessionRegistry<McpSession>
+    ): Promise<{ server: McpServer; tools: ReadonlyMap<string, NukeMcpCatalogTool> }> {
+        const server = new McpServer(MCP_SERVER_INFO, {
+            // Declare the capability up front so `tools/list` still answers with
+            // an empty catalog when the frontend is unavailable.
+            capabilities: { tools: {}, resources: {}, prompts: {} }
+        });
+        const catalog = await this.loadCatalog();
+        const tools = new Map<string, NukeMcpCatalogTool>();
+        for (const tool of catalog) {
+            tools.set(tool.name, tool);
+            server.registerTool(
+                tool.name,
+                {
+                    title: tool.title,
+                    description: tool.description,
+                    inputSchema: tool.inputSchema,
+                    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+                    annotations: tool.annotations
+                },
+                async (input) => this.invokeTool(tool, input, getSessionId(), registry)
+            );
+        }
+
+        for (const resource of await this.loadResources()) {
+            server.registerResource(
+                resource.name,
+                resource.uri,
+                {
+                    title: resource.name,
+                    description: resource.description,
+                    mimeType: resource.mimeType
+                },
+                async (uri) => this.readResource(uri.toString(), resource.mimeType)
+            );
+        }
+
+        const summaries: NukeMcpToolSummary[] = catalog.map((tool) => ({
+            name: tool.name,
+            capabilityId: tool.capabilityId,
+            title: tool.title
+        }));
         server.registerPrompt(
             NUKE_WORKFLOW_PROMPT_NAME,
             {
                 title: 'Nuke workflow',
-                description: 'Walk through the CAD to DAGMC to OpenMC to visualizer workflow without writing anything.'
+                description: 'Walk through the CAD to DAGMC to OpenMC to visualizer workflow using only the exposed read-only tools.'
             },
-            () => ({
-                messages: [
-                    {
-                        role: 'user',
-                        content: { type: 'text', text: NUKE_WORKFLOW_PROMPT }
-                    }
-                ]
-            })
+            () => promptResult(buildWorkflowPrompt(summaries))
         );
-        return server;
+        server.registerPrompt(
+            NUKE_DIAGNOSTICS_PROMPT_NAME,
+            {
+                title: 'Nuke diagnostics',
+                description: 'Triage CAD, OpenMC, and statepoint findings with the exposed read-only diagnostics tools.'
+            },
+            () => promptResult(buildDiagnosticsPrompt(summaries))
+        );
+        return { server, tools };
     }
 
-    protected async invokeSpikeTool(input: unknown): Promise<CallToolResult> {
+    /** Build the live catalog, or an empty one when the frontend is unavailable. */
+    protected async loadCatalog(): Promise<readonly NukeMcpCatalogTool[]> {
+        let descriptors: readonly NukeCapabilityDescriptor[] = [];
+        try {
+            const listed = await this.delegate.listCapabilities();
+            if (!Array.isArray(listed)) {
+                throw new Error('the capability delegate returned a malformed catalog.');
+            }
+            descriptors = listed;
+        } catch (error) {
+            this.logger.warn(
+                `[NukeAI] MCP catalog unavailable: ${errorMessage(error)} Start the IDE frontend and reconnect the MCP client.`
+            );
+        }
+        return buildReadOnlyToolCatalog(descriptors, this.logger).tools;
+    }
+
+    /** Build the resource list, falling back to `nuke://context` on any gap. */
+    protected async loadResources(): Promise<readonly NukeMcpResourceDescriptor[]> {
+        let listed: unknown;
+        try {
+            listed = await this.delegate.listResources();
+        } catch (error) {
+            this.logger.warn(
+                `[NukeAI] MCP resource catalog unavailable: ${errorMessage(error)} Registering ${MCP_CONTEXT_RESOURCE_URI} only.`
+            );
+            return [CONTEXT_FALLBACK];
+        }
+        if (!Array.isArray(listed)) {
+            this.logger.warn(`[NukeAI] MCP resource catalog was malformed. Registering ${MCP_CONTEXT_RESOURCE_URI} only.`);
+            return [CONTEXT_FALLBACK];
+        }
+        const resources: NukeMcpResourceDescriptor[] = [];
+        const seen = new Set<string>();
+        for (const candidate of listed) {
+            if (resources.length >= MCP_MAX_RESOURCES) {
+                this.logger.debug?.(`[NukeAI] MCP resource catalog capped at ${MCP_MAX_RESOURCES}.`);
+                break;
+            }
+            if (!isResourceDescriptor(candidate) || !isAllowedMcpResourceUri(candidate.uri) || seen.has(candidate.uri)) {
+                continue;
+            }
+            seen.add(candidate.uri);
+            resources.push({
+                uri: candidate.uri,
+                name: capText(candidate.name.trim() || candidate.uri, 120),
+                description: capText(candidate.description.trim(), 400),
+                mimeType: capText(candidate.mimeType.trim() || 'application/json', 100)
+            });
+        }
+        if (!seen.has(MCP_CONTEXT_RESOURCE_URI)) {
+            this.logger.warn(`[NukeAI] MCP resource catalog omitted ${MCP_CONTEXT_RESOURCE_URI}; registering it as a fallback.`);
+            resources.unshift(CONTEXT_FALLBACK);
+            if (resources.length > MCP_MAX_RESOURCES) {
+                resources.length = MCP_MAX_RESOURCES;
+            }
+        }
+        return resources;
+    }
+
+    /**
+     * Repeat the capability boundary in the raw handler: every `tools/call` must
+     * name a tool registered for this session and that tool must still be an
+     * allowlisted read-only capability.
+     */
+    protected rejectUnsafeToolCalls(body: unknown, session: McpSession, sessionId: string, response: express.Response): boolean {
+        for (const toolName of toolCallNames(body)) {
+            if (toolName === undefined) {
+                continue;
+            }
+            const tool = session.tools.get(toolName);
+            if (!tool || !isAllowedMcpCapability(tool.capabilityId) || !isReadOnlyMcpCapability(tool.descriptor)) {
+                const { inputHash } = summarizeMcpInput({ tool: toolName });
+                this.recordAudit({
+                    timestamp: Date.now(),
+                    sessionId,
+                    tool: capText(toolName, 128),
+                    durationMs: 0,
+                    ok: false,
+                    inputHash,
+                    inputSummary: '[rejected tool call]'
+                });
+                this.writeJsonRpcError(response, 403, -32601, 'Tool is not exposed by this read-only endpoint.', body);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    protected async invokeTool(
+        tool: NukeMcpCatalogTool,
+        rawInput: unknown,
+        rawSessionId: string | undefined,
+        registry: NukeMcpSessionRegistry<McpSession>
+    ): Promise<CallToolResult> {
+        const sessionId = rawSessionId ?? 'uninitialized';
         const started = Date.now();
+        const { inputHash, inputSummary } = summarizeMcpInput(rawInput);
+        let summary = inputSummary;
         let ok = false;
         try {
-            const result = await this.delegate.invoke(SPIKE_CAPABILITY.id, input);
+            if (!isAllowedMcpCapability(tool.capabilityId) || !isReadOnlyMcpCapability(tool.descriptor)) {
+                return toolError('Tool is not available on this read-only endpoint.');
+            }
+            const admission = registry.beginToolCall(sessionId);
+            if (admission === 'unknown-session') {
+                return toolError('Unknown MCP session. Reconnect the MCP client.');
+            }
+            if (admission === 'rate-limited') {
+                summary = capText(`[rate limited] ${inputSummary}`, MCP_AUDIT_SUMMARY_LIMIT);
+                return toolError(
+                    `Rate limit exceeded: at most ${MCP_TOOL_RATE_LIMIT} tool calls per ${MCP_TOOL_RATE_WINDOW_MS / 1000} seconds per MCP session.`
+                );
+            }
+            const parsed = parseToolInput(rawInput);
+            if (!parsed.ok) {
+                return toolError(parsed.message);
+            }
+            const result = await this.delegate.invoke(tool.capabilityId, parsed.value);
+            if (!result || typeof result !== 'object' || typeof result.ok !== 'boolean') {
+                throw new Error('The capability delegate returned an invalid result.');
+            }
             ok = result.ok;
             return {
                 structuredContent: toStructuredContent(result),
@@ -266,33 +458,53 @@ export class NukeMcpContribution implements ExternalApiContribution {
                 isError: !result.ok
             };
         } catch (error) {
-            const message = errorMessage(error);
-            return {
-                structuredContent: { ok: false },
-                content: [{ type: 'text', text: message }],
-                isError: true
-            };
+            return toolError(errorMessage(error));
         } finally {
-            this.logger.info(
-                `[NukeAI] MCP tool=${SPIKE_TOOL_NAME} durationMs=${Date.now() - started} ok=${ok} input=${redactMcpInput(input)}`
-            );
+            this.recordAudit({
+                timestamp: started,
+                sessionId,
+                tool: tool.name,
+                durationMs: Date.now() - started,
+                ok,
+                inputHash,
+                inputSummary: summary
+            });
+            try {
+                this.logger.info(
+                    `[NukeAI] MCP tool=${tool.name} session=${sessionId} durationMs=${Date.now() - started} ok=${ok} inputHash=${inputHash}`
+                );
+            } catch {
+                // Logging must never escape the tool handler.
+            }
         }
     }
 
-    protected async readSpikeResource(uri: string): Promise<ReadResourceResult> {
-        const text = await this.delegate.readResource(uri);
-        return {
-            contents: [{ uri, mimeType: 'application/json', text }]
-        };
+    protected recordAudit(entry: NukeMcpAuditEntry): void {
+        try {
+            this.audit.record(entry);
+        } catch {
+            // The audit ring must never break a tool call.
+        }
     }
 
-    protected async closeSessions(sessions: Map<string, McpSession>): Promise<void> {
-        if (sessions.size === 0) {
-            return;
+    protected async readResource(uri: string, mimeType: string): Promise<ReadResourceResult> {
+        try {
+            const text = await this.delegate.readResource(uri);
+            if (typeof text !== 'string') {
+                throw new Error('the resource delegate returned a non-text payload.');
+            }
+            return {
+                contents: [{ uri, mimeType: mimeType || 'application/json', text }]
+            };
+        } catch (error) {
+            this.logger.warn(`[NukeAI] MCP resource read failed for ${uri}.`);
+            throw new McpError(ErrorCode.InternalError, `Unable to read ${uri}: ${errorMessage(error)}`);
         }
-        const closing = Array.from(sessions.values());
-        sessions.clear();
-        await Promise.allSettled(closing.map((session) => session.server.close()));
+    }
+
+    protected async closeSession(session: McpSession): Promise<void> {
+        await session.server.close().catch(() => undefined);
+        await session.transport.close().catch(() => undefined);
     }
 
     protected writeError(response: express.Response, status: number, message: string): void {
@@ -308,13 +520,8 @@ export class NukeMcpContribution implements ExternalApiContribution {
     }
 }
 
-/** Coerce a capability JSON schema into the Zod schema accepted by the MCP SDK. */
-function toZodSchema(schema: NukeJsonSchema) {
-    return fromJSONSchema(schema as unknown as Parameters<typeof fromJSONSchema>[0]);
-}
-
 /** Turn a capability result into the object shape required by `structuredContent`. */
-function toStructuredContent(result: { ok: boolean; data?: unknown }): Record<string, unknown> {
+function toStructuredContent(result: NukeCapabilityResult): Record<string, unknown> {
     if (result.data !== null && typeof result.data === 'object' && !Array.isArray(result.data)) {
         return result.data as Record<string, unknown>;
     }
@@ -324,12 +531,69 @@ function toStructuredContent(result: { ok: boolean; data?: unknown }): Record<st
     return { ok: result.ok };
 }
 
+function toolError(message: string): CallToolResult {
+    return {
+        content: [{ type: 'text', text: message }],
+        isError: true
+    };
+}
+
+function parseToolInput(input: unknown): { ok: true; value: unknown } | { ok: false; message: string } {
+    if (input === undefined || input === null) {
+        return { ok: true, value: {} };
+    }
+    if (typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'Tool arguments must be a JSON object.' };
+    }
+    return { ok: true, value: input };
+}
+
+function promptResult(text: string): { messages: Array<{ role: 'user'; content: { type: 'text'; text: string } }> } {
+    return {
+        messages: [{ role: 'user', content: { type: 'text', text } }]
+    };
+}
+
 function stringifyResult(result: unknown): string {
     try {
         return JSON.stringify(result);
     } catch {
         return '{"ok":false,"message":"Unable to serialize the capability result."}';
     }
+}
+
+function isResourceDescriptor(value: unknown): value is NukeMcpResourceDescriptor {
+    if (value === null || typeof value !== 'object') {
+        return false;
+    }
+    const record = value as Partial<NukeMcpResourceDescriptor>;
+    return (
+        typeof record.uri === 'string' &&
+        typeof record.name === 'string' &&
+        typeof record.description === 'string' &&
+        typeof record.mimeType === 'string'
+    );
+}
+
+function capText(value: string, limit: number): string {
+    if (value.length <= limit) {
+        return value;
+    }
+    return `${value.slice(0, Math.max(0, limit - 3))}...`;
+}
+
+function toolCallNames(body: unknown): Array<string | undefined> {
+    const messages = Array.isArray(body) ? body : [body];
+    const names: Array<string | undefined> = [];
+    for (const message of messages) {
+        if (message === null || typeof message !== 'object' || (message as { method?: unknown }).method !== 'tools/call') {
+            continue;
+        }
+        const params = (message as { params?: unknown }).params;
+        const name = params !== null && typeof params === 'object' ? (params as { name?: unknown }).name : undefined;
+        names.push(typeof name === 'string' ? name : undefined);
+    }
+    return names;
 }
 
 function requestId(body: unknown): string | number | null {
@@ -355,53 +619,4 @@ function getSessionId(request: express.Request): string | undefined {
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * Redact secrets and cap long strings before an invocation input reaches the
- * IDE log. Never log the bearer token or any nested credential.
- */
-export function redactMcpInput(input: unknown): string {
-    try {
-        return JSON.stringify(redactValue(input, 0, new WeakSet<object>())) ?? '[undefined input]';
-    } catch {
-        return '[unserializable input]';
-    }
-}
-
-function redactValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
-    if (value === null || typeof value === 'number' || typeof value === 'boolean') {
-        return value;
-    }
-    if (typeof value === 'string') {
-        return capLogString(value);
-    }
-    if (typeof value === 'bigint') {
-        return value.toString();
-    }
-    if (typeof value !== 'object') {
-        return String(value);
-    }
-    if (depth >= MAX_LOG_DEPTH) {
-        return '[truncated]';
-    }
-    if (seen.has(value)) {
-        return '[circular]';
-    }
-    seen.add(value);
-    if (Array.isArray(value)) {
-        return value.slice(0, MAX_LOG_ENTRIES).map((entry) => redactValue(entry, depth + 1, seen));
-    }
-    const result: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value).slice(0, MAX_LOG_ENTRIES)) {
-        result[key] = SENSITIVE_KEY.test(key) ? '[redacted]' : redactValue(entry, depth + 1, seen);
-    }
-    return result;
-}
-
-function capLogString(value: string): string {
-    if (value.length <= MAX_LOG_STRING) {
-        return value;
-    }
-    return value.slice(0, MAX_LOG_STRING - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
 }

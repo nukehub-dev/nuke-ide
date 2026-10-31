@@ -105,6 +105,9 @@ export function validateCapability(capability: NukeCapability): string[] {
     if (!CAPABILITY_RISKS.includes(capability.risk)) {
         errors.push(`risk must be one of ${CAPABILITY_RISKS.join(', ')}`);
     }
+    if (capability.version !== undefined && (!Number.isInteger(capability.version) || capability.version < 1)) {
+        errors.push('version must be an integer >= 1 when provided');
+    }
     if (typeof capability.invoke !== 'function') {
         errors.push('invoke must be a function');
     }
@@ -224,6 +227,7 @@ export function deriveAnnotations(risk: NukeCapabilityRisk): NukeCapabilityAnnot
 export class NukeCapabilityRegistryImpl implements NukeCapabilityRegistry {
     protected readonly capabilities = new Map<string, NukeCapability>();
     protected readonly sources = new Map<string, string>();
+    protected readonly duplicateIds = new Set<string>();
     protected readonly onDidChangeEmitter = new Emitter<void>();
     protected readonly readyDeferred = new Deferred<void>();
     protected currentSource: string | undefined;
@@ -291,9 +295,12 @@ export class NukeCapabilityRegistryImpl implements NukeCapabilityRegistry {
         }
         const existingSource = this.sources.get(capability.id);
         if (existingSource !== undefined) {
-            this.logger.error(
-                `[NukeCapabilityRegistry] Duplicate capability id ${capability.id}: keeping ${existingSource}, ignoring ${source}`
-            );
+            if (!this.duplicateIds.has(capability.id)) {
+                this.duplicateIds.add(capability.id);
+                this.logger.error(
+                    `[NukeCapabilityRegistry] Duplicate capability id ${capability.id}: keeping ${existingSource}, ignoring ${source}`
+                );
+            }
             return;
         }
         const normalized = this.normalizeCapability(capability, source);
@@ -331,10 +338,11 @@ export class NukeCapabilityRegistryImpl implements NukeCapabilityRegistry {
         });
     }
 
-    /** Attach derived annotations when omitted and warn about explicit contradictions. */
+    /** Attach the default version and derived annotations; warn about explicit contradictions. */
     protected normalizeCapability(capability: NukeCapability, source: string): NukeCapability {
+        const version = capability.version ?? 1;
         if (!capability.annotations) {
-            return { ...capability, annotations: deriveAnnotations(capability.risk) };
+            return { ...capability, version, annotations: deriveAnnotations(capability.risk) };
         }
         const derived = deriveAnnotations(capability.risk);
         const contradictions = (Object.keys(capability.annotations) as Array<keyof NukeCapabilityAnnotations>).filter(
@@ -346,7 +354,7 @@ export class NukeCapabilityRegistryImpl implements NukeCapabilityRegistry {
                     contradictions.join(', ')
             );
         }
-        return capability;
+        return { ...capability, version };
     }
 
     protected describeContribution(contribution: NukeCapabilityContribution): string {

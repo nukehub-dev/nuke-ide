@@ -53,12 +53,22 @@ Every invocation returns a `NukeCapabilityResult` with `ok` plus optional `data`
 - `title` and `description` must be non-empty strings.
 - `inputSchema.type` must be `object` and `inputSchema.properties` must be present.
 - `risk` must be `read`, `write`, `execute`, or `destructive`.
+- `version`, when present, must be an integer `>= 1`; omitted capabilities are version `1`.
 - `invoke` must be a function; `when`, when present, must be a function.
-- Duplicate ids keep the first registration and log both contributing sources.
+- Duplicate ids keep the first registration. The registry logs the first collision for an id once, with both contributing sources, and ignores later duplicates.
 
 The exported `validateCapability(capability)` and `validateCapabilityInput(capability, input)` helpers return human-readable problem strings. Input validation checks required keys and top-level primitive types only; nested schemas, enums, and additional properties are the capability's responsibility.
 
 Use `isWithinWorkspace(candidate, roots)` before touching files. It accepts only absolute candidates inside an absolute workspace root and rejects sibling folders with a shared prefix, `..` traversal, relative roots, and an empty root list.
+
+## Versioning
+
+`NukeCapability.version` is an optional contract version. The registry stores every capability with an explicit version, defaulting to `1` when the contribution omits it, and rejects a supplied value that is not an integer `>= 1`.
+
+- **Additive changes stay compatible.** New optional input fields, new result fields, extra tags, and extra examples keep the current version.
+- **Breaking changes bump the version.** Changing the meaning of an existing field, removing an accepted input, or changing the input/output schema shape increments it.
+- **Consumers report, they do not negotiate.** Catalog rows, MCP capability descriptors, and local metrics carry the effective version. There is no minimum-version gate, feature negotiation, or rejection based on version in this contract.
+- **Ids stay the identity.** Versioning never changes the capability id; a breaking contract change reuses the same id with a higher version.
 
 ## Risk and annotations
 
@@ -118,6 +128,7 @@ return { ok: true, changeSet: appliedChangeSet, undoToken, message: 'Settings ap
 - Concurrent calls for the same token run the handler once; later callers are rejected while the first call is in flight.
 - An unknown, already-redeemed, or expired token returns `{ ok: false, message: 'This change can no longer be undone.' }`.
 - The service is a frontend singleton backed by memory only. Tokens are never persisted, so undo does not survive a reload or IDE restart.
+- `nuke-ai` appends an audit line for every result that carries a `changeSet` or `undoToken` under `<workspace>/.nuke-ide/ai/edits.jsonl`. It stores a SHA-256 hash of the token, never the token itself, and it is not an undo source. Reopening the project discards every undo token. See [Local Audit Logs](../../../nuke-ai/docs/user/audit.md).
 - Undo handlers must verify the state they are restoring and touch only the paths they changed; never replace the whole settings object.
 
 `undoable: true` on the capability marks that it can issue an `undoToken`; it does not create the handler. Consumers display the diff from `changeSet` and call `NukeUndoService.undo(token)` after explicit confirmation.

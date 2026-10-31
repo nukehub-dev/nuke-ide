@@ -46,7 +46,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, Message, WidgetManager } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { CommandService } from '@theia/core/lib/common/command';
+import { CommandRegistry, CommandService } from '@theia/core/lib/common/command';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { ThemeService } from '@theia/core/lib/browser/theming';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
@@ -257,6 +257,7 @@ import {
 import { AssemblyInstanceList } from './assembly-instance-list';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
+import { NukeContextAction, NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { attributeBodyToFeature, buildViewportContextMenu, openContextMenu, openViewportContextMenu } from './viewport-context-menu';
 import { buildSketchContextMenu, type SketchContextMenuAction, type SketchContextTarget } from './sketch-context-menu';
 import { buildSelectOtherRows, openSelectOtherMenu } from './select-other-menu';
@@ -390,6 +391,9 @@ export class CadViewportWidget extends ReactWidget {
     @inject(CommandService)
     protected readonly commandService: CommandService;
 
+    @inject(CommandRegistry)
+    protected readonly commandRegistry: CommandRegistry;
+
     @inject(NukeCadStateManager)
     protected readonly stateManager: NukeCadStateManager;
 
@@ -433,6 +437,9 @@ export class CadViewportWidget extends ReactWidget {
 
     @inject(QuickInputService)
     protected readonly quickInput: QuickInputService;
+
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions: NukeContextActionRegistry;
 
     private tessData?: TessData;
     private loading = false;
@@ -2914,6 +2921,7 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
         this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
+        this.toDispose.push(this.contextActions.onDidChange(() => this.update()));
         // Display precision is a rendering-only preference: re-render the React
         // chrome (measure popover props) and let the mounted scene refresh its
         // overlay labels through `setMeasurementDecimals`. Ribbon labels/pins,
@@ -4096,6 +4104,12 @@ export class CadViewportWidget extends ReactWidget {
                 dressUpPickMode={this.dressUpPickMode}
                 selectedCurveId={this.documentStore.selection.selectedCurveId}
                 documentStore={this.documentStore}
+                getNukeAiActions={() =>
+                    this.contextActions
+                        .getActions('cad.viewport')
+                        .filter((action) => this.commandRegistry.getCommand(action.commandId) !== undefined)
+                }
+                onExecuteContextAction={(commandId) => void this.commandService.executeCommand(commandId)}
                 templatePickerOpen={this.templatePickerOpen}
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
                 ribbonLabels={this.preferences['nukeCad.ribbonLabels']}
@@ -4253,6 +4267,10 @@ interface CadViewportComponentProps {
     readonly selectedCurveId?: string;
     readonly sectionActive: boolean;
     readonly documentStore: CadDocumentStore;
+    /** Enabled `cad.viewport` context actions from the neutral nuke-core registry, read at menu time. */
+    readonly getNukeAiActions: () => readonly NukeContextAction[];
+    /** Execute one context action's Theia command. */
+    readonly onExecuteContextAction: (commandId: string) => void;
     readonly messageService: MessageService;
     readonly templatePickerOpen: boolean;
     readonly sketchAutoDimension: boolean;
@@ -4906,6 +4924,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onClearSelection,
                 props.onRevealFeature,
                 props.onOpenAppearance,
+                props.getNukeAiActions,
+                props.onExecuteContextAction,
                 handleViewCubeUpdate,
                 handleViewNameChange
             );
@@ -5981,6 +6001,8 @@ function initViewport(
     onClearSelection: () => void,
     onRevealFeature: (featureId: string) => void,
     onOpenBodyAppearance: (bodyId: string) => void,
+    getNukeAiActions: () => readonly NukeContextAction[],
+    onExecuteContextAction: (commandId: string) => void,
     onViewCubeUpdate: (quaternion: readonly [number, number, number, number]) => void,
     onViewNameChange: (name: string) => void
 ): ViewportApi {
@@ -8118,7 +8140,8 @@ function initViewport(
                     sectionActive: isSectionActive(),
                     selectedIds: currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : []),
                     hasSelection: hasViewportSelection(),
-                    selectOtherCount: candidates.length
+                    selectOtherCount: candidates.length,
+                    nukeAiActions: getNukeAiActions()
                 }),
                 anchor,
                 (action) => {
@@ -8179,6 +8202,9 @@ function initViewport(
                         }
                         case 'appearance':
                             onOpenBodyAppearance(action.bodyId);
+                            break;
+                        case 'contextAction':
+                            onExecuteContextAction(action.commandId);
                             break;
                         case 'noop':
                             break;

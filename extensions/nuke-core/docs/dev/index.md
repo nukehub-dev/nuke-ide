@@ -15,6 +15,7 @@ Nuke Core is a Theia extension that provides Python environment discovery, packa
 | [`status-bar-integration.md`](status-bar-integration.md) | How to request status bar visibility from your extension, including reference counting and widget lifecycle patterns.            |
 | [`tools-sidebar.md`](tools-sidebar.md)                   | How to register commands in the Nuke Tools sidebar so they appear in the searchable, categorized left panel.                     |
 | [`capability-registry.md`](capability-registry.md)       | How to expose cross-extension capabilities and ambient context through the neutral nuke-core contract.                           |
+| [`context-actions.md`](context-actions.md)               | How to publish command-backed actions to domain menus through the neutral context-action registry.                               |
 
 ---
 

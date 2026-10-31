@@ -42,3 +42,4 @@
 
 export * from './services';
 export * from './contributions';
+export * from './context-actions/nuke-context-action-registry';

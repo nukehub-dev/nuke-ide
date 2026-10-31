@@ -35,6 +35,7 @@
  * @module nuke-cad/browser/widgets/cad-viewport
  */
 
+import type { NukeContextAction } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { type MeasureToolMode } from './measure-tool';
 
 /** Feature fields the attribution needs; structural subset of `FeatureDef`. */
@@ -84,6 +85,8 @@ export type ViewportContextMenuAction =
     | { readonly kind: 'selectOther' }
     /** Open the per-body Appearance dialog (display-only color/opacity override). */
     | { readonly kind: 'appearance'; readonly bodyId: string }
+    /** Execute a neutral context action's Theia command. */
+    | { readonly kind: 'contextAction'; readonly commandId: string }
     /** Only ever on disabled items (the Edit Feature placeholder). */
     | { readonly kind: 'noop' };
 
@@ -129,11 +132,27 @@ export interface ViewportContextMenuInput {
      * only when more than one candidate exists. Defaults to 0.
      */
     readonly selectOtherCount?: number;
+    /**
+     * Enabled `cad.viewport` context actions from the neutral nuke-core
+     * registry. The caller filters `when` and missing commands. Defaults to [].
+     */
+    readonly nukeAiActions?: readonly NukeContextAction[];
+}
+
+/** Menu rows for the trailing NukeAI group; an empty list renders no group. */
+export function buildNukeAiContextMenuItems(actions: readonly NukeContextAction[]): readonly ViewportContextMenuItem[] {
+    return actions.map((action, index) => ({
+        label: action.label,
+        icon: 'codicon-beaker',
+        separatorAbove: index === 0 ? true : undefined,
+        action: { kind: 'contextAction', commandId: action.commandId } as const
+    }));
 }
 
 /** Hit-test-dependent menu contents; solid menu vs empty-space menu. */
 export function buildViewportContextMenu(input: ViewportContextMenuInput): readonly ViewportContextMenuItem[] {
     const hasSelection = input.hasSelection === true;
+    const nukeAiItems = buildNukeAiContextMenuItems(input.nukeAiActions ?? []);
     if (input.solid !== undefined) {
         const { solidId, featureId, bodyId } = input.solid;
         const selectedIds = (input.selectedIds ?? []).filter((id, index, all) => all.indexOf(id) === index);
@@ -237,7 +256,8 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
                           action: { kind: 'clearSelection' } as const
                       }
                   ]
-                : [])
+                : []),
+            ...nukeAiItems
         ];
     }
     const hiddenCount = input.hiddenCount ?? 0;
@@ -273,7 +293,8 @@ export function buildViewportContextMenu(input: ViewportContextMenuInput): reado
             label: sectionActive ? 'Hide Section View' : 'Show Section View',
             icon: 'codicon-nuke-cad-section',
             action: { kind: 'toggleSection' }
-        }
+        },
+        ...nukeAiItems
     ];
 }
 

@@ -78,11 +78,44 @@ test('MCP endpoint can be enabled, used by a real client, and disabled', async (
     await client.connect(transport);
     try {
         const tools = await client.listTools();
-        expect(tools.tools.map((tool) => tool.name)).toEqual(['nuke_cad_summarize_document']);
+        const toolNames = tools.tools.map((tool) => tool.name);
+        expect(toolNames.length).toBeGreaterThan(0);
+        for (const name of toolNames) {
+            expect(name).toMatch(/^[a-z0-9_]{1,128}$/);
+        }
+        expect(toolNames).toContain('nuke_viz_summarize_statepoint');
+        for (const forbidden of [
+            'nuke_cad_export_dagmc',
+            'nuke_openmc_run_simulation',
+            'nuke_openmc_import_cad',
+            'nuke_openmc_apply_settings',
+            'nuke_openmc_preview_settings'
+        ]) {
+            expect(toolNames).not.toContain(forbidden);
+        }
+        for (const tool of tools.tools) {
+            expect(tool.annotations?.readOnlyHint).toBe(true);
+        }
+
+        const resources = await client.listResources();
+        const resourceUris = resources.resources.map((resource) => resource.uri);
+        expect(resourceUris).toContain('nuke://context');
+        for (const uri of resourceUris) {
+            expect(uri).toMatch(/^nuke:\/\/(context|cad\/document|openmc\/project|visualizer\/dataset|skills\/[a-z0-9-]+)$/);
+        }
+
         const context = await client.readResource({ uri: 'nuke://context' });
         expect((context.contents[0] as { text?: string }).text).toContain('workspaceRoots');
+
         const prompts = await client.listPrompts();
-        expect(prompts.prompts.map((prompt) => prompt.name)).toContain('nuke-workflow');
+        const promptNames = prompts.prompts.map((prompt) => prompt.name);
+        expect(promptNames).toContain('nuke-workflow');
+        expect(promptNames).toContain('nuke-diagnostics');
+        const workflow = await client.getPrompt({ name: 'nuke-workflow' });
+        const workflowText = (workflow.messages[0].content as { type: string; text: string }).text;
+        for (const name of toolNames) {
+            expect(workflowText).toContain(name);
+        }
     } finally {
         await client.close();
     }

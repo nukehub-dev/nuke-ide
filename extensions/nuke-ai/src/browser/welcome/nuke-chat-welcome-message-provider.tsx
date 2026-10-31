@@ -36,6 +36,7 @@ import { PreferenceService } from '@theia/core/lib/common';
 import { DEFAULT_CHAT_AGENT_PREF, BYPASS_MODEL_REQUIREMENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-preferences';
 import { ChatAgentRecommendationService, ChatAgentService } from '@theia/ai-chat/lib/common';
 import { OPEN_AI_CONFIG_VIEW } from '@theia/ai-ide/lib/browser/ai-configuration/ai-configuration-view-contribution';
+import { WelcomeQuickActions } from './welcome-quick-actions';
 
 const NukeIdeAiLogo = ({ width = 120, height = 120, className = '' }) => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width={width} height={height} className={className}>
@@ -213,8 +214,21 @@ Attach context with *#{3}*, *#{4}*, *#{5}*, or click {6}. [Learn more](https://t
                     className="theia-WelcomeMessage-Content"
                     markdownOptions={{ supportHtml: true }}
                 />
+                <WelcomeQuickActions
+                    hasReadyModel={this._hasReadyModels}
+                    modelSettingsCommandId={OPEN_AI_CONFIG_VIEW.id}
+                    onRun={(commandId) => void this.runWelcomeCommand(commandId)}
+                />
             </div>
         );
+    }
+
+    protected async runWelcomeCommand(commandId: string): Promise<void> {
+        try {
+            await this.commandRegistry.executeCommand(commandId);
+        } catch (error) {
+            console.error(`[NukeAI] Failed to execute the welcome command ${commandId}.`, error);
+        }
     }
 
     protected renderModelConfigurationScreen(): React.ReactNode {
@@ -305,6 +319,11 @@ Some agents (e.g. Claude Code) work without a provider. [Learn more](https://the
                         {nls.localize('theia/ai/ide/continueAnyway', 'Continue Anyway')}
                     </button>
                 </div>
+                <WelcomeQuickActions
+                    hasReadyModel={this._hasReadyModels}
+                    modelSettingsCommandId={OPEN_AI_CONFIG_VIEW.id}
+                    onRun={(commandId) => void this.runWelcomeCommand(commandId)}
+                />
             </div>
         );
     }

@@ -53,6 +53,7 @@ bind(NukeCapabilityContribution).toService(ExampleCapabilityContribution);
 
 - **Id** — `nuke.<domain>.<verbNoun>`, lowercase domain and camel-case verb noun, for example `nuke.openmc.run`. The id stays the stable registry, MCP, resource, preview, and log identifier.
 - **Tool name** — the chat exposes the sanitized id: non-alphanumeric characters become `_`, repeated underscores collapse, and the result is capped at 128 characters. For example, `nuke.example.describeProject` becomes `nuke_example_describeProject`, and both `ToolRequest.id` and `ToolRequest.name` use that value.
+- **Version** — omit `version` for the initial contract (`1`), or set a positive integer. Additive input/result fields keep the version; a breaking schema or meaning change increments it. The registry rejects invalid versions, and the catalog, MCP descriptor, and metrics journal report the effective value. There is no negotiation.
 - **Description** — explain when to use the action. The bridge appends up to three example descriptions as `Example: ...` lines.
 - **Input schema** — must be a top-level object schema with a `properties` map. Nested schemas, arrays, enums, defaults, and numeric or pattern constraints are preserved.
 - **Risk** — choose the weakest accurate level:
@@ -65,4 +66,8 @@ bind(NukeCapabilityContribution).toService(ExampleCapabilityContribution);
 - **Results** — return the structured envelope. Use `message` for the human-readable summary, `data` for compact structured output, `artifacts` for files or URIs, `warnings` for caveats, `nextActions` for suggested follow-ups, and `handle` or `undoToken` when the caller needs to continue or reverse the action. Add `preview` to render truthful output in the chat; see [Previews and Trajectory](preview.md).
 - **Bounds** — keep `data` small. Strings over 8 KiB are truncated and payloads over 32 KiB are replaced with a marked summary before they reach the model.
 
-See [Capability Registry](../../../nuke-core/docs/dev/capability-registry.md) for validation details, context contributions, and workspace path checks.
+Every invocation is recorded automatically in the local tool metrics, and a result with `changeSet` or `undoToken` is
+recorded in the applied-edit journal. Do not add logging of inputs, file contents, paths, or tokens for your capability;
+see [Local Metrics and the Edit Journal](metrics.md).
+
+See [Capability Registry](../../../nuke-core/docs/dev/capability-registry.md) for validation details, context contributions, workspace path checks, and the version contract.

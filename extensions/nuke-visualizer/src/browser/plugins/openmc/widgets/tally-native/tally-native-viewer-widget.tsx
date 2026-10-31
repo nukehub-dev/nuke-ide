@@ -34,6 +34,7 @@ import { getThemeMode } from '@theia/core/lib/common/theme';
 import { Emitter, Event } from '@theia/core/lib/common/event';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { boundingBoxFromPositions } from '../../../../viewer-core/clip-plane';
 import { VolumeGrid } from '../../../../viewer-core/volume-raycast';
 import { ViewerContextMenuItem } from '../../../../viewer-core/viewer-context-menu';
@@ -76,6 +77,7 @@ import {
     isVoidMaterial,
     materialNamesInOrder
 } from '../geometry-native/geometry-native-model';
+import { buildTallyContextActionsMenuItems, tallyContextActionMenuId } from './tally-context-menu';
 
 /**
  * Native tally mesh/overlay/source viewer widget: renders the three
@@ -123,6 +125,9 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
 
     @inject(OpenMCBackendService)
     protected readonly openmcBackend!: OpenMCBackendService;
+
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions!: NukeContextActionRegistry;
 
     /** Probe source context for this tab (set by the opener when known; manual entry otherwise). */
     protected probeContext: LineProbeContext | undefined;
@@ -712,10 +717,25 @@ export class TallyNativeViewerWidget extends NativeVtkViewerWidget implements Cs
     }
 
     protected override buildContextMenuItems(): ViewerContextMenuItem[] {
-        return [...super.buildContextMenuItems(), buildTallyUnderlayMenuItem(this.underlayCells.length > 0, this.underlayVisible)];
+        // The tally scope only exists on a loaded dataset; the menu itself
+        // opens only after a model is parsed, and the builder double-checks
+        // that state.
+        const nukeAiActions = this.contextActions
+            .getActions('visualizer.tally')
+            .filter((action) => this.commands.getCommand(action.commandId) !== undefined);
+        return [
+            ...super.buildContextMenuItems(),
+            buildTallyUnderlayMenuItem(this.underlayCells.length > 0, this.underlayVisible),
+            ...buildTallyContextActionsMenuItems(this.model !== undefined, nukeAiActions)
+        ];
     }
 
     protected override handleExtraContextMenuAction(id: string): void {
+        const contextAction = this.contextActions.getActions('visualizer.tally').find((action) => tallyContextActionMenuId(action) === id);
+        if (contextAction !== undefined && this.commands.getCommand(contextAction.commandId) !== undefined) {
+            void this.commands.executeCommand(contextAction.commandId);
+            return;
+        }
         if (id === TALLY_UNDERLAY_MENU_ID && this.underlayCells.length > 0) {
             this.setUnderlayVisible(!this.underlayVisible);
         }

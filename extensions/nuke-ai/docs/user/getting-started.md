@@ -2,11 +2,26 @@
 
 `nuke-ai` connects the IDE's AI chat to actions that domain extensions publish through the Nuke capability registry. Each enabled capability appears as a typed tool, so the assistant can call real extension services instead of driving the UI.
 
-The extension has no dedicated panel of its own. Its actions live in the first section of the Nuke Tools sidebar and in the Command Palette, and its tools become visible as domain extensions adopt the capability contract. Its skills appear as chat slash commands.
+The extension's actions live in the first section of the Nuke Tools sidebar and in the Command Palette, its tools become visible as domain extensions adopt the capability contract, and **NukeAI: Open Preview Gallery** opens the read-only preview gallery in the main area. Its skills appear as chat slash commands.
 
 Choose the **NukeAI** agent in **AI Chat** for a dedicated assistant, or use the sidebar actions to ask a focused
 read-only question about the active model. **NukeAI: Attach Active Context** adds the `#nukeContext` chip to the
 active chat. See [NukeAI Actions](actions.md) for the full action list and the read-only guarantee.
+
+## Quick start and model setup
+
+With no chat session open, the AI Chat welcome screen shows a **NukeAI quick start** section. Its five buttons run
+read-only requests with your active workspace context attached:
+
+- **Ask About Active Context** summarizes what the active CAD document, OpenMC project, and dataset make possible.
+- **Check Active CAD Model** reports build status, counts, selection, and warnings.
+- **Diagnose OpenMC Project** triages validation, environment readiness, and cross-section state.
+- **Review OpenMC Settings** shows the current run settings and previews a proposed change before anything is applied.
+- **Diagnose Active Statepoint** checks k-effective uncertainty, batches, and tally coverage.
+
+If no language model is ready, the section shows a **Choose a model** card with an **Open AI Settings** button. Add a
+provider and API key there, then return to the chat. The card disappears once a model is ready. NukeAI never ships a
+provider key of its own.
 
 ## Using capability tools
 
@@ -20,8 +35,16 @@ Tool results include a short message, bounded structured JSON, and file or URI l
 
 When a tool can show a preview, the chat renders it next to the result with a caption, its limitations, and a marker
 when the image is approximate. Previews produced by tools, including the DAGMC viewport capture, are also recorded
-under the workspace at `.nuke-ide/ai/previews/` so the command-to-preview history can be replayed. Open that folder in
-the file explorer to inspect or delete old previews; the IDE recreates it on the next capture.
+under the workspace at `.nuke-ide/ai/previews/` so the command-to-preview history can be replayed. See
+[Previews and the Gallery](previews.md) for the folder layout and the read-only gallery; the IDE recreates the folder
+on the next capture.
+
+## Preview gallery
+
+Run **NukeAI: Open Preview Gallery** from the Command Palette to browse the saved previews. The gallery lists bundles
+newest first, shows the capability and capture time behind each card, and opens the preview image or its result
+snapshot when you click a card. It is read-only: there is no delete or regenerate control. To clear the history,
+delete `.nuke-ide/ai/previews` in the file explorer. See [Previews and the Gallery](previews.md).
 
 ## Domain skills
 
@@ -45,9 +68,9 @@ roots. Missing fields appear as `none`; if the context cannot be collected, the 
 ## External MCP clients
 
 The command **NukeAI: Enable MCP Endpoint** starts a token-protected MCP server on `127.0.0.1`, and
-**NukeAI: Disable MCP Endpoint** stops it and removes the token. The endpoint exposes a read-only CAD summary,
-context resources, and a workflow prompt. See [External MCP Clients](mcp-clients.md) for the client configuration and
-security notes.
+**NukeAI: Disable MCP Endpoint** stops it and removes the token. The endpoint exposes a live, read-only catalog of
+CAD, OpenMC, and Visualizer tools plus context resources and workflow/diagnostics prompts. See
+[External MCP Clients](mcp-clients.md) for the client configuration and security notes.
 
 ## Troubleshooting
 

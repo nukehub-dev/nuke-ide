@@ -53,7 +53,8 @@ docs/
     ├── architecture.md
     ├── service-api.md
     ├── status-bar-integration.md
-    └── tools-sidebar.md
+    ├── tools-sidebar.md
+    └── context-actions.md
 ```
 
 ---

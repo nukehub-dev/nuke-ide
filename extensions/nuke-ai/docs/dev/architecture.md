@@ -18,6 +18,9 @@ ToolInvocationRegistry (Theia AI)
         │ handler(arguments, invocationContext)
         ▼
 capability.invoke(input, context)
+        │ result (best effort)
+        ▼
+NukeAiMetricsService / NukeEditJournal
 ```
 
 A domain extension never imports `nuke-ai`. It contributes a `NukeCapability` through `nuke-core`, and `nuke-ai` discovers it from the registry. This keeps the dependency direction one-way: domain extensions depend on the contract, and only the AI extension depends on the AI runtime.
@@ -59,6 +62,15 @@ Change events are debounced with `setTimeout(0)`. Concurrent refreshes share one
 The capability id, for example `nuke.cad.exportDagmc`, remains the stable registry identifier used by `NukeCapabilityRegistry`, external MCP, resources, preview records, and logs. The bridge derives both tool fields from it with `toToolName`, so tool lookup, confirmation, model calls, and `~{...}` prompt references all resolve against the same sanitized name.
 
 Schema conversion preserves JSON Schema keywords recursively, including nested `properties`, `required`, `items`, `anyOf`, `enum`, `default`, `minimum`, `maximum`, and `pattern`. The top-level `additionalProperties` keyword is dropped because Theia's `ToolRequestParameters` does not declare it; nested occurrences are preserved.
+
+The registry normalizes every capability to an explicit version, defaulting to `1`. The version appears in catalog rows and MCP descriptors; it is not part of the model-facing tool name. A capability with the same id and a higher version replaces the old contract only through a normal registration change.
+
+## Local journals
+
+Every `invokeCapability` call records one metric line in a `finally` block, including failed, cancelled, and
+validation-rejected calls. A result that carries a `changeSet` or `undoToken` also appends one edit-journal line. Both
+journals are local, serialized, capped at 1 MiB with one rotated backup, and best-effort: a write failure is logged and
+the tool result is unchanged. See [Local Metrics and the Edit Journal](metrics.md).
 
 ## Result limits
 

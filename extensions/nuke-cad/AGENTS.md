@@ -129,6 +129,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   a saved document from cache) in `onAfterAttach`; the empty-document card must never
   cover an active document. The same hook re-reveals Feature Tree + Model Outline, and
   New Document clears the old model/tokens before installing (no background restore).
+- The viewport context menu appends the neutral `cad.viewport` context-action group; existing
+  rows/separators stay fixed and missing commands are omitted. See `nuke-core/docs/dev/context-actions.md`.
 - Document opens are generation-guarded: a slower file read, rebuild, or cached-fast-path
   parse is discarded after a newer `.nuke-cad` open, and the Drawing Sheet clears per-document
   linework/results via `CadDocumentStore.documentEpoch` before refreshing the new document.

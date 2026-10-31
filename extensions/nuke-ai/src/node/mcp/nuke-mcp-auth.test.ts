@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
-import { hasOrigin, isAuthorizedBearer, MCP_DISABLED_MESSAGE, timingSafeEqualText } from './nuke-mcp-auth';
+import { hasOrigin, isAuthorizedBearer, isLoopbackAddress, MCP_DISABLED_MESSAGE, timingSafeEqualText } from './nuke-mcp-auth';
 
 describe('nuke-mcp-auth', () => {
     it('keeps the disabled message exact', () => {
@@ -37,6 +37,18 @@ describe('nuke-mcp-auth', () => {
         expect(hasOrigin({ origin: 'https://example.com' })).toBe(true);
         expect(hasOrigin({ origin: '' })).toBe(true);
         expect(hasOrigin({})).toBe(false);
+    });
+
+    it('accepts only loopback peers', () => {
+        expect(isLoopbackAddress('127.0.0.1')).toBe(true);
+        expect(isLoopbackAddress('127.42.0.7')).toBe(true);
+        expect(isLoopbackAddress('::1')).toBe(true);
+        expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true);
+        expect(isLoopbackAddress('::ffff:127.2.3.4')).toBe(true);
+        expect(isLoopbackAddress('10.0.0.7')).toBe(false);
+        expect(isLoopbackAddress('::ffff:10.0.0.7')).toBe(false);
+        expect(isLoopbackAddress(undefined)).toBe(false);
+        expect(isLoopbackAddress('')).toBe(false);
     });
 
     it('accepts only the exact bearer scheme and token', () => {
