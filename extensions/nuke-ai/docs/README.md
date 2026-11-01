@@ -44,6 +44,9 @@ rotation, privacy rules, and the undo persistence decision.
 
 → Read [**Adding a Capability**](dev/adding-a-capability.md) to make a domain action available to the AI chat.
 
+→ Read [**CAD Authoring Design**](dev/cad-authoring-design.md) for the design-only, gated proposal for structured CAD
+feature edits, its threat model, and the security gate that must pass first.
+
 ---
 
 ## Quick Overview

@@ -59,6 +59,7 @@ import { NukePreviewGalleryService } from './preview/nuke-preview-gallery-servic
 import { NukePreviewGalleryWidget } from './preview/nuke-preview-gallery-widget';
 import { NukePreviewGalleryContribution } from './preview/nuke-preview-gallery-commands';
 import { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';
+import { NukeSkillRootCache } from './skills/nuke-skill-root-cache';
 import { NukeContextVariableContribution } from './context/nuke-context-variable-contribution';
 import { NukeResourceService } from './resources/nuke-resource-service';
 import { NukeCapabilityDelegateClient } from '../common/nuke-capability-delegate';
@@ -120,6 +121,8 @@ export default new ContainerModule((bind) => {
     bind(NukeToolCallRenderer).toSelf().inSingletonScope();
     bind(ChatResponsePartRenderer).toService(NukeToolCallRenderer);
 
+    bind(NukeSkillRootCache).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(NukeSkillRootCache);
     bind(NukeSkillDirectoryContribution).toSelf().inSingletonScope();
     bind(SkillDirectoryContribution).toService(NukeSkillDirectoryContribution);
 
@@ -159,6 +162,7 @@ export type { NukePreviewGalleryEntry } from './preview/nuke-preview-gallery-ser
 export { NukePreviewGalleryWidget, NukePreviewGalleryView } from './preview/nuke-preview-gallery-widget';
 export { NukePreviewGalleryContribution, NukePreviewGalleryCommands } from './preview/nuke-preview-gallery-commands';
 export { NukeSkillDirectoryContribution } from './skills/nuke-skill-directory-contribution';
+export { NukeSkillRootCache } from './skills/nuke-skill-root-cache';
 export { NukeContextVariableContribution } from './context/nuke-context-variable-contribution';
 export { NukeResourceService } from './resources/nuke-resource-service';
 export { NukeCapabilityDelegateClientImpl } from './mcp/nuke-capability-delegate-client';

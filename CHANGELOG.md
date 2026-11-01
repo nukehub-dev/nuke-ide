@@ -349,6 +349,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
+- nuke-ai: external MCP sessions and NukeAI skills resolve the packaged skill root instead of a missing `applications/skills` path.
 - nuke-ai: capability tools use one sanitized id and name, so AI confirmations, parameter labels, and result cards resolve the correct tool.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.

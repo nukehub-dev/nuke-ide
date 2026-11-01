@@ -37,25 +37,23 @@
 
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { ILogger } from '@theia/core/lib/common/logger';
-import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
 import { SkillDirectoryContribution } from '@theia/ai-core/lib/browser/skill-service';
 import { SkillDirectoryEntry } from '@theia/ai-core/lib/common/skill';
-import { NukeAISkillService, NukeAISkillServicePath } from '../../common/nuke-ai-protocol';
+import { NukeSkillRootCache } from './nuke-skill-root-cache';
 
 /** Serve the backend-owned NukeAI skill root to Theia. */
 @injectable()
 export class NukeSkillDirectoryContribution implements SkillDirectoryContribution {
-    protected skillService: NukeAISkillService | undefined;
     protected loggedRoots = false;
 
     constructor(
-        @inject(WebSocketConnectionProvider) protected readonly connectionProvider: WebSocketConnectionProvider,
+        @inject(NukeSkillRootCache) protected readonly skillRootCache: NukeSkillRootCache,
         @inject(ILogger) protected readonly logger: ILogger
     ) {}
 
     async getSkillDirectories(): Promise<SkillDirectoryEntry[]> {
         try {
-            const roots = await this.getSkillService().getSkillRoots();
+            const roots = await this.skillRootCache.getRoots();
             if (!this.loggedRoots) {
                 this.loggedRoots = true;
                 this.logger.info(`[NukeAi] Discovered skill root(s): ${roots.join(', ') || 'none'}`);
@@ -65,12 +63,5 @@ export class NukeSkillDirectoryContribution implements SkillDirectoryContributio
             this.logger.error('[NukeAi] Failed to read skill roots from the backend:', error);
             return [];
         }
-    }
-
-    protected getSkillService(): NukeAISkillService {
-        if (!this.skillService) {
-            this.skillService = this.connectionProvider.createProxy<NukeAISkillService>(NukeAISkillServicePath);
-        }
-        return this.skillService;
     }
 }

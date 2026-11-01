@@ -40,7 +40,6 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { URI } from '@theia/core/lib/common/uri';
-import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { isValidSkillName, SKILL_FILE_NAME } from '@theia/ai-core/lib/common/skill';
 import * as path from 'path';
@@ -50,7 +49,7 @@ import {
     NukeCapabilityRegistry,
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { NukeAISkillService, NukeAISkillServicePath } from '../../common/nuke-ai-protocol';
+import { NukeSkillRootCache } from '../skills/nuke-skill-root-cache';
 
 /** A read-only resource offered to external and in-process consumers. */
 export interface NukeResourceDescriptor {
@@ -74,13 +73,11 @@ const VISUALIZER_CAPABILITY = 'nuke.viz.summarizeStatepoint';
 /** Build resource descriptors and read them on demand. */
 @injectable()
 export class NukeResourceService {
-    protected skillService: NukeAISkillService | undefined;
-
     constructor(
         @inject(NukeCapabilityContextService) protected readonly contextService: NukeCapabilityContextService,
         @inject(NukeCapabilityRegistry) protected readonly capabilityRegistry: NukeCapabilityRegistry,
         @inject(FileService) protected readonly fileService: FileService,
-        @inject(WebSocketConnectionProvider) protected readonly connectionProvider: WebSocketConnectionProvider,
+        @inject(NukeSkillRootCache) protected readonly skillRootCache: NukeSkillRootCache,
         @inject(ILogger) protected readonly logger: ILogger
     ) {}
 
@@ -259,7 +256,7 @@ export class NukeResourceService {
     protected async getSkillResources(): Promise<NukeResourceDescriptor[]> {
         let roots: string[];
         try {
-            roots = await this.getSkillService().getSkillRoots();
+            roots = await this.skillRootCache.getRoots();
         } catch (error) {
             this.logger.error('[NukeAi] Failed to read skill roots for resources:', error);
             return [];
@@ -316,7 +313,7 @@ export class NukeResourceService {
         }
         let roots: string[];
         try {
-            roots = await this.getSkillService().getSkillRoots();
+            roots = await this.skillRootCache.getRoots();
         } catch (error) {
             this.logger.error('[NukeAi] Failed to read skill roots:', error);
             return `Unable to read ${uri}: the skill service is unavailable.`;
@@ -340,13 +337,6 @@ export class NukeResourceService {
             }
         }
         return lastError ? `Unable to read ${uri}: ${lastError}` : `Skill not found: ${name}.`;
-    }
-
-    protected getSkillService(): NukeAISkillService {
-        if (!this.skillService) {
-            this.skillService = this.connectionProvider.createProxy<NukeAISkillService>(NukeAISkillServicePath);
-        }
-        return this.skillService;
     }
 }
 

@@ -121,12 +121,16 @@ describe('NukeAISkillServiceImpl', () => {
         }
     });
 
-    it('does not throw when no skill directory exists', () => {
+    it('falls back to the installed package when a bundled path has no skill directory', () => {
         const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'nuke-ai-missing-root-'));
         try {
             const fromDir = path.join(temporary, 'lib', 'node', 'skills');
-            expect(() => resolveNukeAISkillRoots(fromDir)).not.toThrow();
-            expect(resolveNukeAISkillRoots(fromDir)[0]).toMatch(/skills$/);
+            let roots: string[] = [];
+            expect(() => {
+                roots = resolveNukeAISkillRoots(fromDir);
+            }).not.toThrow();
+            expect(roots[0]).toMatch(/nuke-ai[\\/]skills$/);
+            expect(fs.existsSync(roots[0])).toBe(true);
         } finally {
             fs.rmSync(temporary, { recursive: true, force: true });
         }

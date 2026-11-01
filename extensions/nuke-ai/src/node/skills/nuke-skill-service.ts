@@ -83,9 +83,35 @@ export function resolveNukeAISkillRoots(fromDir: string = __dirname, logger?: IL
         return [direct];
     }
     const packageRoot = findNukeAiPackageRoot(fromDir);
-    const resolved = packageRoot ? path.join(packageRoot, 'skills') : direct;
+    const resolved = packageRoot ? path.join(packageRoot, 'skills') : (findInstalledSkillRoot() ?? direct);
     logger?.warn(`[NukeAi] Expected the skill root at ${direct} but resolved ${resolved}.`);
     return [resolved];
+}
+
+/**
+ * Find the installed `nuke-ai/skills` directory when the running file lives in
+ * a bundled application instead of the extension package. `require.resolve`
+ * covers workspace and packaged node_modules layouts; the remaining candidates
+ * cover the browser/Electron bundles and a repository-root working directory.
+ */
+function findInstalledSkillRoot(): string | undefined {
+    const candidates: string[] = [];
+    try {
+        candidates.push(path.join(path.dirname(require.resolve('nuke-ai/package.json')), 'skills'));
+    } catch {
+        // The package may be bundled without a resolvable package.json.
+    }
+    candidates.push(
+        path.resolve(__dirname, '../../../../extensions/nuke-ai/skills'),
+        path.resolve(process.cwd(), 'extensions/nuke-ai/skills'),
+        path.resolve(process.cwd(), '../extensions/nuke-ai/skills')
+    );
+    for (const candidate of candidates) {
+        if (isNukeAiSkillsDirectory(candidate)) {
+            return candidate;
+        }
+    }
+    return undefined;
 }
 
 /** True when the candidate is an existing `nuke-ai/skills` directory. */

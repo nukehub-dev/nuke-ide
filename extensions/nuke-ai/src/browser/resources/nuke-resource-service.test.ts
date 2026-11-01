@@ -30,7 +30,6 @@ import type { Mock } from 'vitest';
 import { Event } from '@theia/core/lib/common/event';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { URI } from '@theia/core/lib/common/uri';
-import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
 import type { FileService, TextFileContent } from '@theia/filesystem/lib/browser/file-service';
 import type { FileStat } from '@theia/filesystem/lib/common/files';
 import * as path from 'path';
@@ -42,6 +41,7 @@ import {
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { NukeResourceService } from './nuke-resource-service';
+import type { NukeSkillRootCache } from '../skills/nuke-skill-root-cache';
 
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({
     FileService: Symbol('FileService')
@@ -195,13 +195,13 @@ function setup(options: SetupOptions = {}): Setup {
             return options.skillRoots ?? [];
         })
     };
-    const provider = { createProxy: vi.fn(() => skillService) };
+    const skillRootCache = { getRoots: vi.fn(() => skillService.getSkillRoots()) };
     const logger = createLogger();
     const service = new NukeResourceService(
         contextService,
         registry,
         fileService as unknown as FileService,
-        provider as unknown as WebSocketConnectionProvider,
+        skillRootCache as unknown as NukeSkillRootCache,
         logger
     );
     return { service, contextService, registry, fileService, skillService, logger };

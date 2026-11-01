@@ -25,6 +25,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   and `ChatAgent`; its prompt references every capability tool and `{{nukeContext}}`, and write/execute tools require
   explicit confirmation. The safe-edit section requires preview before apply for settings, materials, and tallies, a
   shown diff, confirmation, and undo reporting; see `docs/user/safe-edits.md`.
+- CAD authoring remains design-only and gated; the design, threat model, and security checklist live in
+  `docs/dev/cad-authoring-design.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
   and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.

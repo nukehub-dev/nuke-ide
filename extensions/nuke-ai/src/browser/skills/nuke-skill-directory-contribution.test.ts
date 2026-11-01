@@ -28,9 +28,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { ILogger } from '@theia/core/lib/common/logger';
-import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
-import { NukeAISkillService, NukeAISkillServicePath } from '../../common/nuke-ai-protocol';
 import { NukeSkillDirectoryContribution } from './nuke-skill-directory-contribution';
+import { NukeSkillRootCache } from './nuke-skill-root-cache';
 
 function createLogger(): ILogger & { info: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> } {
     return {
@@ -42,20 +41,18 @@ function createLogger(): ILogger & { info: ReturnType<typeof vi.fn>; error: Retu
 
 function setup(getSkillRoots: () => Promise<string[]>): {
     contribution: NukeSkillDirectoryContribution;
-    provider: { createProxy: ReturnType<typeof vi.fn> };
-    skillService: { getSkillRoots: Mock<() => Promise<string[]>> };
+    cache: { getRoots: Mock<() => Promise<string[]>> };
     logger: ILogger & { info: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
 } {
-    const skillService = { getSkillRoots: vi.fn<() => Promise<string[]>>(getSkillRoots) };
-    const provider = { createProxy: vi.fn(() => skillService) };
+    const cache = { getRoots: vi.fn<() => Promise<string[]>>(getSkillRoots) };
     const logger = createLogger();
-    const contribution = new NukeSkillDirectoryContribution(provider as unknown as WebSocketConnectionProvider, logger);
-    return { contribution, provider, skillService, logger };
+    const contribution = new NukeSkillDirectoryContribution(cache as unknown as NukeSkillRootCache, logger);
+    return { contribution, cache, logger };
 }
 
 describe('NukeSkillDirectoryContribution', () => {
     it('returns one plugin directory entry per backend root', async () => {
-        const { contribution, provider, skillService } = setup(async () => ['/extensions/nuke-ai/skills', '/opt/nuke/skills']);
+        const { contribution, cache } = setup(async () => ['/extensions/nuke-ai/skills', '/opt/nuke/skills']);
 
         const directories = await contribution.getSkillDirectories();
 
@@ -63,8 +60,7 @@ describe('NukeSkillDirectoryContribution', () => {
             { path: '/extensions/nuke-ai/skills', tier: 'plugin' },
             { path: '/opt/nuke/skills', tier: 'plugin' }
         ]);
-        expect(provider.createProxy).toHaveBeenCalledWith(NukeAISkillServicePath);
-        expect(skillService.getSkillRoots).toHaveBeenCalledTimes(1);
+        expect(cache.getRoots).toHaveBeenCalledTimes(1);
     });
 
     it('returns an empty list and logs when the backend is unavailable', async () => {
@@ -77,20 +73,13 @@ describe('NukeSkillDirectoryContribution', () => {
         expect(String(logger.error.mock.calls[0][0])).toContain('Failed to read skill roots');
     });
 
-    it('logs the discovered roots once but asks the backend on every scan', async () => {
-        const { contribution, provider, skillService, logger } = setup(async () => ['/extensions/nuke-ai/skills']);
+    it('logs the discovered roots once and reuses the shared cache', async () => {
+        const { contribution, cache, logger } = setup(async () => ['/extensions/nuke-ai/skills']);
 
         await contribution.getSkillDirectories();
         await contribution.getSkillDirectories();
 
         expect(logger.info).toHaveBeenCalledTimes(1);
-        expect(provider.createProxy).toHaveBeenCalledTimes(1);
-        expect(skillService.getSkillRoots).toHaveBeenCalledTimes(2);
-    });
-
-    it('uses the NukeAISkillService contract and not a domain provider', () => {
-        const { skillService } = setup(async () => []);
-        const contract: NukeAISkillService = skillService;
-        expect(typeof contract.getSkillRoots).toBe('function');
+        expect(cache.getRoots).toHaveBeenCalledTimes(2);
     });
 });
