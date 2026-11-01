@@ -57,9 +57,9 @@ bind(NukeCapabilityContribution).toService(ExampleCapabilityContribution);
 - **Description** — explain when to use the action. The bridge appends up to three example descriptions as `Example: ...` lines.
 - **Input schema** — must be a top-level object schema with a `properties` map. Nested schemas, arrays, enums, defaults, and numeric or pattern constraints are preserved.
 - **Risk** — choose the weakest accurate level:
-  - `read` needs no always-allow confirmation;
-  - `write` and `execute` require confirmation before auto-approval;
-  - `destructive` adds a warning that data can be overwritten or deleted.
+  - `read` follows the IDE confirmation preference and may inherit a global always-allow;
+  - `write` and `execute` never inherit a global always-allow and need an explicit per-tool allow;
+  - `destructive` also adds a warning that data can be overwritten or deleted.
 - **Annotations** — omit them to derive MCP-style hints from `risk`. Explicit annotations win, but a contradiction with the risk is logged and the derived hints are not silently replaced.
 - **`when`** — return false when the action does not apply, for example when no CAD document or OpenMC project is active. A throwing predicate is treated as false.
 - **Context** — use `workspaceRoots`, `activeCadDocument`, `activeOpenmcProject`, `activeDataset`, and `signal`. Check `signal.aborted` or listen for its abort event when the work is long-running.

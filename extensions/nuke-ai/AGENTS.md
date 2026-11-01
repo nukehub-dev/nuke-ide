@@ -80,7 +80,7 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/node/skills/nuke-skill-service.ts` exposes the packaged skill root over RPC; `src/browser/skills/`,
   `src/browser/context/`, and `src/browser/resources/` own the Theia skill directory, `#nukeContext`, and read-only
   resources. See `docs/dev/skills.md` and `docs/dev/context-and-resources.md`.
-- Tool confirmation follows risk: `read` is unguarded, `write`/`execute` require always-allow confirmation, and `destructive` adds an overwrite/delete warning.
+- Tool confirmation follows risk: `read` follows the IDE preference and may inherit always-allow, `write`/`execute` need an explicit per-tool allow, and `destructive` adds an overwrite/delete warning.
 
 ## Work Guidance
 

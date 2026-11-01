@@ -261,15 +261,21 @@ describe('toolLabel', () => {
     it('maps every Nuke capability tool to a short label', () => {
         expect(toolLabel('nuke_cad_summarizeDocument')).toBe('CAD summary');
         expect(toolLabel('nuke_cad_inspectSelection')).toBe('CAD selection');
+        expect(toolLabel('nuke_cad_diagnoseModel')).toBe('CAD diagnosis');
         expect(toolLabel('nuke_cad_exportDagmc')).toBe('DAGMC export');
         expect(toolLabel('nuke_openmc_summarizeProject')).toBe('OpenMC project');
         expect(toolLabel('nuke_openmc_validateProject')).toBe('OpenMC validation');
+        expect(toolLabel('nuke_openmc_diagnoseProject')).toBe('OpenMC diagnosis');
+        expect(toolLabel('nuke_openmc_diagnoseRun')).toBe('Run diagnosis');
         expect(toolLabel('nuke_openmc_previewSettings')).toBe('Settings preview');
         expect(toolLabel('nuke_openmc_applySettings')).toBe('Settings applied');
         expect(toolLabel('nuke_openmc_importCad')).toBe('DAGMC import');
         expect(toolLabel('nuke_openmc_runSimulation')).toBe('OpenMC run');
         expect(toolLabel('nuke_openmc_getRunStatus')).toBe('Run status');
         expect(toolLabel('nuke_viz_summarizeStatepoint')).toBe('Statepoint summary');
+        expect(toolLabel('nuke_viz_diagnoseStatepoint')).toBe('Statepoint diagnosis');
+        expect(toolLabel('nuke_viz_compareStatepoints')).toBe('Statepoint comparison');
+        expect(toolLabel('nuke_viz_analyzeTallySeries')).toBe('Tally series analysis');
         expect(toolLabel('nuke_viz_openStatepoint')).toBe('Open statepoint');
         expect(toolLabel('nuke_viz_captureView')).toBe('Viewport capture');
     });

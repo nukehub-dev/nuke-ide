@@ -121,15 +121,21 @@ const BINARY_MARKER = '[binary omitted]';
 const TOOL_LABELS: Readonly<Record<string, string>> = {
     nuke_cad_summarizeDocument: 'CAD summary',
     nuke_cad_inspectSelection: 'CAD selection',
+    nuke_cad_diagnoseModel: 'CAD diagnosis',
     nuke_cad_exportDagmc: 'DAGMC export',
     nuke_openmc_summarizeProject: 'OpenMC project',
     nuke_openmc_validateProject: 'OpenMC validation',
+    nuke_openmc_diagnoseProject: 'OpenMC diagnosis',
+    nuke_openmc_diagnoseRun: 'Run diagnosis',
     nuke_openmc_previewSettings: 'Settings preview',
     nuke_openmc_applySettings: 'Settings applied',
     nuke_openmc_importCad: 'DAGMC import',
     nuke_openmc_runSimulation: 'OpenMC run',
     nuke_openmc_getRunStatus: 'Run status',
     nuke_viz_summarizeStatepoint: 'Statepoint summary',
+    nuke_viz_diagnoseStatepoint: 'Statepoint diagnosis',
+    nuke_viz_compareStatepoints: 'Statepoint comparison',
+    nuke_viz_analyzeTallySeries: 'Tally series analysis',
     nuke_viz_openStatepoint: 'Open statepoint',
     nuke_viz_captureView: 'Viewport capture'
 };

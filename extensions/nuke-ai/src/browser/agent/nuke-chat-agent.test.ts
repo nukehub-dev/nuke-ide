@@ -32,9 +32,12 @@ import { NUKE_CAPABILITY_TOOL_NAMES, NUKE_CHAT_AGENT_ID, NukeChatAgent } from '.
 const CAPABILITY_IDS = [
     'nuke.cad.summarizeDocument',
     'nuke.cad.inspectSelection',
+    'nuke.cad.diagnoseModel',
     'nuke.cad.exportDagmc',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
+    'nuke.openmc.diagnoseProject',
+    'nuke.openmc.diagnoseRun',
     'nuke.openmc.previewSettings',
     'nuke.openmc.applySettings',
     'nuke.openmc.previewMaterialChange',
@@ -45,6 +48,7 @@ const CAPABILITY_IDS = [
     'nuke.openmc.runSimulation',
     'nuke.openmc.getRunStatus',
     'nuke.viz.summarizeStatepoint',
+    'nuke.viz.diagnoseStatepoint',
     'nuke.viz.openStatepoint',
     'nuke.viz.captureView'
 ];
@@ -66,12 +70,12 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all seventeen capability tool names', () => {
+    it('exposes the nukeContext variable and all twenty-one capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(17);
+        expect(agent.functions).toHaveLength(21);
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -125,6 +129,6 @@ describe('NukeChatAgent', () => {
         const lines = promptTemplate().split('\n');
 
         expect(lines.length).toBeGreaterThanOrEqual(80);
-        expect(lines.length).toBeLessThanOrEqual(190);
+        expect(lines.length).toBeLessThanOrEqual(210);
     });
 });

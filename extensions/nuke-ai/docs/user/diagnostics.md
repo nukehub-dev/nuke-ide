@@ -113,6 +113,8 @@ require explicit confirmation in the conversation. A diagnostic answer never per
 
 ## Requirements
 
+- A ready language model assigned to **Nuke Diagnostics** under **AI Settings → Agents** (or picked in the chat input
+  for that session). The default chat agent preference only applies to NukeAI.
 - **Diagnose Active CAD Model** needs an open CAD document.
 - **Diagnose OpenMC Project** needs an active OpenMC Studio project and reports the selected Python environment and
   cross-section configuration it finds.

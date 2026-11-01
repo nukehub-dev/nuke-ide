@@ -354,6 +354,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
 - nuke-ai: NukeAI is the default chat agent on a fresh profile, and the default-agent picker lists NukeAI and Nuke Diagnostics.
+- nuke-ai: NukeAI can run the CAD, OpenMC project/run, and statepoint diagnostic tools directly, so diagnosis prompts work in the general agent too.
 - nuke-ai: external MCP sessions and NukeAI skills resolve the packaged skill root instead of a missing `applications/skills` path.
 - nuke-ai: capability tools use one sanitized id and name, so AI confirmations, parameter labels, and result cards resolve the correct tool.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.

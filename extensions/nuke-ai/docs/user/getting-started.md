@@ -33,15 +33,17 @@ It is decorative, and its autonomous motion stops when your system requests redu
   `@Universal` remain available.
 - Attach context with `#file`, `#_f` (the active file), `#selectedText`, or the `#nukeContext` chip.
 - Press Up in an empty chat input to reopen recent history.
-- Choose a language model in the chat input selector or in AI Settings; NukeAI never ships a provider key.
-- Read-only tools run directly. Write and execute tools ask for confirmation, and destructive tools add a warning.
+- Choose a language model in the chat input selector or in AI Settings; NukeAI never ships a provider key. Each
+  agent has its own default, so assign one to **Nuke Diagnostics** as well.
+- The IDE asks before running a tool until you approve it or mark it **Always allow**. Read-only tools follow that
+  preference; write and execute tools never inherit a global always-allow, and destructive tools add a warning.
 
 ## Using capability tools
 
 Once a domain capability is available, open the AI chat and ask about the active CAD document, OpenMC project, or visualizer dataset. The assistant chooses a capability tool from its description and asks for confirmation according to the action's risk. Tools use sanitized names: the capability id `nuke.cad.summarizeDocument`, for example, is exposed as `nuke_cad_summarizeDocument`.
 
-- Read-only tools run without an extra always-allow confirmation.
-- Write and execute tools ask for confirmation before auto-approval.
+- Read-only tools follow the IDE's confirmation preference and can be marked **Always allow**.
+- Write and execute tools never inherit a global always-allow; approve each tool explicitly.
 - Destructive tools add a warning that data can be overwritten or deleted.
 
 Tool results include a short message, bounded structured JSON, and file or URI lines for artifacts. Large logs are truncated; inline base64 payloads are omitted.
