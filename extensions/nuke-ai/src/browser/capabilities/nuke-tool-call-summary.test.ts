@@ -269,6 +269,10 @@ describe('toolLabel', () => {
         expect(toolLabel('nuke_openmc_diagnoseRun')).toBe('Run diagnosis');
         expect(toolLabel('nuke_openmc_previewSettings')).toBe('Settings preview');
         expect(toolLabel('nuke_openmc_applySettings')).toBe('Settings applied');
+        expect(toolLabel('nuke_openmc_previewMaterialChange')).toBe('Material preview');
+        expect(toolLabel('nuke_openmc_applyMaterialChange')).toBe('Material applied');
+        expect(toolLabel('nuke_openmc_previewTallyChange')).toBe('Tally preview');
+        expect(toolLabel('nuke_openmc_applyTallyChange')).toBe('Tally applied');
         expect(toolLabel('nuke_openmc_importCad')).toBe('DAGMC import');
         expect(toolLabel('nuke_openmc_runSimulation')).toBe('OpenMC run');
         expect(toolLabel('nuke_openmc_getRunStatus')).toBe('Run status');
