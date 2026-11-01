@@ -10,8 +10,9 @@ active chat. See [NukeAI Actions](actions.md) for the full action list and the r
 
 ## Quick start and model setup
 
-With no chat session open, the AI Chat welcome screen shows a **NukeAI quick start** section. Its five buttons run
-read-only requests with your active workspace context attached:
+With no chat session open, the AI Chat welcome screen shows a **NukeAI quick start** section. NukeAI is preselected as
+the default chat agent when no default has been chosen; if the default-agent picker appears, choose **NukeAI** or
+**Nuke Diagnostics** there. Its five buttons run read-only requests with your active workspace context attached:
 
 - **Ask About Active Context** summarizes what the active CAD document, OpenMC project, and dataset make possible.
 - **Check Active CAD Model** reports build status, counts, selection, and warnings.
@@ -22,6 +23,18 @@ read-only requests with your active workspace context attached:
 If no language model is ready, the section shows a **Choose a model** card with an **Open AI Settings** button. Add a
 provider and API key there, then return to the chat. The card disappears once a model is ready. NukeAI never ships a
 provider key of its own.
+
+The NukeAI bot above the model configuration and quick-start sections follows the pointer, blinks, and tilts its head.
+It is decorative, and its autonomous motion stops when your system requests reduced motion.
+
+## Chat basics
+
+- NukeAI is the default agent. Mention `@NukeAI` or `@Nuke Diagnostics` to switch; `@Coder`, `@Architect`, and
+  `@Universal` remain available.
+- Attach context with `#file`, `#_f` (the active file), `#selectedText`, or the `#nukeContext` chip.
+- Press Up in an empty chat input to reopen recent history.
+- Choose a language model in the chat input selector or in AI Settings; NukeAI never ships a provider key.
+- Read-only tools run directly. Write and execute tools ask for confirmation, and destructive tools add a warning.
 
 ## Using capability tools
 

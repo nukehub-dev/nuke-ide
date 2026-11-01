@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveDocAsset, resolveDocPath, splitDocTarget } from './docs-links';
+import { isValidDocPath, resolveDocAsset, resolveDocPath, splitDocTarget } from './docs-links';
 
 describe('docs link resolution', () => {
     it('resolves sibling and parent documentation pages', () => {
@@ -39,6 +39,14 @@ describe('docs link resolution', () => {
         expect(resolveDocAsset('/nuke-cad/user/gui-modeler.md', './images/ribbon.png')).toBe('/nuke-cad/user/images/ribbon.png');
         expect(resolveDocAsset('/product/index.md', 'images/architecture-overview.svg')).toBe('/product/images/architecture-overview.svg');
         expect(resolveDocAsset('/product/index.md', 'https://example.com/a.png')).toBe('https://example.com/a.png');
+    });
+
+    it('accepts only safe absolute Markdown documentation paths', () => {
+        expect(isValidDocPath('/nuke-ai/user/getting-started.md')).toBe(true);
+        expect(isValidDocPath('nuke-ai/user/getting-started.md')).toBe(false);
+        expect(isValidDocPath('/nuke-ai/../secret.md')).toBe(false);
+        expect(isValidDocPath('/nuke-ai/user/getting-started')).toBe(false);
+        expect(isValidDocPath('/nuke-ai/user/getting-started.md\0')).toBe(false);
     });
 
     it('splits targets without treating fragments as file names', () => {

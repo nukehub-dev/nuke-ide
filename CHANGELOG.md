@@ -301,7 +301,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Platform: three, Plotly, and Vitest 5 remain on their current majors for separate migrations.
 - docs: product and extension guides match the current UI, package pins, OpenMC 0.16 support, and CAD schema.
 - docs: screenshot captures are quantized to indexed PNGs, cutting the committed image payload by roughly half with no visible UI artifacts.
+- nuke-ai: the chat welcome uses a responsive animated NukeAI bot with pointer tracking, blinking, head tilt, and reduced-motion handling; narrow action rows stack cleanly.
+- nuke-ai: the chat welcome links to the in-IDE NukeAI guide and documents agent mentions, context variables, and history.
+- nuke-ai: product hover hints use the shared themed Tooltip instead of native browser tooltips.
 - nuke-cad: CadQuery is optional and no longer bundled; build123d/OCP remains the default CAD and script stack.
+- nuke-docs: Documentation can open a specific guide page from an in-IDE link.
 - nuke-cad: Origin section swaps three eye-toggle rows for a compact X/Y/Z chip row; master switch and per-axis preferences unchanged.
 - nuke-cad: BOM panel drops the duplicate header/empty text, keeps one empty card, and supports Enter/Space row selection with shared tooltips.
 - nuke-cad: viewport toolbar groups actions into labelled sections with promoted buttons, per-section menus, and a width-driven compact mode.
@@ -349,6 +353,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
+- nuke-ai: NukeAI is the default chat agent on a fresh profile, and the default-agent picker lists NukeAI and Nuke Diagnostics.
 - nuke-ai: external MCP sessions and NukeAI skills resolve the packaged skill root instead of a missing `applications/skills` path.
 - nuke-ai: capability tools use one sanitized id and name, so AI confirmations, parameter labels, and result cards resolve the correct tool.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.

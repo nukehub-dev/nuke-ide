@@ -24,7 +24,12 @@ export class DocsContribution extends AbstractViewContribution<DocsWidget> {
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeDocsCommands.OPEN_DOCS, {
-            execute: () => this.openView({ activate: true })
+            execute: async (path?: unknown) => {
+                const widget = await this.openView({ activate: true });
+                if (widget && typeof path === 'string') {
+                    await widget.openPath(path);
+                }
+            }
         });
     }
 

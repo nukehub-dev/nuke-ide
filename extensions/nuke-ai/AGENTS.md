@@ -17,13 +17,17 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `nuke-ai` is optional at build time. No other extension may depend on it, and required extensions must not import
   `@theia/ai-*`; `NUKE_EXCLUDE_EXTENSIONS=nuke-ai` must build an IDE without NukeAI and its tools (the Theia plugin host
   still bundles inert `@theia/ai-core`, `@theia/ai-core-ui`, and `@theia/ai-mcp`).
+- Hover/focus hints in the welcome and chat surfaces use the shared `nuke-essentials` `Tooltip`; native `title` attributes are not product tooltips.
 - `src/browser/welcome/nuke-ai-chat-frontend-module.ts` rebinds `ChatWelcomeMessageProvider` to
   `NukeChatWelcomeMessageProvider` (priority 101) and keeps `ChatSessionsWelcomeMessageProvider`; do not change the
-  provider's screens or styling. The welcome surface also owns the `NukeAI quick start` actions and model-setup card;
-  quick actions only execute existing commands, and the setup card links to the shared AI configuration command.
+  provider's screens or styling. The welcome surface also owns the `NukeAI quick start` actions, model-setup card, and
+  pointer-tracking decorative bot; the bot replaces the former static logo across the welcome screens, blinks and tilts
+  toward the pointer, stops autonomous motion under `prefers-reduced-motion`, and quick actions only execute existing commands.
+  The welcome guide link targets `nuke.docs.open` with `/nuke-ai/user/getting-started.md`.
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
-  and `ChatAgent`; its prompt references every capability tool and `{{nukeContext}}`, and write/execute tools require
-  explicit confirmation. The safe-edit section requires preview before apply for settings, materials, and tallies, a
+  and `ChatAgent`; an empty default-agent preference is set to NukeAI, and the welcome picker lists NukeAI and Nuke
+  Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and
+  write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings, materials, and tallies, a
   shown diff, confirmation, and undo reporting; see `docs/user/safe-edits.md`.
 - CAD authoring remains design-only and gated; the design, threat model, and security checklist live in
   `docs/dev/cad-authoring-design.md`.

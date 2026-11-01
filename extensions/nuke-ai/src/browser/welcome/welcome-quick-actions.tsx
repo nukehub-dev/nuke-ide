@@ -101,56 +101,58 @@ export interface WelcomeQuickActionsProps {
 /** Render the NukeAI quick-start section of the chat welcome screen. */
 export function WelcomeQuickActions({ onRun, hasReadyModel, modelSettingsCommandId }: WelcomeQuickActionsProps): React.ReactElement {
     return (
-        <section
-            className="nuke-welcome-quick-actions"
-            aria-labelledby="nuke-welcome-quick-actions-title"
-            data-ready-model={hasReadyModel ? 'true' : 'false'}
-        >
-            <div className="nuke-welcome-quick-actions-header">
-                <h2 id="nuke-welcome-quick-actions-title" className="nuke-welcome-quick-actions-title">
-                    NukeAI quick start
-                </h2>
-                <p className="nuke-welcome-quick-actions-subtitle">
-                    Run a focused read-only request with your active workspace context, or ask NukeAI a question in the chat.
-                </p>
-            </div>
-            {!hasReadyModel && (
-                <div className="nuke-welcome-quick-actions-setup" data-state="model-setup">
-                    <span className="codicon codicon-warning nuke-welcome-quick-actions-setup-icon" aria-hidden="true" />
-                    <div className="nuke-welcome-quick-actions-setup-body">
-                        <span className="nuke-welcome-quick-actions-setup-title">Choose a model</span>
-                        <span className="nuke-welcome-quick-actions-setup-text">
-                            Choose a model provider and API key in AI settings to start a NukeAI chat.
-                        </span>
-                    </div>
-                    <button
-                        type="button"
-                        className="theia-button main nuke-welcome-quick-actions-setup-button"
-                        data-command-id={modelSettingsCommandId}
-                        onClick={() => onRun(modelSettingsCommandId)}
-                    >
-                        Open AI Settings
-                    </button>
+        <div className="nuke-welcome-quick-actions-frame">
+            <section
+                className="nuke-welcome-quick-actions"
+                aria-labelledby="nuke-welcome-quick-actions-title"
+                data-ready-model={hasReadyModel ? 'true' : 'false'}
+            >
+                <div className="nuke-welcome-quick-actions-header">
+                    <h2 id="nuke-welcome-quick-actions-title" className="nuke-welcome-quick-actions-title">
+                        NukeAI quick start
+                    </h2>
+                    <p className="nuke-welcome-quick-actions-subtitle">
+                        Run a focused read-only request with your active workspace context, or ask NukeAI a question in the chat.
+                    </p>
                 </div>
-            )}
-            <ul className="nuke-welcome-quick-actions-grid">
-                {WELCOME_QUICK_ACTIONS.map((action) => (
-                    <li key={action.id} className="nuke-welcome-quick-actions-item">
+                {!hasReadyModel && (
+                    <div className="nuke-welcome-quick-actions-setup" data-state="model-setup">
+                        <span className="codicon codicon-warning nuke-welcome-quick-actions-setup-icon" aria-hidden="true" />
+                        <div className="nuke-welcome-quick-actions-setup-body">
+                            <span className="nuke-welcome-quick-actions-setup-title">Choose a model</span>
+                            <span className="nuke-welcome-quick-actions-setup-text">
+                                Choose a model provider and API key in AI settings to start a NukeAI chat.
+                            </span>
+                        </div>
                         <button
                             type="button"
-                            className="nuke-welcome-quick-action"
-                            data-command-id={action.commandId}
-                            onClick={() => onRun(action.commandId)}
+                            className="theia-button main nuke-welcome-quick-actions-setup-button"
+                            data-command-id={modelSettingsCommandId}
+                            onClick={() => onRun(modelSettingsCommandId)}
                         >
-                            <span className={`codicon codicon-${action.icon} nuke-welcome-quick-action-icon`} aria-hidden="true" />
-                            <span className="nuke-welcome-quick-action-body">
-                                <span className="nuke-welcome-quick-action-label">{action.label}</span>
-                                <span className="nuke-welcome-quick-action-description">{action.description}</span>
-                            </span>
+                            Open AI Settings
                         </button>
-                    </li>
-                ))}
-            </ul>
-        </section>
+                    </div>
+                )}
+                <ul className="nuke-welcome-quick-actions-grid">
+                    {WELCOME_QUICK_ACTIONS.map((action) => (
+                        <li key={action.id} className="nuke-welcome-quick-actions-item">
+                            <button
+                                type="button"
+                                className="nuke-welcome-quick-action"
+                                data-command-id={action.commandId}
+                                onClick={() => onRun(action.commandId)}
+                            >
+                                <span className={`codicon codicon-${action.icon} nuke-welcome-quick-action-icon`} aria-hidden="true" />
+                                <span className="nuke-welcome-quick-action-body">
+                                    <span className="nuke-welcome-quick-action-label">{action.label}</span>
+                                    <span className="nuke-welcome-quick-action-description">{action.description}</span>
+                                </span>
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            </section>
+        </div>
     );
 }

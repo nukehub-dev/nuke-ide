@@ -30,6 +30,11 @@ export interface DocTarget {
     fragment: string;
 }
 
+/** True for a safe, absolute Markdown page path served by the docs widget. */
+export function isValidDocPath(path: string): boolean {
+    return path.startsWith('/') && path.endsWith('.md') && !path.includes('..') && !path.includes('\0');
+}
+
 /** Split `path#fragment` without treating URL fragments as file names. */
 export function splitDocTarget(target: string): DocTarget {
     const hashIndex = target.indexOf('#');

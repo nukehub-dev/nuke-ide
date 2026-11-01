@@ -36,29 +36,12 @@ import { PreferenceService } from '@theia/core/lib/common';
 import { DEFAULT_CHAT_AGENT_PREF, BYPASS_MODEL_REQUIREMENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-preferences';
 import { ChatAgentRecommendationService, ChatAgentService } from '@theia/ai-chat/lib/common';
 import { OPEN_AI_CONFIG_VIEW } from '@theia/ai-ide/lib/browser/ai-configuration/ai-configuration-view-contribution';
+import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NUKE_CHAT_AGENT_ID } from '../agent/nuke-chat-agent';
 import { WelcomeQuickActions } from './welcome-quick-actions';
-
-const NukeIdeAiLogo = ({ width = 120, height = 120, className = '' }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width={width} height={height} className={className}>
-        {/* Head: outline only */}
-        <rect x="22" y="24" width="56" height="44" rx="16" fill="none" stroke="var(--theia-disabledForeground)" strokeWidth="2.5" />
-        {/* Antenna */}
-        <line x1="50" y1="24" x2="50" y2="16" stroke="var(--theia-disabledForeground)" strokeWidth="2" strokeLinecap="round" />
-        <circle cx="50" cy="13" r="3" fill="var(--theia-disabledForeground)" />
-        {/* Ears: small strokes */}
-        <line x1="17" y1="39" x2="17" y2="53" stroke="var(--theia-disabledForeground)" strokeWidth="3" strokeLinecap="round" />
-        <line x1="83" y1="39" x2="83" y2="53" stroke="var(--theia-disabledForeground)" strokeWidth="3" strokeLinecap="round" />
-        {/* Eyes: small dots */}
-        <circle cx="39" cy="44" r="3.5" fill="var(--theia-disabledForeground)" />
-        <circle cx="61" cy="44" r="3.5" fill="var(--theia-disabledForeground)" />
-        {/* Mouth: subtle line */}
-        <path d="M42 55 Q50 60 58 55" fill="none" stroke="var(--theia-disabledForeground)" strokeWidth="2" strokeLinecap="round" />
-        {/* Chat dots */}
-        <circle cx="38" cy="84" r="1.5" fill="var(--theia-disabledForeground)" opacity="0.35" />
-        <circle cx="50" cy="84" r="2" fill="var(--theia-disabledForeground)" opacity="0.5" />
-        <circle cx="62" cy="84" r="2.5" fill="var(--theia-disabledForeground)" opacity="0.65" />
-    </svg>
-);
+import { NukeAiBot } from './nuke-ai-bot';
+import { mergeRecommendedAgents, NUKE_RECOMMENDED_AGENTS } from './nuke-agent-recommendations';
+import './nuke-chat-welcome.css';
 
 @injectable()
 export class NukeChatWelcomeMessageProvider implements ChatWelcomeMessageProvider {
@@ -135,7 +118,12 @@ export class NukeChatWelcomeMessageProvider implements ChatWelcomeMessageProvide
         this.preferenceService.ready.then(() => {
             const defaultAgentValue = this.preferenceService.get(DEFAULT_CHAT_AGENT_PREF, '');
             const bypassValue = this.preferenceService.get(BYPASS_MODEL_REQUIREMENT_PREF, false);
-            this._defaultAgent = defaultAgentValue;
+            if (!defaultAgentValue && this.chatAgentService.getAgent(NUKE_CHAT_AGENT_ID)) {
+                this._defaultAgent = NUKE_CHAT_AGENT_ID;
+                void this.preferenceService.set(DEFAULT_CHAT_AGENT_PREF, NUKE_CHAT_AGENT_ID, PreferenceScope.User);
+            } else {
+                this._defaultAgent = defaultAgentValue;
+            }
             this._modelRequirementBypassed = bypassValue;
             this.notifyStateChanged();
         });
@@ -199,7 +187,9 @@ export class NukeChatWelcomeMessageProvider implements ChatWelcomeMessageProvide
     protected renderWelcomeScreen(): React.ReactNode {
         return (
             <div className={'theia-WelcomeMessage theia-WelcomeMessage-Main'} key="normal-welcome" data-provider="nuke">
-                <NukeIdeAiLogo className="theia-WelcomeMessage-Logo" />
+                <div className="nuke-welcome-logo-frame">
+                    <NukeAiBot className="nuke-ai-bot-welcome" />
+                </div>
                 <LocalizedMarkdown
                     localizationKey="theia/ai/ide/chatWelcomeMessage"
                     defaultMarkdown={`
@@ -207,13 +197,14 @@ export class NukeChatWelcomeMessageProvider implements ChatWelcomeMessageProvide
 
 Use *@AgentName* to talk to a specialized agent, like *@{0}*, *@{1}*, or *@{2}*.
 
-Attach context with *#{3}*, *#{4}*, *#{5}*, or click {6}. [Learn more](https://theia-ide.org/docs/user_ai/#chat).
+Attach context with *#{3}*, *#{4}*, *#{5}*, or the attach button.
 `}
-                    args={['Coder', 'Architect', 'Universal', 'file', '_f', 'selectedText', '<span class="codicon codicon-attach"></span>']}
+                    args={['NukeAI', 'Coder', 'Universal', 'file', '_f', 'selectedText']}
                     markdownRenderer={this.markdownRenderer}
                     className="theia-WelcomeMessage-Content"
                     markdownOptions={{ supportHtml: true }}
                 />
+                {this.renderGuideButton()}
                 <WelcomeQuickActions
                     hasReadyModel={this._hasReadyModels}
                     modelSettingsCommandId={OPEN_AI_CONFIG_VIEW.id}
@@ -229,6 +220,25 @@ Attach context with *#{3}*, *#{4}*, *#{5}*, or click {6}. [Learn more](https://t
         } catch (error) {
             console.error(`[NukeAI] Failed to execute the welcome command ${commandId}.`, error);
         }
+    }
+
+    /** Open the NukeAI getting-started guide inside the IDE docs widget. */
+    protected openNukeAiGuide(): void {
+        void this.commandRegistry.executeCommand('nuke.docs.open', '/nuke-ai/user/getting-started.md').catch((error) => {
+            console.error('[NukeAI] Failed to open the NukeAI guide.', error);
+        });
+    }
+
+    /** Secondary call to action shared by the welcome and setup screens. */
+    protected renderGuideButton(): React.ReactNode {
+        return (
+            <div className="nuke-welcome-guide">
+                <button type="button" className="theia-button secondary nuke-welcome-guide-button" onClick={() => this.openNukeAiGuide()}>
+                    <span className={codicon('book')} aria-hidden="true"></span>
+                    {nls.localize('nuke/ai/openGuide', 'Open the NukeAI guide')}
+                </button>
+            </div>
+        );
     }
 
     protected renderModelConfigurationScreen(): React.ReactNode {
@@ -269,8 +279,10 @@ This typically happens in custom IDE distributions where NukeAI language model p
         }
 
         return (
-            <div className={'theia-WelcomeMessage theia-WelcomeMessage-Main'} key="setup-state">
-                <NukeIdeAiLogo className="theia-WelcomeMessage-Logo" />
+            <div className={'theia-WelcomeMessage theia-WelcomeMessage-Main nuke-welcome-configuration'} key="setup-state">
+                <div className="nuke-welcome-logo-frame">
+                    <NukeAiBot className="nuke-ai-bot-welcome" />
+                </div>
                 <LocalizedMarkdown
                     key="configure-provider-hasmodels"
                     localizationKey="theia/ai/ide/configureProvider"
@@ -279,7 +291,7 @@ This typically happens in custom IDE distributions where NukeAI language model p
 
 Set up an API key for [OpenAI]({0}), [Anthropic]({1}), or [GoogleAI]({2}) or configure another provider like Ollama in the settings.
 
-Some agents (e.g. Claude Code) work without a provider. [Learn more](https://theia-ide.org/docs/user_ai/).
+Some agents (e.g. Claude Code) work without a provider.
 `}
                     args={[
                         `command:${CommonCommands.OPEN_PREFERENCES.id}?ai-features.openAiOfficial.openAiApiKey`,
@@ -293,6 +305,7 @@ Some agents (e.g. Claude Code) work without a provider. [Learn more](https://the
                         isTrusted: { enabledCommands: [CommonCommands.OPEN_PREFERENCES.id] }
                     }}
                 />
+                {this.renderGuideButton()}
                 {errorMessages.length > 0 && (
                     <div className="theia-alert theia-warning-alert theia-WelcomeMessage-Alert">
                         <div className="theia-message-header">
@@ -329,13 +342,17 @@ Some agents (e.g. Claude Code) work without a provider. [Learn more](https://the
     }
 
     protected renderAgentSelectionScreen(): React.ReactNode {
-        const recommendedAgents = this.recommendationService
-            .getRecommendedAgents()
-            .filter((agent) => this.chatAgentService.getAgent(agent.id) !== undefined);
+        const recommendedAgents = mergeRecommendedAgents(
+            NUKE_RECOMMENDED_AGENTS,
+            this.recommendationService.getRecommendedAgents(),
+            (id) => this.chatAgentService.getAgent(id) !== undefined
+        );
 
         return (
             <div className={'theia-WelcomeMessage theia-WelcomeMessage-Main theia-WelcomeMessage-AgentSelection'} key="agent-selection">
-                <NukeIdeAiLogo className="theia-WelcomeMessage-Logo" />
+                <div className="nuke-welcome-logo-frame">
+                    <NukeAiBot className="nuke-ai-bot-welcome" />
+                </div>
                 <LocalizedMarkdown
                     localizationKey="theia/ai/ide/selectDefaultAgent"
                     defaultMarkdown={`
@@ -349,15 +366,12 @@ Choose the agent to use by default. You can always override this by mentioning *
                 {recommendedAgents.length > 0 ? (
                     <div className="theia-WelcomeMessage-AgentButtons">
                         {recommendedAgents.map((agent) => (
-                            <button
-                                key={agent.id}
-                                className="theia-WelcomeMessage-AgentButton"
-                                onClick={() => this.setDefaultAgent(agent.id)}
-                                title={agent.description}
-                            >
-                                <span className={`theia-WelcomeMessage-AgentButton-Icon ${codicon('mention')}`}></span>
-                                <span className="theia-WelcomeMessage-AgentButton-Label">{agent.label}</span>
-                            </button>
+                            <Tooltip key={agent.id} content={agent.description ?? agent.label} position="top">
+                                <button className="theia-WelcomeMessage-AgentButton" onClick={() => this.setDefaultAgent(agent.id)}>
+                                    <span className={`theia-WelcomeMessage-AgentButton-Icon ${codicon('mention')}`}></span>
+                                    <span className="theia-WelcomeMessage-AgentButton-Label">{agent.label}</span>
+                                </button>
+                            </Tooltip>
                         ))}
                     </div>
                 ) : (
@@ -393,7 +407,9 @@ Choose the agent to use by default. You can always override this by mentioning *
 
         return (
             <div className={'theia-WelcomeMessage theia-WelcomeMessage-Main theia-WelcomeMessage-Disabled'} key="disabled-message">
-                <NukeIdeAiLogo className="theia-WelcomeMessage-Logo" />
+                <div className="nuke-welcome-logo-frame">
+                    <NukeAiBot className="nuke-ai-bot-welcome" />
+                </div>
                 <div className="theia-WelcomeMessage-Content">
                     <h2>{nls.localize('theia/ai/ide/chatDisabledMessage/title', 'AI Features are Disabled')}</h2>
                 </div>

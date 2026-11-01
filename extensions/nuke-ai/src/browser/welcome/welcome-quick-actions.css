@@ -25,22 +25,31 @@
  * SPDX-License-Identifier: BSD-2-Clause
  * **************************************************************************** */
 
+.nuke-welcome-quick-actions-frame {
+    width: 100%;
+    container-type: inline-size;
+}
+
 .nuke-welcome-quick-actions {
+    box-sizing: border-box;
     container-type: inline-size;
     display: flex;
     flex-direction: column;
     gap: 12px;
     width: 100%;
-    max-width: 760px;
-    margin-top: 18px;
+    max-width: 800px;
+    margin: 20px auto 8px;
+    padding: 0 24px;
     color: var(--theia-foreground, #cccccc);
     font-size: var(--theia-ui-font-size1, 13px);
 }
 
 .nuke-welcome-quick-actions-header {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
 }
 
 .nuke-welcome-quick-actions-title {
@@ -156,17 +165,29 @@
 }
 
 .nuke-welcome-quick-actions-setup-button {
+    box-sizing: border-box;
     flex: 0 0 auto;
+    max-width: 100%;
     min-width: 0;
     white-space: nowrap;
 }
 
 @container (max-width: 380px) {
+    .nuke-welcome-quick-actions {
+        padding: 0 14px;
+    }
+
     .nuke-welcome-quick-actions-grid {
         grid-template-columns: minmax(0, 1fr);
     }
 
+    .nuke-welcome-quick-action {
+        padding: 8px 10px;
+    }
+
     .nuke-welcome-quick-actions-setup-button {
-        width: 100%;
+        flex: 1 1 100%;
+        max-width: 100%;
+        width: auto;
     }
 }

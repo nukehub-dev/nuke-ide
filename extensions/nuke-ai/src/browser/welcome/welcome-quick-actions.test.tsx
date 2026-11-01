@@ -54,6 +54,7 @@ describe('WelcomeQuickActions', () => {
         const html = render(true);
 
         expect(html).toContain('NukeAI quick start');
+        expect(html).not.toContain('class="nuke-ai-bot"');
         expect(html).toContain('Ask About Active Context');
         expect(html).toContain('Check Active CAD Model');
         expect(html).toContain('Diagnose OpenMC Project');
