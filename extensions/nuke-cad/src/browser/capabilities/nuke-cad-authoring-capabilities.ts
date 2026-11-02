@@ -51,9 +51,12 @@
 
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { CommandService } from '@theia/core/lib/common/command';
+import { ILogger } from '@theia/core/lib/common/logger';
 import { URI } from '@theia/core/lib/common/uri';
+import { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
+import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import {
     NukeCapability,
@@ -73,7 +76,10 @@ import {
     ImportSourceUnit,
     InspectImportSourceRequest,
     InspectImportSourceResult,
-    RegionManifestData
+    RegionManifestData,
+    SandboxedScriptBuildRequest,
+    SandboxedScriptBuildResult,
+    ScriptSandboxStatus
 } from '../../common/nuke-cad-protocol';
 import {
     CAD_FEATURE_EDIT_LIMIT,
@@ -113,12 +119,13 @@ import {
     getAssemblySection,
     ImportBodyDraft
 } from '../document/cad-document-store';
-import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
+import { NukeCadStateManager, sandboxedGeometryResult, sandboxedRegionManifest } from '../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../commands';
 import {
     isAssemblyProposal,
     isDrawingProposal,
     isImportProposal,
+    isScriptProposal,
     isSketchProposal,
     isTopologyProposal,
     NukeCadAssemblyProposal,
@@ -132,6 +139,8 @@ import {
     NukeCadProposalBuild,
     NukeCadProposalImpact,
     NukeCadProposalService,
+    NukeCadScriptProposal,
+    NukeCadScriptProposalDetails,
     NukeCadSketchProposal,
     NukeCadTopologyProposal
 } from './nuke-cad-proposal-service';
@@ -146,6 +155,9 @@ import { readOpenmcRegionReferences } from './openmc-region-reference-reader';
 import { inferImportSourceFormat, normalizeImportSourceUnit, planImportBodies } from '../widgets/cad-viewport/import-body';
 import { documentRelativeAssemblyPart } from '../widgets/cad-viewport/cad-import-path';
 import { validateImportSourcePath, type ValidatedImportSource } from './import-source-policy';
+import { hashScriptContent, readActiveScript, validateProposedScript } from './script-source-policy';
+import { unifiedScriptDiff } from './script-diff';
+import { NukeCadScriptAuditService } from './script-audit-service';
 
 /** Stable capability ids for the feature- and sketch-authoring slice. */
 export const PREVIEW_FEATURE_CHANGE_ID = 'nuke.cad.previewFeatureChange';
@@ -164,6 +176,12 @@ export const APPLY_ASSEMBLY_CHANGE_ID = 'nuke.cad.applyAssemblyChange';
 export const SUMMARIZE_DRAWING_ID = 'nuke.cad.summarizeDrawing';
 export const PREVIEW_DRAWING_CHANGE_ID = 'nuke.cad.previewDrawingChange';
 export const APPLY_DRAWING_CHANGE_ID = 'nuke.cad.applyDrawingChange';
+export const INSPECT_SCRIPT_SOURCE_ID = 'nuke.cad.inspectScriptSource';
+export const PREVIEW_SCRIPT_CHANGE_ID = 'nuke.cad.previewScriptChange';
+export const APPLY_SCRIPT_CHANGE_ID = 'nuke.cad.applyScriptChange';
+
+/** Preference that additionally arms AI authoring of the active Python model script. */
+export const SCRIPT_AUTHORING_PREFERENCE = 'nukeCad.scriptAuthoringEnabled';
 
 /** Upper bound the import planner and backend inspection must share. */
 const IMPORT_MAX_SOLIDS = 500;
@@ -176,6 +194,35 @@ const PREVIEW_TIMEOUT_SECONDS = 120;
 
 /** The private candidate lives under the workspace and is always deleted. */
 const PREVIEW_ROOT = ['.nuke-ide', 'ai', 'cad-previews'] as const;
+
+/** Script staging, rebuild, and backup directories under the workspace. */
+const SCRIPT_WORK_ROOT = ['.nuke-ide', 'ai', 'cad-scripts'] as const;
+const SCRIPT_BACKUP_ROOT = ['.nuke-ide', 'ai', 'backups', 'cad-scripts'] as const;
+
+/** Sandbox limits shared by preview, apply, and sandboxed rebuilds. */
+const SCRIPT_SANDBOX_LIMITS = {
+    timeoutSeconds: 120,
+    memoryLimitMb: 4096,
+    processLimit: 128,
+    fileSizeLimitMb: 512
+} as const;
+
+/** Audit/proposal limit shape recorded for every sandboxed script build. */
+const SCRIPT_AUDIT_LIMITS = {
+    timeoutSeconds: SCRIPT_SANDBOX_LIMITS.timeoutSeconds,
+    memoryMb: SCRIPT_SANDBOX_LIMITS.memoryLimitMb,
+    processLimit: SCRIPT_SANDBOX_LIMITS.processLimit,
+    fileSizeMb: SCRIPT_SANDBOX_LIMITS.fileSizeLimitMb
+} as const;
+
+/** Display faceting tolerance for sandboxed script builds. */
+const SCRIPT_SANDBOX_TOLERANCE = 0.1;
+
+/** Script proposals accept these lowercase SHA-256 hashes. */
+const SCRIPT_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+/** Human-facing summary cap for script previews. */
+const SCRIPT_SUMMARY_LIMIT = 200;
 
 const CATEGORY = ['CAD', 'Authoring'] as const;
 
@@ -556,6 +603,79 @@ const APPLY_DRAWING_INPUT_SCHEMA: NukeJsonSchema = {
     additionalProperties: false
 };
 
+const INSPECT_SCRIPT_SOURCE_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+};
+
+const INSPECT_SCRIPT_SOURCE_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        path: { type: 'string', description: 'Canonical path of the active Python model script.' },
+        hash: { type: 'string', description: 'Lowercase SHA-256 of the script body.' },
+        content: { type: 'string', description: 'Complete script text, at most 64 KiB and 2,000 lines.' },
+        bytes: { type: 'integer' },
+        lines: { type: 'integer' },
+        imports: { type: 'array', items: { type: 'string' } },
+        hasModelAssignment: { type: 'boolean' },
+        truncated: { type: 'boolean' },
+        sandbox: { type: 'object' }
+    },
+    required: ['path', 'hash', 'content', 'bytes', 'lines', 'imports', 'hasModelAssignment', 'truncated', 'sandbox']
+};
+
+const PREVIEW_SCRIPT_CHANGE_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        baseScriptHash: {
+            type: 'string',
+            description: 'Hash returned by nuke.cad.inspectScriptSource; the script must still match it.'
+        },
+        proposedScript: { type: 'string', description: 'Complete replacement Python script body, at most 64 KiB.' },
+        summary: { type: 'string', description: 'Optional short description of the change.' }
+    },
+    required: ['baseScriptHash', 'proposedScript'],
+    additionalProperties: false
+};
+
+const SCRIPT_DIFF_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        text: { type: 'string' },
+        truncated: { type: 'boolean' },
+        addedLines: { type: 'integer' },
+        removedLines: { type: 'integer' },
+        hunkCount: { type: 'integer' }
+    },
+    required: ['text', 'truncated', 'addedLines', 'removedLines', 'hunkCount']
+};
+
+const PREVIEW_SCRIPT_CHANGE_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string' },
+        summary: { type: 'string' },
+        diff: SCRIPT_DIFF_OUTPUT_SCHEMA,
+        imports: { type: 'array', items: { type: 'string' } },
+        build: { type: 'object' },
+        sandbox: { type: 'object' },
+        auditId: { type: 'string' },
+        warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['proposalId', 'summary', 'diff', 'imports', 'build', 'sandbox', 'auditId', 'warnings']
+};
+
+const APPLY_SCRIPT_CHANGE_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string', description: 'Proposal id returned by nuke.cad.previewScriptChange.' },
+        approvalId: { type: 'string', description: 'Approval nonce from the CAD Edit Review panel.' }
+    },
+    required: ['proposalId', 'approvalId'],
+    additionalProperties: false
+};
+
 const PREVIEW_OUTPUT_SCHEMA: NukeJsonSchema = {
     type: 'object',
     properties: {
@@ -674,8 +794,16 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         @inject(CommandService) protected readonly commands: CommandService,
         @inject(NukeUndoService) protected readonly undoService: NukeUndoService,
         @inject(NukeCadGhostPreviewService) protected readonly ghostPreview: NukeCadGhostPreviewService,
-        @inject(NukeCadSketchEditService) protected readonly sketchEditService: NukeCadSketchEditService
-    ) {}
+        @inject(NukeCadSketchEditService) protected readonly sketchEditService: NukeCadSketchEditService,
+        @inject(MonacoWorkspace) protected readonly monacoWorkspace: MonacoWorkspace,
+        @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService,
+        @inject(ILogger) protected readonly logger: ILogger
+    ) {
+        this.scriptAudit = new NukeCadScriptAuditService(this.fileService, this.workspaceService, this.logger);
+    }
+
+    /** Workspace-scoped audit journal, constructed here so the capability has no extra binding. */
+    protected readonly scriptAudit: NukeCadScriptAuditService;
 
     registerCapabilities(registry: NukeCapabilityRegistry): void {
         registry.register(this.listSketchDimensionsCapability());
@@ -694,6 +822,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         registry.register(this.summarizeDrawingCapability());
         registry.register(this.previewDrawingCapability());
         registry.register(this.applyDrawingCapability());
+        registry.register(this.inspectScriptSourceCapability());
+        registry.register(this.previewScriptChangeCapability());
+        registry.register(this.applyScriptChangeCapability());
     }
 
     protected previewCapability(): NukeCapability {
@@ -998,12 +1129,226 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         };
     }
 
+    protected inspectScriptSourceCapability(): NukeCapability {
+        return {
+            id: INSPECT_SCRIPT_SOURCE_ID,
+            title: 'Inspect CAD model script',
+            description:
+                'Read the active Python build123d/CadQuery model script: canonical path, SHA-256 hash, bounded text, byte and ' +
+                'line counts, imports, model assignment, and sandbox availability. Read-only and limited to 64 KiB and ' +
+                '2,000 lines; it requires both CAD AI authoring switches.',
+            category: CATEGORY,
+            inputSchema: INSPECT_SCRIPT_SOURCE_INPUT_SCHEMA,
+            outputSchema: INSPECT_SCRIPT_SOURCE_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'script', 'read'],
+            when: () => this.scriptAuthoringEnabled() && this.activeScriptPath() !== undefined,
+            invoke: (_input, context) => this.inspectScriptSource(context)
+        };
+    }
+
+    protected previewScriptChangeCapability(): NukeCapability {
+        return {
+            id: PREVIEW_SCRIPT_CHANGE_ID,
+            title: 'Preview CAD script change',
+            description:
+                'Replace the active Python model script with a complete proposed body, build it inside the bubblewrap ' +
+                'sandbox (no network, no workspace, private output directory), return a bounded unified diff and build ' +
+                'metrics, and open the CAD Edit Review panel. The source script is never written by a preview.',
+            category: CATEGORY,
+            inputSchema: PREVIEW_SCRIPT_CHANGE_INPUT_SCHEMA,
+            outputSchema: PREVIEW_SCRIPT_CHANGE_OUTPUT_SCHEMA,
+            risk: 'execute',
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            requiresConfirmation: true,
+            tags: ['cad', 'authoring', 'script', 'preview'],
+            when: () => this.scriptAuthoringEnabled() && this.activeScriptPath() !== undefined,
+            invoke: (input, context) => this.previewScriptChange(input, context)
+        };
+    }
+
+    protected applyScriptChangeCapability(): NukeCapability {
+        return {
+            id: APPLY_SCRIPT_CHANGE_ID,
+            title: 'Apply CAD script change',
+            description:
+                'Apply a previewed Python script replacement with the review panel approval nonce. Rechecks the script ' +
+                'hash and editor state, writes a backup, replaces the file atomically, rebuilds inside the bubblewrap ' +
+                'sandbox, installs the model, and returns an undo token.',
+            category: CATEGORY,
+            inputSchema: APPLY_SCRIPT_CHANGE_INPUT_SCHEMA,
+            risk: 'execute',
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            requiresConfirmation: true,
+            undoable: true,
+            tags: ['cad', 'authoring', 'script', 'apply'],
+            when: () => this.scriptAuthoringEnabled() && this.activeScriptPath() !== undefined,
+            invoke: (input, context) => this.applyScriptChange(input, context)
+        };
+    }
+
     protected enabled(): boolean {
         return this.preferences.get(AI_AUTHORING_PREFERENCE) === true;
     }
 
     protected hasActiveDocument(): boolean {
         return this.stateManager.model !== undefined && this.store.document !== undefined && this.activeDocumentPath() !== undefined;
+    }
+
+    /** Both the global AI switch and the workspace-scoped script switch must be on. */
+    protected scriptAuthoringEnabled(): boolean {
+        return this.enabled() && this.preferences.get(SCRIPT_AUTHORING_PREFERENCE) === true;
+    }
+
+    /**
+     * Canonical path of the active Python script, or `undefined` when a
+     * `.nuke-cad` document or another model is active.
+     */
+    protected activeScriptPath(): string | undefined {
+        if (this.store.document !== undefined) {
+            return undefined;
+        }
+        const scriptPath = this.stateManager.model?.scriptPath;
+        if (typeof scriptPath !== 'string' || !path.isAbsolute(scriptPath) || path.extname(scriptPath).toLowerCase() !== '.py') {
+            return undefined;
+        }
+        return path.resolve(scriptPath);
+    }
+
+    protected scriptDisabledResult(): NukeCapabilityResult {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        return {
+            ok: false,
+            message:
+                'CAD script AI authoring is disabled. Enable "Nuke CAD: Script Authoring" for this workspace in Settings → Nuke CAD first.'
+        };
+    }
+
+    protected inactiveScriptResult(): NukeCapabilityResult {
+        return {
+            ok: false,
+            message: 'Open an active Python (.py) CAD model script before asking NukeAI to inspect or change it.'
+        };
+    }
+
+    /** Probe the sandbox before every script capability invocation. */
+    protected async requireScriptSandbox(): Promise<{ ok: true; status: ScriptSandboxStatus } | { ok: false; message: string }> {
+        try {
+            const status = await this.service.getScriptSandboxStatus();
+            if (!status.available) {
+                const reason = status.reason !== undefined && status.reason.length > 0 ? ` ${status.reason}` : '';
+                return {
+                    ok: false,
+                    message: `The bubblewrap script sandbox is unavailable on this host; script authoring has no unsandboxed fallback.${reason}`
+                };
+            }
+            return { ok: true, status };
+        } catch (error) {
+            return {
+                ok: false,
+                message: `The bubblewrap script sandbox could not be probed; script authoring has no unsandboxed fallback: ${errorMessage(error)}`
+            };
+        }
+    }
+
+    /** Deepest workspace root containing a script. */
+    protected containingWorkspaceRoot(scriptPath: string, roots: readonly string[]): string | undefined {
+        return roots
+            .filter((root) => typeof root === 'string' && root.length > 0 && isWithinWorkspace(scriptPath, [root]))
+            .map((root) => path.resolve(root))
+            .sort((left, right) => right.length - left.length)[0];
+    }
+
+    /** Run one sandboxed build with the shared limits and a cancellable job id. */
+    protected async runSandboxedScriptBuild(
+        request: Omit<SandboxedScriptBuildRequest, 'tolerance' | 'timeoutSeconds' | 'memoryLimitMb' | 'processLimit' | 'fileSizeLimitMb'>,
+        signal: AbortSignal | undefined
+    ): Promise<SandboxedScriptBuildResult> {
+        if (signal?.aborted === true) {
+            throw new Error('The CAD script operation was cancelled.');
+        }
+        const abort = (): void => {
+            if (request.jobId !== undefined) {
+                void this.service.cancelJob(request.jobId);
+            }
+        };
+        signal?.addEventListener('abort', abort);
+        try {
+            return await this.service.buildSandboxedScript({
+                ...request,
+                tolerance: SCRIPT_SANDBOX_TOLERANCE,
+                timeoutSeconds: SCRIPT_SANDBOX_LIMITS.timeoutSeconds,
+                memoryLimitMb: SCRIPT_SANDBOX_LIMITS.memoryLimitMb,
+                processLimit: SCRIPT_SANDBOX_LIMITS.processLimit,
+                fileSizeLimitMb: SCRIPT_SANDBOX_LIMITS.fileSizeLimitMb
+            });
+        } finally {
+            signal?.removeEventListener('abort', abort);
+        }
+    }
+
+    /** Sandbox build usability checks for a script preview or apply. */
+    protected sandboxScriptBuildError(result: SandboxedScriptBuildResult): string | undefined {
+        if (!result.success) {
+            return result.error || 'The sandboxed script build failed.';
+        }
+        if ((result.solidCount ?? 0) < 1) {
+            return 'The sandboxed script build produced no solids; the script is not a usable geometry model.';
+        }
+        if ((result.triangleCount ?? 0) <= 0) {
+            return 'The sandboxed script build produced no tessellation; the script is not a usable geometry model.';
+        }
+        if (!finiteSandboxBoundingBox(result.boundingBox)) {
+            return 'The sandboxed script build produced an invalid bounding box; the script is not a usable geometry model.';
+        }
+        return undefined;
+    }
+
+    /** Atomic replace beside the destination, never following a symlinked target. */
+    protected async replaceFileAtomically(targetPath: string, content: string): Promise<void> {
+        const temporaryPath = path.join(
+            path.dirname(targetPath),
+            `.${path.basename(targetPath)}.nuke-ai-${globalThis.crypto.randomUUID()}.tmp`
+        );
+        try {
+            await this.fileService.create(new URI(temporaryPath), content, { overwrite: false, fromUserGesture: false });
+            await this.fileService.move(new URI(temporaryPath), new URI(targetPath), {
+                overwrite: true,
+                fromUserGesture: false
+            });
+        } finally {
+            await this.fileService.delete(new URI(temporaryPath), { recursive: false, useTrash: false }).catch(() => undefined);
+        }
+    }
+
+    /** Persist one fixed-shape audit line without failing the capability. */
+    protected async auditScript(
+        auditId: string,
+        capabilityId: string,
+        outcome: 'preview-ok' | 'preview-failed' | 'timeout' | 'apply-ok' | 'apply-failed' | 'undo-ok' | 'undo-failed',
+        fields: {
+            readonly scriptHash?: string;
+            readonly baseHash?: string;
+            readonly proposedHash?: string;
+            readonly durationMs?: number;
+            readonly exitCode?: number | null;
+            readonly timedOut?: boolean;
+            readonly solidCount?: number;
+            readonly warningCount?: number;
+            readonly sandboxVersion?: string;
+            readonly limits?: { timeoutSeconds: number; memoryMb: number; processLimit: number; fileSizeMb: number };
+        }
+    ): Promise<void> {
+        await this.scriptAudit.record({
+            timestamp: new Date().toISOString(),
+            auditId,
+            capabilityId,
+            outcome,
+            ...fields
+        });
     }
 
     /** Canonical file path of the open document, independent of the URI encoding. */
@@ -1021,6 +1366,564 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
 
     protected inactiveResult(): NukeCapabilityResult {
         return { ok: false, message: 'Open a saved .nuke-cad document before previewing a feature change.' };
+    }
+
+    /**
+     * Read-only script inspection under both authoring switches.
+     *
+     * The source policy rejects oversized, non-UTF-8, symlinked, or
+     * out-of-workspace files without truncating them. The sandbox status is
+     * probed per invocation and no unsandboxed fallback exists.
+     */
+    protected async inspectScriptSource(context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.scriptAuthoringEnabled()) {
+            return this.scriptDisabledResult();
+        }
+        const scriptPath = this.activeScriptPath();
+        if (scriptPath === undefined) {
+            return this.inactiveScriptResult();
+        }
+        const sandbox = await this.requireScriptSandbox();
+        if (!sandbox.ok) {
+            return { ok: false, message: sandbox.message };
+        }
+        const read = await readActiveScript(this.fileService, scriptPath, context.workspaceRoots);
+        if (!read.ok) {
+            return { ok: false, message: read.message };
+        }
+        const source = read.value;
+        return {
+            ok: true,
+            data: {
+                path: source.path,
+                hash: source.hash,
+                content: source.content,
+                bytes: source.bytes,
+                lines: source.lines,
+                imports: source.imports,
+                hasModelAssignment: source.hasModelAssignment,
+                truncated: source.truncated,
+                sandbox: sandboxStatusData(sandbox.status)
+            }
+        };
+    }
+
+    /**
+     * Stage a proposed script, build it inside the sandbox, and open the review
+     * panel. The source is only read; staging and output directories always
+     * disappear before returning.
+     */
+    protected async previewScriptChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.scriptAuthoringEnabled()) {
+            return this.scriptDisabledResult();
+        }
+        const scriptPath = this.activeScriptPath();
+        if (scriptPath === undefined) {
+            return this.inactiveScriptResult();
+        }
+        const parsed = readScriptPreviewInput(input);
+        if (!parsed.ok) {
+            return { ok: false, message: parsed.message };
+        }
+        const read = await readActiveScript(this.fileService, scriptPath, context.workspaceRoots);
+        if (!read.ok) {
+            return { ok: false, message: read.message };
+        }
+        const source = read.value;
+        if (source.hash !== parsed.baseScriptHash) {
+            return { ok: false, message: 'The active script changed after it was inspected. Inspect it again and repeat the preview.' };
+        }
+        const validation = validateProposedScript(source, parsed.proposedScript);
+        if (!validation.ok) {
+            return { ok: false, message: validation.message };
+        }
+        const sandbox = await this.requireScriptSandbox();
+        if (!sandbox.ok) {
+            return { ok: false, message: sandbox.message };
+        }
+        const workspaceRoot = this.containingWorkspaceRoot(scriptPath, context.workspaceRoots);
+        if (workspaceRoot === undefined) {
+            return { ok: false, message: 'The active CAD script is outside every workspace root.' };
+        }
+        const proposedScriptHash = await hashScriptContent(validation.content);
+        const auditId = globalThis.crypto.randomUUID();
+        const previewId = globalThis.crypto.randomUUID();
+        const stagingDirectory = path.join(workspaceRoot, ...SCRIPT_WORK_ROOT, previewId);
+        const stagingPath = path.join(stagingDirectory, 'model.py');
+        const outputDirectory = path.join(stagingDirectory, 'out');
+        const jobId = `cad-ai-script-preview-${previewId}`;
+        this.ghostPreview.clear();
+        try {
+            await this.ensureScriptDirectory(stagingDirectory);
+            await this.fileService.create(new URI(stagingPath), validation.content, {
+                overwrite: false,
+                fromUserGesture: false
+            });
+            await this.ensureScriptDirectory(outputDirectory);
+            if (context.signal?.aborted) {
+                return { ok: false, message: 'The CAD script preview was cancelled.' };
+            }
+            const build = await this.runSandboxedScriptBuild(
+                {
+                    scriptPath: stagingPath,
+                    workspaceRoot,
+                    outputDirectory,
+                    jobId
+                },
+                context.signal
+            );
+            const buildError = this.sandboxScriptBuildError(build);
+            if (buildError !== undefined) {
+                await this.auditScript(auditId, PREVIEW_SCRIPT_CHANGE_ID, build.timedOut === true ? 'timeout' : 'preview-failed', {
+                    baseHash: source.hash,
+                    proposedHash: proposedScriptHash,
+                    durationMs: build.durationMs,
+                    exitCode: build.exitCode ?? null,
+                    timedOut: build.timedOut,
+                    solidCount: build.solidCount,
+                    warningCount: build.warnings?.length,
+                    ...(build.sandbox?.version !== undefined ? { sandboxVersion: build.sandbox.version } : {}),
+                    limits: SCRIPT_AUDIT_LIMITS
+                });
+                return {
+                    ok: false,
+                    message: buildError,
+                    ...(build.warnings !== undefined ? { warnings: [...build.warnings] } : {})
+                };
+            }
+            const diff = unifiedScriptDiff(source.content, validation.content);
+            const summary =
+                parsed.summary !== undefined && parsed.summary.length > 0 ? parsed.summary : `Update ${path.basename(scriptPath)}`;
+            const warnings = [...(build.warnings ?? [])];
+            if (diff.truncated) {
+                warnings.push('The displayed diff is truncated; inspect the proposed script before applying.');
+            }
+            const sandboxDetails: NukeCadScriptProposalDetails['sandbox'] = {
+                available: true,
+                engine: 'bubblewrap',
+                ...(sandbox.status.version !== undefined ? { version: sandbox.status.version } : {}),
+                ...(sandbox.status.disableUserns !== undefined ? { disableUserns: sandbox.status.disableUserns } : {}),
+                limits: SCRIPT_AUDIT_LIMITS
+            };
+            const details: Omit<NukeCadScriptProposalDetails, 'approvalId'> = {
+                scriptPath,
+                baseScriptHash: source.hash,
+                baseScriptBytes: source.bytes,
+                proposedScript: validation.content,
+                proposedScriptHash,
+                proposedScriptBytes: validation.bytes,
+                diff: diff.text,
+                diffTruncated: diff.truncated,
+                addedLines: diff.addedLines,
+                removedLines: diff.removedLines,
+                hunkCount: diff.hunkCount,
+                imports: validation.imports,
+                hasModelAssignment: validation.hasModelAssignment,
+                sandbox: sandboxDetails,
+                auditId,
+                durationMs: build.durationMs ?? 0,
+                timedOut: build.timedOut === true,
+                exitCode: build.exitCode ?? null,
+                build: {
+                    success: true,
+                    solidCount: build.solidCount ?? 0,
+                    faceCount: build.faceCount ?? 0,
+                    triangleCount: build.triangleCount ?? 0
+                }
+            };
+            const buildData = {
+                success: true,
+                solidCount: build.solidCount ?? 0,
+                faceCount: build.faceCount ?? 0,
+                triangleCount: build.triangleCount ?? 0,
+                ...(build.boundingBox !== undefined ? { boundingBox: build.boundingBox } : {})
+            };
+            const proposal = this.proposals.create({
+                scope: 'script',
+                applyCapability: APPLY_SCRIPT_CHANGE_ID,
+                summary,
+                documentPath: scriptPath,
+                documentEpoch: 0,
+                baseRevision: 0,
+                changes: [
+                    {
+                        path: `scripts.${path.basename(scriptPath)}`,
+                        label: `Python model script ${path.basename(scriptPath)}`,
+                        kind: 'update',
+                        before: source.hash,
+                        after: proposedScriptHash
+                    }
+                ],
+                script: details
+            });
+            await this.auditScript(auditId, PREVIEW_SCRIPT_CHANGE_ID, 'preview-ok', {
+                baseHash: source.hash,
+                proposedHash: proposedScriptHash,
+                durationMs: build.durationMs,
+                exitCode: build.exitCode ?? null,
+                timedOut: build.timedOut,
+                solidCount: build.solidCount,
+                warningCount: warnings.length,
+                ...(build.sandbox?.version !== undefined ? { sandboxVersion: build.sandbox.version } : {}),
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            void this.commands.executeCommand(NukeCadCommands.OPEN_REVIEW_PANEL.id).catch(() => undefined);
+            return {
+                ok: true,
+                data: {
+                    proposalId: proposal.id,
+                    summary,
+                    diff: {
+                        text: diff.text,
+                        truncated: diff.truncated,
+                        addedLines: diff.addedLines,
+                        removedLines: diff.removedLines,
+                        hunkCount: diff.hunkCount
+                    },
+                    imports: validation.imports,
+                    build: buildData,
+                    sandbox: sandboxStatusData(sandbox.status),
+                    auditId,
+                    warnings
+                },
+                changeSet: {
+                    id: proposal.id,
+                    title: 'CAD script change',
+                    summary,
+                    changes: proposal.changes
+                },
+                warnings
+            };
+        } catch (error) {
+            return { ok: false, message: `The CAD script preview failed: ${errorMessage(error)}` };
+        } finally {
+            await this.fileService.delete(new URI(stagingDirectory), { recursive: true, useTrash: false }).catch(() => undefined);
+        }
+    }
+
+    /**
+     * Apply a previewed script replacement after the panel-issued approval.
+     *
+     * The current file hash, proposal base hash, proposed body hash, active
+     * path, approval nonce, and editor dirty state are all rechecked. The
+     * previous body is backed up, the replacement is moved into place
+     * atomically, and the sandbox must accept the real source before the model
+     * is installed. Any write or build failure restores the backup.
+     */
+    protected async applyScriptChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.scriptAuthoringEnabled()) {
+            return this.scriptDisabledResult();
+        }
+        const activePath = this.activeScriptPath();
+        if (activePath === undefined) {
+            return this.inactiveScriptResult();
+        }
+        const parsed = readScriptApplyInput(input);
+        if (!parsed.ok) {
+            return { ok: false, message: parsed.message };
+        }
+        const proposal = this.proposals.get(parsed.proposalId);
+        if (!proposal) {
+            return { ok: false, message: 'This CAD script preview is missing or expired. Preview the change again.' };
+        }
+        if (!isScriptProposal(proposal)) {
+            return { ok: false, message: this.wrongScopeApplyMessage(proposal) };
+        }
+        if (path.resolve(proposal.script.scriptPath) !== activePath) {
+            return { ok: false, message: 'This script preview belongs to a different file. Reopen that script and preview it again.' };
+        }
+        if (parsed.approvalId !== proposal.script.approvalId) {
+            return {
+                ok: false,
+                message: 'This script approval does not match the preview. Open the CAD Edit Review panel and apply from there.'
+            };
+        }
+        const dirty = this.monacoWorkspace.getTextDocument(new URI(activePath).toString())?.dirty === true;
+        if (dirty) {
+            return { ok: false, message: 'Save or close the script editor before applying.' };
+        }
+        const sandbox = await this.requireScriptSandbox();
+        if (!sandbox.ok) {
+            return { ok: false, message: sandbox.message };
+        }
+        const read = await readActiveScript(this.fileService, activePath, context.workspaceRoots);
+        if (!read.ok) {
+            return { ok: false, message: read.message };
+        }
+        const source = read.value;
+        if (source.hash !== proposal.script.baseScriptHash) {
+            return { ok: false, message: 'The active script changed after this preview. Preview the change again.' };
+        }
+        const validation = validateProposedScript(source, proposal.script.proposedScript);
+        if (!validation.ok) {
+            return { ok: false, message: validation.message };
+        }
+        const proposedHash = await hashScriptContent(validation.content);
+        if (proposedHash !== proposal.script.proposedScriptHash) {
+            return { ok: false, message: 'The stored proposed script does not match its recorded hash. Preview the change again.' };
+        }
+        const workspaceRoot = this.containingWorkspaceRoot(activePath, context.workspaceRoots);
+        if (workspaceRoot === undefined) {
+            return { ok: false, message: 'The active CAD script is outside every workspace root.' };
+        }
+        const auditId = proposal.script.auditId;
+        const backupDirectory = path.join(workspaceRoot, ...SCRIPT_BACKUP_ROOT);
+        const backupPath = path.join(backupDirectory, `${utcTimestamp()}-${source.hash.slice(0, 8)}-${path.basename(activePath)}`);
+        try {
+            await this.ensureScriptDirectory(backupDirectory);
+            await this.fileService.create(new URI(backupPath), source.content, {
+                overwrite: false,
+                fromUserGesture: false
+            });
+        } catch (error) {
+            await this.auditScript(auditId, APPLY_SCRIPT_CHANGE_ID, 'apply-failed', {
+                baseHash: source.hash,
+                proposedHash,
+                solidCount: 0,
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            return { ok: false, message: `Could not write the pre-apply script backup: ${errorMessage(error)}` };
+        }
+        try {
+            await this.replaceFileAtomically(activePath, validation.content);
+        } catch (error) {
+            await this.restoreScriptBackup(activePath, backupPath);
+            await this.auditScript(auditId, APPLY_SCRIPT_CHANGE_ID, 'apply-failed', {
+                baseHash: source.hash,
+                proposedHash,
+                solidCount: 0,
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            return { ok: false, message: `Could not replace the CAD script: ${errorMessage(error)}` };
+        }
+        const written = await readActiveScript(this.fileService, activePath, context.workspaceRoots);
+        if (!written.ok || written.value.hash !== proposedHash) {
+            await this.restoreScriptBackup(activePath, backupPath);
+            await this.auditScript(auditId, APPLY_SCRIPT_CHANGE_ID, 'apply-failed', {
+                baseHash: source.hash,
+                proposedHash,
+                solidCount: 0,
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            return {
+                ok: false,
+                message: 'The written script does not match the approved body; the previous script was restored.'
+            };
+        }
+        const buildId = globalThis.crypto.randomUUID();
+        const outputDirectory = path.join(workspaceRoot, ...SCRIPT_WORK_ROOT, proposedHash.slice(0, 8), 'out');
+        let build: SandboxedScriptBuildResult;
+        try {
+            await this.ensureScriptDirectory(outputDirectory);
+            build = await this.runSandboxedScriptBuild(
+                {
+                    scriptPath: activePath,
+                    workspaceRoot,
+                    outputDirectory,
+                    jobId: `cad-ai-script-apply-${buildId}`
+                },
+                context.signal
+            );
+        } catch (error) {
+            await this.restoreScriptBackup(activePath, backupPath);
+            await this.auditScript(auditId, APPLY_SCRIPT_CHANGE_ID, 'apply-failed', {
+                baseHash: source.hash,
+                proposedHash,
+                solidCount: 0,
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            return { ok: false, message: `The sandboxed script build could not run: ${errorMessage(error)}` };
+        }
+        const buildError = this.sandboxScriptBuildError(build);
+        if (buildError !== undefined) {
+            const restored = await this.restoreScriptBackup(activePath, backupPath);
+            await this.auditScript(auditId, APPLY_SCRIPT_CHANGE_ID, build.timedOut === true ? 'timeout' : 'apply-failed', {
+                baseHash: source.hash,
+                proposedHash,
+                durationMs: build.durationMs,
+                exitCode: build.exitCode ?? null,
+                timedOut: build.timedOut,
+                solidCount: build.solidCount,
+                warningCount: build.warnings?.length,
+                ...(build.sandbox?.version !== undefined ? { sandboxVersion: build.sandbox.version } : {}),
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            return {
+                ok: false,
+                message: restored
+                    ? `${buildError} The previous script was restored.`
+                    : `${buildError} The previous script could not be restored from ${backupPath}.`,
+                ...(build.warnings !== undefined ? { warnings: [...build.warnings] } : {})
+            };
+        }
+        this.proposals.remove(proposal.id);
+        this.stateManager.setModel({
+            scriptPath: activePath,
+            result: sandboxedGeometryResult(build),
+            manifest: sandboxedRegionManifest(build),
+            sandboxed: true
+        });
+        await this.auditScript(auditId, APPLY_SCRIPT_CHANGE_ID, 'apply-ok', {
+            baseHash: source.hash,
+            proposedHash,
+            durationMs: build.durationMs,
+            exitCode: build.exitCode ?? null,
+            timedOut: build.timedOut,
+            solidCount: build.solidCount,
+            warningCount: build.warnings?.length,
+            ...(build.sandbox?.version !== undefined ? { sandboxVersion: build.sandbox.version } : {}),
+            limits: SCRIPT_AUDIT_LIMITS
+        });
+        const undoToken = this.undoService.register({
+            title: 'CAD script change',
+            undo: () => this.undoScriptChange(proposal, proposedHash, context.workspaceRoots, backupPath)
+        });
+        return {
+            ok: true,
+            message: 'CAD script applied and rebuilt inside the sandbox.',
+            data: {
+                proposalId: proposal.id,
+                scriptPath: activePath,
+                backupPath,
+                auditId,
+                sandboxedBuild: true,
+                geometryRebuildScheduled: false,
+                build: {
+                    success: true,
+                    solidCount: build.solidCount ?? 0,
+                    faceCount: build.faceCount ?? 0,
+                    triangleCount: build.triangleCount ?? 0
+                }
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD script change',
+                summary: proposal.summary,
+                changes: proposal.changes
+            },
+            undoToken
+        };
+    }
+
+    /**
+     * Restore the backed-up script and rebuild it inside the sandbox. Undo
+     * intentionally does not require the authoring switches, but it does
+     * require the same active path and a hash-verified backup.
+     */
+    protected async undoScriptChange(
+        proposal: NukeCadScriptProposal,
+        appliedHash: string,
+        workspaceRoots: readonly string[],
+        backupPath: string
+    ): Promise<NukeCapabilityResult> {
+        const activePath = this.activeScriptPath();
+        if (activePath === undefined || path.resolve(proposal.script.scriptPath) !== activePath) {
+            return { ok: false, message: 'This script change belongs to a different file and can no longer be undone.' };
+        }
+        const sandbox = await this.requireScriptSandbox();
+        if (!sandbox.ok) {
+            return { ok: false, message: sandbox.message };
+        }
+        const read = await readActiveScript(this.fileService, activePath, workspaceRoots);
+        if (!read.ok) {
+            return { ok: false, message: read.message };
+        }
+        if (read.value.hash !== appliedHash) {
+            return { ok: false, message: 'The script changed after this apply. Preview the change again before editing it.' };
+        }
+        let backupContent: string;
+        try {
+            const backup = await this.fileService.readFile(new URI(backupPath));
+            backupContent = backup.value.toString();
+        } catch {
+            return { ok: false, message: 'The pre-apply script backup is missing; this change can no longer be undone.' };
+        }
+        if ((await hashScriptContent(backupContent)) !== proposal.script.baseScriptHash) {
+            return { ok: false, message: 'The pre-apply script backup is corrupt; this change can no longer be undone.' };
+        }
+        try {
+            await this.replaceFileAtomically(activePath, backupContent);
+        } catch (error) {
+            return { ok: false, message: `Could not restore the script backup: ${errorMessage(error)}` };
+        }
+        const restored = await readActiveScript(this.fileService, activePath, workspaceRoots);
+        if (!restored.ok || restored.value.hash !== proposal.script.baseScriptHash) {
+            return { ok: false, message: 'The restored script does not match the backup. The change can no longer be undone.' };
+        }
+        const workspaceRoot = this.containingWorkspaceRoot(activePath, workspaceRoots);
+        if (workspaceRoot === undefined) {
+            return { ok: false, message: 'The active CAD script is outside every workspace root.' };
+        }
+        const buildId = globalThis.crypto.randomUUID();
+        const outputDirectory = path.join(workspaceRoot, ...SCRIPT_WORK_ROOT, `undo-${buildId}`, 'out');
+        let build: SandboxedScriptBuildResult;
+        try {
+            await this.ensureScriptDirectory(outputDirectory);
+            build = await this.runSandboxedScriptBuild(
+                {
+                    scriptPath: activePath,
+                    workspaceRoot,
+                    outputDirectory,
+                    jobId: `cad-ai-script-undo-${buildId}`
+                },
+                undefined
+            );
+        } catch (error) {
+            await this.auditScript(proposal.script.auditId, APPLY_SCRIPT_CHANGE_ID, 'undo-failed', {
+                baseHash: proposal.script.baseScriptHash,
+                scriptHash: appliedHash,
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            return { ok: false, message: `The script was restored, but the sandboxed rebuild could not run: ${errorMessage(error)}` };
+        }
+        const buildError = this.sandboxScriptBuildError(build);
+        if (buildError !== undefined) {
+            await this.auditScript(proposal.script.auditId, APPLY_SCRIPT_CHANGE_ID, 'undo-failed', {
+                baseHash: proposal.script.baseScriptHash,
+                scriptHash: appliedHash,
+                durationMs: build.durationMs,
+                exitCode: build.exitCode ?? null,
+                timedOut: build.timedOut,
+                solidCount: build.solidCount,
+                ...(build.sandbox?.version !== undefined ? { sandboxVersion: build.sandbox.version } : {}),
+                limits: SCRIPT_AUDIT_LIMITS
+            });
+            return { ok: false, message: `The script was restored, but the sandboxed rebuild failed: ${buildError}` };
+        }
+        this.stateManager.setModel({
+            scriptPath: activePath,
+            result: sandboxedGeometryResult(build),
+            manifest: sandboxedRegionManifest(build),
+            sandboxed: true
+        });
+        await this.auditScript(proposal.script.auditId, APPLY_SCRIPT_CHANGE_ID, 'undo-ok', {
+            baseHash: proposal.script.baseScriptHash,
+            scriptHash: appliedHash,
+            durationMs: build.durationMs,
+            exitCode: build.exitCode ?? null,
+            timedOut: build.timedOut,
+            solidCount: build.solidCount,
+            warningCount: build.warnings?.length,
+            ...(build.sandbox?.version !== undefined ? { sandboxVersion: build.sandbox.version } : {}),
+            limits: SCRIPT_AUDIT_LIMITS
+        });
+        return { ok: true, message: 'CAD script change undone; the previous script was rebuilt inside the sandbox.' };
+    }
+
+    /** Create a workspace directory when it does not exist yet. */
+    protected async ensureScriptDirectory(directory: string): Promise<void> {
+        await this.fileService.createFolder(new URI(directory), { fromUserGesture: false });
+    }
+
+    /** Best-effort backup restore used by apply failure paths. */
+    protected async restoreScriptBackup(scriptPath: string, backupPath: string): Promise<boolean> {
+        try {
+            const backup = await this.fileService.readFile(new URI(backupPath));
+            await this.replaceFileAtomically(scriptPath, backup.value.toString());
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -1542,6 +2445,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         }
         if (isDrawingProposal(proposal)) {
             return 'This proposal is a drawing change; apply it with nuke.cad.applyDrawingChange.';
+        }
+        if (isScriptProposal(proposal)) {
+            return 'This proposal is a script change; apply it with nuke.cad.applyScriptChange.';
         }
         return 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.';
     }
@@ -2749,6 +3655,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (isDrawingProposal(proposal)) {
             return { ok: false, message: 'This proposal is a drawing change; apply it with nuke.cad.applyDrawingChange.' };
         }
+        if (isScriptProposal(proposal)) {
+            return { ok: false, message: 'This proposal is a script change; apply it with nuke.cad.applyScriptChange.' };
+        }
         const stale = this.staleReason(proposal);
         if (stale) {
             return { ok: false, message: stale };
@@ -3693,6 +4602,62 @@ export function readDrawingChangeActions(
     return { ok: true, actions };
 }
 
+/**
+ * Strictly shape-check one script preview request.
+ *
+ * The body itself is validated by the source policy; this parser only rejects
+ * malformed envelopes and an invalid base hash.
+ */
+export function readScriptPreviewInput(
+    input: unknown
+): { ok: true; baseScriptHash: string; proposedScript: string; summary?: string } | { ok: false; message: string } {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'baseScriptHash and proposedScript are required.' };
+    }
+    const record = input as Record<string, unknown>;
+    const unexpected = unexpectedKey(record, ['baseScriptHash', 'proposedScript', 'summary']);
+    if (unexpected !== undefined) {
+        return { ok: false, message: `The script preview has an unknown field '${unexpected}'.` };
+    }
+    if (typeof record.baseScriptHash !== 'string' || !SCRIPT_HASH_PATTERN.test(record.baseScriptHash)) {
+        return { ok: false, message: 'baseScriptHash must be the lowercase SHA-256 returned by nuke.cad.inspectScriptSource.' };
+    }
+    if (typeof record.proposedScript !== 'string') {
+        return { ok: false, message: 'proposedScript must be a complete script body.' };
+    }
+    if (record.summary !== undefined && typeof record.summary !== 'string') {
+        return { ok: false, message: 'summary must be a string when provided.' };
+    }
+    const summary = typeof record.summary === 'string' ? record.summary.trim().slice(0, SCRIPT_SUMMARY_LIMIT) : undefined;
+    return {
+        ok: true,
+        baseScriptHash: record.baseScriptHash,
+        proposedScript: record.proposedScript,
+        ...(summary !== undefined && summary.length > 0 ? { summary } : {})
+    };
+}
+
+/** Strictly shape-check one script apply request; only the panel knows the nonce. */
+export function readScriptApplyInput(
+    input: unknown
+): { ok: true; proposalId: string; approvalId: string } | { ok: false; message: string } {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'proposalId and approvalId are required.' };
+    }
+    const record = input as Record<string, unknown>;
+    const unexpected = unexpectedKey(record, ['proposalId', 'approvalId']);
+    if (unexpected !== undefined) {
+        return { ok: false, message: `The script apply request has an unknown field '${unexpected}'.` };
+    }
+    if (typeof record.proposalId !== 'string' || record.proposalId.length === 0) {
+        return { ok: false, message: 'proposalId is required.' };
+    }
+    if (typeof record.approvalId !== 'string' || record.approvalId.length === 0) {
+        return { ok: false, message: 'approvalId is required; apply from the CAD Edit Review panel.' };
+    }
+    return { ok: true, proposalId: record.proposalId, approvalId: record.approvalId };
+}
+
 function unexpectedKey(record: Record<string, unknown>, allowed: readonly string[]): string | undefined {
     return Object.keys(record).find((key) => !allowed.includes(key));
 }
@@ -4040,6 +5005,31 @@ export function stableStringify(value: unknown): string {
 
 function formatIssues(issues: readonly { path: string; message: string }[] | undefined): string[] | undefined {
     return issues && issues.length > 0 ? issues.map((issue) => `${issue.path}: ${issue.message}`) : undefined;
+}
+
+/** Bounded sandbox status for inspection and preview output. */
+function sandboxStatusData(status: ScriptSandboxStatus): Record<string, unknown> {
+    return {
+        available: status.available,
+        engine: status.engine,
+        ...(status.version !== undefined ? { version: status.version } : {}),
+        ...(status.userns !== undefined ? { userns: status.userns } : {}),
+        ...(status.disableUserns !== undefined ? { disableUserns: status.disableUserns } : {}),
+        ...(status.reason !== undefined ? { reason: status.reason } : {})
+    };
+}
+
+/** Sandboxed bbox must be finite; unlike document previews, flat extents are allowed. */
+function finiteSandboxBoundingBox(box: SandboxedScriptBuildResult['boundingBox']): boolean {
+    if (!box || !Array.isArray(box.min) || !Array.isArray(box.max) || box.min.length !== 3 || box.max.length !== 3) {
+        return false;
+    }
+    return box.min.every((value, index) => Number.isFinite(value) && Number.isFinite(box.max[index]) && box.max[index] >= value);
+}
+
+/** Filesystem-safe UTC timestamp for script backups. */
+function utcTimestamp(): string {
+    return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
 function errorMessage(error: unknown): string {

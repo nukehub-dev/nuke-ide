@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ChatAgentLocation } from '@theia/ai-chat/lib/common';
+import { MCP_READ_ONLY_CAPABILITY_IDS } from '../../common/nuke-mcp-protocol';
 import { NUKE_CAPABILITY_TOOL_NAMES, NUKE_CHAT_AGENT_ID, NukeChatAgent } from './nuke-chat-agent';
 
 const CAPABILITY_IDS = [
@@ -49,6 +50,9 @@ const CAPABILITY_IDS = [
     'nuke.cad.summarizeDrawing',
     'nuke.cad.previewDrawingChange',
     'nuke.cad.applyDrawingChange',
+    'nuke.cad.inspectScriptSource',
+    'nuke.cad.previewScriptChange',
+    'nuke.cad.applyScriptChange',
     'nuke.cad.exportDagmc',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
@@ -86,12 +90,18 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all thirty-seven capability tool names', () => {
+    it('exposes the nukeContext variable and all forty capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(37);
+        expect(agent.functions).toHaveLength(40);
+    });
+
+    it('never exposes the script authoring capabilities through MCP', () => {
+        expect(MCP_READ_ONLY_CAPABILITY_IDS as readonly string[]).not.toContain('nuke.cad.inspectScriptSource');
+        expect(MCP_READ_ONLY_CAPABILITY_IDS as readonly string[]).not.toContain('nuke.cad.previewScriptChange');
+        expect(MCP_READ_ONLY_CAPABILITY_IDS as readonly string[]).not.toContain('nuke.cad.applyScriptChange');
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -175,7 +185,7 @@ describe('NukeChatAgent', () => {
         expect(prompt).toMatch(/Apply never rewrites the OpenMC project/i);
         expect(prompt).toMatch(/patternCount.*including the original/i);
         expect(prompt).toMatch(/overlapping pattern may change only faces or volume/i);
-        expect(prompt).toMatch(/Booleans, add, delete,\s+reorder, scripts/);
+        expect(prompt).toMatch(/Booleans, add, delete,\s+reorder, partial or unsandboxed scripts/);
         expect(prompt).not.toMatch(/Booleans, add, delete,\s+reorder, imports/);
         expect(prompt).not.toMatch(/assemblies, scripts/);
     });
@@ -254,6 +264,25 @@ describe('NukeChatAgent', () => {
         expect(prompt).toMatch(/Requires explicit confirmation/);
         expect(prompt).not.toMatch(/drawings, scripts/);
         expect(prompt).not.toMatch(/scripts, and drawings/);
+    });
+
+    it('covers Python script inspection, sandboxed preview, panel-only apply, and the privacy warning', () => {
+        const prompt = promptTemplate();
+
+        expect(prompt).toContain('nuke_cad_inspectScriptSource');
+        expect(prompt).toContain('nuke_cad_previewScriptChange');
+        expect(prompt).toContain('nuke_cad_applyScriptChange');
+        expect(prompt).toContain('## Python script authoring');
+        expect(prompt).toMatch(/nukeCad\.scriptAuthoringEnabled/);
+        expect(prompt).toMatch(/Linux with bubblewrap/);
+        expect(prompt).toMatch(/no network and no workspace access/i);
+        expect(prompt).toMatch(/script text goes to the configured model provider/i);
+        expect(prompt).toMatch(/exact `baseScriptHash` and the full `proposedScript`/);
+        expect(prompt).toMatch(/preview card has no Apply action/i);
+        expect(prompt).toMatch(/Apply is panel-only/i);
+        expect(prompt).toMatch(/never claim you can apply from chat/i);
+        expect(prompt).toMatch(/overwrites the file with a hidden backup and undo/i);
+        expect(prompt).toMatch(/exports stay blocked while the model is sandboxed/i);
     });
 
     it('stays within a bounded prompt budget', () => {

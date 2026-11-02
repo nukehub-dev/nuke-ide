@@ -114,6 +114,11 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/openDrawingSheet', 'Open Drawing Sheet')
     };
 
+    export const OPEN_ACTIVE_SCRIPT: Command = {
+        id: 'nuke.cad.openActiveScriptModel',
+        label: nls.localize('nuke/cad/openActiveScriptModel', 'Open Active Python Model in CAD')
+    };
+
     export const REFRESH_DRAWING_SHEET: Command = {
         id: 'nuke.cad.refreshDrawingSheet',
         label: nls.localize('nuke/cad/refreshDrawingSheet', 'Refresh Drawing Sheet')

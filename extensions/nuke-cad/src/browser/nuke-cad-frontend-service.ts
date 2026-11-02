@@ -51,7 +51,10 @@ import {
     DownloadFileResult,
     InspectImportSourceRequest,
     InspectImportSourceResult,
-    CadBoundingBox
+    CadBoundingBox,
+    SandboxedScriptBuildRequest,
+    SandboxedScriptBuildResult,
+    ScriptSandboxStatus
 } from '../common/nuke-cad-protocol';
 import { DrawingBuildRequest, DrawingBuildResult } from '../common/cad-drawing';
 import { NukeCadPreferences } from './nuke-cad-preferences';
@@ -87,6 +90,22 @@ export class NukeCadFrontendService implements NukeCadBackendService {
 
     buildDrawing(request: DrawingBuildRequest): Promise<DrawingBuildResult> {
         return this.proxy.buildDrawing(request);
+    }
+
+    getScriptSandboxStatus(): Promise<ScriptSandboxStatus> {
+        return this.proxy.getScriptSandboxStatus();
+    }
+
+    buildSandboxedScript(request: SandboxedScriptBuildRequest): Promise<SandboxedScriptBuildResult> {
+        // Sandboxed builds are display-only previews; inject the same adaptive
+        // display tolerance the regular viewport build path uses.
+        const tolerance = request.tolerance ?? this.resolveSandboxTolerance(request.scriptPath);
+        return this.proxy.buildSandboxedScript({ ...request, tolerance }).then((result) => {
+            if (result.success && result.boundingBox) {
+                this.lastBoundingBox.set(request.scriptPath, result.boundingBox);
+            }
+            return result;
+        });
     }
 
     inspectImportSource(request: InspectImportSourceRequest): Promise<InspectImportSourceResult> {
@@ -159,6 +178,13 @@ export class NukeCadFrontendService implements NukeCadBackendService {
             return computeDisplayTolerance(displayTolerance, maxTriangles, previousBox);
         }
         return this.preferences.get('nukeCad.facetingTolerance', 0.001);
+    }
+
+    /** Adaptive display tolerance for a sandboxed preview build. */
+    private resolveSandboxTolerance(scriptPath: string): number {
+        const displayTolerance = this.preferences.get('nukeCad.displayFacetingTolerance', 0.01);
+        const maxTriangles = this.preferences.get('nukeCad.maxDisplayTriangles', 2_000_000);
+        return computeDisplayTolerance(displayTolerance, maxTriangles, this.lastBoundingBox.get(scriptPath));
     }
 
     /**

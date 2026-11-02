@@ -29,12 +29,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class FileService {} }));
 vi.mock('@theia/filesystem/lib/browser/file-dialog', () => ({ FileDialogService: Symbol('FileDialogService') }));
+vi.mock('@theia/workspace/lib/browser', () => ({ WorkspaceService: class WorkspaceService {} }));
+vi.mock('@theia/monaco/lib/browser/monaco-workspace', () => ({ MonacoWorkspace: class MonacoWorkspace {} }));
 
 import { URI } from '@theia/core/lib/common/uri';
 import type { CommandService } from '@theia/core/lib/common/command';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
 import type { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import type { FileStat } from '@theia/filesystem/lib/common/files';
+import type { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
 import type { NukeUndoEntry, NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import type {
     NukeCapability,
@@ -49,7 +52,10 @@ import type {
     ImportSolidInfo,
     InspectImportSourceRequest,
     InspectImportSourceResult,
-    RegionManifestData
+    RegionManifestData,
+    SandboxedScriptBuildRequest,
+    SandboxedScriptBuildResult,
+    ScriptSandboxStatus
 } from '../../common/nuke-cad-protocol';
 import type { CadDocumentStore, ImportBodyDraft, ImportBodiesRequest } from '../document/cad-document-store';
 import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
@@ -60,17 +66,21 @@ import {
     APPLY_DRAWING_CHANGE_ID,
     APPLY_FEATURE_CHANGE_ID,
     APPLY_IMPORT_BODIES_ID,
+    APPLY_SCRIPT_CHANGE_ID,
     APPLY_SKETCH_CHANGE_ID,
     APPLY_TOPOLOGY_CHANGE_ID,
     INSPECT_IMPORT_SOURCE_ID,
+    INSPECT_SCRIPT_SOURCE_ID,
     LIST_SKETCH_DIMENSIONS_ID,
     NukeCadAuthoringCapabilities,
     PREVIEW_ASSEMBLY_CHANGE_ID,
     PREVIEW_DRAWING_CHANGE_ID,
     PREVIEW_FEATURE_CHANGE_ID,
     PREVIEW_IMPORT_BODIES_ID,
+    PREVIEW_SCRIPT_CHANGE_ID,
     PREVIEW_SKETCH_CHANGE_ID,
     PREVIEW_TOPOLOGY_CHANGE_ID,
+    SCRIPT_AUTHORING_PREFERENCE,
     SUMMARIZE_ASSEMBLY_ID,
     SUMMARIZE_DRAWING_ID,
     readAssemblyActions,
@@ -78,6 +88,8 @@ import {
     readFeatureParamChanges,
     readImportPreviewInput,
     readInspectImportSourceInput,
+    readScriptApplyInput,
+    readScriptPreviewInput,
     readSketchEditRequests,
     readTopologyActions,
     validateAssemblyCandidateBuild
@@ -86,10 +98,12 @@ import {
     isAssemblyProposal,
     isDrawingProposal,
     isImportProposal,
+    isScriptProposal,
     isSketchProposal,
     isTopologyProposal,
     NukeCadAssemblyProposalDetails,
-    NukeCadProposalService
+    NukeCadProposalService,
+    NukeCadScriptProposal
 } from './nuke-cad-proposal-service';
 import type { AssemblyChangeInput } from '../../common/cad-assembly-edit';
 import type { DrawingChangeAction } from '../../common/cad-drawing-edit';
@@ -98,6 +112,9 @@ import type { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-previ
 import type { NukeCadSketchEditService } from '../sketch/sketch-edit-service';
 import type { PreparedSketchEdit, SketchEditPrepareResult, SketchEditRequest } from '../sketch/sketch-edit-types';
 import { MAX_IMPORT_SOURCE_BYTES } from './import-source-policy';
+import { hashScriptContent } from './script-source-policy';
+import type { NukeCadScriptAuditService } from './script-audit-service';
+import * as path from 'path';
 
 const WORKSPACE = '/workspace/project';
 const DOCUMENT_PATH = `${WORKSPACE}/pincell.nuke-cad`;
@@ -123,6 +140,42 @@ const IMPORT_INSPECTION: InspectImportSourceResult = {
     solidCount: IMPORT_SOLIDS.length,
     solids: IMPORT_SOLIDS,
     warnings: []
+};
+
+const SCRIPT_PATH = `${WORKSPACE}/pincell_model.py`;
+const OTHER_SCRIPT_PATH = `${WORKSPACE}/other_model.py`;
+const SCRIPT_BASE_CONTENT = 'from build123d import *\nmodel = Box(1, 2, 3)\n';
+const SCRIPT_PROPOSED_CONTENT = 'from build123d import *\nmodel = Box(2, 2, 2)\n';
+
+const SCRIPT_SANDBOX_STATUS: ScriptSandboxStatus = {
+    available: true,
+    engine: 'bubblewrap',
+    version: '0.8.0',
+    userns: true,
+    disableUserns: true
+};
+
+const SCRIPT_SANDBOX_RESULT: SandboxedScriptBuildResult = {
+    success: true,
+    solidCount: 1,
+    faceCount: 6,
+    triangleCount: 12,
+    boundingBox: { min: [0, 0, 0], max: [2, 2, 2] },
+    tessPath: `${WORKSPACE}/sandbox/model.tess.json`,
+    stepPath: `${WORKSPACE}/sandbox/model.step`,
+    durationMs: 250,
+    exitCode: 0,
+    warnings: [],
+    sandbox: {
+        available: true,
+        engine: 'bubblewrap',
+        version: '0.8.0',
+        disableUserns: true,
+        network: 'none',
+        workspace: 'none',
+        writable: ['/out'],
+        limits: { timeoutSeconds: 120, memoryLimitMb: 4096, processLimit: 128, fileSizeLimitMb: 512, nofile: 1024, core: 0 }
+    }
 };
 
 const MANIFEST: RegionManifestData = {
@@ -599,8 +652,10 @@ interface Harness {
     undoEntries: NukeUndoEntry[];
     fileService: {
         create: ReturnType<typeof vi.fn>;
+        createFolder: ReturnType<typeof vi.fn>;
         delete: ReturnType<typeof vi.fn>;
         exists: ReturnType<typeof vi.fn>;
+        move: ReturnType<typeof vi.fn>;
         readFile: ReturnType<typeof vi.fn>;
         resolve: ReturnType<typeof vi.fn>;
     };
@@ -609,13 +664,22 @@ interface Harness {
     files: Map<string, string>;
     service: {
         buildDocument: ReturnType<typeof vi.fn>;
+        buildSandboxedScript: ReturnType<typeof vi.fn>;
         cancelJob: ReturnType<typeof vi.fn>;
+        getScriptSandboxStatus: ReturnType<typeof vi.fn>;
         inspectImportSource: ReturnType<typeof vi.fn>;
     };
     store: CadDocumentStore;
+    stateManager: NukeCadStateManager;
+    setStateModel: (model: CadModel | undefined) => void;
     preferences: { get: ReturnType<typeof vi.fn> };
     ghostPreview: { show: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> };
     sketchPrepare: ReturnType<typeof vi.fn>;
+    monaco: { getTextDocument: ReturnType<typeof vi.fn> };
+    scriptAudit: { record: ReturnType<typeof vi.fn> };
+    scriptBuilds: SandboxedScriptBuildRequest[];
+    get sandboxStatusCalls(): number;
+    get auditRecords(): Record<string, unknown>[];
     bumpRevision: () => void;
     bumpEpoch: () => void;
     currentDocument: () => NukeCadDocument;
@@ -624,6 +688,7 @@ interface Harness {
 
 interface HarnessOptions {
     enabled?: boolean;
+    scriptAuthoring?: boolean;
     build?: GeometryBuildResult;
     hasModel?: boolean;
     saved?: boolean;
@@ -638,12 +703,21 @@ interface HarnessOptions {
     assemblyApplySucceeds?: boolean;
     drawingApplySucceeds?: boolean;
     prepare?: (document: NukeCadDocument, requests: readonly SketchEditRequest[]) => Promise<SketchEditPrepareResult>;
+    scriptMode?: boolean;
+    scriptPath?: string;
+    scriptContent?: string;
+    sandboxStatus?: ScriptSandboxStatus | (() => Promise<ScriptSandboxStatus>);
+    sandboxBuild?: SandboxedScriptBuildResult | ((request: SandboxedScriptBuildRequest) => Promise<SandboxedScriptBuildResult>);
+    monacoDirty?: boolean;
+    corruptNextMove?: boolean;
 }
 
 function createHarness(overrides: HarnessOptions = {}): Harness {
+    const scriptMode = overrides.scriptMode === true;
+    const activeScriptPath = overrides.scriptPath ?? SCRIPT_PATH;
     let document = overrides.document ?? createDocument();
-    let revision = 3;
-    let epoch = 7;
+    let revision = scriptMode ? 0 : 3;
+    let epoch = scriptMode ? 0 : 7;
     const edits: { id: string; params: Record<string, unknown> }[][] = [];
     const replacements: { id: string; params: Record<string, unknown> }[][] = [];
     const sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[] = [];
@@ -662,6 +736,9 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     for (const [filePath, content] of Object.entries(overrides.files ?? {})) {
         files.set(new URI(filePath).path.toString(), content);
     }
+    if (scriptMode) {
+        files.set(new URI(activeScriptPath).path.toString(), overrides.scriptContent ?? SCRIPT_BASE_CONTENT);
+    }
     const filesystem = new Map<string, FileStat>();
     for (const [filePath, spec] of Object.entries(overrides.filesystem ?? {})) {
         filesystem.set(new URI(filePath).path.toString(), {
@@ -674,12 +751,23 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             ...spec
         });
     }
+    if (scriptMode && !filesystem.has(new URI(activeScriptPath).path.toString())) {
+        filesystem.set(new URI(activeScriptPath).path.toString(), {
+            resource: new URI(activeScriptPath),
+            name: path.basename(activeScriptPath),
+            isFile: true,
+            isDirectory: false,
+            isSymbolicLink: false,
+            isReadonly: false,
+            size: new TextEncoder().encode(overrides.scriptContent ?? SCRIPT_BASE_CONTENT).byteLength
+        });
+    }
     const store = {
-        get document(): NukeCadDocument {
-            return document;
+        get document(): NukeCadDocument | undefined {
+            return scriptMode ? undefined : document;
         },
         get uri(): string | undefined {
-            return overrides.saved === false ? undefined : new URI(DOCUMENT_PATH).toString();
+            return scriptMode || overrides.saved === false ? undefined : new URI(DOCUMENT_PATH).toString();
         },
         get documentEpoch(): number {
             return epoch;
@@ -912,24 +1000,54 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             selectionClears += 1;
         }
     } as unknown as CadDocumentStore;
-    const model =
+    let stateModel: CadModel | undefined =
         overrides.hasModel === false
             ? undefined
-            : ({
-                  scriptPath: DOCUMENT_PATH,
-                  result: overrides.modelResult ?? BUILD_RESULT,
-                  manifest: (overrides.modelResult ?? BUILD_RESULT).regionManifest
-              } as CadModel);
+            : scriptMode
+              ? ({
+                    scriptPath: activeScriptPath,
+                    result: overrides.modelResult ?? BUILD_RESULT,
+                    manifest: (overrides.modelResult ?? BUILD_RESULT).regionManifest
+                } as CadModel)
+              : ({
+                    scriptPath: DOCUMENT_PATH,
+                    result: overrides.modelResult ?? BUILD_RESULT,
+                    manifest: (overrides.modelResult ?? BUILD_RESULT).regionManifest
+                } as CadModel);
+    const setStateModel = vi.fn((next: CadModel | undefined) => {
+        stateModel = next;
+    });
     const stateManager = {
-        model,
-        scriptPath: DOCUMENT_PATH,
+        get model(): CadModel | undefined {
+            return stateModel;
+        },
+        get scriptPath(): string | undefined {
+            return stateModel?.scriptPath;
+        },
         solidSummaries: overrides.solidSummaries ?? [],
+        setModel: setStateModel,
         setSelection: vi.fn(() => {
             stateSelections += 1;
         })
     } as unknown as NukeCadStateManager;
+    const scriptBuilds: SandboxedScriptBuildRequest[] = [];
+    let sandboxStatusCalls = 0;
     const service = {
         buildDocument: vi.fn(async () => overrides.build ?? BUILD_RESULT),
+        getScriptSandboxStatus: vi.fn(async (): Promise<ScriptSandboxStatus> => {
+            sandboxStatusCalls += 1;
+            if (typeof overrides.sandboxStatus === 'function') {
+                return overrides.sandboxStatus();
+            }
+            return overrides.sandboxStatus ?? SCRIPT_SANDBOX_STATUS;
+        }),
+        buildSandboxedScript: vi.fn(async (request: SandboxedScriptBuildRequest): Promise<SandboxedScriptBuildResult> => {
+            scriptBuilds.push(request);
+            if (typeof overrides.sandboxBuild === 'function') {
+                return overrides.sandboxBuild(request);
+            }
+            return overrides.sandboxBuild ?? SCRIPT_SANDBOX_RESULT;
+        }),
         cancelJob: vi.fn(async () => true),
         inspectImportSource: vi.fn(async (request: InspectImportSourceRequest): Promise<InspectImportSourceResult> => {
             if (typeof overrides.inspection === 'function') {
@@ -945,18 +1063,63 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     };
     const fileService = {
         create: vi.fn(async (uri: URI, content: string) => {
-            files.set(uri.path.toString(), content);
+            const filePath = uri.path.toString();
+            files.set(filePath, content);
+            filesystem.set(filePath, {
+                resource: uri,
+                name: path.basename(filePath),
+                isFile: true,
+                isDirectory: false,
+                isSymbolicLink: false,
+                isReadonly: false,
+                size: new TextEncoder().encode(content).byteLength
+            });
         }),
-        delete: vi.fn(async (uri: URI) => {
-            files.delete(uri.path.toString());
+        createFolder: vi.fn(async () => undefined),
+        delete: vi.fn(async (uri: URI, options?: { recursive?: boolean }) => {
+            const target = uri.path.toString();
+            for (const key of [...files.keys()]) {
+                if (key === target || (options?.recursive === true && key.startsWith(`${target}/`))) {
+                    files.delete(key);
+                }
+            }
+            for (const key of [...filesystem.keys()]) {
+                if (key === target || (options?.recursive === true && key.startsWith(`${target}/`))) {
+                    filesystem.delete(key);
+                }
+            }
         }),
         exists: vi.fn(async (uri: URI) => files.has(uri.path.toString())),
+        move: vi.fn(async (source: URI, target: URI) => {
+            const sourcePath = source.path.toString();
+            const targetPath = target.path.toString();
+            const content = files.get(sourcePath);
+            if (content === undefined) {
+                throw new Error(`File not found: ${sourcePath}`);
+            }
+            const written = overrides.corruptNextMove === true ? 'corrupted write' : content;
+            if (overrides.corruptNextMove === true) {
+                overrides.corruptNextMove = false;
+            }
+            files.set(targetPath, written);
+            files.delete(sourcePath);
+            filesystem.delete(sourcePath);
+            filesystem.set(targetPath, {
+                resource: target,
+                name: path.basename(targetPath),
+                isFile: true,
+                isDirectory: false,
+                isSymbolicLink: false,
+                isReadonly: false,
+                size: new TextEncoder().encode(written).byteLength
+            });
+        }),
         readFile: vi.fn(async (uri: URI) => {
             const content = files.get(uri.path.toString());
             if (content === undefined) {
                 throw new Error(`File not found: ${uri.path.toString()}`);
             }
-            return { value: { toString: () => content } };
+            return { value: { toString: () => content, buffer: new TextEncoder().encode(content).buffer } };
         }),
         resolve: vi.fn(async (uri: URI) => {
             const stat = filesystem.get(uri.path.toString());
@@ -974,7 +1137,14 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             return overrides.pickImport === undefined ? undefined : new URI(overrides.pickImport);
         })
     };
-    const preferences = { get: vi.fn(() => overrides.enabled ?? true) };
+    const preferences = {
+        get: vi.fn((key: string) => {
+            if (key === SCRIPT_AUTHORING_PREFERENCE) {
+                return overrides.scriptAuthoring ?? true;
+            }
+            return overrides.enabled ?? true;
+        })
+    };
     const commands: string[] = [];
     const commandCalls: { id: string; args: readonly unknown[] }[] = [];
     const commandService = {
@@ -1003,6 +1173,15 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             (async (doc: NukeCadDocument): Promise<SketchEditPrepareResult> => ({ ok: true, result: createPreparedSketchEdit(doc) }))
     );
     const sketchEditService = { prepare: sketchPrepare } as unknown as NukeCadSketchEditService;
+    const monaco = {
+        getTextDocument: vi.fn((_uri: string) => (overrides.monacoDirty === undefined ? undefined : { dirty: overrides.monacoDirty }))
+    };
+    const auditRecords: Record<string, unknown>[] = [];
+    const scriptAudit = {
+        record: vi.fn(async (entry: Record<string, unknown>) => {
+            auditRecords.push(entry);
+        })
+    };
     const capabilities = new NukeCadAuthoringCapabilities(
         stateManager,
         service as unknown as NukeCadFrontendService,
@@ -1014,8 +1193,13 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         commandService as unknown as CommandService,
         undoService,
         ghostPreview as unknown as NukeCadGhostPreviewService,
-        sketchEditService
+        sketchEditService,
+        monaco as unknown as MonacoWorkspace,
+        {} as never,
+        {} as never
     );
+    (capabilities as unknown as { scriptAudit: NukeCadScriptAuditService }).scriptAudit =
+        scriptAudit as unknown as NukeCadScriptAuditService;
     const registered = new Map<string, NukeCapability>();
     capabilities.registerCapabilities({
         register: (capability: NukeCapability) => registered.set(capability.id, capability)
@@ -1049,9 +1233,20 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         files,
         service,
         store,
+        stateManager,
+        setStateModel,
         preferences,
         ghostPreview,
         sketchPrepare,
+        monaco,
+        scriptAudit,
+        scriptBuilds,
+        get sandboxStatusCalls(): number {
+            return sandboxStatusCalls;
+        },
+        get auditRecords(): Record<string, unknown>[] {
+            return auditRecords;
+        },
         bumpRevision: () => {
             revision += 1;
         },
@@ -1268,6 +1463,56 @@ async function previewedImportProposal(
 async function authorizeImport(harness: Harness, sourcePath = IMPORT_PATH): Promise<void> {
     const inspected = await inspectImport(harness, { sourcePath });
     expect(inspected.ok).toBe(true);
+}
+
+const SCRIPT_CONTEXT: NukeCapabilityContext = { ...CONTEXT, activeCadDocument: SCRIPT_PATH };
+
+function scriptHarness(overrides: HarnessOptions = {}): Harness {
+    return createHarness({ scriptMode: true, ...overrides });
+}
+
+function inspectScript(harness: Harness, context: NukeCapabilityContext = SCRIPT_CONTEXT): Promise<NukeCapabilityResult> {
+    return harness.registered.get(INSPECT_SCRIPT_SOURCE_ID)!.invoke({}, context);
+}
+
+async function scriptPreviewInput(overrides: { proposedScript?: string; baseScriptHash?: string; summary?: string } = {}): Promise<{
+    baseScriptHash: string;
+    proposedScript: string;
+    summary?: string;
+}> {
+    return {
+        baseScriptHash: overrides.baseScriptHash ?? (await hashScriptContent(SCRIPT_BASE_CONTENT)),
+        proposedScript: overrides.proposedScript ?? SCRIPT_PROPOSED_CONTENT,
+        ...(overrides.summary !== undefined ? { summary: overrides.summary } : {})
+    };
+}
+
+function previewScript(harness: Harness, input: unknown, context: NukeCapabilityContext = SCRIPT_CONTEXT): Promise<NukeCapabilityResult> {
+    return harness.registered.get(PREVIEW_SCRIPT_CHANGE_ID)!.invoke(input, context);
+}
+
+function applyScript(
+    harness: Harness,
+    proposalId: string,
+    approvalId: string,
+    context: NukeCapabilityContext = SCRIPT_CONTEXT
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(APPLY_SCRIPT_CHANGE_ID)!.invoke({ proposalId, approvalId }, context);
+}
+
+function scriptProposal(harness: Harness, proposalId: string): NukeCadScriptProposal {
+    const proposal = harness.proposals.get(proposalId);
+    if (proposal === undefined || !isScriptProposal(proposal)) {
+        throw new Error('Expected a script proposal');
+    }
+    return proposal;
+}
+
+async function previewedScript(harness: Harness): Promise<{ proposalId: string; approvalId: string }> {
+    const result = await previewScript(harness, await scriptPreviewInput());
+    expect(result.ok).toBe(true);
+    const proposalId = (result.data as { proposalId: string }).proposalId;
+    return { proposalId, approvalId: scriptProposal(harness, proposalId).script.approvalId };
 }
 
 describe('readFeatureParamChanges', () => {
@@ -3589,5 +3834,410 @@ describe('NukeCadAuthoringCapabilities', () => {
             message: expect.stringContaining('changed after this edit')
         });
         expect(harness.undoCalls).toBe(0);
+    });
+});
+
+describe('NukeCadAuthoringCapabilities script authoring', () => {
+    it('inspects the active script with its hash, imports, and sandbox status', async () => {
+        const harness = scriptHarness();
+
+        const result = await inspectScript(harness);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({
+            path: SCRIPT_PATH,
+            hash: await hashScriptContent(SCRIPT_BASE_CONTENT),
+            content: SCRIPT_BASE_CONTENT,
+            bytes: new TextEncoder().encode(SCRIPT_BASE_CONTENT).byteLength,
+            lines: 2,
+            imports: ['from build123d import *'],
+            hasModelAssignment: true,
+            truncated: false,
+            sandbox: { available: true, engine: 'bubblewrap', version: '0.8.0', disableUserns: true }
+        });
+        expect(harness.sandboxStatusCalls).toBe(1);
+        expect(harness.service.buildSandboxedScript).not.toHaveBeenCalled();
+        expect(harness.auditRecords).toEqual([]);
+    });
+
+    it('gates inspection on both authoring switches, an active .py model, and sandbox availability', async () => {
+        const aiOff = await inspectScript(scriptHarness({ enabled: false }));
+        expect(aiOff).toMatchObject({ ok: false, message: expect.stringContaining('CAD AI authoring is disabled') });
+
+        const scriptOff = await inspectScript(scriptHarness({ scriptAuthoring: false }));
+        expect(scriptOff).toMatchObject({ ok: false, message: expect.stringContaining('script AI authoring is disabled') });
+
+        const documentModel = await inspectScript(createHarness());
+        expect(documentModel).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('Open an active Python (.py) CAD model script')
+        });
+
+        const noModel = await inspectScript(scriptHarness({ hasModel: false }));
+        expect(noModel).toMatchObject({ ok: false, message: expect.stringContaining('Open an active Python (.py) CAD model script') });
+
+        const unavailable = await inspectScript(
+            scriptHarness({ sandboxStatus: { available: false, engine: 'bubblewrap', reason: 'No user namespaces.' } })
+        );
+        expect(unavailable).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('no unsandboxed fallback')
+        });
+        expect((unavailable as { message: string }).message).toContain('No user namespaces.');
+
+        const previewUnavailable = await previewScript(
+            scriptHarness({ sandboxStatus: { available: false, engine: 'bubblewrap', reason: 'No user namespaces.' } }),
+            await scriptPreviewInput()
+        );
+        expect(previewUnavailable).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('no unsandboxed fallback')
+        });
+    });
+
+    it('previews in a staging directory without writing the source and opens the review panel without a ghost', async () => {
+        const harness = scriptHarness();
+        const input = await scriptPreviewInput({ summary: 'Resize the pincell box' });
+
+        const result = await previewScript(harness, input);
+
+        expect(result.ok).toBe(true);
+        const data = result.data as {
+            proposalId: string;
+            summary: string;
+            diff: { text: string; truncated: boolean; addedLines: number; removedLines: number; hunkCount: number };
+            imports: string[];
+            build: { success: boolean; solidCount: number; faceCount: number; triangleCount: number };
+            sandbox: { available: boolean };
+            auditId: string;
+            warnings: string[];
+            approvalId?: string;
+        };
+        expect(data.summary).toBe('Resize the pincell box');
+        expect(data.diff).toMatchObject({ truncated: false, addedLines: 1, removedLines: 1, hunkCount: 1 });
+        expect(data.diff.text).toContain('-model = Box(1, 2, 3)');
+        expect(data.diff.text).toContain('+model = Box(2, 2, 2)');
+        expect(data.imports).toEqual(['from build123d import *']);
+        expect(data.build).toMatchObject({ success: true, solidCount: 1, faceCount: 6, triangleCount: 12 });
+        expect(data.sandbox).toMatchObject({ available: true });
+        expect(data.auditId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(data.warnings).toEqual([]);
+        expect(data).not.toHaveProperty('approvalId');
+        expect(JSON.stringify(data)).not.toContain('approvalId');
+        expect(result.changeSet).toMatchObject({ id: data.proposalId, title: 'CAD script change', summary: 'Resize the pincell box' });
+        expect(result.changeSet).not.toHaveProperty('applyCapability');
+
+        const proposal = scriptProposal(harness, data.proposalId);
+        expect(proposal.script.baseScriptHash).toBe(await hashScriptContent(SCRIPT_BASE_CONTENT));
+        expect(proposal.script.proposedScriptHash).toBe(await hashScriptContent(SCRIPT_PROPOSED_CONTENT));
+        expect(proposal.script.proposedScript).toBe(SCRIPT_PROPOSED_CONTENT);
+        expect(proposal.script.approvalId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(proposal.applyCapability).toBe('nuke.cad.applyScriptChange');
+
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+        expect(harness.scriptBuilds).toHaveLength(1);
+        const build = harness.scriptBuilds[0];
+        expect(build.scriptPath).toMatch(/\/\.nuke-ide\/ai\/cad-scripts\/[0-9a-f-]+\/model\.py$/);
+        expect(build.workspaceRoot).toBe(WORKSPACE);
+        expect(build.outputDirectory).toMatch(/\/\.nuke-ide\/ai\/cad-scripts\/[0-9a-f-]+\/out$/);
+        expect(build.tolerance).toBe(0.1);
+        expect(build.timeoutSeconds).toBe(120);
+        expect(build.memoryLimitMb).toBe(4096);
+        expect(build.processLimit).toBe(128);
+        expect(build.fileSizeLimitMb).toBe(512);
+        expect(build.jobId).toMatch(/^cad-ai-script-preview-/);
+        expect([...harness.files.keys()].some((filePath) => filePath.includes('/.nuke-ide/ai/cad-scripts/'))).toBe(false);
+
+        expect(harness.ghostPreview.clear).toHaveBeenCalledTimes(1);
+        expect(harness.ghostPreview.show).not.toHaveBeenCalled();
+        expect(harness.commands).toEqual(['nuke.cad.openReviewPanel']);
+        expect(harness.auditRecords).toHaveLength(1);
+        expect(harness.auditRecords[0]).toMatchObject({
+            capabilityId: 'nuke.cad.previewScriptChange',
+            outcome: 'preview-ok',
+            baseHash: await hashScriptContent(SCRIPT_BASE_CONTENT),
+            proposedHash: await hashScriptContent(SCRIPT_PROPOSED_CONTENT),
+            solidCount: 1,
+            limits: { timeoutSeconds: 120, memoryMb: 4096, processLimit: 128, fileSizeMb: 512 }
+        });
+        expect(JSON.stringify(harness.auditRecords[0])).not.toContain('Box(');
+        expect(JSON.stringify(harness.auditRecords[0])).not.toContain(SCRIPT_PATH);
+    });
+
+    it('rejects a stale base hash, an unchanged body, and an oversized body before building', async () => {
+        const harness = scriptHarness();
+
+        const stale = await previewScript(harness, await scriptPreviewInput({ baseScriptHash: 'a'.repeat(64) }));
+        expect(stale).toMatchObject({ ok: false, message: expect.stringContaining('changed after it was inspected') });
+
+        const unchanged = await previewScript(harness, await scriptPreviewInput({ proposedScript: SCRIPT_BASE_CONTENT }));
+        expect(unchanged).toMatchObject({ ok: false, message: expect.stringContaining('does not change') });
+
+        const oversized = await previewScript(
+            harness,
+            await scriptPreviewInput({ proposedScript: `${SCRIPT_BASE_CONTENT}${'#'.repeat(64 * 1024)}\n` })
+        );
+        expect(oversized).toMatchObject({ ok: false, message: expect.stringContaining('64 KiB') });
+        expect(harness.scriptBuilds).toEqual([]);
+        expect(harness.proposals.list()).toEqual([]);
+    });
+
+    it('rejects a preview with no solids and cleans the staging directory', async () => {
+        const harness = scriptHarness({ sandboxBuild: { ...SCRIPT_SANDBOX_RESULT, solidCount: 0 } });
+
+        const result = await previewScript(harness, await scriptPreviewInput());
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('produced no solids') });
+        expect(harness.proposals.list()).toEqual([]);
+        expect(harness.auditRecords.at(-1)).toMatchObject({ capabilityId: 'nuke.cad.previewScriptChange', outcome: 'preview-failed' });
+        expect([...harness.files.keys()].some((filePath) => filePath.includes('/.nuke-ide/ai/cad-scripts/'))).toBe(false);
+    });
+
+    it('records a timed-out preview as a timeout without leaving staging behind', async () => {
+        const harness = scriptHarness({
+            sandboxBuild: { success: false, error: 'The script timed out.', timedOut: true, exitCode: null, durationMs: 120000 }
+        });
+
+        const result = await previewScript(harness, await scriptPreviewInput());
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('timed out') });
+        expect(harness.auditRecords.at(-1)).toMatchObject({ outcome: 'timeout', timedOut: true });
+        expect([...harness.files.keys()].some((filePath) => filePath.includes('/.nuke-ide/ai/cad-scripts/'))).toBe(false);
+    });
+
+    it('requires a panel nonce that matches the stored script proposal', async () => {
+        const harness = scriptHarness();
+        const { proposalId } = await previewedScript(harness);
+
+        const missing = await harness.registered.get(APPLY_SCRIPT_CHANGE_ID)!.invoke({ proposalId }, SCRIPT_CONTEXT);
+        expect(missing).toMatchObject({ ok: false, message: expect.stringContaining('approvalId is required') });
+
+        const wrong = await applyScript(harness, proposalId, 'f'.repeat(64));
+        expect(wrong).toMatchObject({ ok: false, message: expect.stringContaining('does not match the preview') });
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+        expect(harness.scriptBuilds).toHaveLength(1);
+    });
+
+    it('rejects applying a non-script proposal with the script scope message', async () => {
+        const harness = scriptHarness();
+        const foreign = harness.proposals.create({
+            scope: 'features',
+            summary: 'Feature change',
+            documentPath: SCRIPT_PATH,
+            documentEpoch: 0,
+            baseRevision: 0,
+            changes: [],
+            edits: [],
+            before: {},
+            after: {}
+        });
+
+        const result = await applyScript(harness, foreign.id, 'nonce');
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('apply it with nuke.cad.applyFeatureChange') });
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+    });
+
+    it('rejects a dirty Monaco buffer before writing anything', async () => {
+        const harness = scriptHarness({ monacoDirty: true });
+        const { proposalId, approvalId } = await previewedScript(harness);
+
+        const result = await applyScript(harness, proposalId, approvalId);
+
+        expect(result).toMatchObject({ ok: false, message: 'Save or close the script editor before applying.' });
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+    });
+
+    it('rejects apply when the script changed, the active path changed, or the sandbox went away', async () => {
+        const staleHarness = scriptHarness();
+        const stalePreview = await previewedScript(staleHarness);
+        staleHarness.files.set(SCRIPT_PATH, 'model = Box(9, 9, 9)\n');
+        expect(await applyScript(staleHarness, stalePreview.proposalId, stalePreview.approvalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this preview')
+        });
+        expect(staleHarness.files.get(SCRIPT_PATH)).toBe('model = Box(9, 9, 9)\n');
+
+        const pathHarness = scriptHarness();
+        const pathPreview = await previewedScript(pathHarness);
+        pathHarness.setStateModel({ ...pathHarness.stateManager.model!, scriptPath: OTHER_SCRIPT_PATH });
+        expect(await applyScript(pathHarness, pathPreview.proposalId, pathPreview.approvalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('belongs to a different file')
+        });
+
+        const sandboxHarness = scriptHarness();
+        const sandboxPreview = await previewedScript(sandboxHarness);
+        sandboxHarness.service.getScriptSandboxStatus.mockResolvedValue({
+            available: false,
+            engine: 'bubblewrap',
+            reason: 'bwrap disappeared.'
+        });
+        expect(await applyScript(sandboxHarness, sandboxPreview.proposalId, sandboxPreview.approvalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('no unsandboxed fallback')
+        });
+        expect(sandboxHarness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+    });
+
+    it('restores the backup when the written bytes do not match the approved body', async () => {
+        const harness = scriptHarness({ corruptNextMove: true });
+        const { proposalId, approvalId } = await previewedScript(harness);
+
+        const result = await applyScript(harness, proposalId, approvalId);
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('previous script was restored') });
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+        expect(harness.stateManager.model?.sandboxed).toBeFalsy();
+        expect(harness.auditRecords.at(-1)).toMatchObject({ outcome: 'apply-failed' });
+        const backupPath = [...harness.files.keys()].find((filePath) => filePath.includes('/.nuke-ide/ai/backups/cad-scripts/'));
+        expect(backupPath).toBeDefined();
+        expect(harness.files.get(backupPath!)).toBe(SCRIPT_BASE_CONTENT);
+    });
+
+    it('restores the backup when the sandbox rejects the applied script', async () => {
+        const harness = scriptHarness();
+        const { proposalId, approvalId } = await previewedScript(harness);
+        harness.service.buildSandboxedScript.mockResolvedValueOnce({
+            success: false,
+            error: 'The proposed script raised an exception.',
+            exitCode: 1,
+            durationMs: 500
+        });
+
+        const result = await applyScript(harness, proposalId, approvalId);
+
+        expect(result).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('The proposed script raised an exception. The previous script was restored.')
+        });
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+        expect(harness.stateManager.model?.sandboxed).toBeFalsy();
+        expect(harness.proposals.has(proposalId)).toBe(true);
+        expect(harness.auditRecords.at(-1)).toMatchObject({ outcome: 'apply-failed' });
+    });
+
+    it('applies once, installs a sandboxed model, audits, and registers an undo', async () => {
+        const harness = scriptHarness();
+        const { proposalId, approvalId } = await previewedScript(harness);
+        const baseHash = await hashScriptContent(SCRIPT_BASE_CONTENT);
+        const proposedHash = await hashScriptContent(SCRIPT_PROPOSED_CONTENT);
+
+        const result = await applyScript(harness, proposalId, approvalId);
+
+        expect(result.ok).toBe(true);
+        const data = result.data as {
+            proposalId: string;
+            scriptPath: string;
+            backupPath: string;
+            auditId: string;
+            sandboxedBuild: boolean;
+            geometryRebuildScheduled: boolean;
+            build: { solidCount: number };
+        };
+        expect(data.proposalId).toBe(proposalId);
+        expect(data.scriptPath).toBe(SCRIPT_PATH);
+        expect(data.sandboxedBuild).toBe(true);
+        expect(data.geometryRebuildScheduled).toBe(false);
+        expect(data.build.solidCount).toBe(1);
+        expect(data).not.toHaveProperty('approvalId');
+        expect(result.changeSet).not.toHaveProperty('approvalId');
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_PROPOSED_CONTENT);
+        expect(harness.files.get(data.backupPath)).toBe(SCRIPT_BASE_CONTENT);
+        expect(data.backupPath).toMatch(/\/\.nuke-ide\/ai\/backups\/cad-scripts\/.+-[0-9a-f]{8}-pincell_model\.py$/);
+        expect(harness.stateManager.model).toMatchObject({ scriptPath: SCRIPT_PATH, sandboxed: true });
+        expect(harness.stateManager.model?.result).toMatchObject({ success: true, solidCount: 1, sandboxed: true });
+        expect(harness.proposals.has(proposalId)).toBe(false);
+        expect(harness.commands).toEqual(['nuke.cad.openReviewPanel']);
+        expect(harness.service.buildSandboxedScript).toHaveBeenCalledTimes(2);
+        expect(harness.scriptBuilds[1]).toMatchObject({
+            scriptPath: SCRIPT_PATH,
+            workspaceRoot: WORKSPACE,
+            outputDirectory: `${WORKSPACE}/.nuke-ide/ai/cad-scripts/${proposedHash.slice(0, 8)}/out`,
+            timeoutSeconds: 120,
+            memoryLimitMb: 4096,
+            processLimit: 128,
+            fileSizeLimitMb: 512
+        });
+        expect(harness.auditRecords.map((entry) => entry.outcome)).toEqual(['preview-ok', 'apply-ok']);
+        expect(harness.auditRecords.at(-1)).toMatchObject({
+            capabilityId: 'nuke.cad.applyScriptChange',
+            baseHash,
+            proposedHash
+        });
+        expect(harness.undoEntries).toHaveLength(1);
+        expect(harness.undoEntries[0].title).toBe('CAD script change');
+    });
+
+    it('undoes a script apply by restoring the byte-for-byte backup and rebuilding sandboxed', async () => {
+        const harness = scriptHarness();
+        const { proposalId, approvalId } = await previewedScript(harness);
+        await applyScript(harness, proposalId, approvalId);
+
+        const result = await harness.undoEntries[0].undo();
+
+        expect(result).toMatchObject({ ok: true });
+        expect(harness.files.get(SCRIPT_PATH)).toBe(SCRIPT_BASE_CONTENT);
+        expect(harness.stateManager.model).toMatchObject({ scriptPath: SCRIPT_PATH, sandboxed: true });
+        expect(harness.scriptBuilds).toHaveLength(3);
+        expect(harness.scriptBuilds[2]).toMatchObject({ scriptPath: SCRIPT_PATH, workspaceRoot: WORKSPACE });
+        expect(harness.auditRecords.at(-1)).toMatchObject({
+            capabilityId: 'nuke.cad.applyScriptChange',
+            outcome: 'undo-ok',
+            baseHash: await hashScriptContent(SCRIPT_BASE_CONTENT),
+            scriptHash: await hashScriptContent(SCRIPT_PROPOSED_CONTENT)
+        });
+    });
+
+    it('rejects undo after the script changes or when the backup is missing', async () => {
+        const changedHarness = scriptHarness();
+        const changedPreview = await previewedScript(changedHarness);
+        const applied = await applyScript(changedHarness, changedPreview.proposalId, changedPreview.approvalId);
+        changedHarness.files.set(SCRIPT_PATH, 'model = Box(7, 7, 7)\n');
+        expect(await changedHarness.undoEntries[0].undo()).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this apply')
+        });
+        expect(changedHarness.files.get(SCRIPT_PATH)).toBe('model = Box(7, 7, 7)\n');
+
+        const missingHarness = scriptHarness();
+        const missingPreview = await previewedScript(missingHarness);
+        const missingApplied = await applyScript(missingHarness, missingPreview.proposalId, missingPreview.approvalId);
+        const backupPath = (missingApplied.data as { backupPath: string }).backupPath;
+        missingHarness.files.delete(backupPath);
+        expect(await missingHarness.undoEntries[0].undo()).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('backup is missing')
+        });
+        expect(missingHarness.files.get(SCRIPT_PATH)).toBe(SCRIPT_PROPOSED_CONTENT);
+        expect((applied.data as { backupPath: string }).backupPath).toContain('/.nuke-ide/ai/backups/cad-scripts/');
+    });
+
+    it('parses script preview and apply envelopes strictly', () => {
+        expect(readScriptPreviewInput({ baseScriptHash: 'a'.repeat(64), proposedScript: 'model = Box(1, 1, 1)\n' })).toMatchObject({
+            ok: true,
+            baseScriptHash: 'a'.repeat(64)
+        });
+        expect(readScriptPreviewInput({ baseScriptHash: 'A'.repeat(64), proposedScript: 'x' })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('lowercase SHA-256')
+        });
+        expect(readScriptPreviewInput({ baseScriptHash: 'a'.repeat(64), proposedScript: 'x', extra: true })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("unknown field 'extra'")
+        });
+        expect(readScriptApplyInput({ proposalId: 'p1', approvalId: 'n1' })).toEqual({
+            ok: true,
+            proposalId: 'p1',
+            approvalId: 'n1'
+        });
+        expect(readScriptApplyInput({ proposalId: 'p1' })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('approvalId is required')
+        });
+        expect(readScriptApplyInput({ proposalId: 'p1', approvalId: 'n1', approval: 'x' })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("unknown field 'approval'")
+        });
     });
 });

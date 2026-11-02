@@ -46,6 +46,7 @@ import {
     CadReviewPanelView,
     CadReviewPanelViewProps,
     CadReviewProposalView,
+    CadReviewScriptContext,
     CadReviewTopologyContext
 } from './review-panel-view';
 
@@ -429,6 +430,55 @@ function drawingProposal(overrides: Partial<CadReviewProposalView> = {}): CadRev
         impact: undefined,
         build: undefined,
         drawing: drawingContext(),
+        ...overrides
+    });
+}
+
+function scriptContext(overrides: Partial<CadReviewScriptContext> = {}): CadReviewScriptContext {
+    return {
+        scriptPath: '/workspace/project/pincell.py',
+        baseScriptHash: 'a'.repeat(64),
+        proposedScriptHash: 'b'.repeat(64),
+        diff: '--- a/pincell.py\n+++ b/pincell.py\n@@ -1,2 +1,2 @@\n from build123d import *\n-model = Box(1, 2, 3)\n+model = Box(2, 2, 2)\n',
+        diffTruncated: false,
+        addedLines: 1,
+        removedLines: 1,
+        hunkCount: 1,
+        imports: ['from build123d import *'],
+        hasModelAssignment: true,
+        sandbox: {
+            available: true,
+            engine: 'bubblewrap',
+            version: '0.8.0',
+            disableUserns: true,
+            limits: { timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 }
+        },
+        auditId: 'audit-1',
+        durationMs: 345,
+        timedOut: false,
+        exitCode: 0,
+        build: { success: true, solidCount: 1, faceCount: 6, triangleCount: 12 },
+        ...overrides
+    };
+}
+
+function scriptProposal(overrides: Partial<CadReviewProposalView> = {}): CadReviewProposalView {
+    return proposal({
+        summary: 'Update the pincell model script',
+        documentPath: '/workspace/project/pincell.py',
+        scope: 'script',
+        changes: [
+            {
+                path: 'scripts.pincell',
+                label: 'Pincell model script',
+                kind: 'update',
+                before: 'a'.repeat(64),
+                after: 'b'.repeat(64)
+            }
+        ],
+        impact: undefined,
+        build: { success: true, solidCount: 1, faceCount: 6, triangleCount: 12 },
+        script: scriptContext(),
         ...overrides
     });
 }
@@ -1161,5 +1211,125 @@ describe('CadReviewPanelView', () => {
         expect(applied).toContain('Added instance-3 · Removed instance-2');
         expect(applied).not.toContain('Feature parameter');
         expect(applied).not.toContain('Topology change');
+    });
+
+    it('renders the script warning, unified diff, imports, sandbox limits, and build audit without a generic diff', () => {
+        const onApply = vi.fn();
+        const onDismiss = vi.fn();
+        const tree = CadReviewPanelView(props({ proposals: [scriptProposal()], onApply, onDismiss }));
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('cad-review-script');
+        expect(html).toContain('Script change');
+        expect(html).toContain('>Script<');
+        expect(html).toContain('pincell.py');
+        expect(html).toContain('/workspace/project/pincell.py');
+        expect(html).toContain(
+            'Python preview ran in a sandbox. Apply replaces the script; subsequent sandboxed rebuilds are sandboxed while this model is marked sandboxed.'
+        );
+        expect(html).toContain('cad-review-script-diff');
+        expect(html).toContain('--- a/pincell.py');
+        expect(html).toContain('+model = Box(2, 2, 2)');
+        expect(html).toContain('+1 · -1 · 1 hunk');
+        expect(html).not.toContain('The diff is truncated');
+        expect(html).toContain('Imports');
+        expect(html).toContain('from build123d import *');
+        expect(html).toContain('Assigns a top-level `model` variable.');
+        expect(html).toContain('bubblewrap 0.8.0 · available · user namespaces disabled');
+        expect(html).toContain('Limits: 120 s · 2048 MB memory · 64 processes · 128 MB files');
+        expect(html).toContain('Build: succeeded · 1 solids · 6 faces · 12 triangles');
+        expect(html).toContain('Duration: 345 ms · completed · exit 0');
+        expect(html).toContain('Audit: audit-1');
+        expect(html).toContain('No viewport ghost: sandbox artifacts were discarded.');
+        expect(html).toContain('Exports stay blocked while this model is marked sandboxed.');
+
+        expect(html).not.toContain('cad-review-changes');
+        expect(html).not.toContain('cad-review-topology-ack');
+        expect(html).not.toContain('cad-review-assembly-ack');
+        expect(html).not.toContain('Region impact');
+        expect(html).not.toContain('Bill of materials');
+        expect(collectButtons(tree, 'cad-review-topology-ack')).toHaveLength(0);
+        expect(collectButtons(tree, 'cad-review-assembly-ack')).toHaveLength(0);
+
+        const applyButtons = collectButtons(tree, 'cad-review-apply');
+        const dismissButtons = collectButtons(tree, 'cad-review-dismiss');
+        expect(applyButtons).toHaveLength(1);
+        expect(dismissButtons).toHaveLength(1);
+        expect(applyButtons[0].props.disabled).toBe(false);
+        expect(dismissButtons[0].props.disabled).toBe(false);
+        applyButtons[0].props.onClick?.();
+        dismissButtons[0].props.onClick?.();
+        expect(onApply).toHaveBeenCalledWith('proposal-1');
+        expect(onDismiss).toHaveBeenCalledWith('proposal-1');
+        expect(html).not.toContain('approvalId');
+    });
+
+    it('warns about a missing model assignment, no imports, a truncated diff, and a timed-out build', () => {
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        scriptProposal({
+                            script: scriptContext({
+                                imports: [],
+                                hasModelAssignment: false,
+                                diffTruncated: true,
+                                durationMs: 120000,
+                                timedOut: true,
+                                exitCode: null,
+                                build: { success: false, solidCount: 0, faceCount: 0, triangleCount: 0 },
+                                sandbox: {
+                                    available: true,
+                                    engine: 'bubblewrap',
+                                    limits: { timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 }
+                                }
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('The diff is truncated; the proposal still holds the full replacement script.');
+        expect(html).toContain('No imports detected.');
+        expect(html).toContain('cad-review-script-model is-warning');
+        expect(html).toContain('No top-level `model` assignment detected in the proposed script.');
+        expect(html).toContain('Duration: 120000 ms · timed out · no exit code');
+        expect(html).toContain('Build: failed · 0 solids · 0 faces · 0 triangles');
+    });
+
+    it('renders the script title fallback and labels applied script entries', () => {
+        const fallback = renderToStaticMarkup(CadReviewPanelView(props({ proposals: [scriptProposal({ summary: '' })] })));
+        expect(fallback).toContain('Script change');
+
+        const entry: CadReviewAppliedEntry = {
+            proposalId: 'proposal-7',
+            summary: 'Update the pincell model script',
+            detail: 'Changed pincell.py · 2 lines',
+            undoToken: 'undo-7',
+            scope: 'script'
+        };
+        const applied = renderToStaticMarkup(
+            CadReviewPanelView(props({ proposals: [], applied: [entry], undoableProposalIds: ['proposal-7'] }))
+        );
+        expect(applied).toContain('Script change');
+        expect(applied).toContain('Changed pincell.py · 2 lines');
+        expect(applied).not.toContain('Feature parameter');
+        expect(applied).not.toContain('Drawing change');
+    });
+
+    it('keeps feature, sketch, topology, import, assembly, and drawing proposals free of the script section', () => {
+        for (const proposalView of [
+            proposal({ scope: 'features' }),
+            sketchProposal(),
+            topologyProposal(),
+            importProposal(),
+            assemblyProposal(),
+            drawingProposal()
+        ]) {
+            const html = renderToStaticMarkup(CadReviewPanelView(props({ proposals: [proposalView] })));
+            expect(html).not.toContain('cad-review-script');
+            expect(html).not.toContain('Unified diff');
+        }
     });
 });

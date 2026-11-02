@@ -92,7 +92,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   an outline **Fuse** auto-fix, and document `overlapCheck: false` skips cross-body +
   assembly-instance warnings for a validated large assembly (warnings only; the W7-X
   generator sets it). See `docs/dev/features-patterns.md`.
-- Backend builds (`geometry_service.py` script isolation at 120s, `feature_builder.py`
+- Backend builds (`geometry_service.py` script child process at 120s — resource control, not a security sandbox;
+  `sandbox_service.py` bwrap/prlimit path for AI script authoring with no fallback; `feature_builder.py`
   topological bodies, `curve_builder.py` wires, datums `XY`–`line2Point`, the result cache
   (`<stem>.nuke-cache.zip` sidecar with TS and Python content keys and doc-hash tess blob); display builds
   prime it, one batch load/commit serves a build, and per-body overlap verdicts are reused for
@@ -112,12 +113,16 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - CAD AI capabilities live in `src/browser/capabilities/nuke-cad-capabilities.ts`, use the
   nuke-core capability contract, and delegate to existing CAD services; never expose raw
   commands. `nuke.cad.diagnoseModel` reports build, manifest, selection, and per-solid
-  findings without rebuilding. The six gated authoring slices in `nuke-cad-authoring-capabilities.ts` preview and apply scalar feature
+  findings without rebuilding. The seven gated authoring slices preview and apply scalar feature
   edits, existing sketch driving dimensions or document parameters a sketch references, topology-impacting hole
   blind/through or linear/circular pattern counts, imported STEP/IGES/BREP bodies, placement-only actions on an
-  existing grounded assembly, and presentation settings on existing drawing sheets through the document store (the
-  assembly and drawing summaries stay read-only); it is default-off (`nukeCad.aiAuthoringEnabled`) and requires a saved
-  document. Parameter-bound dimensions cascade to every affected sketch and curve, a sketch apply commits the
+  existing grounded assembly, presentation settings on existing drawing sheets, and Linux-only sandboxed full-file `.py`
+  replacements through the document store (the assembly and drawing summaries stay read-only); it is default-off
+  (`nukeCad.aiAuthoringEnabled`) and requires a saved model. Script authoring additionally needs workspace-scoped
+  `nukeCad.scriptAuthoringEnabled`, `bwrap` plus user namespaces, bounded text/hash inspection (source text reaches the
+  model provider), a full-body preview with no network/workspace bind, no ghost, no chat Apply, and a panel-only approval
+  nonce; apply overwrites with a hidden backup, rebuilds sandboxed, blocks DAGMC/FEM export for the sandboxed model, and
+  has no unsandboxed fallback. Parameter-bound dimensions cascade to every affected sketch and curve, a sketch apply commits the
   parameter and all sketches atomically, and a topology apply replaces exact params in one commit (removing a blind
   hole's `depth` key), reports solid/region impact, and checks the saved active OpenMC project's DAGMC references and
   requires region acknowledgement. Imports use a user-chosen source: `inspectImportSource` returns
@@ -136,13 +141,14 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   plan-only (no build or ghost), A3→A4 is rejected when a view is outside A4 and views never move, hidden dimensions
   stay listed but leave SVG/DXF, and the title block is fixed and read-only. Drawing apply is one `applyDrawingChanges`
   commit (`markDrawing`) with backup, sheet open/refresh, undo, and no `nuke.cad.rebuild`.
-  Booleans, body/feature add/delete/reorder, lattices, new sketch entities/constraints/dimensions, scripts, assembly
-  structure beyond placement, drawing creation/deletion or view placement, title-block edits, and MCP stay excluded. A
-  successful feature, sketch, topology, or assembly
+  Booleans, body/feature add/delete/reorder, lattices, new sketch entities/constraints/dimensions, partial or unsandboxed
+  scripts, assembly structure beyond placement, drawing creation/deletion or view placement, title-block edits, and MCP
+  stay excluded. A successful feature, sketch, topology, or assembly
   preview publishes the candidate tessellation to `NukeCadGhostPreviewService` and reveals the **CAD Edit Review**
   panel; the panel applies the same capability and the viewport renders the candidate in the scene-level `cad-ghost`
   group only. Import preview shows the plan without a ghost; drawing preview shows the sheet/view/dimension plan without
-  a build or ghost; repeated-body assembly ghosts are approximate.
+  a build or ghost; script preview shows the diff/sandbox/audit without a ghost; repeated-body assembly ghosts are
+  approximate. Script apply is reachable only from the panel, which keeps the approval nonce out of the view.
   See `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,

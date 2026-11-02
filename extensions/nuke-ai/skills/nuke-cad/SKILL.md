@@ -1,16 +1,17 @@
 ---
 name: nuke-cad
-description: Inspect, summarize, and export the active NukeCAD document to DAGMC. Use before an OpenMC import to confirm solid counts, selection, manifest links, and export artifacts.
+description: Inspect, summarize, and export the active NukeCAD document to DAGMC. Use before an OpenMC import to confirm solid counts, selection, manifest links, and export artifacts, or to review a sandboxed Python model script change.
 ---
 
 # NukeCAD
 
 Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
 CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, topology-impact, import,
-assembly-placement, or drawing-sheet settings change. Read/export is always available. Feature, sketch, topology, import,
-assembly-placement, and drawing settings edits are available only when the user enabled **Nuke CAD: AI Authoring**; new
-sketch entities, scripts, document parameters not referenced by a sketch, booleans, body/feature add/delete/reorder,
-lattices, and assembly structure stay in the CAD viewport and Feature Tree.
+assembly-placement, drawing-sheet settings, or Python script change. Read/export is always available. Feature, sketch,
+topology, import, assembly-placement, and drawing settings edits are available only when the user enabled **Nuke CAD: AI
+Authoring** and a script change additionally needs **Nuke CAD: Script Authoring** on a saved `.py` model. New sketch
+entities, document parameters not referenced by a sketch, booleans, body/feature add/delete/reorder, lattices, and
+assembly structure stay in the CAD viewport and Feature Tree.
 
 ## Tool names
 
@@ -269,6 +270,31 @@ planner, rejects a stale proposal or changed drawing, writes a backup, commits o
 refreshes the Drawing Sheet, and returns an `undoToken`; it never schedules a geometry rebuild. Undo restores the previous
 drawings and refreshes the sheet.
 
+## Author a Python model script
+
+Script authoring is default-off and Linux-only: it needs both **Nuke CAD: AI Authoring** and workspace-scoped **Nuke CAD:
+Script Authoring**, plus an active saved `.py` model and bubblewrap. Preview and apply are absent when either switch is
+off. Never suggest editing a `.py` file through a raw file write.
+
+1. Call `nuke_cad_inspectScriptSource` with `{}`. It returns the script path, bounded text and SHA-256 hash, imports, and
+   whether a top-level `model` is assigned. The text is sent to the configured model provider; tell the user before
+   inspecting a large private script.
+2. Read the returned text, then produce the complete replacement body, not a patch. Call
+   `nuke_cad_previewScriptChange` with `{ "baseScriptHash": "<exact hash>", "proposedScript": "<full UTF-8 body>",
+"summary": "<short description>"? }`. The preview runs the script in a bubblewrap sandbox with no network and no
+   workspace access, read-only source, a private writable output, and time, memory, process, and file limits. It returns a
+   unified diff, imports, sandbox limits, build counts, duration, and audit id. It publishes no ghost and never writes the
+   script; sandbox artifacts are discarded.
+3. The preview card has **no Apply action**. Apply is panel-only. Tell the user to open the **CAD Edit Review** panel and
+   review the diff, sandbox limits, and build counts there. The panel holds the approval nonce; the model cannot apply and
+   must not claim it can.
+4. Applying overwrites the Python file with a hidden backup and undo. Later rebuilds stay sandboxed while the model is
+   marked sandboxed, and DAGMC/FEM export stays blocked for a sandboxed model. There is no seccomp filter, so the sandbox
+   remains a namespace and resource boundary, not a guarantee against kernel bugs.
+
+If the preview reports a stale hash, timeout, failed build, or zero solids, inspect again and propose a corrected full
+body. Never reuse an old `baseScriptHash` or claim a failed preview is safe.
+
 ## Inspect before export
 
 Always summarize the active document before calling `nuke_cad_exportDagmc`. The summary confirms that the model
@@ -327,9 +353,12 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 ## Boundaries
 
 - Do not author geometry beyond the scalar feature-edit, sketch-dimension, topology-impact, import, assembly-placement,
-  and drawing-settings flows. New sketch entities, scripts, document parameters not referenced by a sketch, booleans,
-  body/feature add/delete/reorder, lattices, and assembly structure stay in the CAD viewport or Feature Tree.
-- Do not apply a feature, sketch, topology, import, assembly, or drawing change without an explicit confirmation, and
-  never send CAD authoring tools through MCP.
+  drawing-settings, and sandboxed-script flows. New sketch entities, document parameters not referenced by a sketch,
+  booleans, body/feature add/delete/reorder, lattices, and assembly structure stay in the CAD viewport or Feature Tree.
+- Do not apply a feature, sketch, topology, import, assembly, drawing, or script change without an explicit
+  confirmation, and never send CAD authoring tools through MCP. Script apply is panel-only, so direct the user there
+  instead of calling `nuke_cad_applyScriptChange` from chat.
+- Do not claim the script sandbox has no residual risk; it has no seccomp filter, and preview, apply, rebuilds, and undo
+  stay Linux+bubblewrap only.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

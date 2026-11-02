@@ -29,14 +29,17 @@
  * CAD edit review panel widget.
  *
  * Hosts {@link CadReviewPanelView} and owns the proposal lifecycle: it lists
- * previewed feature, sketch, topology, import, assembly, and drawing edits,
- * tracks region-impact acknowledgement, confirms and invokes the proposal's
- * apply capability (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
- * `nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`,
- * `nuke.cad.applyAssemblyChange`, or `nuke.cad.applyDrawingChange`), keeps
+ * previewed feature, sketch, topology, import, assembly, drawing, and sandboxed
+ * Python script edits, tracks region-impact acknowledgement, confirms and
+ * invokes the proposal's apply capability (`nuke.cad.applyFeatureChange`,
+ * `nuke.cad.applySketchChange`, `nuke.cad.applyTopologyChange`,
+ * `nuke.cad.applyImportBodies`, `nuke.cad.applyAssemblyChange`,
+ * `nuke.cad.applyDrawingChange`, or `nuke.cad.applyScriptChange`), keeps
  * applied entries for session undo through `NukeUndoService`, and dismisses
- * proposals. Opened through `nuke.cad.openReviewPanel` in the right area, the
- * CAD Studio menu, and the Nuke Tools sidebar.
+ * proposals. Script apply reads the panel-issued approval nonce from the stored
+ * proposal and keeps it out of the view model. Opened through
+ * `nuke.cad.openReviewPanel` in the right area, the CAD Studio menu, and the
+ * Nuke Tools sidebar.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -53,10 +56,16 @@ import { NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-se
 import { NukeCapabilityContextService, NukeCapabilityRegistry } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { validateCapabilityInput } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import { CadDocumentStore } from '../../document/cad-document-store';
-import { NukeCadProposal, NukeCadProposalService } from '../../capabilities/nuke-cad-proposal-service';
+import { NukeCadProposal, NukeCadProposalService, NukeCadScriptProposal } from '../../capabilities/nuke-cad-proposal-service';
 import { APPLY_FEATURE_CHANGE_ID } from '../../capabilities/nuke-cad-authoring-capabilities';
 import { AI_AUTHORING_PREFERENCE } from '../../capabilities/nuke-cad-authoring-constants';
-import { CadReviewAppliedEntry, CadReviewDrawingContext, CadReviewPanelView, CadReviewProposalView } from './review-panel-view';
+import {
+    CadReviewAppliedEntry,
+    CadReviewDrawingContext,
+    CadReviewPanelView,
+    CadReviewProposalView,
+    CadReviewScriptContext
+} from './review-panel-view';
 import './review-panel.css';
 
 @injectable()
@@ -246,6 +255,29 @@ export class CadReviewPanelWidget extends ReactWidget {
                 }
             };
         }
+        if (proposal.scope === 'script') {
+            const details = proposal.script;
+            // The panel-issued approval nonce stays in the stored proposal, never in the view.
+            const script: CadReviewScriptContext = {
+                scriptPath: details.scriptPath,
+                baseScriptHash: details.baseScriptHash,
+                proposedScriptHash: details.proposedScriptHash,
+                diff: details.diff,
+                diffTruncated: details.diffTruncated,
+                addedLines: details.addedLines,
+                removedLines: details.removedLines,
+                hunkCount: details.hunkCount,
+                imports: details.imports,
+                hasModelAssignment: details.hasModelAssignment,
+                sandbox: details.sandbox,
+                auditId: details.auditId,
+                durationMs: details.durationMs,
+                timedOut: details.timedOut,
+                exitCode: details.exitCode,
+                build: details.build
+            };
+            return { ...common, script };
+        }
         return common;
     }
 
@@ -297,9 +329,15 @@ export class CadReviewPanelWidget extends ReactWidget {
      * after a successful document commit.
      */
     protected async handleApply(proposalId: string): Promise<void> {
+        const stored = this.proposalService.get(proposalId);
         const proposal = this.currentProposals().find((candidate) => candidate.id === proposalId);
-        if (proposal === undefined) {
+        if (stored === undefined || proposal === undefined) {
             this.messageService.warn('This CAD proposal is no longer available. Preview the change again.');
+            return;
+        }
+        const scriptApprovalId = stored.scope === 'script' ? scriptApprovalIdOf(stored) : undefined;
+        if (proposal.scope === 'script' && scriptApprovalId === undefined) {
+            this.messageService.error('This script proposal is missing its approval. Preview the script change again before applying.');
             return;
         }
         const confirmPrompt =
@@ -313,8 +351,15 @@ export class CadReviewPanelWidget extends ReactWidget {
                       ? 'Apply this CAD assembly change?'
                       : proposal.scope === 'drawing'
                         ? 'Apply this CAD drawing change?'
-                        : 'Apply this CAD feature change?';
-        const confirmation = await this.messageService.warn(`${confirmPrompt} ${proposal.summary}`, 'Apply');
+                        : proposal.scope === 'script'
+                          ? `Apply this script change to ${
+                                proposal.script?.scriptPath ?? proposal.documentPath
+                            }? It will overwrite the Python file and keep a hidden backup.`
+                          : 'Apply this CAD feature change?';
+        const confirmation = await this.messageService.warn(
+            proposal.scope === 'script' ? confirmPrompt : `${confirmPrompt} ${proposal.summary}`,
+            'Apply'
+        );
         if (confirmation !== 'Apply') {
             return;
         }
@@ -334,13 +379,20 @@ export class CadReviewPanelWidget extends ReactWidget {
         }
         if (!enabled) {
             this.messageService.warn(
-                'CAD AI authoring is unavailable for the active document. Enable it in Settings → Nuke CAD → AI Authoring and open a saved document.'
+                proposal.scope === 'script'
+                    ? 'Script authoring is unavailable. Enable Nuke CAD: AI Authoring and Script Authoring, use Linux with bubblewrap, and open a saved .py model.'
+                    : 'CAD AI authoring is unavailable for the active document. Enable it in Settings → Nuke CAD → AI Authoring and open a saved document.'
             );
             return;
         }
         const requiresRegionAcknowledgement =
             proposal.scope === 'topology' || (proposal.scope === 'assembly' && proposal.assembly?.requiresAcknowledgement === true);
-        const input = requiresRegionAcknowledgement ? { proposalId, acknowledgeRegionChanges: true } : { proposalId };
+        const input =
+            proposal.scope === 'script'
+                ? { proposalId, approvalId: scriptApprovalId }
+                : requiresRegionAcknowledgement
+                  ? { proposalId, acknowledgeRegionChanges: true }
+                  : { proposalId };
         const inputErrors = validateCapabilityInput(capability, input);
         if (inputErrors.length > 0) {
             this.messageService.error(`Invalid CAD apply request: ${inputErrors.join('; ')}`);
@@ -368,7 +420,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                               ? (describeAssemblyApply(result.data) ?? describeAssemblyChange(proposal.changes[0]))
                               : proposal.scope === 'drawing'
                                 ? (describeDrawingChange(proposal.drawing) ?? describeAppliedChange(proposal.changes[0]))
-                                : describeAppliedChange(proposal.changes[0]),
+                                : proposal.scope === 'script'
+                                  ? (describeScriptChange(proposal.script) ?? describeAppliedChange(proposal.changes[0]))
+                                  : describeAppliedChange(proposal.changes[0]),
                     undoToken: result.undoToken ?? '',
                     scope: proposal.scope
                 },
@@ -409,7 +463,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                       ? 'Undo this CAD assembly change and restore the previous instances and placements?'
                       : entry.scope === 'drawing'
                         ? 'Undo this CAD drawing change and restore the previous sheet settings?'
-                        : 'Undo this CAD edit and restore the previous feature parameters?';
+                        : entry.scope === 'script'
+                          ? 'Undo this script change and restore the previous Python model?'
+                          : 'Undo this CAD edit and restore the previous feature parameters?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${entry.summary}`, 'Undo');
         if (confirmation !== 'Undo') {
             return;
@@ -423,6 +479,30 @@ export class CadReviewPanelWidget extends ReactWidget {
         this.messageService.info(result.message || 'CAD change undone.');
         this.update();
     }
+}
+
+/**
+ * Read the panel-issued approval nonce from a stored script proposal. The nonce
+ * is what makes apply panel-only and must never enter the render view.
+ */
+function scriptApprovalIdOf(proposal: NukeCadScriptProposal): string | undefined {
+    const approvalId = proposal.script.approvalId;
+    return typeof approvalId === 'string' && approvalId.trim().length > 0 ? approvalId : undefined;
+}
+
+/** Basename of a script path without importing a Node path helper. */
+function scriptBasename(scriptPath: string): string {
+    const name = scriptPath.replace(/\\/g, '/').split('/').pop();
+    return name !== undefined && name.length > 0 ? name : scriptPath;
+}
+
+/** Applied-entry detail for a sandboxed script replacement. */
+function describeScriptChange(details: CadReviewScriptContext | undefined): string | undefined {
+    if (details === undefined) {
+        return undefined;
+    }
+    const lines = details.addedLines + details.removedLines;
+    return `Changed ${scriptBasename(details.scriptPath)} \u00b7 ${formatCount(lines, 'line', 'lines')}`;
 }
 
 function formatAppliedValue(value: unknown): string {

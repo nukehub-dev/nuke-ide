@@ -2,9 +2,9 @@
 
 NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, existing sketch
 dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
-STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, and existing drawing-sheet presentation
-settings without writing directly from the chat model. Every edit goes through a preview or plan, an explicit apply step
-with confirmation, and an in-session undo.
+STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, existing drawing-sheet presentation
+settings, and, on Linux only, sandboxed Python model scripts without writing directly from the chat model. Every edit
+goes through a preview or plan, an explicit apply step with confirmation, and an in-session undo.
 
 ## Supported settings
 
@@ -125,9 +125,9 @@ schedules the normal rebuild, and exposes **Undo** in the card. Undo re-checks t
 the before parameters in one batch, and schedules the rebuild again.
 
 New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
-sketch, scripts, booleans, body/feature add/delete/reorder, and lattices are outside this surface. Imports use
-the separate import-body flow below and assemblies use the placement-only flow below. External MCP never exposes the CAD
-preview or apply tools.
+sketch, booleans, body/feature add/delete/reorder, and lattices are outside this surface. Scripts use the separate
+Linux-only sandboxed flow below; imports use the import-body flow and assemblies use the placement-only flow. External
+MCP never exposes the CAD preview or apply tools.
 
 ## CAD sketch dimensions
 
@@ -297,6 +297,35 @@ edit the title block, or touch geometry.
    changed rows, writes a hidden `.nuke-ai-backup-<document>` snapshot, commits one `applyDrawingChanges` batch, opens the
    Drawing Sheet, refreshes only that sheet's linework, and exposes **Undo**. It never schedules a geometry rebuild.
 5. Undo restores the previous drawings and refreshes the sheet in one commit.
+
+## Python model scripts (Linux only)
+
+AI script authoring replaces the active saved `.py` build123d/CadQuery model as a whole file. It is default-off and
+Linux-only: turn on both **Nuke CAD: AI Authoring** and the workspace-scoped **Nuke CAD: Script Authoring** in
+**Settings → Nuke CAD**. It needs a working bubblewrap user namespace; macOS, Windows, and environments without one show
+no preview or apply tools. There is no unsandboxed fallback.
+
+1. Open the `.py` in the editor and run **Open Active Python Model in CAD** so it is the active model. NukeAI inspects the script with `nuke_cad_inspectScriptSource`. The result carries the path, bounded text, SHA-256
+   hash, imports, and whether a top-level `model` is assigned. **The script text is sent to the configured model
+   provider**; inspect a sensitive script only when you want NukeAI to read it.
+2. A preview requires the exact base hash and the complete proposed script. It runs in a bubblewrap sandbox with no
+   network and no workspace access, a read-only source, one private writable output directory, CPU/memory/process/file
+   limits, and a timeout that kills the whole PID namespace. Sandbox artifacts are validated and then discarded. The
+   preview never writes the script and shows no viewport ghost.
+3. The **CAD Edit Review** panel shows a **Script change** section with a prominent executable warning, the unified diff
+   (plain text, never rendered HTML or Markdown), added/removed/hunk counts, a truncation notice, imports, the `model`
+   assignment advisory, sandbox version/userns/limits, build counts, duration, timeout, exit code, and the audit id. The
+   chat card has **no Apply action**.
+4. Apply is available only in the panel. It uses a hidden approval nonce, confirms that the Python file will be
+   overwritten and that a hidden backup is kept, then writes the script, rebuilds in the sandbox, installs the model, and
+   offers **Undo**. NukeAI cannot apply a script from chat and must never claim it can.
+5. A model applied this way is marked sandboxed. Later `.py` rebuilds for it stay sandboxed, and DAGMC/FEM export is
+   blocked while the marking remains. Undo restores the previous script bytes and rebuilds in the sandbox.
+
+The sandbox is a namespace and resource boundary, not a complete security guarantee: there is no seccomp filter, so
+kernel and bubblewrap correctness still matter. The audit log under `<workspace>/.nuke-ide/ai/` records hashes, outcome,
+duration, exit, timeout, counts, sandbox version, and limits, never script text, absolute paths, or process output. None
+of the script tools is exposed through MCP.
 
 ## Related
 

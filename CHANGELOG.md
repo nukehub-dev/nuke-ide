@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: NukeAI applies hole depth-mode and pattern-count edits with region-impact acknowledgement, OpenMC reference checks, and undo.
 - nuke-cad: NukeAI imports a user-chosen STEP/IGES/BREP source as editable bodies with a plan-only review, source re-inspection, backup, rebuild, and undo.
 - nuke-cad: NukeAI adds, removes, and repositions assembly instances with real-build preview, BOM delta, overlap warnings, region checks, and undo.
-- nuke-cad: NukeAI adjusts existing drawing sheets (size, view scale/hidden lines, dimension visibility) with plan-only review and undo.
+- nuke-cad: NukeAI inspects and sandbox-previews full Python model scripts on Linux, with panel-only nonce approval, backup/undo, and sandboxed rebuilds that block simulation export.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
 - nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.

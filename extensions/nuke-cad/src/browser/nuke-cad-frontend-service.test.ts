@@ -33,7 +33,8 @@ import type {
     GeometryBuildRequest,
     BuildDocumentRequest,
     BuildFeaturesPartialRequest,
-    InspectImportSourceRequest
+    InspectImportSourceRequest,
+    SandboxedScriptBuildRequest
 } from '../common/nuke-cad-protocol';
 import type { NukeCadPreferences } from './nuke-cad-preferences';
 
@@ -64,6 +65,11 @@ function makeProxy(capture: { requests: CapturedRequest[] }): NukeCadBackendServ
             return { ...result, scriptPath: request.scriptPath };
         },
         buildDrawing: async () => ({ success: false, error: 'not stubbed' }),
+        getScriptSandboxStatus: async () => ({ available: false, engine: 'bubblewrap', reason: 'not stubbed' }),
+        buildSandboxedScript: async (_request: SandboxedScriptBuildRequest) => ({
+            success: false,
+            error: 'not stubbed'
+        }),
         inspectImportSource: async (request: InspectImportSourceRequest) => ({
             success: true,
             sourcePath: request.sourcePath,

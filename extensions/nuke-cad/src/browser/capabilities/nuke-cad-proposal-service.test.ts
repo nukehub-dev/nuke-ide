@@ -52,12 +52,15 @@ import {
     NukeCadImportProposalInput,
     NukeCadProposal,
     NukeCadProposalService,
+    NukeCadScriptProposal,
+    NukeCadScriptProposalInput,
     NukeCadSketchProposalInput,
     NukeCadTopologyProposal,
     NukeCadTopologyProposalInput,
     isAssemblyProposal,
     isDrawingProposal,
     isImportProposal,
+    isScriptProposal,
     isSketchProposal,
     isTopologyProposal
 } from './nuke-cad-proposal-service';
@@ -424,6 +427,54 @@ function buildDrawingInput(summary = "Change sheet 'Sheet 1' drawing settings"):
     };
 }
 
+const SCRIPT_PATH = '/workspace/project/pincell.py';
+
+function buildScriptInput(summary = 'Update the pincell model script'): NukeCadScriptProposalInput {
+    return {
+        scope: 'script',
+        summary,
+        documentPath: SCRIPT_PATH,
+        documentEpoch: 0,
+        baseRevision: 0,
+        changes: [
+            {
+                path: 'scripts.pincell',
+                label: 'Pincell model script',
+                kind: 'update',
+                before: 'a'.repeat(64),
+                after: 'b'.repeat(64)
+            }
+        ],
+        script: {
+            scriptPath: SCRIPT_PATH,
+            baseScriptHash: 'a'.repeat(64),
+            baseScriptBytes: 48,
+            proposedScript: 'from build123d import *\nmodel = Box(2, 2, 2)\n',
+            proposedScriptHash: 'b'.repeat(64),
+            proposedScriptBytes: 52,
+            diff: '--- a/model.py\n+++ b/model.py\n@@ -1,2 +1,2 @@\n from build123d import *\n-model = Box(1, 2, 3)\n+model = Box(2, 2, 2)\n',
+            diffTruncated: false,
+            addedLines: 1,
+            removedLines: 1,
+            hunkCount: 1,
+            imports: ['from build123d import *'],
+            hasModelAssignment: true,
+            sandbox: {
+                available: true,
+                engine: 'bubblewrap',
+                version: '0.8.0',
+                disableUserns: true,
+                limits: { timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 }
+            },
+            auditId: 'audit-1',
+            durationMs: 345,
+            timedOut: false,
+            exitCode: 0,
+            build: { success: true, solidCount: 1, faceCount: 6, triangleCount: 12 }
+        }
+    };
+}
+
 function featureProposal(proposal: NukeCadProposal | undefined): NukeCadFeatureProposal {
     if (proposal === undefined || proposal.scope !== 'features') {
         throw new Error('Expected a feature proposal');
@@ -455,6 +506,13 @@ function assemblyProposal(proposal: NukeCadProposal | undefined): NukeCadAssembl
 function drawingProposal(proposal: NukeCadProposal | undefined): NukeCadDrawingProposal {
     if (proposal === undefined || proposal.scope !== 'drawing') {
         throw new Error('Expected a drawing proposal');
+    }
+    return proposal;
+}
+
+function scriptProposal(proposal: NukeCadProposal | undefined): NukeCadScriptProposal {
+    if (proposal === undefined || proposal.scope !== 'script') {
+        throw new Error('Expected a script proposal');
     }
     return proposal;
 }
@@ -1196,5 +1254,139 @@ describe('NukeCadProposalService', () => {
         expect(isImportProposal(narrowed)).toBe(false);
         expect(isAssemblyProposal(narrowed)).toBe(false);
         expect(drawing.scope).toBe('drawing');
+    });
+
+    it('creates a script proposal bound to the script path with a detached full body', () => {
+        const service = new NukeCadProposalService();
+        const input = buildScriptInput();
+        const created = service.create(input);
+
+        expect(created.scope).toBe('script');
+        expect(created.applyCapability).toBe('nuke.cad.applyScriptChange');
+        expect(created.createdAt).toBe(START);
+        expect(created.documentPath).toBe(SCRIPT_PATH);
+        expect(created.documentEpoch).toBe(0);
+        expect(created.baseRevision).toBe(0);
+        expect(created.script.approvalId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+        expect(created.changes).toEqual([
+            {
+                path: 'scripts.pincell',
+                label: 'Pincell model script',
+                kind: 'update',
+                before: 'a'.repeat(64),
+                after: 'b'.repeat(64)
+            }
+        ]);
+        expect(created.build).toBeUndefined();
+        expect(created.script.scriptPath).toBe(SCRIPT_PATH);
+        expect(created.script.baseScriptHash).toBe('a'.repeat(64));
+        expect(created.script.proposedScriptHash).toBe('b'.repeat(64));
+        expect(created.script.proposedScript).toBe('from build123d import *\nmodel = Box(2, 2, 2)\n');
+        expect(created.script.imports).toEqual(['from build123d import *']);
+        expect(created.script.hasModelAssignment).toBe(true);
+        expect(created.script.diffTruncated).toBe(false);
+        expect(created.script.sandbox).toEqual({
+            available: true,
+            engine: 'bubblewrap',
+            version: '0.8.0',
+            disableUserns: true,
+            limits: { timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 }
+        });
+        expect(created.script.build).toEqual({ success: true, solidCount: 1, faceCount: 6, triangleCount: 12 });
+
+        (input.script as { proposedScript: string }).proposedScript = 'model = Box(9, 9, 9)\n';
+        (input.script.imports as string[]).push('import os');
+        (input.script.sandbox.limits as { timeoutSeconds: number }).timeoutSeconds = 1;
+        (input.script.build as { solidCount: number }).solidCount = 9;
+        (input.changes[0] as { after?: unknown }).after = 'c'.repeat(64);
+
+        (created.script as { proposedScript: string }).proposedScript = 'model = Box(8, 8, 8)\n';
+        (created.script.imports as string[]).push('import sys');
+        (created.script.sandbox.limits as { memoryMb: number }).memoryMb = 1;
+        (created.script.build as { faceCount: number }).faceCount = 8;
+
+        const stored = scriptProposal(service.get(created.id));
+        expect(stored.script.proposedScript).toBe('from build123d import *\nmodel = Box(2, 2, 2)\n');
+        expect(stored.script.imports).toEqual(['from build123d import *']);
+        expect(stored.script.sandbox.limits).toEqual({ timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 });
+        expect(stored.script.build).toEqual({ success: true, solidCount: 1, faceCount: 6, triangleCount: 12 });
+        expect(stored.changes[0].after).toBe('b'.repeat(64));
+        expect(stored).not.toBe(created);
+        expect(stored.script).not.toBe(created.script);
+        expect(service.get(created.id)).not.toBe(service.get(created.id));
+
+        const listed = scriptProposal(service.list()[0]);
+        expect(listed).not.toBe(stored);
+        (listed.script.imports as string[]).push('import json');
+        (listed.script.build as { triangleCount: number }).triangleCount = 2;
+        expect(scriptProposal(service.get(created.id)).script.imports).toEqual(['from build123d import *']);
+        expect(scriptProposal(service.get(created.id)).script.build.triangleCount).toBe(12);
+    });
+
+    it('generates a distinct approval nonce per script proposal and never shares it through snapshots', () => {
+        const service = new NukeCadProposalService();
+        const first = scriptProposal(service.create(buildScriptInput('First script change')));
+        const second = scriptProposal(service.create(buildScriptInput('Second script change')));
+
+        expect(first.script.approvalId).not.toBe(second.script.approvalId);
+        expect(first.script.approvalId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+        expect(first.id).not.toBe(first.script.approvalId);
+        expect(second.id).not.toBe(second.script.approvalId);
+
+        (first.script as { approvalId: string }).approvalId = 'mutated';
+        expect(scriptProposal(service.get(first.id)).script.approvalId).not.toBe('mutated');
+        expect(scriptProposal(service.list()[0]).script.approvalId).not.toBe('mutated');
+    });
+
+    it('keeps script proposals in one store with every other scope and narrows them', () => {
+        const service = new NukeCadProposalService();
+        const feature = service.create(buildInput('Feature change'));
+        const sketch = service.create(buildSketchInput('Sketch change'));
+        const topology = service.create(buildTopologyInput('Topology change'));
+        const imported = service.create(buildImportInput('Import change'));
+        const assembly = service.create(buildAssemblyInput('Assembly change'));
+        const drawing = service.create(buildDrawingInput('Drawing change'));
+        const script = service.create(buildScriptInput('Script change'));
+
+        const listed = service.list();
+        expect(listed.map((entry) => entry.id)).toEqual([
+            feature.id,
+            sketch.id,
+            topology.id,
+            imported.id,
+            assembly.id,
+            drawing.id,
+            script.id
+        ]);
+        expect(listed.map((entry) => entry.scope)).toEqual(['features', 'sketch', 'topology', 'import', 'assembly', 'drawing', 'script']);
+        expect(listed.map((entry) => isScriptProposal(entry))).toEqual([false, false, false, false, false, false, true]);
+
+        const narrowed = listed[6];
+        if (!isScriptProposal(narrowed)) {
+            throw new Error('Expected a script proposal');
+        }
+        expect(narrowed.script.auditId).toBe('audit-1');
+        expect(narrowed.script.durationMs).toBe(345);
+        expect(narrowed.script.exitCode).toBe(0);
+        expect(narrowed.script.build.success).toBe(true);
+        expect(narrowed.applyCapability).toBe('nuke.cad.applyScriptChange');
+        expect(isSketchProposal(narrowed)).toBe(false);
+        expect(isTopologyProposal(narrowed)).toBe(false);
+        expect(isImportProposal(narrowed)).toBe(false);
+        expect(isAssemblyProposal(narrowed)).toBe(false);
+        expect(isDrawingProposal(narrowed)).toBe(false);
+    });
+
+    it('preserves an explicit script apply capability and applies the shared TTL policy', () => {
+        const service = new InspectableProposalService();
+        const custom = service.create({ ...buildScriptInput('Custom script'), applyCapability: 'nuke.test.applyScript' });
+        expect(custom.applyCapability).toBe('nuke.test.applyScript');
+        expect(service.get(custom.id)?.applyCapability).toBe('nuke.test.applyScript');
+
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS - 1);
+        expect(service.has(custom.id)).toBe(true);
+        advance(1);
+        expect(service.list()).toEqual([]);
+        expect(service.size).toBe(0);
     });
 });

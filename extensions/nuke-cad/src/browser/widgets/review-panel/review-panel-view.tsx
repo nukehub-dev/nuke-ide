@@ -29,12 +29,12 @@
  * Presentational CAD edit review panel.
  *
  * Renders NukeAI CAD edit proposals (feature-parameter, sketch-dimension,
- * topology, import, assembly-placement, and drawing-sheet changes) with their
- * document binding, plan or parameter diff, build and region impact, and
- * Apply/Dismiss actions, plus the applied entries that can still be undone in
- * this session. The widget in `review-panel-widget.tsx` owns all service
- * interaction; this module stays a pure, hook-free function of its props so it
- * can be rendered in tests with `renderToStaticMarkup`.
+ * topology, import, assembly-placement, drawing-sheet, and sandboxed Python
+ * script changes) with their document binding, plan or parameter diff, build
+ * and region impact, and Apply/Dismiss actions, plus the applied entries that
+ * can still be undone in this session. The widget in `review-panel-widget.tsx`
+ * owns all service interaction; this module stays a pure, hook-free function of
+ * its props so it can be rendered in tests with `renderToStaticMarkup`.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -184,19 +184,54 @@ export interface CadReviewDrawingContext {
     readonly requiresDrawingRefresh: boolean;
 }
 
+/** Script hashes, bounded diff, sandbox result, and build metrics attached to a script proposal. */
+export interface CadReviewScriptContext {
+    readonly scriptPath: string;
+    readonly baseScriptHash: string;
+    readonly proposedScriptHash: string;
+    readonly diff: string;
+    readonly diffTruncated: boolean;
+    readonly addedLines: number;
+    readonly removedLines: number;
+    readonly hunkCount: number;
+    readonly imports: readonly string[];
+    readonly hasModelAssignment: boolean;
+    readonly sandbox: {
+        readonly available: boolean;
+        readonly engine: string;
+        readonly version?: string;
+        readonly disableUserns?: boolean;
+        readonly limits: {
+            readonly timeoutSeconds: number;
+            readonly memoryMb: number;
+            readonly processLimit: number;
+            readonly fileSizeMb: number;
+        };
+    };
+    readonly auditId: string;
+    readonly durationMs: number;
+    readonly timedOut: boolean;
+    readonly exitCode: number | null;
+    readonly build: CadReviewBuild & { readonly success: boolean };
+}
+
+/** Proposal scopes the review panel can render. */
+export type CadReviewScope = 'features' | 'sketch' | 'topology' | 'import' | 'assembly' | 'drawing' | 'script';
+
 /** One proposal as rendered by the panel. */
 export interface CadReviewProposalView {
     readonly id: string;
     readonly summary: string;
     readonly documentPath: string;
     readonly changes: readonly NukeChange[];
-    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly' | 'drawing';
+    readonly scope?: CadReviewScope;
     readonly applyCapability?: string;
     readonly sketch?: CadReviewSketchContext;
     readonly topology?: CadReviewTopologyContext;
     readonly importContext?: CadReviewImportContext;
     readonly assembly?: CadReviewAssemblyContext;
     readonly drawing?: CadReviewDrawingContext;
+    readonly script?: CadReviewScriptContext;
     readonly impact?: CadReviewImpact;
     readonly build?: CadReviewBuild;
 }
@@ -209,7 +244,7 @@ export interface CadReviewAppliedEntry {
     readonly detail?: string;
     /** Opaque `NukeUndoService` token; empty when the apply returned none. */
     readonly undoToken: string;
-    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly' | 'drawing';
+    readonly scope?: CadReviewScope;
 }
 
 /** Props for the pure review panel view. */
@@ -717,6 +752,89 @@ function DrawingPlan(props: { readonly context: CadReviewDrawingContext }): Reac
     );
 }
 
+/** Unified diff, script metadata, sandbox limits, and sandboxed build metrics for a Python script proposal. */
+function ScriptPlan(props: { readonly context: CadReviewScriptContext }): React.ReactElement {
+    const context = props.context;
+    const sandbox = context.sandbox;
+    const limits = sandbox.limits;
+    const build = context.build;
+    const exit = context.exitCode === null ? 'no exit code' : `exit ${context.exitCode}`;
+    return (
+        <div className="cad-review-script" role="group" aria-label="Script change">
+            <div className="cad-review-script-head">
+                <span className="cad-review-script-title">Script change</span>
+                <NukeBadge className="cad-review-script-badge">Python</NukeBadge>
+            </div>
+            <div className="cad-review-script-source">
+                <span className="codicon codicon-file-code" aria-hidden="true" />
+                <span className="cad-review-script-name">{documentBasename(context.scriptPath)}</span>
+                <span className="cad-review-script-path">{context.scriptPath}</span>
+            </div>
+            <p className="cad-review-script-warning" role="alert">
+                Python preview ran in a sandbox. Apply replaces the script; subsequent sandboxed rebuilds are sandboxed while this model is
+                marked sandboxed.
+            </p>
+            <div className="cad-review-script-diff-head">
+                <span className="cad-review-script-diff-title">Unified diff</span>
+                <span className="cad-review-script-diff-counts">
+                    {`+${formatNumber(context.addedLines)} \u00b7 -${formatNumber(context.removedLines)} \u00b7 ${pluralize(
+                        context.hunkCount,
+                        'hunk'
+                    )}`}
+                </span>
+            </div>
+            <pre className="cad-review-script-diff" aria-label="Unified script diff">
+                {context.diff}
+            </pre>
+            {context.diffTruncated && (
+                <p className="cad-review-script-truncated">The diff is truncated; the proposal still holds the full replacement script.</p>
+            )}
+            <div className="cad-review-script-imports">
+                <span className="cad-review-script-section-title">Imports</span>
+                {context.imports.length === 0 ? (
+                    <span className="cad-review-script-import-empty">No imports detected.</span>
+                ) : (
+                    <ul className="cad-review-script-import-list">
+                        {context.imports.map((entry) => (
+                            <li key={entry}>{entry}</li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+            <p className={context.hasModelAssignment ? 'cad-review-script-model' : 'cad-review-script-model is-warning'}>
+                {context.hasModelAssignment
+                    ? 'Assigns a top-level `model` variable.'
+                    : 'No top-level `model` assignment detected in the proposed script.'}
+            </p>
+            <div className="cad-review-script-sandbox">
+                <span className="cad-review-script-section-title">Sandbox</span>
+                <span className="cad-review-script-line">
+                    {`${sandbox.engine}${sandbox.version !== undefined && sandbox.version.length > 0 ? ` ${sandbox.version}` : ''} \u00b7 ${
+                        sandbox.available ? 'available' : 'unavailable'
+                    }${sandbox.disableUserns === true ? ' \u00b7 user namespaces disabled' : ''}`}
+                </span>
+                <span className="cad-review-script-line">
+                    {`Limits: ${formatNumber(limits.timeoutSeconds)} s \u00b7 ${formatNumber(limits.memoryMb)} MB memory \u00b7 ${formatNumber(
+                        limits.processLimit
+                    )} processes \u00b7 ${formatNumber(limits.fileSizeMb)} MB files`}
+                </span>
+                <span className="cad-review-script-line">
+                    {`Build: ${build.success ? 'succeeded' : 'failed'} \u00b7 ${formatNumber(build.solidCount ?? 0)} solids \u00b7 ${formatNumber(
+                        build.faceCount ?? 0
+                    )} faces \u00b7 ${formatNumber(build.triangleCount ?? 0)} triangles`}
+                </span>
+                <span className="cad-review-script-line">
+                    {`Duration: ${formatNumber(context.durationMs)} ms \u00b7 ${context.timedOut ? 'timed out' : 'completed'} \u00b7 ${exit}`}
+                </span>
+                <span className="cad-review-script-line">{`Audit: ${context.auditId}`}</span>
+            </div>
+            <p className="cad-review-script-note">
+                No viewport ghost: sandbox artifacts were discarded. Exports stay blocked while this model is marked sandboxed.
+            </p>
+        </div>
+    );
+}
+
 function ProposalCard(props: {
     readonly proposal: CadReviewProposalView;
     readonly applying: boolean;
@@ -737,7 +855,9 @@ function ProposalCard(props: {
                   ? 'Assembly change'
                   : proposal.scope === 'drawing'
                     ? 'Drawing settings'
-                    : 'Feature change';
+                    : proposal.scope === 'script'
+                      ? 'Script change'
+                      : 'Feature change';
     const blocked =
         (proposal.topology !== undefined && proposal.topology.blockedRegions.length > 0) ||
         (proposal.assembly !== undefined && proposal.assembly.blockedRegions.length > 0);
@@ -757,6 +877,7 @@ function ProposalCard(props: {
                     {proposal.scope === 'import' && <NukeBadge className="cad-review-import-badge">Import</NukeBadge>}
                     {proposal.scope === 'assembly' && <NukeBadge className="cad-review-assembly-badge">Assembly</NukeBadge>}
                     {proposal.scope === 'drawing' && <NukeBadge className="cad-review-drawing-badge">Drawing</NukeBadge>}
+                    {proposal.scope === 'script' && <NukeBadge className="cad-review-script-badge">Script</NukeBadge>}
                 </span>
             }
         >
@@ -765,6 +886,7 @@ function ProposalCard(props: {
                 <span className="cad-review-document-path">{proposal.documentPath}</span>
             </div>
             {proposal.sketch !== undefined && <SketchContext sketch={proposal.sketch} />}
+            {proposal.scope === 'script' && proposal.script !== undefined && <ScriptPlan context={proposal.script} />}
             {proposal.scope === 'drawing' && proposal.drawing !== undefined && <DrawingPlan context={proposal.drawing} />}
             {proposal.scope === 'import' && proposal.importContext !== undefined && <ImportPlan context={proposal.importContext} />}
             {proposal.scope === 'assembly' && proposal.assembly !== undefined && (
@@ -775,21 +897,24 @@ function ProposalCard(props: {
                     onAcknowledge={props.onAcknowledge}
                 />
             )}
-            {proposal.scope !== 'import' && proposal.scope !== 'assembly' && proposal.scope !== 'drawing' && (
-                <div className="cad-review-changes">
-                    {proposal.changes.map((change, index) => (
-                        <NukeFormRow key={`${index}-${change.path}`} label={change.label} className="cad-review-change-row">
-                            <span className="cad-review-diff" data-kind={change.kind}>
-                                <span className="cad-review-diff-before">{formatReviewValue(change.before)}</span>
-                                <span className="cad-review-diff-arrow" aria-hidden="true">
-                                    {'\u2192'}
+            {proposal.scope !== 'import' &&
+                proposal.scope !== 'assembly' &&
+                proposal.scope !== 'drawing' &&
+                proposal.scope !== 'script' && (
+                    <div className="cad-review-changes">
+                        {proposal.changes.map((change, index) => (
+                            <NukeFormRow key={`${index}-${change.path}`} label={change.label} className="cad-review-change-row">
+                                <span className="cad-review-diff" data-kind={change.kind}>
+                                    <span className="cad-review-diff-before">{formatReviewValue(change.before)}</span>
+                                    <span className="cad-review-diff-arrow" aria-hidden="true">
+                                        {'\u2192'}
+                                    </span>
+                                    <span className="cad-review-diff-after">{formatReviewValue(change.after)}</span>
                                 </span>
-                                <span className="cad-review-diff-after">{formatReviewValue(change.after)}</span>
-                            </span>
-                        </NukeFormRow>
-                    ))}
-                </div>
-            )}
+                            </NukeFormRow>
+                        ))}
+                    </div>
+                )}
             {proposal.topology !== undefined && (
                 <RegionImpact
                     proposalId={proposal.id}
@@ -846,7 +971,9 @@ function AppliedSection(props: {
                                               ? 'Assembly change'
                                               : entry.scope === 'drawing'
                                                 ? 'Drawing change'
-                                                : 'Feature parameter'}
+                                                : entry.scope === 'script'
+                                                  ? 'Script change'
+                                                  : 'Feature parameter'}
                                 </span>
                                 <span className="cad-review-applied-detail">
                                     {entry.detail ?? (entry.summary.length > 0 ? entry.summary : 'CAD edit')}

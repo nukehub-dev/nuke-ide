@@ -68,9 +68,9 @@ parameters first, then previews one to eight edits to existing driving dimension
 sketch or parametric curve references. A literal dimension changes only its sketch; a parameter-bound dimension
 cascades to every sketch and curve that references the parameter, and the diff names the parameter and all affected
 dimensions. Reference dimensions, missing sketches or parameters, unchanged values, and conflicting solves are
-rejected. New sketch entities, free-form sketch creation, unreferenced document parameters, scripts, booleans,
-body/feature add/delete/reorder, and lattices are not editable in this mode. Drawing sheets have their own settings flow
-below.
+rejected. New sketch entities, free-form sketch creation, unreferenced document parameters, partial or unsandboxed
+scripts, booleans, body/feature add/delete/reorder, and lattices are not editable in this mode. Drawing sheets and Python
+scripts have their own flows below.
 
 Topology-impact edits are the third flow. NukeAI can switch an existing hole between blind and through, or change the
 count of an existing linear or circular pattern. The preview builds the change and reports solid/face/triangle deltas,
@@ -112,6 +112,15 @@ leaves SVG and DXF output. The title block is fixed and read-only. The preview i
 ghost — and apply commits one drawing batch, opens and refreshes the Drawing Sheet, and offers **Undo** without
 rebuilding geometry.
 
+Python model scripts are the seventh flow, available only on Linux with bubblewrap. Enable both **Nuke CAD: AI
+Authoring** and the workspace **Nuke CAD: Script Authoring** setting, then open a saved `.py` model. NukeAI can inspect
+the script, but its text is sent to the configured model provider. A preview runs the complete replacement in a sandbox
+with no network and no workspace access, then shows a plain-text unified diff, imports, sandbox limits, build counts, and
+an audit id in the **CAD Edit Review** panel; it writes nothing and shows no ghost. The chat card has no Apply action.
+Apply is panel-only: it confirms the overwrite, keeps a hidden backup, rebuilds in the sandbox, and offers **Undo**.
+Later rebuilds of that model stay sandboxed and DAGMC/FEM export stays blocked. The sandbox has no seccomp filter, so it
+is not a guarantee against kernel bugs.
+
 ## Preview gallery
 
 Run **NukeAI: Open Preview Gallery** from the Command Palette to browse the saved previews. The gallery lists bundles
@@ -123,7 +132,7 @@ delete `.nuke-ide/ai/previews` in the file explorer. See [Previews and the Galle
 
 NukeAI ships five skills that load only when a task needs them:
 
-- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, and preview/apply feature, sketch, topology, import, assembly-placement, or drawing-settings edits.
+- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, preview/apply feature, sketch, topology, import, assembly-placement, or drawing-settings edits, and guide Linux sandboxed Python script review.
 - `/openmc-studio` — summarize, validate, import CAD, run, and poll an OpenMC project.
 - `/nuke-visualizer` — summarize or open a statepoint and capture a DAGMC viewport.
 - `/nuke-workflow` — the end-to-end CAD → DAGMC → OpenMC → statepoint → capture handoff.

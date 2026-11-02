@@ -55,6 +55,7 @@ import { URI } from '@theia/core/lib/common/uri';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
 import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model';
+import * as path from 'path';
 import * as THREE from 'three';
 
 import {
@@ -63,7 +64,7 @@ import {
     type InspectImportSourceRequest,
     type InspectImportSourceResult
 } from '../../../common/nuke-cad-protocol';
-import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
+import { NukeCadStateManager, CadModel, CadSelection, sandboxedGeometryResult } from '../../state/nuke-cad-state-manager';
 import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { addSolidsToSelection, selectionSolidIds, toggleSolidSelection } from '../outline-panel/outline-interactions';
 import { NukeCadCommands } from '../../commands';
@@ -2951,7 +2952,9 @@ export class CadViewportWidget extends ReactWidget {
                     event.preferenceName === 'nukeCad.showOriginAxes' ||
                     event.preferenceName === 'nukeCad.showOriginX' ||
                     event.preferenceName === 'nukeCad.showOriginY' ||
-                    event.preferenceName === 'nukeCad.showOriginZ'
+                    event.preferenceName === 'nukeCad.showOriginZ' ||
+                    event.preferenceName === 'nukeCad.aiAuthoringEnabled' ||
+                    event.preferenceName === 'nukeCad.scriptAuthoringEnabled'
                 ) {
                     this.update();
                 }
@@ -3966,6 +3969,16 @@ export class CadViewportWidget extends ReactWidget {
             return;
         }
 
+        if (ext === '.py' && this.preferences['nukeCad.scriptAuthoringEnabled'] === true) {
+            this.setLoading(true, 'Building CAD geometry in the sandbox...');
+            try {
+                await this.openSandboxedScriptFromDialog(filePath);
+            } finally {
+                this.setLoading(false);
+            }
+            return;
+        }
+
         const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
 
         this.setLoading(true, sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...');
@@ -3997,6 +4010,70 @@ export class CadViewportWidget extends ReactWidget {
             this.messageService.error(message);
         } finally {
             this.setLoading(false);
+        }
+    }
+
+    private async openSandboxedScriptFromDialog(filePath: string): Promise<void> {
+        let status: Awaited<ReturnType<NukeCadBackendService['getScriptSandboxStatus']>>;
+        try {
+            status = await this.backendService.getScriptSandboxStatus();
+        } catch (error) {
+            const message = `The bubblewrap script sandbox could not be probed: ${error instanceof Error ? error.message : String(error)}`;
+            this.buildError = message;
+            this.messageService.error(message);
+            return;
+        }
+        if (!status.available) {
+            const reason = status.reason !== undefined && status.reason.length > 0 ? ` ${status.reason}` : '';
+            const message = `Script authoring is enabled, but the bubblewrap sandbox is unavailable; this script cannot be opened unsandboxed.${reason}`;
+            this.buildError = message;
+            this.messageService.error(message);
+            return;
+        }
+        const roots = this.workspaceService.tryGetRoots().map((root) => root.resource.path.toString());
+        const workspaceRoot = roots
+            .filter((root) => path.isAbsolute(root) && (filePath === root || filePath.startsWith(`${root}${path.sep}`)))
+            .map((root) => path.resolve(root))
+            .sort((left, right) => right.length - left.length)[0];
+        if (workspaceRoot === undefined) {
+            const message = 'The CAD script is outside every workspace root.';
+            this.buildError = message;
+            this.messageService.error(message);
+            return;
+        }
+        const outputDirectory = path.join(workspaceRoot, '.nuke-ide', 'ai', 'cad-scripts', `open-${globalThis.crypto.randomUUID()}`, 'out');
+        try {
+            await this.fileService.createFolder(new URI(outputDirectory), { fromUserGesture: false }).catch(() => undefined);
+            const result = await this.backendService.buildSandboxedScript({
+                scriptPath: filePath,
+                workspaceRoot,
+                outputDirectory,
+                tolerance: 0.1,
+                timeoutSeconds: 120,
+                memoryLimitMb: 4096,
+                processLimit: 128,
+                fileSizeLimitMb: 512,
+                jobId: `cad-ai-script-open-${globalThis.crypto.randomUUID()}`
+            });
+            if (!result.success) {
+                const message = result.error || 'The sandboxed CAD script build failed.';
+                this.buildError = message;
+                this.messageService.error(message);
+                return;
+            }
+            const geometry = sandboxedGeometryResult(result);
+            this.stateManager.setModel({
+                scriptPath: filePath,
+                result: geometry,
+                manifest: geometry.regionManifest,
+                sandboxed: true
+            });
+            this.buildWarnings = geometry.warnings ?? [];
+            this.messageService.info(`Loaded ${geometry.solidCount ?? 0} solids, ${geometry.triangleCount ?? 0} triangles`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.buildError = message;
+            this.messageService.error(message);
         }
     }
 
@@ -4142,6 +4219,10 @@ export class CadViewportWidget extends ReactWidget {
                 showOriginZ={this.preferences['nukeCad.showOriginZ']}
                 rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
                 buildStale={this.buildStale}
+                aiScriptAuthoringEnabled={
+                    this.preferences['nukeCad.aiAuthoringEnabled'] === true && this.preferences['nukeCad.scriptAuthoringEnabled'] === true
+                }
+                activeModelPath={this.stateManager.scriptPath}
                 sketchSavePromptOpen={this.sketchSavePromptOpen}
                 onSketchSavePromptSave={this.handleSketchSavePromptSave}
                 onSketchSavePromptNotNow={this.handleSketchSavePromptNotNow}
@@ -4312,6 +4393,10 @@ interface CadViewportComponentProps {
     readonly showOriginZ: boolean;
     readonly rebuildOnEdit: 'auto' | 'manual';
     readonly buildStale: boolean;
+    /** Both AI authoring switches are on; shows the persistent script-authoring boundary banner. */
+    readonly aiScriptAuthoringEnabled: boolean;
+    /** Active model path; the script banner only applies to `.py` models. */
+    readonly activeModelPath?: string;
     /** True while the unsaved-document “sketch saved in memory” prompt is open. */
     readonly sketchSavePromptOpen: boolean;
     readonly onSketchSavePromptSave: () => void;
@@ -5259,11 +5344,27 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     const designStudy = props.documentStore.document?.designStudy;
     const designStudyBanner = designStudy !== undefined ? <W7xDesignStudyBanner study={designStudy} /> : undefined;
+    const scriptAuthoringBanner =
+        props.aiScriptAuthoringEnabled && props.activeModelPath?.toLowerCase().endsWith('.py') === true ? (
+            <div className="cad-viewport-warning-strip cad-viewport-script-authoring-banner">
+                <div className="cad-viewport-warning-header">
+                    <span className="codicon codicon-shield" />
+                    <span className="cad-viewport-error-message">
+                        AI script authoring is on: sandbox preview, no network/workspace; Apply overwrites the script with a backup.
+                    </span>
+                </div>
+            </div>
+        ) : undefined;
 
     const banners =
-        designStudyBanner !== undefined || errorBanner !== undefined || warningStrip !== undefined || staleBanner !== undefined ? (
+        designStudyBanner !== undefined ||
+        scriptAuthoringBanner !== undefined ||
+        errorBanner !== undefined ||
+        warningStrip !== undefined ||
+        staleBanner !== undefined ? (
             <div className="cad-viewport-banners">
                 {designStudyBanner}
+                {scriptAuthoringBanner}
                 {errorBanner}
                 {warningStrip}
                 {staleBanner}

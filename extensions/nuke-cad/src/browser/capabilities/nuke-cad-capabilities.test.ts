@@ -372,6 +372,21 @@ describe('NukeCadCapabilities', () => {
         ]);
     });
 
+    it('rejects DAGMC export for a sandboxed AI-authored script', async () => {
+        const { stateManager } = createStateManager({ model: { ...cadModel(), sandboxed: true } });
+        const { service, capture } = createService();
+        const capability = register(new NukeCadCapabilities(stateManager, service, createFileService())).get('nuke.cad.exportDagmc')!;
+
+        const result = await capability.invoke({ documentPath: `${WORKSPACE}/pincell.py` }, CONTEXT);
+
+        expect(result).toEqual({
+            ok: false,
+            message: 'Export is disabled for a sandboxed AI-authored script. Disable script authoring/reopen as a trusted script to export.'
+        });
+        expect(capture.documents).toHaveLength(0);
+        expect(capture.geometries).toHaveLength(0);
+    });
+
     it('uses buildGeometry with the right source type for scripts and exchange files', async () => {
         const sources: Array<[string, 'script' | 'step']> = [
             ['pincell.py', 'script'],

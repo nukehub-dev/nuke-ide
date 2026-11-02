@@ -33,16 +33,21 @@
 
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry } from '@theia/core/lib/common';
+import { EditorManager } from '@theia/editor/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { URI } from '@theia/core/lib/common/uri';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
+import { WorkspaceService } from '@theia/workspace/lib/browser';
+import * as path from 'path';
 import { NukeCadCommands } from '../commands';
-import { NukeCadBackendService } from '../../common/nuke-cad-protocol';
-import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
+import { GeometryBuildResult, NukeCadBackendService } from '../../common/nuke-cad-protocol';
+import { NukeCadStateManager, sandboxedGeometryResult } from '../state/nuke-cad-state-manager';
 import { CadDocumentStore } from '../document/cad-document-store';
 import { CadViewportWidget } from '../widgets/cad-viewport/cad-viewport-widget';
+import { NukeCadOpenHandler } from './nuke-cad-openhandler-contribution';
 import { CadOutlinePanelWidget } from '../widgets/outline-panel/outline-panel-widget';
 import { CadFeatureTreeWidget } from '../widgets/feature-tree/feature-tree-widget';
 import { CadBomPanelWidget } from '../widgets/bom-panel/bom-panel';
@@ -68,6 +73,12 @@ export class NukeCadCommandContribution implements CommandContribution {
     @inject(NukeCadStateManager)
     protected readonly stateManager: NukeCadStateManager;
 
+    @inject(EditorManager)
+    protected readonly editorManager: EditorManager;
+
+    @inject(NukeCadOpenHandler)
+    protected readonly openHandler: NukeCadOpenHandler;
+
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
 
@@ -79,6 +90,9 @@ export class NukeCadCommandContribution implements CommandContribution {
 
     @inject(QuickInputService)
     protected readonly quickInput: QuickInputService;
+
+    @inject(WorkspaceService)
+    protected readonly workspaceService: WorkspaceService;
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeCadCommands.OPEN_CAD_VIEWPORT, {
@@ -107,9 +121,20 @@ export class NukeCadCommandContribution implements CommandContribution {
                 }
                 viewport?.setLoading(true, 'Rebuilding CAD geometry...');
                 try {
-                    const result = await this.backendService.buildGeometry({ scriptPath });
+                    const result =
+                        this.stateManager.model?.sandboxed === true
+                            ? await this.rebuildSandboxedScript(scriptPath, viewport)
+                            : await this.backendService.buildGeometry({ scriptPath });
+                    if (result === undefined) {
+                        return;
+                    }
                     if (result.success) {
-                        this.stateManager.setModel({ scriptPath, result, manifest: result.regionManifest });
+                        this.stateManager.setModel({
+                            scriptPath,
+                            result,
+                            manifest: result.regionManifest,
+                            ...(result.sandboxed === true ? { sandboxed: true } : {})
+                        });
                         this.messageService.info(`CAD rebuild: ${result.solidCount ?? 0} solids, ${result.triangleCount ?? 0} triangles`);
                     } else {
                         const message = result.error || 'CAD rebuild failed.';
@@ -262,6 +287,17 @@ export class NukeCadCommandContribution implements CommandContribution {
                 const widget = await this.widgetManager.getOrCreateWidget(DrawingSheetWidget.ID);
                 await this.shell.addWidget(widget, { area: 'main' });
                 await this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(NukeCadCommands.OPEN_ACTIVE_SCRIPT, {
+            execute: async () => {
+                const uri = this.editorManager.currentEditor?.editor.uri;
+                if (uri === undefined || uri.path.ext.toLowerCase() !== '.py') {
+                    this.messageService.warn('Open a Python CAD model in the editor first.');
+                    return;
+                }
+                await this.openHandler.open(uri);
             }
         });
 
@@ -458,5 +494,73 @@ export class NukeCadCommandContribution implements CommandContribution {
                 await widget.createW7xShapeStudy();
             }
         });
+    }
+
+    /**
+     * Rebuild an AI-authored model script through the bubblewrap sandbox.
+     *
+     * A sandboxed model never falls back to `buildGeometry`; an unavailable
+     * sandbox or missing workspace root is reported as a rebuild failure.
+     */
+    protected async rebuildSandboxedScript(
+        scriptPath: string,
+        viewport: CadViewportWidget | undefined
+    ): Promise<GeometryBuildResult | undefined> {
+        const report = (message: string): undefined => {
+            viewport?.showBuildError(message);
+            this.messageService.error(message);
+            return undefined;
+        };
+        let status: Awaited<ReturnType<NukeCadBackendService['getScriptSandboxStatus']>>;
+        try {
+            status = await this.backendService.getScriptSandboxStatus();
+        } catch (error) {
+            return report(`The bubblewrap script sandbox could not be probed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (!status.available) {
+            const reason = status.reason !== undefined && status.reason.length > 0 ? ` ${status.reason}` : '';
+            return report(`The bubblewrap script sandbox is unavailable; this AI-authored script cannot be rebuilt.${reason}`);
+        }
+        const workspaceRoot = this.containingWorkspaceRoot(scriptPath);
+        if (workspaceRoot === undefined) {
+            return report('The active CAD script is outside every workspace root.');
+        }
+        const outputDirectory = path.join(
+            workspaceRoot,
+            '.nuke-ide',
+            'ai',
+            'cad-scripts',
+            `rebuild-${globalThis.crypto.randomUUID()}`,
+            'out'
+        );
+        try {
+            await this.fileService.createFolder(new URI(outputDirectory), { fromUserGesture: false });
+            const result = await this.backendService.buildSandboxedScript({
+                scriptPath,
+                workspaceRoot,
+                outputDirectory,
+                tolerance: 0.1,
+                timeoutSeconds: 120,
+                memoryLimitMb: 4096,
+                processLimit: 128,
+                fileSizeLimitMb: 512,
+                jobId: `cad-ai-script-rebuild-${globalThis.crypto.randomUUID()}`
+            });
+            if (!result.success) {
+                return report(result.error || 'The sandboxed CAD rebuild failed.');
+            }
+            return sandboxedGeometryResult(result);
+        } catch (error) {
+            return report(`The sandboxed CAD rebuild failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    /** Deepest workspace root containing the script, when one is open. */
+    protected containingWorkspaceRoot(scriptPath: string): string | undefined {
+        const roots = this.workspaceService.tryGetRoots().map((root) => root.resource.path.toString());
+        return roots
+            .filter((root) => path.isAbsolute(root) && (scriptPath === root || scriptPath.startsWith(`${root}${path.sep}`)))
+            .map((root) => path.resolve(root))
+            .sort((left, right) => right.length - left.length)[0];
     }
 }

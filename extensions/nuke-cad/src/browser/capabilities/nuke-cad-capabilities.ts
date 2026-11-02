@@ -563,6 +563,13 @@ export class NukeCadCapabilities implements NukeCapabilityContribution {
         const resolvedDocumentPath = path.resolve(documentPath);
         const resolvedOutputDirectory = requestedOutputDirectory !== undefined ? path.resolve(requestedOutputDirectory) : undefined;
         const extension = path.extname(resolvedDocumentPath).toLowerCase();
+        if (extension === '.py' && this.stateManager.model?.sandboxed === true) {
+            return {
+                ok: false,
+                message:
+                    'Export is disabled for a sandboxed AI-authored script. Disable script authoring/reopen as a trusted script to export.'
+            };
+        }
         const request = {
             scriptPath: resolvedDocumentPath,
             exportDagmc: true,

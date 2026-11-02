@@ -29,8 +29,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and
   write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings,
   materials, tallies, and CAD feature/sketch/topology/import/assembly/drawing edits, a shown diff or plan, confirmation, and
-  undo reporting; see `docs/user/safe-edits.md`.
-- CAD authoring ships six gated slices on saved `.nuke-cad` documents while `nukeCad.aiAuthoringEnabled` is on:
+  undo reporting; script preview is shown but its apply is panel-only, never from chat. See `docs/user/safe-edits.md`.
+- CAD authoring ships seven gated slices on saved models while `nukeCad.aiAuthoringEnabled` is on:
   scalar feature params; existing sketch dimensions or referenced parameters; topology-impacting hole blind/through
   mode or linear/circular pattern count; imported STEP/IGES/BREP bodies; placement-only edits on an existing grounded
   assembly; and presentation settings on existing drawing sheets. The feature, sketch, topology, and assembly slices run
@@ -48,9 +48,15 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   is rejected when a view is outside A4 and views never move, hidden dimensions stay listed but leave SVG/DXF, and the
   title block is fixed. Drawing apply is one `applyDrawingChanges` commit with backup, sheet refresh, undo, and no
   `nuke.cad.rebuild`.
-  Booleans, body/feature add/delete/reorder, lattices, scripts, unreferenced parameters, assembly structure beyond
-  placement, drawing creation/deletion or view placement, title-block edits, and MCP stay excluded. See
-  `docs/dev/cad-authoring-design.md`.
+  The seventh slice is Linux-only sandboxed `.py` authoring, requiring both `nukeCad.aiAuthoringEnabled` and
+  workspace-scoped `nukeCad.scriptAuthoringEnabled`: `inspectScriptSource` returns bounded text/hash/imports (text goes to
+  the model provider), `previewScriptChange` takes an exact base hash plus the full body, runs `bwrap` with no
+  network/workspace, returns a diff/sandbox/build audit and no ghost, and omits `applyCapability` so chat has no Apply.
+  Apply is panel-only with a hidden approval nonce, overwrites with a backup, rebuilds sandboxed, and blocks DAGMC/FEM
+  export while the model stays sandboxed. No fallback without bubblewrap; residual risk is no seccomp filter.
+  Booleans, body/feature add/delete/reorder, lattices, partial or unsandboxed scripts, unreferenced parameters, assembly
+  structure beyond placement, drawing creation/deletion or view placement, title-block edits, and MCP stay excluded. See
+  `docs/dev/cad-authoring-design.md` and `docs/dev/skills.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
   and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.
@@ -95,7 +101,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   `@theia/external-api` at `/nuke-ai-mcp`; the backend reads `<configDir>/nuke-ai-mcp.json`, and every MCP session gets
   its own `McpServer`, `StreamableHTTPServerTransport`, live read-only catalog, resources, and prompts.
 - External MCP never exposes write/execute/destructive tools: only the explicit read-only allowlist in
-  `src/common/nuke-mcp-protocol.ts` may register, and the raw handler and tool handler re-check it. Per-session tool
+  `src/common/nuke-mcp-protocol.ts` may register, and the raw handler and tool handler re-check it. The script ids
+  (`inspectScriptSource`, `previewScriptChange`, `applyScriptChange`) are never allowlisted. Per-session tool
   rate limits, 30-minute idle eviction, and the redacted 200-row audit ring live beside the contribution. See `docs/dev/mcp.md`.
 - `src/node/skills/nuke-skill-service.ts` exposes the packaged skill root over RPC; `src/browser/skills/`,
   `src/browser/context/`, and `src/browser/resources/` own the Theia skill directory, `#nukeContext`, and read-only

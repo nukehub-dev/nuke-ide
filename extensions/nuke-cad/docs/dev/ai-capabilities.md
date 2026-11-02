@@ -5,22 +5,24 @@ registry owned by `nuke-core`. AI consumers, MCP servers, and other extensions
 read the same `NukeCapability` objects without importing CAD widgets.
 
 The implementation lives in
-`src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and
-`src/browser/capabilities/nuke-cad-authoring-capabilities.ts` (the gated
-feature, sketch, topology, import, assembly-placement, and drawing-settings authoring slices):
+`src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and the gated
+authoring contributions under `src/browser/capabilities/` (the feature, sketch,
+topology, import, assembly-placement, drawing-settings, and sandboxed Python
+script slices):
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
   the read/export capabilities below.
 - `NukeCadAuthoringCapabilities` registers the feature preview/apply pair, the
   sketch dimension list/preview/apply trio, the topology preview/apply pair,
   the import inspect/preview/apply trio, the assembly
-  summary/preview/apply trio, and the drawing summary/preview/apply trio. All
-  authoring capabilities are default-off behind
-  `nukeCad.aiAuthoringEnabled`.
+  summary/preview/apply trio, the drawing summary/preview/apply trio, and the
+  script inspect/preview/apply trio. All authoring capabilities are default-off
+  behind `nukeCad.aiAuthoringEnabled`; script authoring also requires the
+  workspace-scoped `nukeCad.scriptAuthoringEnabled`.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
   `NukeCadAuthoringContextContribution` additionally refreshes the tool set when
-  the authoring switch changes.
+  either authoring switch changes.
 - All are bound in `nuke-cad-frontend-module.ts`. The nuke-core frontend module
   owns the contribution providers, registry, and context service.
 
@@ -33,7 +35,11 @@ same `buildDocument` path; import inspection delegates to the read-only
 `CadDocumentStore.addImportBodies`; assembly apply commits one
 `applyAssemblyChanges` batch through `CadDocumentStore`. Drawing preview runs
 only the pure planner, and drawing apply commits one `applyDrawingChanges`
-batch, opens and refreshes the sheet, and never rebuilds geometry.
+batch, opens and refreshes the sheet, and never rebuilds geometry. Script
+inspection reads the active saved `.py` file; script preview delegates to the
+sandboxed Python backend and never installs or writes the candidate; script
+apply uses a panel-issued approval nonce, writes the script plus a hidden
+backup, then builds through the sandbox.
 
 ## Capabilities
 
@@ -58,6 +64,9 @@ batch, opens and refreshes the sheet, and never rebuilds geometry.
 | `nuke.cad.summarizeDrawing`      | `read`    | Document only          | Sheets, views, dimensions, visibility, and fixed title-block fields   |
 | `nuke.cad.previewDrawingChange`  | `read`    | Yes, saved             | Plan sheet size, view display, or dimension visibility; no build      |
 | `nuke.cad.applyDrawingChange`    | `execute` | Yes, saved             | Commit one drawing batch, refresh the sheet, and register undo        |
+| `nuke.cad.inspectScriptSource`   | `read`    | Yes, saved `.py`       | Bounded script text, hash, imports, and model assignment              |
+| `nuke.cad.previewScriptChange`   | `execute` | Yes, saved `.py`       | Sandbox-build a full script replacement and return a diff; no write   |
+| `nuke.cad.applyScriptChange`     | `execute` | Yes, saved `.py`       | Apply a panel-approved script, back up, and rebuild in the sandbox    |
 | `nuke.cad.exportDagmc`           | `execute` | No                     | Build a source file and export DAGMC + region manifest                |
 
 ### `nuke.cad.summarizeDocument`
@@ -212,12 +221,12 @@ session-scoped undo token. Undo re-checks the epoch, revision, and applied
 params, restores the before params in one batch, and schedules the rebuild.
 
 The full design and its remaining security gates are documented in
-[Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Script,
-free-form sketch creation, new sketch entities/constraints/dimensions, topology changes beyond the two topology actions
-below, assembly structure beyond placement (mates, connectors, grounding, mated placements, file-backed removal, scale,
-part replacement, rename, new external sources, or single-part conversion), drawing creation/deletion, view placement
-or structure, title-block editing, and editing or replacing an existing import
-source remain out of scope.
+[Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Free-form scripting beyond a full-file
+sandboxed replacement (no partial script edits or arbitrary Python execution), free-form sketch creation, new sketch
+entities/constraints/dimensions, topology changes beyond the two topology actions below, assembly structure beyond
+placement (mates, connectors, grounding, mated placements, file-backed removal, scale, part replacement, rename, new
+external sources, or single-part conversion), drawing creation/deletion, view placement or structure, title-block
+editing, and editing or replacing an existing import source remain out of scope.
 
 ## Sketch authoring (gated)
 
@@ -482,6 +491,43 @@ never schedules `nuke.cad.rebuild`; the result reports `drawingRefreshScheduled:
 sheet. The title block is a fixed read-only template and is never edited. None of the three drawing ids is on the
 external MCP read-only allowlist, and the slice accepts no path.
 
+## Sandboxed Python script authoring (gated)
+
+Script authoring edits the active saved `.py` build123d/CadQuery model. It requires **both**
+`nukeCad.aiAuthoringEnabled` and the workspace-scoped `nukeCad.scriptAuthoringEnabled` (both default `false`), an active
+workspace-contained regular `.py` file (no symlink, at most 64 KiB / 2000 lines), and Linux with a working `bwrap`/user
+namespace probe. macOS, Windows, and environments without bubblewrap report the feature unavailable; there is **no
+fallback** to unsandboxed execution.
+
+- `nuke.cad.inspectScriptSource` takes `{}` and returns the active script path, bounded text, SHA-256 hash, imports, and
+  whether a top-level `model` assignment exists. The script text is sent to the configured model provider; this is the
+  source-code privacy boundary.
+- `nuke.cad.previewScriptChange` takes the exact `baseScriptHash` and the **full** `proposedScript` plus an optional
+  summary. It rejects a stale hash, unchanged text, NUL bytes, or a non-`.py`/non-workspace target, then runs the script
+  in the sandbox. It returns a unified diff, imports, sandbox version/limits, build counts, duration, timeout, exit code,
+  and audit id. It publishes no ghost, writes no source or artifact outside staging, and stores a proposal whose
+  `changeSet` deliberately omits `applyCapability`, so the chat card has **no Apply action**.
+- `nuke.cad.applyScriptChange` takes `{ proposalId, approvalId }`. The `approvalId` is a panel-issued nonce stored on the
+  proposal and never shown to the model or rendered in the review view. Apply is available only from the **CAD Edit
+  Review** panel; the model must direct the user there and must not claim it can apply from chat. Apply rechecks the
+  proposal, base hash, clean editor buffer, sandbox availability, and nonce, writes the active script atomically with a
+  hidden backup, builds the replacement in the sandbox, installs the resulting model, and registers session undo. Undo
+  restores the previous bytes and rebuilds in the sandbox.
+
+Sandbox boundary: bubblewrap `--unshare-all`, user namespace with `--disable-userns` where supported, `--die-with-parent`,
+`--new-session`, cleared environment, read-only `/usr` and Python environment, read-only source file, one private
+writable output directory, tmpfs `/tmp` and `/dev/shm`, and minimal `/dev`/`/proc` with no `/sys`. `prlimit` bounds CPU,
+address space, NPROC, file size, file descriptors, and cores. The sandbox has **no network and no workspace bind**. A
+timeout escalates to SIGKILL for the PID namespace. Output files are validated (expected names, regular files, no
+symlinks, `nlink == 1`, size caps) and unexpected files are discarded. The audit log
+(`<workspace>/.nuke-ide/ai/cad-script-audit.jsonl`) records hashes, outcome, duration, exit, timeout, counts, sandbox
+version, and limits, never script text, absolute paths, stdout/stderr, or errors.
+
+A model applied through this flow is marked `sandboxed`. Every later `.py` rebuild for that model uses the sandboxed
+builder, and DAGMC/FEM export is blocked until a later review removes the marking. The residual risk is explicit: there is
+no seccomp filter, so the namespace/resource boundary still depends on kernel and bubblewrap correctness. None of the
+three script ids is on the external MCP read-only allowlist, and the chat card never exposes Apply.
+
 ## Review panel and ghost preview
 
 A successful feature, sketch, topology, or assembly preview also publishes the candidate
@@ -497,8 +543,15 @@ are derived linework rather than candidate geometry. An
 assembly preview with repeated body ids labels the ghost approximate.
 
 The panel (`CadReviewPanelWidget`, command `nuke.cad.openReviewPanel`) lists the
-stored feature, sketch, topology, import, assembly, and drawing proposals with the same `changeSet`
-rows, the solid/face/triangle impact, and the build counts. An import proposal
+stored feature, sketch, topology, import, assembly, drawing, and script proposals with the same `changeSet`
+rows, the solid/face/triangle impact, and the build counts. A script proposal renders a **Script change** section
+instead of the generic diff: the script basename and path, a prominent executable-warning banner, the unified diff in a
+text-only `<pre>` with added/removed/hunk counts and a truncation notice, the imports list, a `model`-assignment
+advisory, sandbox engine/version/userns and limits, sandboxed build counts, duration/timeout/exit code, and the audit id.
+It shows no ghost, notes that sandbox artifacts were discarded, and keeps Apply enabled without an acknowledgement
+checkbox. Apply reads the hidden approval nonce from the stored proposal and invokes
+`nuke.cad.applyScriptChange` with `{ proposalId, approvalId }`; when the nonce is missing it reports an error and invokes
+nothing. An import proposal
 shows the source path, format, hash, size, units, selected solids, strategy,
 body/feature count, label/material plan, and self-contained warning instead of a
 geometry impact. A drawing proposal shows the sheet size before/after, view
@@ -521,11 +574,14 @@ removal loses the last instance of a labeled embedded body. **Apply** confirms,
 resolves the proposal's apply capability
 (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
 `nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`,
-`nuke.cad.applyAssemblyChange`, or `nuke.cad.applyDrawingChange`) from the
-capability registry, and keeps the
-returned undo token for **Undo**. **Dismiss** removes the proposal; the ghost
+`nuke.cad.applyAssemblyChange`, `nuke.cad.applyDrawingChange`, or
+`nuke.cad.applyScriptChange`) from the capability registry, confirms that a
+script apply overwrites the file and keeps a hidden backup, and keeps the
+returned undo token for **Undo**. A script undo prompt restores the previous
+Python model. **Dismiss** removes the proposal; the ghost
 service clears the overlay when the backing proposal disappears. The panel
-never writes the document directly; the capability remains the only writer.
+never writes the document or script directly; the capability remains the only
+writer.
 
 ## Path scoping
 
@@ -549,6 +605,10 @@ external source, a replacement part, or a rename is rejected.
 
 Drawing authoring accepts no new path at all. Actions target an existing sheet, view, or dimension in the active
 document, and apply writes only the hidden `.nuke-ai-backup-<document>` snapshot beside the source.
+
+Script authoring accepts no new path either. The target is always the active workspace-contained `.py` model; apply writes
+only that script plus its hidden backup. Preview staging and private sandbox output are harness-named, cleaned in
+`finally`, and never enter the workspace or the model-facing result.
 
 Paths are normalized with `path.resolve` after the scope check, so the backend
 and the manifest probe see the same canonical path. Manifest candidates are

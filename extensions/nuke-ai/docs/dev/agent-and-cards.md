@@ -9,7 +9,7 @@ for finished Nuke capability calls.
 
 - extends `AbstractStreamParsingChatAgent` and is bound as both `Agent` and `ChatAgent`;
 - uses the `chat` language-model purpose and the `nuke-system` prompt;
-- declares `nuke.context` and the thirty-seven capability tool names in its `functions` list;
+- declares `nuke.context` and the forty capability tool names in its `functions` list;
 - references every capability tool through `~{toolName}` in the prompt, where `toolName` is the sanitized name
   registered by the bridge (for example `nuke_cad_summarizeDocument`), not the capability id, so the model receives
   the typed tools without a separate registration step.
@@ -20,11 +20,12 @@ Theia confirmation requirement. Never add a write or execute tool to the prompt 
 
 The safe-edit section requires NukeAI to preview with `nuke_openmc_previewSettings`, `nuke_openmc_previewMaterialChange`,
 `nuke_openmc_previewTallyChange`, `nuke_cad_previewFeatureChange`, `nuke_cad_previewSketchChange`,
-`nuke_cad_previewTopologyChange`, `nuke_cad_previewImportBodies`, `nuke_cad_previewAssemblyChange`, or
-`nuke_cad_previewDrawingChange`, show the diff, plan, placement rows, or sheet/view/dimension rows, apply with the
-matching apply tool (including `nuke_cad_applyFeatureChange`, `nuke_cad_applySketchChange`,
-`nuke_cad_applyTopologyChange`, `nuke_cad_applyImportBodies`, `nuke_cad_applyAssemblyChange`, or
-`nuke_cad_applyDrawingChange`) only after explicit confirmation, and report undo availability from the apply result.
+`nuke_cad_previewTopologyChange`, `nuke_cad_previewImportBodies`, `nuke_cad_previewAssemblyChange`,
+`nuke_cad_previewDrawingChange`, or `nuke_cad_previewScriptChange`, show the diff, plan, placement rows, or
+sheet/view/dimension rows, apply with the matching apply tool (including `nuke_cad_applyFeatureChange`,
+`nuke_cad_applySketchChange`, `nuke_cad_applyTopologyChange`, `nuke_cad_applyImportBodies`,
+`nuke_cad_applyAssemblyChange`, or `nuke_cad_applyDrawingChange`) only after explicit confirmation, and report undo
+availability from the apply result.
 Sketch edits start with the read-only `nuke_cad_listSketchDimensions`, accept one to eight driving-dimension or
 referenced-document-parameter changes on one sketch, and reject topology, selector-map, or region-coverage changes. CAD
 previews are exposed only while `nukeCad.aiAuthoringEnabled` is on and require a saved document; a parameter-bound
@@ -48,9 +49,13 @@ scale or hidden-line display, or hide a dimension. The preview is plan-only and 
 rows without a geometry build or ghost; A3 to A4 is rejected when a view lies outside A4. Apply re-runs the planner,
 writes a backup, commits one `applyDrawingChanges` batch, refreshes the Drawing Sheet, returns an undo token, and never
 schedules a geometry rebuild. Hidden dimensions stay listed but leave SVG/DXF, and the title block is fixed and
-read-only. The **CAD Edit Review** panel renders the same pending proposal (feature, sketch, topology, import, assembly,
-or drawing), invokes the same apply capability after confirmation, and keeps the returned undo token; it never writes
-the document directly. The read-only Diagnostics agent never receives a
+read-only. Python script authoring is separate: inspect with `nuke_cad_inspectScriptSource` (its text goes to the model
+provider), preview a full replacement with `nuke_cad_previewScriptChange` (sandboxed, no network/workspace, no ghost, no
+write), and never apply from chat. Script preview omits `applyCapability`, so its card has no **Apply with NukeAI**.
+Apply is panel-only through `nuke_cad_applyScriptChange` with the panel-issued approval nonce, overwrite backup, and
+undo. The **CAD Edit Review** panel renders the same pending proposal (feature, sketch, topology, import, assembly,
+drawing, or script), invokes the same apply capability after confirmation, and keeps the returned undo token; it never
+writes the document or script directly. The read-only Diagnostics agent never receives a
 preview or apply tool; see [Safe Edits](../user/safe-edits.md) and
 [CAD Feature, Sketch, Topology, Import, Assembly, and Drawing Authoring](../user/safe-edits.md#cad-feature-edits).
 

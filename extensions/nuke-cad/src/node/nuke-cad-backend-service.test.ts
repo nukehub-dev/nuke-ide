@@ -25,7 +25,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as http from 'http';
 import type { AddressInfo } from 'net';
@@ -38,6 +38,11 @@ import {
     inspectImportArgs,
     normalizeInspectImportResult,
     isAllowedDownloadUrl,
+    isPathWithin,
+    validateSandboxedScriptPaths,
+    normalizeScriptSandboxStatus,
+    normalizeSandboxedScriptResult,
+    sanitizeSandboxText,
     NukeCadBackendServiceImpl,
     ServiceResultCapture
 } from './nuke-cad-backend-service';
@@ -45,7 +50,9 @@ import type {
     GeometryBuildRequest,
     BuildDocumentRequest,
     BuildFeaturesPartialRequest,
-    InspectImportSourceRequest
+    InspectImportSourceRequest,
+    SandboxedScriptBuildRequest,
+    SandboxedScriptBuildResult
 } from '../common/nuke-cad-protocol';
 
 const SCRIPT_PATH = '/tmp/geometry_service.py';
@@ -579,5 +586,394 @@ describe('ServiceResultCapture', () => {
         capture.finish();
         expect(capture.resultLine).toBeUndefined();
         expect(capture.output).toContain('done');
+    });
+});
+
+describe('sandboxed script path policy', () => {
+    let root: string;
+    let workspace: string;
+    let script: string;
+    let output: string;
+
+    beforeEach(() => {
+        root = fs.mkdtempSync(path.join(os.tmpdir(), 'nuke-cad-sandbox-paths-'));
+        workspace = path.join(root, 'workspace');
+        fs.mkdirSync(workspace);
+        script = path.join(workspace, 'model.py');
+        fs.writeFileSync(script, 'model = None\n', 'utf-8');
+        output = path.join(workspace, '.nuke-ide', 'ai', 'cad-scripts', 'job-1');
+    });
+
+    afterEach(() => {
+        fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    function request(overrides: Partial<SandboxedScriptBuildRequest> = {}): SandboxedScriptBuildRequest {
+        return { scriptPath: script, workspaceRoot: workspace, outputDirectory: output, ...overrides };
+    }
+
+    it('detects containment without a prefix false positive', () => {
+        expect(isPathWithin('/tmp/work', '/tmp/work/model.py')).toBe(true);
+        expect(isPathWithin('/tmp/work', '/tmp/work')).toBe(true);
+        expect(isPathWithin('/tmp/work', '/tmp/work-other/model.py')).toBe(false);
+        expect(isPathWithin('/tmp/work', '/tmp/other/model.py')).toBe(false);
+    });
+
+    it('accepts a workspace script and creates the private output directory', () => {
+        const result = validateSandboxedScriptPaths(request());
+
+        expect('error' in result).toBe(false);
+        if ('error' in result) {
+            return;
+        }
+        expect(result.scriptPath).toBe(fs.realpathSync(script));
+        expect(result.outputDirectory).toBe(fs.realpathSync(output));
+        expect(fs.statSync(output).isDirectory()).toBe(true);
+    });
+
+    it('rejects relative paths', () => {
+        expect(validateSandboxedScriptPaths(request({ scriptPath: 'model.py' }))).toEqual({
+            error: 'scriptPath must be an absolute path.'
+        });
+    });
+
+    it('rejects scripts outside the workspace', () => {
+        const outside = path.join(root, 'outside.py');
+        fs.writeFileSync(outside, 'model = None\n', 'utf-8');
+        expect(validateSandboxedScriptPaths(request({ scriptPath: outside }))).toEqual({
+            error: 'scriptPath must be inside workspaceRoot.'
+        });
+    });
+
+    it('rejects symbolic link scripts', () => {
+        const link = path.join(workspace, 'model-link.py');
+        fs.symlinkSync(script, link);
+        expect(validateSandboxedScriptPaths(request({ scriptPath: link }))).toEqual({
+            error: 'scriptPath must not be a symbolic link.'
+        });
+    });
+
+    it('rejects non-python and non-regular scripts', () => {
+        const text = path.join(workspace, 'model.txt');
+        fs.writeFileSync(text, 'model = None\n', 'utf-8');
+        expect(validateSandboxedScriptPaths(request({ scriptPath: text }))).toEqual({
+            error: 'scriptPath must point to a .py file.'
+        });
+
+        const directory = path.join(workspace, 'directory.py');
+        fs.mkdirSync(directory);
+        expect(validateSandboxedScriptPaths(request({ scriptPath: directory }))).toEqual({
+            error: 'scriptPath must be a regular file.'
+        });
+    });
+
+    it('rejects output outside the cad-scripts staging root', () => {
+        expect(validateSandboxedScriptPaths(request({ outputDirectory: path.join(workspace, 'output') }))).toEqual({
+            error: 'outputDirectory must be inside <workspace>/.nuke-ide/ai/cad-scripts/.'
+        });
+    });
+
+    it('rejects symbolic link output directories', () => {
+        const real = path.join(workspace, '.nuke-ide', 'ai', 'cad-scripts-real');
+        fs.mkdirSync(real, { recursive: true });
+        const link = path.join(workspace, '.nuke-ide', 'ai', 'cad-scripts');
+        fs.symlinkSync(real, link);
+        expect(validateSandboxedScriptPaths(request())).toEqual({
+            error: 'The workspace sandbox staging directory must not be a symbolic link.'
+        });
+    });
+});
+
+describe('sandbox result normalization', () => {
+    const output = '/tmp/nuke-cad-sandbox-output';
+
+    it('normalizes a successful result and keeps only bounded fields', () => {
+        const raw = {
+            success: true,
+            stepPath: path.join(output, 'model.step'),
+            tessPath: path.join(output, 'model.tess.json'),
+            solidCount: 1,
+            faceCount: 6,
+            triangleCount: 12,
+            boundingBox: { min: [0, 0, 0], max: [1, 2, 3] },
+            durationMs: 42,
+            timedOut: false,
+            exitCode: 0,
+            output: 'host stderr',
+            jobId: 'job-1',
+            sandbox: {
+                available: true,
+                engine: 'bubblewrap',
+                version: 'bubblewrap 0.13.1',
+                network: 'none',
+                workspace: 'none',
+                writable: ['/out', '/tmp', '/dev/shm'],
+                limits: { timeoutSeconds: 120, memoryLimitMb: 4096, processLimit: 128, fileSizeLimitMb: 512, nofile: 256, core: 0 }
+            }
+        };
+        const result = normalizeSandboxedScriptResult(raw, output);
+
+        expect(result.success).toBe(true);
+        expect(result.stepPath).toBe(path.join(output, 'model.step'));
+        expect(result.tessPath).toBe(path.join(output, 'model.tess.json'));
+        expect(result.solidCount).toBe(1);
+        expect(result.triangleCount).toBe(12);
+        expect(result.boundingBox).toEqual({ min: [0, 0, 0], max: [1, 2, 3] });
+        expect((result as unknown as Record<string, unknown>).output).toBeUndefined();
+        expect((result as unknown as Record<string, unknown>).jobId).toBeUndefined();
+        expect(result.sandbox?.network).toBe('none');
+        expect(result.sandbox?.workspace).toBe('none');
+        expect(result.sandbox?.limits.nofile).toBe(256);
+    });
+
+    it('rejects artifacts outside the output directory', () => {
+        const result = normalizeSandboxedScriptResult(
+            {
+                success: true,
+                stepPath: '/tmp/elsewhere/model.step',
+                tessPath: path.join(output, 'model.tess.json')
+            },
+            output
+        );
+        expect(result).toEqual({
+            success: false,
+            error: 'Sandboxed build returned an artifact outside its output directory.'
+        });
+    });
+
+    it('rejects successful results without both artifacts', () => {
+        expect(normalizeSandboxedScriptResult({ success: true, stepPath: path.join(output, 'model.step') }, output)).toEqual({
+            success: false,
+            error: 'Sandboxed build returned an artifact outside its output directory.'
+        });
+    });
+
+    it('sanitizes failure messages and preserves warnings', () => {
+        const result = normalizeSandboxedScriptResult(
+            {
+                success: false,
+                error: `Script failed under ${output}`,
+                warnings: [`stderr from ${output}`],
+                sandbox: { available: true, engine: 'bubblewrap', network: 'none', workspace: 'none', writable: [] }
+            },
+            output
+        );
+        expect(result.success).toBe(false);
+        expect(result.error).not.toContain(output);
+        expect(result.error).toContain('<path>');
+        expect(result.warnings?.[0]).not.toContain(output);
+        expect(result.sandbox?.writable).toEqual([]);
+    });
+
+    it('rejects non-object responses', () => {
+        expect(normalizeSandboxedScriptResult('not json', output)).toEqual({
+            success: false,
+            error: 'Sandboxed build returned an invalid response.'
+        });
+    });
+
+    it('normalizes probe status and unavailable reasons', () => {
+        expect(normalizeScriptSandboxStatus({ available: true, engine: 'bubblewrap', userns: true, disableUserns: true })).toEqual({
+            available: true,
+            engine: 'bubblewrap',
+            userns: true,
+            disableUserns: true
+        });
+        expect(normalizeScriptSandboxStatus({ available: false, reason: 'bwrap missing' })).toEqual({
+            available: false,
+            engine: 'bubblewrap',
+            reason: 'bwrap missing'
+        });
+        expect(normalizeScriptSandboxStatus({ success: false, error: 'probe failed' })).toEqual({
+            available: false,
+            engine: 'bubblewrap',
+            reason: 'probe failed'
+        });
+    });
+
+    it('strips host paths from messages', () => {
+        const sanitized = sanitizeSandboxText(`failed at ${output}/model.step and /home/user/.cache`, [output]);
+        expect(sanitized).not.toContain(output);
+        expect(sanitized).not.toContain('/home/user');
+        expect(sanitized).toContain('<path>');
+    });
+});
+
+describe('sandbox backend service', () => {
+    let root: string;
+    let workspace: string;
+    let script: string;
+    let output: string;
+
+    beforeEach(() => {
+        root = fs.mkdtempSync(path.join(os.tmpdir(), 'nuke-cad-sandbox-service-'));
+        workspace = path.join(root, 'workspace');
+        fs.mkdirSync(workspace);
+        script = path.join(workspace, 'model.py');
+        fs.writeFileSync(script, 'model = None\n', 'utf-8');
+        output = path.join(workspace, '.nuke-ide', 'ai', 'cad-scripts', 'job-1');
+        fs.mkdirSync(output, { recursive: true });
+    });
+
+    afterEach(() => {
+        fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    function request(overrides: Partial<SandboxedScriptBuildRequest> = {}): SandboxedScriptBuildRequest {
+        return { scriptPath: script, workspaceRoot: workspace, outputDirectory: output, ...overrides };
+    }
+
+    function fakeService(): { service: NukeCadBackendServiceImpl; calls: any[] } {
+        const service = new NukeCadBackendServiceImpl();
+        const calls: any[] = [];
+        (service as any).nukeCoreService = { getPythonCommand: async () => '/usr/bin/python3' };
+        return { service, calls };
+    }
+
+    it('spawns the sandbox service with a private request file and job id', async () => {
+        const { service, calls } = fakeService();
+        let capturedRequest: Record<string, unknown> | undefined;
+        let requestPath: string | undefined;
+        (service as any)._spawnJsonService = async (
+            python: string,
+            args: string[],
+            cwd: string,
+            scriptPath: string | undefined,
+            options: { jobId?: string; timeoutSeconds?: number }
+        ) => {
+            requestPath = args[args.indexOf('--request') + 1];
+            capturedRequest = JSON.parse(fs.readFileSync(requestPath, 'utf-8'));
+            calls.push({ python, args, cwd, scriptPath, options });
+            return {
+                success: true,
+                stepPath: path.join(output, 'model.step'),
+                tessPath: path.join(output, 'model.tess.json'),
+                solidCount: 1,
+                triangleCount: 12
+            } as SandboxedScriptBuildResult;
+        };
+
+        const result = await service.buildSandboxedScript(request({ jobId: 'job-42', timeoutSeconds: 120 }));
+
+        expect(result.success).toBe(true);
+        expect(calls).toHaveLength(1);
+        expect(path.basename(calls[0].args[0])).toBe('sandbox_service.py');
+        expect(calls[0].args).toContain('--request');
+        expect(calls[0].cwd).toBe(fs.realpathSync(output));
+        expect(calls[0].options).toEqual({ jobId: 'job-42', timeoutSeconds: 130 });
+        expect(capturedRequest?.scriptPath).toBe(fs.realpathSync(script));
+        expect(capturedRequest?.workspaceRoot).toBe(fs.realpathSync(workspace));
+        expect(requestPath).toBeDefined();
+        expect(fs.existsSync(requestPath!)).toBe(false);
+    });
+
+    it('returns validation failures without spawning', async () => {
+        const { service, calls } = fakeService();
+        (service as any)._spawnJsonService = async () => {
+            calls.push(true);
+            return { success: true } as SandboxedScriptBuildResult;
+        };
+
+        const result = await service.buildSandboxedScript(request({ outputDirectory: path.join(workspace, 'outside') }));
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('cad-scripts');
+        expect(calls).toHaveLength(0);
+    });
+
+    it('rejects artifact paths outside the validated output directory', async () => {
+        const { service } = fakeService();
+        (service as any)._spawnJsonService = async () => ({
+            success: true,
+            stepPath: '/tmp/outside/model.step',
+            tessPath: path.join(output, 'model.tess.json')
+        });
+
+        const result = await service.buildSandboxedScript(request());
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('outside its output directory');
+    });
+
+    it('returns unavailable status when the probe fails', async () => {
+        const { service } = fakeService();
+        (service as any)._spawnJsonService = async () => ({ success: false, error: 'spawn failed' });
+
+        const status = await service.getScriptSandboxStatus();
+
+        expect(status.available).toBe(false);
+        expect(status.engine).toBe('bubblewrap');
+        expect(status.reason).toContain('spawn failed');
+    });
+
+    it('reports an available probe result', async () => {
+        const { service } = fakeService();
+        (service as any)._spawnJsonService = async () => ({
+            available: true,
+            engine: 'bubblewrap',
+            bwrapPath: '/usr/bin/bwrap',
+            version: 'bubblewrap 0.13.1',
+            userns: true,
+            disableUserns: true
+        });
+
+        const status = await service.getScriptSandboxStatus();
+
+        expect(status).toEqual({
+            available: true,
+            engine: 'bubblewrap',
+            bwrapPath: '/usr/bin/bwrap',
+            version: 'bubblewrap 0.13.1',
+            userns: true,
+            disableUserns: true
+        });
+    });
+
+    it('runs the real probe through the Python service', async () => {
+        const service = new NukeCadBackendServiceImpl();
+        (service as any).nukeCoreService = { getPythonCommand: async () => '/usr/bin/python3' };
+
+        const status = await service.getScriptSandboxStatus();
+
+        expect(status.engine).toBe('bubblewrap');
+        if (status.available) {
+            expect(status.version).toContain('bubblewrap');
+        } else {
+            expect(typeof status.reason).toBe('string');
+        }
+    });
+
+    it.skipIf(process.platform === 'win32')('escalates cancellation from SIGTERM to SIGKILL', () => {
+        vi.useFakeTimers();
+        const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+        try {
+            const service = new NukeCadBackendServiceImpl();
+            const child = { pid: 4242, exitCode: null, signalCode: null, kill: vi.fn() } as any;
+            (service as any).killJob({ jobId: 'job-1', process: child, cancelled: false, timedOut: false });
+
+            expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM');
+            vi.advanceTimersByTime(1000);
+            expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGKILL');
+        } finally {
+            killSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it.skipIf(process.platform === 'win32')('does not SIGKILL a process that already exited', () => {
+        vi.useFakeTimers();
+        const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+        try {
+            const service = new NukeCadBackendServiceImpl();
+            const child = { pid: 4243, exitCode: 0, signalCode: null, kill: vi.fn() } as any;
+            (service as any).killJob({ jobId: 'job-1', process: child, cancelled: false, timedOut: false });
+
+            vi.advanceTimersByTime(1000);
+            expect(killSpy).toHaveBeenCalledTimes(1);
+            expect(killSpy).toHaveBeenCalledWith(-4243, 'SIGTERM');
+        } finally {
+            killSpy.mockRestore();
+            vi.useRealTimers();
+        }
     });
 });
