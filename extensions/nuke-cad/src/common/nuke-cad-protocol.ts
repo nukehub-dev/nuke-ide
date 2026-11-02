@@ -389,6 +389,10 @@ export interface ScriptSandboxStatus {
     readonly userns?: boolean;
     /** Whether user namespaces can be disabled inside the sandbox. */
     readonly disableUserns?: boolean;
+    /** Whether every sandboxed build loads a libseccomp BPF filter inside bwrap. */
+    readonly seccomp?: boolean;
+    /** Reported libseccomp version when the filter is available. */
+    readonly seccompVersion?: string;
     /** Why sandboxed builds are unavailable. */
     readonly reason?: string;
 }
@@ -441,6 +445,10 @@ export interface SandboxedScriptBuildResult {
         readonly engine: 'bubblewrap';
         readonly version?: string;
         readonly disableUserns?: boolean;
+        /** Whether the build loaded the libseccomp denylist inside bwrap. */
+        readonly seccomp?: boolean;
+        /** Reported libseccomp version when the filter was loaded. */
+        readonly seccompVersion?: string;
         /** Network isolation is always ``none``. */
         readonly network: 'none';
         /** The workspace root is never mounted; only the source file is bound. */

@@ -152,7 +152,9 @@ const SCRIPT_SANDBOX_STATUS: ScriptSandboxStatus = {
     engine: 'bubblewrap',
     version: '0.8.0',
     userns: true,
-    disableUserns: true
+    disableUserns: true,
+    seccomp: true,
+    seccompVersion: '2.6.0'
 };
 
 const SCRIPT_SANDBOX_RESULT: SandboxedScriptBuildResult = {
@@ -171,6 +173,8 @@ const SCRIPT_SANDBOX_RESULT: SandboxedScriptBuildResult = {
         engine: 'bubblewrap',
         version: '0.8.0',
         disableUserns: true,
+        seccomp: true,
+        seccompVersion: '2.6.0',
         network: 'none',
         workspace: 'none',
         writable: ['/out'],
@@ -3853,7 +3857,15 @@ describe('NukeCadAuthoringCapabilities script authoring', () => {
             imports: ['from build123d import *'],
             hasModelAssignment: true,
             truncated: false,
-            sandbox: { available: true, engine: 'bubblewrap', version: '0.8.0', disableUserns: true }
+            sandbox: {
+                available: true,
+                engine: 'bubblewrap',
+                version: '0.8.0',
+                userns: true,
+                disableUserns: true,
+                seccomp: true,
+                seccompVersion: '2.6.0'
+            }
         });
         expect(harness.sandboxStatusCalls).toBe(1);
         expect(harness.service.buildSandboxedScript).not.toHaveBeenCalled();

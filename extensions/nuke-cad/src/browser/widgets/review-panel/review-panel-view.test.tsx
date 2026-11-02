@@ -451,6 +451,8 @@ function scriptContext(overrides: Partial<CadReviewScriptContext> = {}): CadRevi
             engine: 'bubblewrap',
             version: '0.8.0',
             disableUserns: true,
+            seccomp: true,
+            seccompVersion: '2.6.0',
             limits: { timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 }
         },
         auditId: 'audit-1',
@@ -1235,7 +1237,7 @@ describe('CadReviewPanelView', () => {
         expect(html).toContain('Imports');
         expect(html).toContain('from build123d import *');
         expect(html).toContain('Assigns a top-level `model` variable.');
-        expect(html).toContain('bubblewrap 0.8.0 · available · user namespaces disabled');
+        expect(html).toContain('bubblewrap 0.8.0 · available · user namespaces disabled · seccomp 2.6.0');
         expect(html).toContain('Limits: 120 s · 2048 MB memory · 64 processes · 128 MB files');
         expect(html).toContain('Build: succeeded · 1 solids · 6 faces · 12 triangles');
         expect(html).toContain('Duration: 345 ms · completed · exit 0');

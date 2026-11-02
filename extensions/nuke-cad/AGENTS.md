@@ -93,7 +93,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   assembly-instance warnings for a validated large assembly (warnings only; the W7-X
   generator sets it). See `docs/dev/features-patterns.md`.
 - Backend builds (`geometry_service.py` script child process at 120s — resource control, not a security sandbox;
-  `sandbox_service.py` bwrap/prlimit path for AI script authoring with no fallback; `feature_builder.py`
+  `sandbox_service.py` bwrap/prlimit/libseccomp path for AI script authoring with no fallback; `feature_builder.py`
   topological bodies, `curve_builder.py` wires, datums `XY`–`line2Point`, the result cache
   (`<stem>.nuke-cache.zip` sidecar with TS and Python content keys and doc-hash tess blob); display builds
   prime it, one batch load/commit serves a build, and per-body overlap verdicts are reused for
@@ -119,7 +119,7 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   existing grounded assembly, presentation settings on existing drawing sheets, and Linux-only sandboxed full-file `.py`
   replacements through the document store (the assembly and drawing summaries stay read-only); it is default-off
   (`nukeCad.aiAuthoringEnabled`) and requires a saved model. Script authoring additionally needs workspace-scoped
-  `nukeCad.scriptAuthoringEnabled`, `bwrap` plus user namespaces, bounded text/hash inspection (source text reaches the
+  `nukeCad.scriptAuthoringEnabled`, `bwrap` plus user namespaces and libseccomp, bounded text/hash inspection (source text reaches the
   model provider), a full-body preview with no network/workspace bind, no ghost, no chat Apply, and a panel-only approval
   nonce; apply overwrites with a hidden backup, rebuilds sandboxed, blocks DAGMC/FEM export for the sandboxed model, and
   has no unsandboxed fallback. Parameter-bound dimensions cascade to every affected sketch and curve, a sketch apply commits the

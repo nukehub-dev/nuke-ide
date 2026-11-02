@@ -201,6 +201,8 @@ export interface CadReviewScriptContext {
         readonly engine: string;
         readonly version?: string;
         readonly disableUserns?: boolean;
+        readonly seccomp?: boolean;
+        readonly seccompVersion?: string;
         readonly limits: {
             readonly timeoutSeconds: number;
             readonly memoryMb: number;
@@ -811,7 +813,13 @@ function ScriptPlan(props: { readonly context: CadReviewScriptContext }): React.
                 <span className="cad-review-script-line">
                     {`${sandbox.engine}${sandbox.version !== undefined && sandbox.version.length > 0 ? ` ${sandbox.version}` : ''} \u00b7 ${
                         sandbox.available ? 'available' : 'unavailable'
-                    }${sandbox.disableUserns === true ? ' \u00b7 user namespaces disabled' : ''}`}
+                    }${sandbox.disableUserns === true ? ' \u00b7 user namespaces disabled' : ''}${
+                        sandbox.seccomp === true
+                            ? ` \u00b7 seccomp${sandbox.seccompVersion !== undefined && sandbox.seccompVersion.length > 0 ? ` ${sandbox.seccompVersion}` : ''}`
+                            : sandbox.seccomp === false
+                              ? ' \u00b7 no seccomp'
+                              : ''
+                    }`}
                 </span>
                 <span className="cad-review-script-line">
                     {`Limits: ${formatNumber(limits.timeoutSeconds)} s \u00b7 ${formatNumber(limits.memoryMb)} MB memory \u00b7 ${formatNumber(

@@ -302,8 +302,8 @@ edit the title block, or touch geometry.
 
 AI script authoring replaces the active saved `.py` build123d/CadQuery model as a whole file. It is default-off and
 Linux-only: turn on both **Nuke CAD: AI Authoring** and the workspace-scoped **Nuke CAD: Script Authoring** in
-**Settings → Nuke CAD**. It needs a working bubblewrap user namespace; macOS, Windows, and environments without one show
-no preview or apply tools. There is no unsandboxed fallback.
+**Settings → Nuke CAD**. It needs a working bubblewrap user namespace and libseccomp; macOS, Windows, and environments
+without them show no preview or apply tools. There is no unsandboxed fallback.
 
 1. Open the `.py` in the editor and run **Open Active Python Model in CAD** so it is the active model. NukeAI inspects the script with `nuke_cad_inspectScriptSource`. The result carries the path, bounded text, SHA-256
    hash, imports, and whether a top-level `model` is assigned. **The script text is sent to the configured model
@@ -314,7 +314,7 @@ no preview or apply tools. There is no unsandboxed fallback.
    preview never writes the script and shows no viewport ghost.
 3. The **CAD Edit Review** panel shows a **Script change** section with a prominent executable warning, the unified diff
    (plain text, never rendered HTML or Markdown), added/removed/hunk counts, a truncation notice, imports, the `model`
-   assignment advisory, sandbox version/userns/limits, build counts, duration, timeout, exit code, and the audit id. The
+   assignment advisory, sandbox engine/version/userns/seccomp/limits, build counts, duration, timeout, exit code, and the audit id. The
    chat card has **no Apply action**.
 4. Apply is available only in the panel. It uses a hidden approval nonce, confirms that the Python file will be
    overwritten and that a hidden backup is kept, then writes the script, rebuilds in the sandbox, installs the model, and
@@ -322,8 +322,11 @@ no preview or apply tools. There is no unsandboxed fallback.
 5. A model applied this way is marked sandboxed. Later `.py` rebuilds for it stay sandboxed, and DAGMC/FEM export is
    blocked while the marking remains. Undo restores the previous script bytes and rebuilds in the sandbox.
 
-The sandbox is a namespace and resource boundary, not a complete security guarantee: there is no seccomp filter, so
-kernel and bubblewrap correctness still matter. The audit log under `<workspace>/.nuke-ide/ai/` records hashes, outcome,
+Every build also loads a libseccomp BPF denylist inside bubblewrap (`--seccomp`) that blocks network,
+namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls; a host without
+libseccomp reports script authoring unavailable, with no unsandboxed fallback. The sandbox is a namespace, resource, and
+seccomp boundary, not a complete security guarantee: because the filter is a denylist, kernel and bubblewrap correctness
+still matter. The audit log under `<workspace>/.nuke-ide/ai/` records hashes, outcome,
 duration, exit, timeout, counts, sandbox version, and limits, never script text, absolute paths, or process output. None
 of the script tools is exposed through MCP.
 

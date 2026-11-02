@@ -45,6 +45,8 @@ there is no unsandboxed fallback.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
 import json
 import math
 import os
@@ -54,6 +56,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -92,6 +95,86 @@ NOFILE_LIMIT = 256
 TMPFS_BYTES = 256 * 1024 * 1024
 DEV_SHM_BYTES = 64 * 1024 * 1024
 
+# libseccomp actions from <seccomp.h>. The filter is default-allow so normal
+# Python/OCP operation is unaffected; the denylist removes the network,
+# namespace/mount, and kernel-inspection surface the sandbox never needs.
+SCMP_ACT_ALLOW = 0x7FFF0000
+SCMP_ACT_ERRNO_EPERM = 0x00050000 | 1
+
+SECCOMP_LIBRARY_NAMES = ("libseccomp.so.2", "libseccomp.so")
+
+# ``execve`` stays allowed: the geometry service and its script child are
+# started with it. ``execveat`` is not part of the fixed launch contract.
+SECCOMP_DENIED_SYSCALLS = (
+    # Network.
+    "socket",
+    "socketpair",
+    "connect",
+    "bind",
+    "listen",
+    "accept",
+    "accept4",
+    "sendto",
+    "recvfrom",
+    "sendmsg",
+    "recvmsg",
+    "sendmmsg",
+    "recvmmsg",
+    "getsockname",
+    "getpeername",
+    "setsockopt",
+    "getsockopt",
+    "shutdown",
+    # Namespaces and mounts.
+    "mount",
+    "umount2",
+    "pivot_root",
+    "chroot",
+    "setns",
+    "unshare",
+    "mount_setattr",
+    "open_tree",
+    "move_mount",
+    "fsopen",
+    "fsconfig",
+    "fsmount",
+    "fspick",
+    "statmount",
+    "listmount",
+    # Kernel inspection and tracing.
+    "ptrace",
+    "process_vm_readv",
+    "process_vm_writev",
+    "kcmp",
+    "bpf",
+    "perf_event_open",
+    "userfaultfd",
+    "keyctl",
+    "add_key",
+    "request_key",
+    "init_module",
+    "finit_module",
+    "delete_module",
+    "kexec_load",
+    "kexec_file_load",
+    "reboot",
+    "swapon",
+    "swapoff",
+    "acct",
+    "quotactl",
+    "syslog",
+    "ioperm",
+    "iopl",
+    "open_by_handle_at",
+    "name_to_handle_at",
+    "io_uring_setup",
+    "io_uring_enter",
+    "io_uring_register",
+    "seccomp",
+    # The sandbox launches its fixed program with ``execve`` only.
+    "execveat",
+)
+
 # Bubblewrap options the sandbox policy depends on. The probe refuses hosts
 # whose bwrap does not advertise them instead of failing on every build.
 REQUIRED_BWRAP_FLAGS = (
@@ -110,6 +193,7 @@ REQUIRED_BWRAP_FLAGS = (
     "--symlink",
     "--setenv",
     "--chdir",
+    "--seccomp",
 )
 
 SANDBOX_RUNNER_DIR = "/runner"
@@ -144,6 +228,158 @@ class SandboxArtifactError(Exception):
     """A sandboxed build that produced missing or unsafe artifacts."""
 
 
+class SeccompError(Exception):
+    """A libseccomp filter that could not be built or exported."""
+
+
+@dataclass
+class SeccompFilter:
+    """One exported cBPF filter file and the descriptor handed to bubblewrap."""
+
+    fd: int
+    path: Path | None
+    version: str | None
+    denied_count: int
+
+    def close(self) -> None:
+        """Close the host descriptor and remove the exported filter file."""
+        if self.fd >= 0:
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+            self.fd = -1
+        if self.path is not None:
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
+            self.path = None
+
+    def __enter__(self) -> SeccompFilter:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+
+class _ScmpVersion(ctypes.Structure):
+    _fields_ = [
+        ("major", ctypes.c_uint),
+        ("minor", ctypes.c_uint),
+        ("micro", ctypes.c_uint),
+    ]
+
+
+def _configure_libseccomp(library: ctypes.CDLL) -> None:
+    library.seccomp_init.argtypes = [ctypes.c_uint32]
+    library.seccomp_init.restype = ctypes.c_void_p
+    library.seccomp_release.argtypes = [ctypes.c_void_p]
+    library.seccomp_release.restype = None
+    library.seccomp_rule_add.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_int,
+        ctypes.c_uint,
+    ]
+    library.seccomp_rule_add.restype = ctypes.c_int
+    library.seccomp_syscall_resolve_name.argtypes = [ctypes.c_char_p]
+    library.seccomp_syscall_resolve_name.restype = ctypes.c_int
+    library.seccomp_export_bpf.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    library.seccomp_export_bpf.restype = ctypes.c_int
+    library.seccomp_version.argtypes = []
+    library.seccomp_version.restype = ctypes.POINTER(_ScmpVersion)
+
+
+def _load_libseccomp() -> ctypes.CDLL | None:
+    """Load libseccomp, preferring the soname resolved by the dynamic linker."""
+    candidates: list[str] = []
+    discovered = ctypes.util.find_library("seccomp")
+    if discovered:
+        candidates.append(discovered)
+    candidates.extend(SECCOMP_LIBRARY_NAMES)
+    for candidate in dict.fromkeys(candidates):
+        try:
+            library = ctypes.CDLL(candidate)
+        except OSError:
+            continue
+        try:
+            _configure_libseccomp(library)
+        except AttributeError:
+            continue
+        return library
+    return None
+
+
+def _libseccomp_version(library: ctypes.CDLL) -> str | None:
+    try:
+        pointer = library.seccomp_version()
+    except (AttributeError, ValueError):
+        return None
+    if not pointer:
+        return None
+    try:
+        version = pointer.contents
+    except ValueError:
+        return None
+    return f"{version.major}.{version.minor}.{version.micro}"
+
+
+def build_seccomp_filter() -> SeccompFilter:
+    """Build the default-allow cBPF denylist and export it to a private file.
+
+    The returned filter owns an open descriptor positioned at byte 0. Call
+    :meth:`SeccompFilter.close` once bubblewrap has loaded it.
+    """
+    library = _load_libseccomp()
+    if library is None:
+        raise SeccompError("libseccomp (libseccomp.so.2) is not installed.")
+    context = library.seccomp_init(SCMP_ACT_ALLOW)
+    if not context:
+        raise SeccompError("libseccomp could not create a seccomp filter.")
+    fd = -1
+    path: Path | None = None
+    denied = 0
+    try:
+        for name in SECCOMP_DENIED_SYSCALLS:
+            number = library.seccomp_syscall_resolve_name(name.encode("ascii"))
+            if number < 0:
+                continue
+            result = library.seccomp_rule_add(context, SCMP_ACT_ERRNO_EPERM, number, 0)
+            if result < 0:
+                raise SeccompError(f"libseccomp could not deny {name} (error {result}).")
+            denied += 1
+        if denied == 0:
+            raise SeccompError("libseccomp resolved none of the sandbox syscall denylist.")
+        fd, path_text = tempfile.mkstemp(prefix="nuke-cad-seccomp-", suffix=".bpf")
+        path = Path(path_text)
+        os.fchmod(fd, 0o600)
+        result = library.seccomp_export_bpf(context, fd)
+        if result < 0:
+            raise SeccompError(f"libseccomp could not export the filter (error {result}).")
+        os.lseek(fd, 0, os.SEEK_SET)
+        return SeccompFilter(
+            fd=fd,
+            path=path,
+            version=_libseccomp_version(library),
+            denied_count=denied,
+        )
+    except BaseException:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if path is not None:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        raise
+    finally:
+        library.seccomp_release(context)
+
+
 @dataclass(frozen=True)
 class ProbeResult:
     """Host capability probe result (internal fields included)."""
@@ -156,6 +392,8 @@ class ProbeResult:
     reason: str | None
     prlimit_path: str | None
     help_text: str = ""
+    seccomp: bool = False
+    seccomp_version: str | None = None
 
     def to_status(self) -> dict[str, Any]:
         """Return the public ``ScriptSandboxStatus`` payload."""
@@ -164,11 +402,14 @@ class ProbeResult:
             "engine": "bubblewrap",
             "userns": self.userns,
             "disableUserns": self.disable_userns,
+            "seccomp": self.seccomp,
         }
         if self.bwrap_path:
             status["bwrapPath"] = self.bwrap_path
         if self.version:
             status["version"] = self.version
+        if self.seccomp_version:
+            status["seccompVersion"] = self.seccomp_version
         if self.reason:
             status["reason"] = self.reason
         return status
@@ -270,7 +511,7 @@ def _probe_userns(bwrap_path: str, flags: list[str]) -> bool:
 
 
 def probe_bwrap(*, force: bool = False) -> ProbeResult:
-    """Probe bubblewrap, user namespaces, and ``prlimit`` support.
+    """Probe bubblewrap, user namespaces, ``prlimit``, and libseccomp support.
 
     Results are cached for the process lifetime; ``force`` re-runs the probe
     (used by tests and by diagnostics after a host configuration change).
@@ -320,6 +561,24 @@ def probe_bwrap(*, force: bool = False) -> ProbeResult:
         )
         return _PROBE_CACHE
 
+    try:
+        seccomp_filter = build_seccomp_filter()
+    except (SeccompError, OSError) as exc:
+        reason = f"libseccomp is required for sandboxed builds: {exc}"
+        _PROBE_CACHE = ProbeResult(
+            available=False,
+            bwrap_path=bwrap_path,
+            version=version,
+            userns=False,
+            disable_userns=False,
+            reason=reason,
+            prlimit_path=prlimit_path,
+            help_text=help_text,
+        )
+        return _PROBE_CACHE
+    seccomp_version = seccomp_filter.version
+    seccomp_filter.close()
+
     has_disable_userns = "--disable-userns" in help_text
     has_assert_userns = "--assert-userns-disabled" in help_text
 
@@ -353,6 +612,8 @@ def probe_bwrap(*, force: bool = False) -> ProbeResult:
             reason=reason,
             prlimit_path=prlimit_path,
             help_text=help_text,
+            seccomp=True,
+            seccomp_version=seccomp_version,
         )
         return _PROBE_CACHE
 
@@ -365,6 +626,8 @@ def probe_bwrap(*, force: bool = False) -> ProbeResult:
         reason=None,
         prlimit_path=prlimit_path,
         help_text=help_text,
+        seccomp=True,
+        seccomp_version=seccomp_version,
     )
     return _PROBE_CACHE
 
@@ -655,14 +918,26 @@ def build_sandbox_argv(
     probe: ProbeResult,
     runtime: PythonRuntime | None = None,
     program: list[str] | None = None,
+    *,
+    seccomp_fd: int | None = None,
 ) -> list[str]:
     """Build the complete bubblewrap argv for one sandboxed build.
 
     ``program`` is an injection point for tests; production always runs the
-    geometry service with the fixed argument contract.
+    geometry service with the fixed argument contract. ``seccomp_fd`` is the
+    open descriptor of an exported libseccomp filter; it must stay open until
+    bubblewrap has started the sandbox.
     """
     if not probe.available or not probe.bwrap_path:
         raise SandboxValidationError(probe.reason or "The bubblewrap sandbox is unavailable.")
+    if not probe.seccomp:
+        raise SandboxValidationError(
+            probe.reason or "The seccomp filter required by the bubblewrap sandbox is unavailable."
+        )
+    if seccomp_fd is None:
+        raise SandboxValidationError(
+            "Sandboxed builds require an exported seccomp filter descriptor."
+        )
 
     runtime = runtime or resolve_python_runtime()
     prlimit_path = probe.prlimit_path or shutil.which("prlimit")
@@ -675,6 +950,9 @@ def build_sandbox_argv(
     else:
         argv += ["--unshare-user"]
     argv += ["--unshare-all", "--die-with-parent", "--new-session"]
+    # Bubblewrap installs the filter in the child after namespace and mount
+    # setup, immediately before running prlimit/Python.
+    argv += ["--seccomp", str(seccomp_fd)]
 
     argv += ["--ro-bind", "/usr", "/usr"]
     for target, link in (
@@ -798,13 +1076,19 @@ def _signal_process_group(process: subprocess.Popen[bytes], sig: int) -> None:
         pass
 
 
-def run_bwrap(argv: list[str], timeout_seconds: float) -> BwrapRun:
+def run_bwrap(
+    argv: list[str],
+    timeout_seconds: float,
+    *,
+    pass_fds: tuple[int, ...] = (),
+) -> BwrapRun:
     """Run bubblewrap with bounded capture and SIGTERM/SIGKILL escalation.
 
     ``timeout_seconds`` is the hard wall-clock bound. SIGTERM is sent to the
     sandbox process group first; if the process survives ``KILL_GRACE_SECONDS``
     it is killed with SIGKILL. Either way the sandbox namespace disappears, so
-    no sandboxed process can outlive the call.
+    no sandboxed process can outlive the call. ``pass_fds`` keeps the exported
+    seccomp filter descriptor open across the ``exec``.
     """
     start = time.monotonic()
     process = subprocess.Popen(
@@ -814,6 +1098,7 @@ def run_bwrap(argv: list[str], timeout_seconds: float) -> BwrapRun:
         stderr=subprocess.PIPE,
         start_new_session=True,
         close_fds=True,
+        pass_fds=tuple(pass_fds),
     )
     assert process.stdout is not None
     assert process.stderr is not None
@@ -1055,9 +1340,12 @@ def _sandbox_info(probe: ProbeResult, options: SandboxOptions) -> dict[str, Any]
         "workspace": "none",
         "writable": [SANDBOX_OUTPUT_DIR, "/tmp", "/dev/shm"],
         "limits": options.to_limits(),
+        "seccomp": probe.seccomp,
     }
     if probe.version:
         info["version"] = probe.version
+    if probe.seccomp_version:
+        info["seccompVersion"] = probe.seccomp_version
     info["disableUserns"] = probe.disable_userns
     return info
 
@@ -1100,13 +1388,24 @@ def run_sandboxed_build(
     *,
     probe: ProbeResult | None = None,
     request_path: Path | None = None,
+    seccomp: SeccompFilter | None = None,
 ) -> dict[str, Any]:
-    """Validate and run one sandboxed script build."""
+    """Validate and run one sandboxed script build.
+
+    ``seccomp`` is an injection point for tests. Production builds and exports
+    a fresh filter here; the filter passed or created is closed before return.
+    """
     probe = probe or probe_bwrap()
     options = _default_options()
     if not probe.available:
         return _error_result(
             probe.reason or "The bubblewrap sandbox is unavailable.",
+            probe=probe,
+            options=options,
+        )
+    if not probe.seccomp:
+        return _error_result(
+            probe.reason or "The seccomp filter required by the bubblewrap sandbox is unavailable.",
             probe=probe,
             options=options,
         )
@@ -1137,19 +1436,35 @@ def run_sandboxed_build(
         return _sanitize_text(text, roots)
 
     try:
-        argv = build_sandbox_argv(validated, probe)
-    except (SandboxValidationError, OSError) as exc:
-        return _error_result(sanitize(str(exc)), probe=probe, options=options)
-
-    try:
-        run = run_bwrap(argv, validated.options.timeout_seconds + TIMEOUT_GRACE_SECONDS)
-    except (OSError, ValueError) as exc:
-        _clean_known_artifacts(output_directory)
+        seccomp_filter = seccomp if seccomp is not None else build_seccomp_filter()
+    except (SeccompError, OSError) as exc:
         return _error_result(
-            sanitize(f"Sandboxed build could not start: {exc}"),
+            sanitize(f"Sandboxed build requires a seccomp filter: {exc}"),
             probe=probe,
             options=options,
         )
+
+    try:
+        try:
+            argv = build_sandbox_argv(validated, probe, seccomp_fd=seccomp_filter.fd)
+        except (SandboxValidationError, OSError) as exc:
+            return _error_result(sanitize(str(exc)), probe=probe, options=options)
+
+        try:
+            run = run_bwrap(
+                argv,
+                validated.options.timeout_seconds + TIMEOUT_GRACE_SECONDS,
+                pass_fds=(seccomp_filter.fd,),
+            )
+        except (OSError, ValueError) as exc:
+            _clean_known_artifacts(output_directory)
+            return _error_result(
+                sanitize(f"Sandboxed build could not start: {exc}"),
+                probe=probe,
+                options=options,
+            )
+    finally:
+        seccomp_filter.close()
 
     if run.timed_out:
         _clean_known_artifacts(output_directory)

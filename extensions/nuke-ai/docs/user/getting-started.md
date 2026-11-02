@@ -118,8 +118,10 @@ the script, but its text is sent to the configured model provider. A preview run
 with no network and no workspace access, then shows a plain-text unified diff, imports, sandbox limits, build counts, and
 an audit id in the **CAD Edit Review** panel; it writes nothing and shows no ghost. The chat card has no Apply action.
 Apply is panel-only: it confirms the overwrite, keeps a hidden backup, rebuilds in the sandbox, and offers **Undo**.
-Later rebuilds of that model stay sandboxed and DAGMC/FEM export stays blocked. The sandbox has no seccomp filter, so it
-is not a guarantee against kernel bugs.
+Later rebuilds of that model stay sandboxed and DAGMC/FEM export stays blocked. Every build loads a libseccomp BPF
+denylist inside bubblewrap that blocks network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory,
+and `seccomp` syscalls; a host without libseccomp reports script authoring unavailable. The filter is a denylist, so it is
+not a guarantee against kernel bugs.
 
 ## Preview gallery
 

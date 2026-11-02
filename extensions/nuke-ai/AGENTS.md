@@ -53,7 +53,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   the model provider), `previewScriptChange` takes an exact base hash plus the full body, runs `bwrap` with no
   network/workspace, returns a diff/sandbox/build audit and no ghost, and omits `applyCapability` so chat has no Apply.
   Apply is panel-only with a hidden approval nonce, overwrites with a backup, rebuilds sandboxed, and blocks DAGMC/FEM
-  export while the model stays sandboxed. No fallback without bubblewrap; residual risk is no seccomp filter.
+  export while the model stays sandboxed. No fallback without bubblewrap or libseccomp; the filter is a denylist, so
+  residual kernel/bubblewrap risk remains.
   Booleans, body/feature add/delete/reorder, lattices, partial or unsandboxed scripts, unreferenced parameters, assembly
   structure beyond placement, drawing creation/deletion or view placement, title-block edits, and MCP stay excluded. See
   `docs/dev/cad-authoring-design.md` and `docs/dev/skills.md`.

@@ -495,9 +495,9 @@ external MCP read-only allowlist, and the slice accepts no path.
 
 Script authoring edits the active saved `.py` build123d/CadQuery model. It requires **both**
 `nukeCad.aiAuthoringEnabled` and the workspace-scoped `nukeCad.scriptAuthoringEnabled` (both default `false`), an active
-workspace-contained regular `.py` file (no symlink, at most 64 KiB / 2000 lines), and Linux with a working `bwrap`/user
-namespace probe. macOS, Windows, and environments without bubblewrap report the feature unavailable; there is **no
-fallback** to unsandboxed execution.
+workspace-contained regular `.py` file (no symlink, at most 64 KiB / 2000 lines), and Linux with a working
+`bwrap`/user-namespace/libseccomp probe. macOS, Windows, and environments without bubblewrap or libseccomp report the
+feature unavailable; there is **no fallback** to unsandboxed execution.
 
 - `nuke.cad.inspectScriptSource` takes `{}` and returns the active script path, bounded text, SHA-256 hash, imports, and
   whether a top-level `model` assignment exists. The script text is sent to the configured model provider; this is the
@@ -524,8 +524,11 @@ symlinks, `nlink == 1`, size caps) and unexpected files are discarded. The audit
 version, and limits, never script text, absolute paths, stdout/stderr, or errors.
 
 A model applied through this flow is marked `sandboxed`. Every later `.py` rebuild for that model uses the sandboxed
-builder, and DAGMC/FEM export is blocked until a later review removes the marking. The residual risk is explicit: there is
-no seccomp filter, so the namespace/resource boundary still depends on kernel and bubblewrap correctness. None of the
+builder, and DAGMC/FEM export is blocked until a later review removes the marking. Every build loads a libseccomp BPF
+denylist inside bwrap (`--seccomp`) covering network, namespace/mount, tracing, BPF, keyring, module, io_uring,
+process-memory, and `seccomp` syscalls; a host without libseccomp reports script authoring unavailable, with no
+unsandboxed fallback. The filter is a denylist, so kernel and bubblewrap correctness remain part of the trust boundary.
+None of the
 three script ids is on the external MCP read-only allowlist, and the chat card never exposes Apply.
 
 ## Review panel and ghost preview

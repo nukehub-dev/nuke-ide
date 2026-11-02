@@ -426,6 +426,8 @@ export function normalizeScriptSandboxStatus(raw: unknown): ScriptSandboxStatus 
         version?: string;
         userns?: boolean;
         disableUserns?: boolean;
+        seccomp?: boolean;
+        seccompVersion?: string;
         reason?: string;
     } = { available: true, engine: 'bubblewrap' };
     const bwrapPath = pickString(record, 'bwrapPath', 'bwrap_path');
@@ -441,6 +443,13 @@ export function normalizeScriptSandboxStatus(raw: unknown): ScriptSandboxStatus 
     }
     if (typeof record.disableUserns === 'boolean') {
         status.disableUserns = record.disableUserns;
+    }
+    if (typeof record.seccomp === 'boolean') {
+        status.seccomp = record.seccomp;
+    }
+    const seccompVersion = pickString(record, 'seccompVersion');
+    if (seccompVersion !== undefined) {
+        status.seccompVersion = seccompVersion;
     }
     const reason = pickString(record, 'reason');
     if (reason !== undefined) {
@@ -480,11 +489,14 @@ function asSandboxInfo(value: unknown): SandboxedScriptBuildResult['sandbox'] | 
         return undefined;
     }
     const version = pickString(record, 'version');
+    const seccompVersion = pickString(record, 'seccompVersion');
     return {
         available: record.available === true,
         engine: 'bubblewrap',
         ...(version !== undefined ? { version } : {}),
         disableUserns: record.disableUserns === true,
+        ...(typeof record.seccomp === 'boolean' ? { seccomp: record.seccomp } : {}),
+        ...(seccompVersion !== undefined ? { seccompVersion } : {}),
         network: 'none',
         workspace: 'none',
         writable: pickStringArray(record, 'writable') ?? [],

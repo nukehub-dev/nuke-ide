@@ -374,6 +374,8 @@ export interface NukeCadScriptProposalDetails {
         readonly engine: 'bubblewrap';
         readonly version?: string;
         readonly disableUserns?: boolean;
+        readonly seccomp?: boolean;
+        readonly seccompVersion?: string;
         readonly limits: { timeoutSeconds: number; memoryMb: number; processLimit: number; fileSizeMb: number };
     };
     readonly auditId: string;

@@ -289,8 +289,9 @@ off. Never suggest editing a `.py` file through a raw file write.
    review the diff, sandbox limits, and build counts there. The panel holds the approval nonce; the model cannot apply and
    must not claim it can.
 4. Applying overwrites the Python file with a hidden backup and undo. Later rebuilds stay sandboxed while the model is
-   marked sandboxed, and DAGMC/FEM export stays blocked for a sandboxed model. There is no seccomp filter, so the sandbox
-   remains a namespace and resource boundary, not a guarantee against kernel bugs.
+   marked sandboxed, and DAGMC/FEM export stays blocked for a sandboxed model. Every build loads a libseccomp denylist
+   inside bubblewrap for network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and
+   `seccomp` syscalls; because the filter is a denylist, kernel and bubblewrap correctness still matter.
 
 If the preview reports a stale hash, timeout, failed build, or zero solids, inspect again and propose a corrected full
 body. Never reuse an old `baseScriptHash` or claim a failed preview is safe.
@@ -358,7 +359,7 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 - Do not apply a feature, sketch, topology, import, assembly, drawing, or script change without an explicit
   confirmation, and never send CAD authoring tools through MCP. Script apply is panel-only, so direct the user there
   instead of calling `nuke_cad_applyScriptChange` from chat.
-- Do not claim the script sandbox has no residual risk; it has no seccomp filter, and preview, apply, rebuilds, and undo
-  stay Linux+bubblewrap only.
+- Do not claim the script sandbox has no residual risk; its libseccomp filter is a denylist, and preview, apply,
+  rebuilds, and undo stay Linux+bubblewrap only.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

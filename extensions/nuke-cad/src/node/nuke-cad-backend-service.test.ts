@@ -705,6 +705,8 @@ describe('sandbox result normalization', () => {
                 available: true,
                 engine: 'bubblewrap',
                 version: 'bubblewrap 0.13.1',
+                seccomp: true,
+                seccompVersion: '2.6.0',
                 network: 'none',
                 workspace: 'none',
                 writable: ['/out', '/tmp', '/dev/shm'],
@@ -723,6 +725,8 @@ describe('sandbox result normalization', () => {
         expect((result as unknown as Record<string, unknown>).jobId).toBeUndefined();
         expect(result.sandbox?.network).toBe('none');
         expect(result.sandbox?.workspace).toBe('none');
+        expect(result.sandbox?.seccomp).toBe(true);
+        expect(result.sandbox?.seccompVersion).toBe('2.6.0');
         expect(result.sandbox?.limits.nofile).toBe(256);
     });
 
@@ -773,11 +777,22 @@ describe('sandbox result normalization', () => {
     });
 
     it('normalizes probe status and unavailable reasons', () => {
-        expect(normalizeScriptSandboxStatus({ available: true, engine: 'bubblewrap', userns: true, disableUserns: true })).toEqual({
+        expect(
+            normalizeScriptSandboxStatus({
+                available: true,
+                engine: 'bubblewrap',
+                userns: true,
+                disableUserns: true,
+                seccomp: true,
+                seccompVersion: '2.6.0'
+            })
+        ).toEqual({
             available: true,
             engine: 'bubblewrap',
             userns: true,
-            disableUserns: true
+            disableUserns: true,
+            seccomp: true,
+            seccompVersion: '2.6.0'
         });
         expect(normalizeScriptSandboxStatus({ available: false, reason: 'bwrap missing' })).toEqual({
             available: false,
@@ -914,7 +929,9 @@ describe('sandbox backend service', () => {
             bwrapPath: '/usr/bin/bwrap',
             version: 'bubblewrap 0.13.1',
             userns: true,
-            disableUserns: true
+            disableUserns: true,
+            seccomp: true,
+            seccompVersion: '2.6.0'
         });
 
         const status = await service.getScriptSandboxStatus();
@@ -925,7 +942,9 @@ describe('sandbox backend service', () => {
             bwrapPath: '/usr/bin/bwrap',
             version: 'bubblewrap 0.13.1',
             userns: true,
-            disableUserns: true
+            disableUserns: true,
+            seccomp: true,
+            seccompVersion: '2.6.0'
         });
     });
 
@@ -938,6 +957,8 @@ describe('sandbox backend service', () => {
         expect(status.engine).toBe('bubblewrap');
         if (status.available) {
             expect(status.version).toContain('bubblewrap');
+            expect(status.seccomp).toBe(true);
+            expect(status.seccompVersion).toMatch(/^\d+\.\d+\.\d+$/);
         } else {
             expect(typeof status.reason).toBe('string');
         }

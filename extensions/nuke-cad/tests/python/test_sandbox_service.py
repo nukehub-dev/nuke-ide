@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import os
+import re
 import stat
 import sys
 import time
@@ -13,6 +15,8 @@ from pathlib import Path
 
 import pytest
 import sandbox_service as sandbox
+
+_SECCOMP_FD = 17
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +48,7 @@ def _validated(workspace: Path, **overrides: object) -> sandbox.ValidatedRequest
     return sandbox.validate_request(_request(workspace, **overrides))
 
 
-def _probe(disable_userns: bool = True) -> sandbox.ProbeResult:
+def _probe(disable_userns: bool = True, seccomp: bool = True) -> sandbox.ProbeResult:
     return sandbox.ProbeResult(
         available=True,
         bwrap_path="/usr/bin/bwrap",
@@ -53,7 +57,30 @@ def _probe(disable_userns: bool = True) -> sandbox.ProbeResult:
         disable_userns=disable_userns,
         reason=None,
         prlimit_path="/usr/bin/prlimit",
+        seccomp=seccomp,
+        seccomp_version="2.6.0" if seccomp else None,
     )
+
+
+def _fake_seccomp_filter(path: Path | None = None) -> sandbox.SeccompFilter:
+    return sandbox.SeccompFilter(
+        fd=os.open(os.devnull, os.O_RDONLY),
+        path=path,
+        version="2.6.0",
+        denied_count=len(sandbox.SECCOMP_DENIED_SYSCALLS),
+    )
+
+
+def _fake_build_seccomp_filter(monkeypatch: pytest.MonkeyPatch) -> list[sandbox.SeccompFilter]:
+    filters: list[sandbox.SeccompFilter] = []
+
+    def build() -> sandbox.SeccompFilter:
+        filter = _fake_seccomp_filter()
+        filters.append(filter)
+        return filter
+
+    monkeypatch.setattr(sandbox, "build_seccomp_filter", build)
+    return filters
 
 
 def _runtime() -> sandbox.PythonRuntime:
@@ -93,6 +120,7 @@ def test_probe_reports_bubblewrap_and_user_namespaces(
     monkeypatch.setattr(
         sandbox.shutil, "which", lambda name: str(fake) if name == "bwrap" else "/usr/bin/prlimit"
     )
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.probe_bwrap(force=True)
 
@@ -102,8 +130,13 @@ def test_probe_reports_bubblewrap_and_user_namespaces(
     assert result.userns is True
     assert result.disable_userns is True
     assert result.reason is None
-    assert result.to_status()["engine"] == "bubblewrap"
-    assert result.to_status()["disableUserns"] is True
+    assert result.seccomp is True
+    assert result.seccomp_version == "2.6.0"
+    status = result.to_status()
+    assert status["engine"] == "bubblewrap"
+    assert status["disableUserns"] is True
+    assert status["seccomp"] is True
+    assert status["seccompVersion"] == "2.6.0"
 
 
 def test_probe_works_without_disable_userns_flag(
@@ -113,12 +146,14 @@ def test_probe_works_without_disable_userns_flag(
     monkeypatch.setattr(
         sandbox.shutil, "which", lambda name: str(fake) if name == "bwrap" else "/usr/bin/prlimit"
     )
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.probe_bwrap(force=True)
 
     assert result.available is True
     assert result.userns is True
     assert result.disable_userns is False
+    assert result.seccomp is True
 
 
 def test_probe_rejects_bubblewrap_without_required_options(
@@ -135,10 +170,11 @@ def test_probe_rejects_bubblewrap_without_required_options(
     assert "required options" in (result.reason or "")
 
 
-def test_probe_reports_unavailable_without_user_namespaces(
+def test_probe_requires_bubblewrap_seccomp_support(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    fake = _fake_bwrap(tmp_path, help_text=FULL_HELP, namespace_exit=1)
+    help_text = " ".join(flag for flag in sandbox.REQUIRED_BWRAP_FLAGS if flag != "--seccomp")
+    fake = _fake_bwrap(tmp_path, help_text=help_text)
     monkeypatch.setattr(
         sandbox.shutil, "which", lambda name: str(fake) if name == "bwrap" else "/usr/bin/prlimit"
     )
@@ -146,7 +182,23 @@ def test_probe_reports_unavailable_without_user_namespaces(
     result = sandbox.probe_bwrap(force=True)
 
     assert result.available is False
+    assert "--seccomp" in (result.reason or "")
+
+
+def test_probe_reports_unavailable_without_user_namespaces(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _fake_bwrap(tmp_path, help_text=FULL_HELP, namespace_exit=1)
+    monkeypatch.setattr(
+        sandbox.shutil, "which", lambda name: str(fake) if name == "bwrap" else "/usr/bin/prlimit"
+    )
+    _fake_build_seccomp_filter(monkeypatch)
+
+    result = sandbox.probe_bwrap(force=True)
+
+    assert result.available is False
     assert result.userns is False
+    assert result.seccomp is True
     assert result.reason is not None
     assert "user namespaces" in result.reason.lower()
 
@@ -171,6 +223,127 @@ def test_probe_reports_missing_prlimit(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.available is False
     assert "prlimit" in (result.reason or "")
+
+
+def test_probe_reports_missing_libseccomp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    fake = _fake_bwrap(tmp_path, help_text=FULL_HELP)
+    monkeypatch.setattr(
+        sandbox.shutil, "which", lambda name: str(fake) if name == "bwrap" else "/usr/bin/prlimit"
+    )
+    monkeypatch.setattr(sandbox, "_load_libseccomp", lambda: None)
+
+    result = sandbox.probe_bwrap(force=True)
+
+    assert result.available is False
+    assert result.seccomp is False
+    assert result.seccomp_version is None
+    assert "libseccomp" in (result.reason or "")
+    assert result.to_status()["seccomp"] is False
+
+
+def test_seccomp_filter_reports_missing_libseccomp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sandbox, "_load_libseccomp", lambda: None)
+
+    with pytest.raises(sandbox.SeccompError, match="libseccomp"):
+        sandbox.build_seccomp_filter()
+
+
+def test_seccomp_filter_exports_a_private_bpf_file() -> None:
+    if sandbox._load_libseccomp() is None:
+        pytest.skip("libseccomp is not installed")
+
+    filter = sandbox.build_seccomp_filter()
+    assert filter.fd >= 0
+    assert filter.denied_count > 0
+    assert filter.version is not None
+    assert re.fullmatch(r"\d+\.\d+\.\d+", filter.version)
+    assert filter.path is not None
+    path = filter.path
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    payload = path.read_bytes()
+    fd = filter.fd
+    filter.close()
+
+    assert mode == 0o600
+    assert payload
+    assert payload[:4] == b"\x20\x00\x00\x00"
+    with pytest.raises(OSError):
+        os.fstat(fd)
+    assert filter.fd == -1
+    assert not path.exists()
+
+
+def test_seccomp_denylist_covers_privileged_syscalls() -> None:
+    denied = set(sandbox.SECCOMP_DENIED_SYSCALLS)
+    assert len(denied) == len(sandbox.SECCOMP_DENIED_SYSCALLS)
+
+    for name in (
+        "socket",
+        "socketpair",
+        "connect",
+        "bind",
+        "listen",
+        "accept",
+        "accept4",
+        "sendto",
+        "recvfrom",
+        "sendmsg",
+        "recvmsg",
+        "sendmmsg",
+        "recvmmsg",
+        "getsockname",
+        "getpeername",
+        "setsockopt",
+        "getsockopt",
+        "shutdown",
+        "mount",
+        "umount2",
+        "pivot_root",
+        "chroot",
+        "setns",
+        "unshare",
+        "mount_setattr",
+        "open_tree",
+        "move_mount",
+        "fsopen",
+        "fsconfig",
+        "fsmount",
+        "fspick",
+        "statmount",
+        "listmount",
+        "ptrace",
+        "process_vm_readv",
+        "process_vm_writev",
+        "kcmp",
+        "bpf",
+        "perf_event_open",
+        "userfaultfd",
+        "keyctl",
+        "add_key",
+        "request_key",
+        "init_module",
+        "finit_module",
+        "delete_module",
+        "kexec_load",
+        "kexec_file_load",
+        "reboot",
+        "swapon",
+        "swapoff",
+        "acct",
+        "quotactl",
+        "syslog",
+        "ioperm",
+        "iopl",
+        "open_by_handle_at",
+        "name_to_handle_at",
+        "io_uring_setup",
+        "io_uring_enter",
+        "io_uring_register",
+        "seccomp",
+        "execveat",
+    ):
+        assert name in denied
+    assert "execve" not in denied
 
 
 def test_probe_rejects_non_linux(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -307,7 +480,7 @@ def test_validation_accepts_boundary_limits(workspace: Path) -> None:
 
 def test_bwrap_argv_applies_the_security_policy(workspace: Path) -> None:
     validated = _validated(workspace)
-    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime())
+    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime(), seccomp_fd=_SECCOMP_FD)
 
     assert argv[0] == "/usr/bin/bwrap"
     for flag in (
@@ -319,10 +492,14 @@ def test_bwrap_argv_applies_the_security_policy(workspace: Path) -> None:
         "--new-session",
         "--clearenv",
         "--remount-ro",
+        "--seccomp",
     ):
         assert flag in argv
     assert "--share-net" not in argv
     assert "--unshare-net" in argv or "--unshare-all" in argv
+    seccomp_index = argv.index("--seccomp")
+    assert argv[seccomp_index + 1] == str(_SECCOMP_FD)
+    assert seccomp_index < argv.index("--")
 
     bind_pairs = [
         (argv[index + 1], argv[index + 2])
@@ -345,7 +522,7 @@ def test_bwrap_argv_does_not_forward_host_environment(
 ) -> None:
     monkeypatch.setenv("NUKE_SANDBOX_LEAK", "do-not-forward")
     validated = _validated(workspace)
-    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime())
+    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime(), seccomp_fd=_SECCOMP_FD)
 
     assert "NUKE_SANDBOX_LEAK" not in argv
     assert "do-not-forward" not in argv
@@ -372,7 +549,7 @@ def test_bwrap_argv_sizes_tmpfs_and_rlimits(workspace: Path) -> None:
         processLimit=32,
         fileSizeLimitMb=64,
     )
-    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime())
+    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime(), seccomp_fd=_SECCOMP_FD)
 
     for index, value in enumerate(argv):
         if value == "--tmpfs":
@@ -393,7 +570,7 @@ def test_bwrap_argv_sizes_tmpfs_and_rlimits(workspace: Path) -> None:
 
 def test_bwrap_argv_runs_the_geometry_service_without_exports(workspace: Path) -> None:
     validated = _validated(workspace, tolerance=0.01)
-    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime())
+    argv = sandbox.build_sandbox_argv(validated, _probe(), _runtime(), seccomp_fd=_SECCOMP_FD)
 
     assert argv[argv.index("--") + 1] == "/usr/bin/prlimit"
     command_index = len(argv) - 1 - argv[::-1].index("--")
@@ -415,11 +592,26 @@ def test_bwrap_argv_runs_the_geometry_service_without_exports(workspace: Path) -
 
 def test_bwrap_argv_omits_disable_userns_when_unsupported(workspace: Path) -> None:
     validated = _validated(workspace)
-    argv = sandbox.build_sandbox_argv(validated, _probe(disable_userns=False), _runtime())
+    argv = sandbox.build_sandbox_argv(
+        validated,
+        _probe(disable_userns=False),
+        _runtime(),
+        seccomp_fd=_SECCOMP_FD,
+    )
 
     assert "--unshare-user" in argv
     assert "--disable-userns" not in argv
     assert "--assert-userns-disabled" not in argv
+
+
+def test_bwrap_argv_requires_a_seccomp_filter(workspace: Path) -> None:
+    validated = _validated(workspace)
+
+    with pytest.raises(sandbox.SandboxValidationError, match="seccomp"):
+        sandbox.build_sandbox_argv(validated, _probe(seccomp=False), _runtime(), seccomp_fd=1)
+
+    with pytest.raises(sandbox.SandboxValidationError, match="seccomp"):
+        sandbox.build_sandbox_argv(validated, _probe(), _runtime())
 
 
 def test_bwrap_argv_rejects_unavailable_sandboxes(workspace: Path) -> None:
@@ -456,11 +648,44 @@ def test_run_sandboxed_build_reports_unavailable_sandboxes(workspace: Path) -> N
     assert result["sandbox"]["engine"] == "bubblewrap"
 
 
+def test_run_sandboxed_build_reports_unavailable_seccomp(workspace: Path) -> None:
+    probe = sandbox.ProbeResult(
+        available=True,
+        bwrap_path="/usr/bin/bwrap",
+        version="bubblewrap 0.13.1",
+        userns=True,
+        disable_userns=True,
+        reason="libseccomp is required for sandboxed builds.",
+        prlimit_path="/usr/bin/prlimit",
+    )
+
+    result = sandbox.run_sandboxed_build(_request(workspace), probe=probe)
+
+    assert result["success"] is False
+    assert "seccomp" in result["error"]
+    assert result["sandbox"]["available"] is True
+    assert result["sandbox"]["seccomp"] is False
+
+
+def test_run_sandboxed_build_never_falls_back_without_a_filter(
+    monkeypatch: pytest.MonkeyPatch, workspace: Path
+) -> None:
+    def fail() -> sandbox.SeccompFilter:
+        raise sandbox.SeccompError("libseccomp disappeared")
+
+    monkeypatch.setattr(sandbox, "build_seccomp_filter", fail)
+
+    result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
+
+    assert result["success"] is False
+    assert "seccomp" in result["error"]
+
+
 def _install_fake_argv(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
     monkeypatch.setattr(
         sandbox,
         "build_sandbox_argv",
-        lambda validated, probe, runtime=None, program=None: argv,
+        lambda validated, probe, runtime=None, program=None, seccomp_fd=None: argv,
     )
 
 
@@ -507,6 +732,7 @@ def test_run_sandboxed_build_validates_and_returns_artifacts(
         boundingBox={"min": [0, 0, 0], "max": [1, 2, 3]},
     )
     _install_fake_argv(monkeypatch, runner)
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
 
@@ -522,6 +748,8 @@ def test_run_sandboxed_build_validates_and_returns_artifacts(
     assert result["sandbox"]["available"] is True
     assert result["sandbox"]["network"] == "none"
     assert result["sandbox"]["workspace"] == "none"
+    assert result["sandbox"]["seccomp"] is True
+    assert result["sandbox"]["seccompVersion"] == "2.6.0"
     assert result["sandbox"]["limits"]["timeoutSeconds"] == 120
     assert not (validated.output_directory / "unexpected.txt").exists()
     assert not (validated.output_directory / "request.json").exists()
@@ -540,6 +768,7 @@ def test_run_sandboxed_build_sanitizes_failures_and_discards_artifacts(
         traceback=f"Traceback ... {workspace}/model.py",
     )
     _install_fake_argv(monkeypatch, runner)
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
 
@@ -556,6 +785,7 @@ def test_run_sandboxed_build_reports_missing_results(
 ) -> None:
     runner = _write_runner(workspace, "import sys\nprint('no result')\nsys.exit(3)\n")
     _install_fake_argv(monkeypatch, runner)
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
 
@@ -570,6 +800,7 @@ def test_run_sandboxed_build_reports_timeouts(
     monkeypatch.setattr(sandbox, "TIMEOUT_GRACE_SECONDS", 0.0)
     runner = _write_runner(workspace, "import time\ntime.sleep(30)\n")
     _install_fake_argv(monkeypatch, runner)
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace, timeoutSeconds=1), probe=_probe())
 
@@ -594,6 +825,7 @@ output = Path({str(validated.output_directory)!r})
 print("__NUKE_RESULT__" + json.dumps({{"success": True}}))
 """
     _install_fake_argv(monkeypatch, _write_runner(workspace, body))
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
 
@@ -616,6 +848,7 @@ os.link(output / "model.tess.json", output / "second.tess.json")
 print("__NUKE_RESULT__" + json.dumps({{"success": True}}))
 """
     _install_fake_argv(monkeypatch, _write_runner(workspace, body))
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
 
@@ -636,6 +869,7 @@ output = Path({str(validated.output_directory)!r})
 print("__NUKE_RESULT__" + json.dumps({{"success": True}}))
 """
     _install_fake_argv(monkeypatch, _write_runner(workspace, body))
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
 
@@ -662,6 +896,7 @@ output = Path({str(validated.output_directory)!r})
 print("__NUKE_RESULT__" + json.dumps({{"success": True}}))
 """
     _install_fake_argv(monkeypatch, _write_runner(workspace, body))
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
 
@@ -694,6 +929,7 @@ def test_output_cleanup_preserves_request_files(
         boundingBox={"min": [0, 0, 0], "max": [1, 2, 3]},
     )
     _install_fake_argv(monkeypatch, runner)
+    _fake_build_seccomp_filter(monkeypatch)
 
     result = sandbox.run_sandboxed_build(
         _request(workspace), probe=_probe(), request_path=request_file
@@ -701,6 +937,29 @@ def test_output_cleanup_preserves_request_files(
 
     assert result["success"] is True
     assert request_file.exists()
+
+
+def test_run_sandboxed_build_closes_the_seccomp_filter(
+    monkeypatch: pytest.MonkeyPatch, workspace: Path
+) -> None:
+    validated = _validated(workspace)
+    runner = _successful_runner(
+        workspace,
+        validated.output_directory,
+        success=True,
+        solidCount=2,
+        faceCount=3,
+        triangleCount=3,
+        boundingBox={"min": [0, 0, 0], "max": [1, 2, 3]},
+    )
+    _install_fake_argv(monkeypatch, runner)
+    filters = _fake_build_seccomp_filter(monkeypatch)
+
+    result = sandbox.run_sandboxed_build(_request(workspace), probe=_probe())
+
+    assert result["success"] is True
+    assert len(filters) == 1
+    assert filters[0].fd == -1
 
 
 REAL_SANDBOX = os.environ.get("NUKE_CAD_SANDBOX") == "1"
@@ -718,13 +977,92 @@ class TestRealBubblewrap:
     def _run_code(self, workspace: Path, code: str, **overrides: object) -> sandbox.BwrapRun:
         validated = _validated(workspace, **overrides)
         runtime = sandbox.resolve_python_runtime()
-        argv = sandbox.build_sandbox_argv(
-            validated,
-            self.probe,
-            runtime,
-            program=[runtime.executable, "-c", code],
-        )
-        return sandbox.run_bwrap(argv, 30)
+        seccomp = sandbox.build_seccomp_filter()
+        try:
+            argv = sandbox.build_sandbox_argv(
+                validated,
+                self.probe,
+                runtime,
+                program=[runtime.executable, "-c", code],
+                seccomp_fd=seccomp.fd,
+            )
+            return sandbox.run_bwrap(argv, 30, pass_fds=(seccomp.fd,))
+        finally:
+            seccomp.close()
+
+    def test_seccomp_filter_is_loaded(self, workspace: Path) -> None:
+        assert self.probe.seccomp is True
+        assert self.probe.seccomp_version is not None
+
+    def test_socket_creation_is_denied_with_eperm(self, workspace: Path) -> None:
+        code = """
+import errno
+import socket
+for name in ("socket", "socketpair"):
+    try:
+        if name == "socket":
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        else:
+            socket.socketpair()
+    except PermissionError as exc:
+        print(name.upper(), "EPERM", exc.errno == errno.EPERM)
+    except OSError as exc:
+        print(name.upper(), "OTHER", exc.errno)
+    else:
+        print(name.upper(), "OPEN")
+"""
+        run = self._run_code(workspace, code)
+
+        assert run.exit_code == 0
+        assert "SOCKET EPERM True" in run.stdout
+        assert "SOCKETPAIR EPERM True" in run.stdout
+
+    def test_namespace_and_ptrace_syscalls_are_denied(self, workspace: Path) -> None:
+        code = """
+import ctypes
+import errno
+
+libc = ctypes.CDLL(None, use_errno=True)
+ctypes.set_errno(0)
+ptrace_result = libc.ptrace(0, 0, None, None)
+ptrace_errno = ctypes.get_errno()
+print("PTRACE", ptrace_result, ptrace_errno)
+
+ctypes.set_errno(0)
+unshare_result = libc.unshare(0x00020000)
+unshare_errno = ctypes.get_errno()
+print("UNSHARE", unshare_result, unshare_errno)
+
+ctypes.set_errno(0)
+mount_result = libc.mount(b"none", b"/tmp/nuke-mount", b"tmpfs", 0, None)
+mount_errno = ctypes.get_errno()
+print("MOUNT", mount_result, mount_errno)
+"""
+        run = self._run_code(workspace, code)
+
+        assert run.exit_code == 0
+        assert f"PTRACE -1 {errno.EPERM}" in run.stdout
+        assert f"UNSHARE -1 {errno.EPERM}" in run.stdout
+        assert f"MOUNT -1 {errno.EPERM}" in run.stdout
+
+    def test_normal_files_and_subprocesses_still_work(self, workspace: Path) -> None:
+        code = """
+import subprocess
+from pathlib import Path
+
+path = Path("/tmp/seccomp-write.txt")
+path.write_text("sandboxed", encoding="utf-8")
+print("TEMP", path.read_text(encoding="utf-8"))
+print("PASSWD", bool(Path("/etc/passwd").read_text(encoding="utf-8")))
+completed = subprocess.run(["/usr/bin/id", "-u"], capture_output=True, text=True)
+print("ID", completed.returncode, completed.stdout.strip())
+"""
+        run = self._run_code(workspace, code)
+
+        assert run.exit_code == 0
+        assert "TEMP sandboxed" in run.stdout
+        assert "PASSWD True" in run.stdout
+        assert "ID 0 " in run.stdout
 
     def test_network_is_blocked(self, workspace: Path) -> None:
         import socket
@@ -736,14 +1074,18 @@ class TestRealBubblewrap:
         try:
             code = f"""
 import socket
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.settimeout(1)
 try:
-    client.connect(("127.0.0.1", {port}))
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 except OSError:
     print("NETWORK_BLOCKED")
 else:
-    print("NETWORK_OPEN")
+    client.settimeout(1)
+    try:
+        client.connect(("127.0.0.1", {port}))
+    except OSError:
+        print("NETWORK_BLOCKED")
+    else:
+        print("NETWORK_OPEN")
 """
             run = self._run_code(workspace, code)
         finally:
@@ -751,6 +1093,7 @@ else:
 
         assert run.exit_code == 0
         assert "NETWORK_BLOCKED" in run.stdout
+        assert "NETWORK_OPEN" not in run.stdout
 
     def test_writes_are_confined_to_the_output_and_tempfs(self, workspace: Path) -> None:
         marker = workspace / "secret.txt"
@@ -806,14 +1149,18 @@ print("HOME_ENTRIES", sorted(entry.name for entry in home.iterdir()) if home.exi
     def test_timeout_kills_the_sandbox(self, workspace: Path) -> None:
         validated = _validated(workspace, timeoutSeconds=1)
         runtime = sandbox.resolve_python_runtime()
-        argv = sandbox.build_sandbox_argv(
-            validated,
-            self.probe,
-            runtime,
-            program=[runtime.executable, "-c", "import time; time.sleep(30)"],
-        )
-
-        run = sandbox.run_bwrap(argv, 1.0)
+        seccomp = sandbox.build_seccomp_filter()
+        try:
+            argv = sandbox.build_sandbox_argv(
+                validated,
+                self.probe,
+                runtime,
+                program=[runtime.executable, "-c", "import time; time.sleep(30)"],
+                seccomp_fd=seccomp.fd,
+            )
+            run = sandbox.run_bwrap(argv, 1.0, pass_fds=(seccomp.fd,))
+        finally:
+            seccomp.close()
 
         assert run.timed_out is True
         assert run.duration_ms < 10000
@@ -860,7 +1207,7 @@ print("CHILDREN", children)
         if importlib.util.find_spec("OCP") is None or importlib.util.find_spec("build123d") is None:
             pytest.skip("the active interpreter has no OCP/build123d CAD toolchain")
         (workspace / "model.py").write_text(
-            "from build123d import Box\n\nmodel = Box(10, 20, 30)\n", encoding="utf-8"
+            "from build123d import Box\n\nmodel = Box(20, 20, 20)\n", encoding="utf-8"
         )
 
         result = sandbox.run_sandboxed_build(
@@ -871,6 +1218,8 @@ print("CHILDREN", children)
         assert result["success"] is True
         assert result["solidCount"] >= 1
         assert result["triangleCount"] > 0
+        assert result["sandbox"]["seccomp"] is True
+        assert result["sandbox"]["seccompVersion"] == self.probe.seccomp_version
         assert Path(result["stepPath"]).is_file()
         assert Path(result["tessPath"]).is_file()
         assert stat.S_ISREG(os.lstat(result["stepPath"]).st_mode)

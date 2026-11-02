@@ -464,6 +464,8 @@ function buildScriptInput(summary = 'Update the pincell model script'): NukeCadS
                 engine: 'bubblewrap',
                 version: '0.8.0',
                 disableUserns: true,
+                seccomp: true,
+                seccompVersion: '2.6.0',
                 limits: { timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 }
             },
             auditId: 'audit-1',
@@ -1290,6 +1292,8 @@ describe('NukeCadProposalService', () => {
             engine: 'bubblewrap',
             version: '0.8.0',
             disableUserns: true,
+            seccomp: true,
+            seccompVersion: '2.6.0',
             limits: { timeoutSeconds: 120, memoryMb: 2048, processLimit: 64, fileSizeMb: 128 }
         });
         expect(created.script.build).toEqual({ success: true, solidCount: 1, faceCount: 6, triangleCount: 12 });

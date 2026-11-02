@@ -1054,14 +1054,15 @@ sidebar.
 
 AI script authoring edits the active **saved `.py` model** and is default-off. Open the script in the editor and run
 **Open Active Python Model in CAD** to load it into the viewport. It needs both **Nuke CAD: AI Authoring**
-and the workspace setting **Nuke CAD: Script Authoring**, and it runs only on Linux with bubblewrap; macOS, Windows, and
-environments without a working user namespace show the tools as unavailable. There is no unsandboxed fallback.
+and the workspace setting **Nuke CAD: Script Authoring**, and it runs only on Linux with bubblewrap and libseccomp; macOS,
+Windows, and environments without a working user namespace or libseccomp show the tools as unavailable. There is no
+unsandboxed fallback.
 
 1. NukeAI inspects the script first. Inspecting returns the text, hash, imports, and whether the script assigns a
    top-level `model`; the script text is sent to the configured model provider.
 2. The preview sends the exact base hash and the complete replacement script. It runs in a sandbox with no network and
    no workspace access, a read-only source, and time, memory, process, and file-size limits. The **CAD Edit Review** panel
-   shows the unified diff, imports, sandbox version and limits, build counts, duration, exit code, and audit id. The
+   shows the unified diff, imports, sandbox engine/version/userns/seccomp and limits, build counts, duration, exit code, and audit id. The
    preview publishes no ghost, writes nothing, and discards its sandbox artifacts. The chat card has no Apply action.
 3. Apply is panel-only: the panel holds a hidden approval nonce, confirms that the script file will be overwritten, and
    keeps a hidden backup for **Undo**. NukeAI cannot apply a script from chat.
@@ -1070,9 +1071,10 @@ While both switches are on and a `.py` model is active, the viewport shows a per
 with no network or workspace access and that Apply overwrites the script with a backup.
 
 After apply, the model is marked sandboxed: later `.py` rebuilds use the same sandbox, and DAGMC/FEM export stays blocked
-until a later review removes the marking. The sandbox has no seccomp filter, so it remains a namespace and resource
-boundary rather than a guarantee against kernel bugs. See [Safe Edits](../../nuke-ai/docs/user/safe-edits.md) for the
-full warning list.
+until a later review removes the marking. Every build loads a libseccomp BPF denylist inside bubblewrap that blocks
+network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls; a host without
+libseccomp reports script authoring unavailable. The filter is a denylist, so kernel and bubblewrap correctness still
+matter. See [Safe Edits](../../nuke-ai/docs/user/safe-edits.md) for the full warning list.
 
 ### Reference repair
 

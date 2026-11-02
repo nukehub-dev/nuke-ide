@@ -1503,6 +1503,8 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                 engine: 'bubblewrap',
                 ...(sandbox.status.version !== undefined ? { version: sandbox.status.version } : {}),
                 ...(sandbox.status.disableUserns !== undefined ? { disableUserns: sandbox.status.disableUserns } : {}),
+                ...(sandbox.status.seccomp !== undefined ? { seccomp: sandbox.status.seccomp } : {}),
+                ...(sandbox.status.seccompVersion !== undefined ? { seccompVersion: sandbox.status.seccompVersion } : {}),
                 limits: SCRIPT_AUDIT_LIMITS
             };
             const details: Omit<NukeCadScriptProposalDetails, 'approvalId'> = {
@@ -5015,6 +5017,8 @@ function sandboxStatusData(status: ScriptSandboxStatus): Record<string, unknown>
         ...(status.version !== undefined ? { version: status.version } : {}),
         ...(status.userns !== undefined ? { userns: status.userns } : {}),
         ...(status.disableUserns !== undefined ? { disableUserns: status.disableUserns } : {}),
+        ...(status.seccomp !== undefined ? { seccomp: status.seccomp } : {}),
+        ...(status.seccompVersion !== undefined ? { seccompVersion: status.seccompVersion } : {}),
         ...(status.reason !== undefined ? { reason: status.reason } : {})
     };
 }
