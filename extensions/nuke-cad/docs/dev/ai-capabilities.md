@@ -193,6 +193,12 @@ The preview accepts one to sixteen scalar edits on an existing feature:
 | `pad`, `pocket`     | `length`    | blind/default end only; finite `> 0`      |
 | `revolve`, `groove` | `angle`     | finite `(0, 360]`                         |
 | `fillet`            | `radius`    | finite `> 0`; the feature must have edges |
+| `chamfer`           | `distance`  | finite `> 0`; symmetric mode only         |
+| `draft`             | `angle`     | finite `[-90, 90]`                        |
+| `linearPattern`     | `spacing`   | finite `> 0`                              |
+| `circularPattern`   | `angle`     | finite `(0, 360]`                         |
+| `hole`              | `diameter`  | finite `> 0`                              |
+| `hole` (blind)      | `depth`     | finite `> 0`                              |
 | `shell`             | `thickness` | finite `> 0`                              |
 
 Preview validation is the pure `prepareFeatureEdit` engine. The preview writes

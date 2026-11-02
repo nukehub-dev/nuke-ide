@@ -26,11 +26,13 @@ Optional extension for the AI runtime and its integration with NukeIDE capabilit
 - NukeAI chat with agents, skills (progressive disclosure), and a themed Welcome screen
 - Exposes every enabled Nuke capability as a typed AI chat tool
 - Read-only diagnostics agent for CAD model health, OpenMC project readiness and failed runs, and statepoint convergence and tally coverage
-- Preview/apply/undo OpenMC run-setting edits with a before/after diff and explicit confirmation
+- Preview/apply/undo OpenMC settings, material, and tally edits with a before/after diff and explicit confirmation
+- Seven default-off CAD authoring slices: scalar feature and sketch-dimension edits, topology-impacting changes, imported bodies, assembly placement, drawing-sheet presentation, and Linux-only sandboxed Python scripts
 - Names, validates, and bounds tool arguments and results before they reach the model
 - Refreshes the tool set when capabilities or ambient context change
+- Persists truthful previews and bounded local metrics/edit journals under `.nuke-ide/ai`
 - Calls capability handlers in-process; no HTTP or MCP hop on the internal path
-- Offers an opt-in, token-protected, loopback-only MCP endpoint for external agents with a read-only CAD catalog
+- Offers an opt-in, token-protected, loopback-only MCP endpoint for external agents with a read-only CAD, OpenMC, and Visualizer catalog
 
 [Documentation](../extensions/nuke-ai/docs/README.md) · [User Guide](../extensions/nuke-ai/docs/user/getting-started.md) · [NukeAI Actions](../extensions/nuke-ai/docs/user/actions.md) · [MCP Clients](../extensions/nuke-ai/docs/user/mcp-clients.md) · [Developer Guide](../extensions/nuke-ai/docs/dev/architecture.md) · [External MCP](../extensions/nuke-ai/docs/dev/mcp.md) · [Adding a Capability](../extensions/nuke-ai/docs/dev/adding-a-capability.md)
 

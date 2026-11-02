@@ -23,8 +23,11 @@ Every workspace keeps its own history under `.nuke-ide/ai/previews/`, one folder
 - `<session-id>` is a timestamp plus a short random suffix.
 - `bundle-NNN` is created in order; each bundle holds at most one preview file and its result snapshot.
 - `session.json` stores the session id, creation time, and workspace root.
-- `trajectory.jsonl` records one line per capture with the capability id, a redacted input, and the preview path.
-- Previews larger than 8 MiB are not written to disk. The chat still shows the original result.
+- `trajectory.jsonl` records one line per capture with the capability id, a redacted input, and the preview path; it
+  keeps the newest records up to 1 MiB.
+- Previews larger than 8 MiB are not written to disk. The chat renders inline previews up to 4 MiB and falls back to text
+  above that cap.
+- Result snapshots are capped at 1 MiB, omit undo tokens, and redact credential-like values.
 
 Sessions are created in memory when a capability result needs a preview. A session that never captures leaves
 nothing on disk.
@@ -38,7 +41,7 @@ bundles newest first.
 - Select a card to open its preview image, HTML, text preview, or result snapshot.
 - **Refresh** rescans the workspace after a new capture.
 - With no saved previews, the empty state explains that previews appear after a NukeAI action captures a viewport
-  or produces a CAD preview.
+  or returns a result that carries a preview or artifact.
 
 The gallery only reads the workspace folder. It never deletes, regenerates, or writes a preview, and it never reads
 outside the open workspace. Malformed session or bundle metadata is skipped.

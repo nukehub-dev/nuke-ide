@@ -62,7 +62,7 @@ export class NukeAIMcpConfigService {
     protected hasCached = false;
     protected cached: NukeAIMcpConfig | undefined;
     protected cachedAt = 0;
-    protected worldReadableWarned = false;
+    protected permissionWarned = false;
 
     constructor(
         @inject(EnvVariablesServer) protected readonly envVariables: EnvVariablesServer,
@@ -102,7 +102,7 @@ export class NukeAIMcpConfigService {
             if (!stat.isFile()) {
                 return undefined;
             }
-            this.warnIfWorldReadable(filePath, stat.mode);
+            await this.tightenPermissions(filePath, stat.mode);
             text = await fs.readFile(filePath, 'utf8');
         } catch (error) {
             if (!isMissingFile(error)) {
@@ -125,14 +125,20 @@ export class NukeAIMcpConfigService {
         return config;
     }
 
-    protected warnIfWorldReadable(filePath: string, mode: number): void {
-        if (process.platform === 'win32' || this.worldReadableWarned) {
+    /** Best-effort tighten the token file to owner-only on POSIX hosts. */
+    protected async tightenPermissions(filePath: string, mode: number): Promise<void> {
+        if (process.platform === 'win32' || (mode & 0o077) === 0) {
             return;
         }
-        if ((mode & 0o004) !== 0) {
-            this.worldReadableWarned = true;
+        try {
+            await fs.chmod(filePath, 0o600);
+        } catch {
+            if (this.permissionWarned) {
+                return;
+            }
+            this.permissionWarned = true;
             this.logger.warn(
-                `[NukeAI] MCP config at ${filePath} is world-readable. Restrict it to the current user (chmod 600) to protect the token.`
+                `[NukeAI] MCP config at ${filePath} is readable by other users and could not be tightened. Restrict it to the current user (chmod 600) to protect the token.`
             );
         }
     }

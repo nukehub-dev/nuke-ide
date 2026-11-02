@@ -42,6 +42,7 @@ import type { FrontendApplicationContribution } from '@theia/core/lib/browser/fr
 import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposable';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { ToolInvocationContext, ToolRequest, ToolCallResult, createToolCallError } from '@theia/ai-core/lib/common/language-model';
+import { ChatToolContext } from '@theia/ai-chat/lib/common';
 import { ToolInvocationRegistry } from '@theia/ai-core/lib/common/tool-invocation-registry';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import {
@@ -49,11 +50,11 @@ import {
     NukeCapabilityContext,
     NukeCapabilityContextService,
     NukeCapabilityRegistry,
-    NukeCapabilityResult,
-    NukeCapabilityRisk
+    NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { validateCapabilityInput } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import { NukePreviewBundle, NukePreviewSession } from '../../common/nuke-preview-protocol';
+import { NUKE_DIAGNOSTICS_AGENT_ID, NUKE_DIAGNOSTICS_TOOL_NAMES } from '../agent/nuke-diagnostics-agent';
 import { NukePreviewStore } from '../preview/nuke-preview-store';
 import { NukeAiMetricsService } from './nuke-ai-metrics-service';
 import { NukeEditJournal } from './nuke-edit-journal';
@@ -75,6 +76,8 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
     protected started = false;
     protected stopped = false;
     protected previewSession: Promise<NukePreviewSession> | undefined;
+    protected previewSessionId: string | undefined;
+    protected previewWorkspaceRoots: readonly string[] | undefined;
 
     constructor(
         @inject(NukeCapabilityRegistry) protected readonly capabilityRegistry: NukeCapabilityRegistry,
@@ -116,11 +119,13 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
      */
     refresh(): Promise<void> {
         if (this.refreshPromise) {
-            this.refreshQueued = true;
             return this.refreshPromise;
         }
         const run = this.runRefreshLoop().finally(() => {
             this.refreshPromise = undefined;
+            if (this.refreshQueued && !this.stopped) {
+                void this.refresh();
+            }
         });
         this.refreshPromise = run;
         return run;
@@ -134,6 +139,12 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
         }
         this.toDispose.dispose();
         this.toolRegistry.unregisterAllTools(PROVIDER_NAME);
+        if (this.previewSessionId !== undefined) {
+            this.previewStore.releaseSession(this.previewSessionId);
+            this.previewSessionId = undefined;
+        }
+        this.previewSession = undefined;
+        this.previewWorkspaceRoots = undefined;
     }
 
     protected scheduleRefresh(): void {
@@ -142,8 +153,17 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
         }
         this.refreshTimer = setTimeout(() => {
             this.refreshTimer = undefined;
-            void this.refresh();
+            void this.queueRefresh();
         }, 0);
+    }
+
+    /** Event-driven refresh: request one follow-up when a pass is running. */
+    protected queueRefresh(): Promise<void> {
+        if (this.refreshPromise) {
+            this.refreshQueued = true;
+            return this.refreshPromise;
+        }
+        return this.refresh();
     }
 
     protected async runRefreshLoop(): Promise<void> {
@@ -162,6 +182,7 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
             return;
         }
         const context = await this.readContext();
+        this.syncPreviewSession(context.workspaceRoots);
         this.toolRegistry.unregisterAllTools(PROVIDER_NAME);
         if (this.stopped) {
             return;
@@ -203,6 +224,31 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
         }
     }
 
+    /**
+     * A preview session belongs to the workspace roots it was created with.
+     * Start a fresh session after a workspace change so preview path checks and
+     * the persisted session directory do not stay pinned to the old roots.
+     */
+    protected syncPreviewSession(roots: readonly string[]): void {
+        const normalized = [...new Set(roots.filter((root) => typeof root === 'string' && root.length > 0))].sort();
+        if (this.previewWorkspaceRoots === undefined) {
+            this.previewWorkspaceRoots = normalized;
+            return;
+        }
+        if (
+            normalized.length === this.previewWorkspaceRoots.length &&
+            normalized.every((root, index) => root === this.previewWorkspaceRoots?.[index])
+        ) {
+            return;
+        }
+        this.previewWorkspaceRoots = normalized;
+        if (this.previewSessionId !== undefined) {
+            this.previewStore.releaseSession(this.previewSessionId);
+            this.previewSessionId = undefined;
+        }
+        this.previewSession = undefined;
+    }
+
     protected registerCapability(capability: NukeCapability): void {
         // Theia keys tools by id and models call them by name, so both must use the sanitized tool name.
         const toolName = toToolName(capability.id);
@@ -212,7 +258,7 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
             description: describeCapability(capability),
             parameters: toToolParameters(capability.inputSchema),
             providerName: PROVIDER_NAME,
-            confirmAlwaysAllow: confirmationFor(capability.risk),
+            confirmAlwaysAllow: confirmationFor(capability),
             getArgumentsShortLabel: (args) => shortLabel(args),
             handler: (argString, ctx) => this.invokeCapability(capability, argString, ctx)
         };
@@ -220,6 +266,13 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
     }
 
     protected async invokeCapability(capability: NukeCapability, argString: string, ctx?: ToolInvocationContext): Promise<ToolCallResult> {
+        if (
+            ChatToolContext.is(ctx) &&
+            ctx.request.agentId === NUKE_DIAGNOSTICS_AGENT_ID &&
+            !(NUKE_DIAGNOSTICS_TOOL_NAMES as readonly string[]).includes(capability.id)
+        ) {
+            return createToolCallError(`Capability ${capability.id} is not available to the read-only Nuke Diagnostics agent.`);
+        }
         const startedAt = Date.now();
         let ok = false;
         try {
@@ -256,11 +309,10 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
                 const bundle = await this.capturePreview(capability, input, result);
                 await this.recordEditJournal(capability, result);
                 try {
-                    return await toToolCallContent(
-                        result,
-                        this.fileService,
-                        bundle?.previewPath ? { previewPath: bundle.previewPath } : undefined
-                    );
+                    return await toToolCallContent(result, this.fileService, {
+                        workspaceRoots: baseContext.workspaceRoots,
+                        ...(bundle?.previewPath ? { previewPath: bundle.previewPath } : {})
+                    });
                 } catch (error) {
                     this.logger.error(`[NukeAi] Failed to render the result of ${capability.id}:`, error);
                     return createToolCallError(`Failed to render capability result: ${errorMessage(error)}`);
@@ -323,10 +375,16 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
 
     protected getPreviewSession(): Promise<NukePreviewSession> {
         if (!this.previewSession) {
-            this.previewSession = this.previewStore.createSession().catch((error) => {
-                this.previewSession = undefined;
-                throw error;
-            });
+            this.previewSession = this.previewStore.createSession().then(
+                (session) => {
+                    this.previewSessionId = session.id;
+                    return session;
+                },
+                (error) => {
+                    this.previewSession = undefined;
+                    throw error;
+                }
+            );
         }
         return this.previewSession;
     }
@@ -340,8 +398,11 @@ function describeCapability(capability: NukeCapability): string {
     return [capability.description, ...examples].join('\n');
 }
 
-function confirmationFor(risk: NukeCapabilityRisk): boolean | string | undefined {
-    switch (risk) {
+function confirmationFor(capability: NukeCapability): boolean | string | undefined {
+    if (capability.requiresConfirmation === true) {
+        return capability.risk === 'destructive' ? DESTRUCTIVE_CONFIRMATION : true;
+    }
+    switch (capability.risk) {
         case 'read':
             return undefined;
         case 'destructive':

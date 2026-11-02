@@ -27,3 +27,6 @@
 
 /** Preference that arms the CAD feature-authoring surface. */
 export const AI_AUTHORING_PREFERENCE = 'nukeCad.aiAuthoringEnabled';
+
+/** Preference that additionally arms AI authoring of the active Python model script. */
+export const SCRIPT_AUTHORING_PREFERENCE = 'nukeCad.scriptAuthoringEnabled';

@@ -85,7 +85,7 @@ confirmation flow for those actions.
 
 `src/browser/actions/nuke-ai-action-service.ts` owns two entry points:
 
-- `ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` creates or reuses a focused chat session pinned to the
+- `ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` creates a focused chat session pinned to the
   requested agent, falling back to the default NukeAI agent when the requested one is unavailable, attaches
   `nukeContext`, and sends the prompt with the short display text.
 - `attachContext()` ensures an active session and executes the public `add-context-variable` command for
@@ -104,7 +104,7 @@ A capability returns a `NukeCapabilityResult`. `nuke-tool-result.ts` converts it
 1. A human-readable text block, plus an error block first when `ok` is false.
 2. Optional image or HTML preview blocks with a caption block.
 3. A compact JSON block with `{ ok, data, warnings, changeSet, undoToken, nextActions, handle, artifacts }`.
-4. One artifact line per path or URI.
+4. At most 50 artifact lines; a larger set ends with a count of the remaining artifacts.
 
 The result content is bounded: strings are capped at 8 KiB, the JSON payload at 32 KiB, and inline base64 data is
 omitted from text. A `changeSet` is bounded field by field: every id, title, summary, label, path, and capability id is
@@ -138,8 +138,8 @@ because it has a partial result.
 
 - `canRunDirectly(capabilityId)` is true only when the capability exists and its `risk` is `read`.
 - A direct run reads the current capability context, honors the capability's `when` predicate, validates the empty
-  input with `validateCapabilityInput`, invokes `capability.invoke({}, context)`, and replaces the card result with
-  `response.updateResult(result)`. Duplicate concurrent runs of the same capability are ignored.
+  input with `validateCapabilityInput`, invokes `capability.invoke({}, context)`, converts the result through the same
+  bounded `toToolCallContent` path, and replaces the card result. Duplicate concurrent runs of the same capability are ignored.
 - A missing capability, an unavailable `when`, or missing required inputs never invokes the capability. Missing
   capabilities and unavailable context warn; missing inputs open a chat prompt that asks NukeAI to collect them.
 - A write, execute, or destructive capability is never invoked from the card. `ask` sends a short prompt through
@@ -157,7 +157,7 @@ capability itself.
 
 `undo(token, response)` is the only path that calls `NukeUndoService.undo`. It first shows `MessageService.warn` with
 an `Undo` action and awaits the choice; cancelling returns without touching state. On confirmation it calls the undo
-service and replaces the card through `response.updateResult(result)` only when the result has `ok: true`. A failed
+service and replaces the card only when the result has `ok: true`, using the same bounded conversion. A failed
 undo result is reported through the message service and keeps the card unchanged; a thrown error is logged and
 reported, and the method never rejects. A duplicate concurrent undo of the same token is ignored.
 

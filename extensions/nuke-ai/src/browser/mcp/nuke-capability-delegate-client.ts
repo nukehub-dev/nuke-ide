@@ -47,6 +47,7 @@ import {
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { validateCapabilityInput } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
+import { isAllowedMcpCapability, isReadOnlyMcpCapability } from '../../common/nuke-mcp-protocol';
 import {
     NukeCapabilityDelegate,
     NukeCapabilityDelegateClient,
@@ -105,6 +106,9 @@ export class NukeCapabilityDelegateClientImpl implements NukeCapabilityDelegateC
         const capability = this.capabilityRegistry.get(capabilityId);
         if (!capability) {
             return { ok: false, message: `Unknown capability: ${capabilityId}.` };
+        }
+        if (!isAllowedMcpCapability(capabilityId) || !isReadOnlyMcpCapability(toCapabilityDescriptor(capability))) {
+            return { ok: false, message: `Capability ${capabilityId} is not available on the read-only MCP endpoint.` };
         }
         let context;
         try {

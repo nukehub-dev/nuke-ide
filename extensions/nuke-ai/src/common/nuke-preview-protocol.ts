@@ -39,6 +39,12 @@
 /** Maximum decoded preview size persisted to disk. */
 export const MAX_PERSISTED_PREVIEW_BYTES = 8 * 1024 * 1024;
 
+/** Maximum serialized capability-result snapshot persisted to disk. */
+export const MAX_PERSISTED_RESULT_BYTES = 1024 * 1024;
+
+/** Maximum serialized preview-trajectory size retained for one session. */
+export const MAX_PERSISTED_TRAJECTORY_BYTES = 1024 * 1024;
+
 /** Maximum preview image size embedded into a tool result. */
 export const MAX_RENDERED_PREVIEW_BYTES = 4 * 1024 * 1024;
 

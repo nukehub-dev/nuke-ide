@@ -61,7 +61,9 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
   and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.
-  Series findings cover aggregate steps only; per-bin detail stays in the viewer. See `docs/user/diagnostics.md`.
+  Series findings cover aggregate steps only; per-bin detail stays in the viewer. The capability bridge also rejects
+  any non-diagnostics capability when the request agent is Nuke Diagnostics, even if manually referenced. See
+  `docs/user/diagnostics.md`.
 - `NukeAiActionService.ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` resolves the requested agent and falls back
   to `NukeAI`; the four `nuke.ai.diagnose*` commands sit under the NukeAI `Diagnostics` sidebar subgroup.
 - `src/browser/actions/` owns the read-only NukeAI commands, `NukeAiActionService`, and the NukeAI Nuke Tools
@@ -80,7 +82,7 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   including a safe `changeSet` diff and `undoToken`; `nuke-tool-call-card.tsx` is the pure card rendering status,
   counts, issues, warnings, previews, artifacts, executable next actions, and the diff with **Apply with NukeAI** and
   **Undo**; `nuke-tool-call-renderer.tsx` binds the Theia renderer, opener service, and parsed card props.
-- `NukeNextActionService` runs read-only next actions in place and replaces the card result through `updateResult`;
+- `NukeNextActionService` runs read-only next actions in place and replaces the card result through the same bounded result conversion and `updateResult`;
   write/execute/destructive actions only open a NukeAI prompt that keeps the normal confirmation flow. `applyChangeSet`
   requires a `write`/`execute` apply capability and never invokes it; `undo` confirms through `MessageService.warn` and
   calls `NukeUndoService.undo`, updating the card only on success. See `docs/dev/agent-and-cards.md`.
@@ -108,7 +110,7 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/node/skills/nuke-skill-service.ts` exposes the packaged skill root over RPC; `src/browser/skills/`,
   `src/browser/context/`, and `src/browser/resources/` own the Theia skill directory, `#nukeContext`, and read-only
   resources. See `docs/dev/skills.md` and `docs/dev/context-and-resources.md`.
-- Tool confirmation follows risk: `read` follows the IDE preference and may inherit always-allow, `write`/`execute` need an explicit per-tool allow, and `destructive` adds an overwrite/delete warning.
+- Tool confirmation follows risk: a plain `read` follows the IDE preference and may inherit always-allow; any capability with `requiresConfirmation: true`, plus every `write`/`execute`, needs an explicit per-tool allow; `destructive` adds an overwrite/delete warning.
 
 ## Work Guidance
 
@@ -129,9 +131,11 @@ npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-tools-contribution
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-schema.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-result.test.ts
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-call-summary.test.ts
+npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-call-renderer.test.tsx
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-tool-call-card.test.tsx
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-next-action-service.test.ts
 npx vitest run extensions/nuke-ai/src/browser/preview/nuke-preview-store.test.ts
+npx vitest run extensions/nuke-ai/src/browser/preview/nuke-preview-gallery-service.test.ts
 npx vitest run extensions/nuke-ai/src/browser/welcome
 npx vitest run extensions/nuke-ai/src/browser/preview
 npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-capability-tool-bridge.test.ts
@@ -140,6 +144,7 @@ npx vitest run extensions/nuke-ai/src/browser/capabilities/nuke-edit-journal.tes
 npx vitest run extensions/nuke-ai/src/browser/commands
 npx vitest run extensions/nuke-ai/src/node/skills/nuke-skill-service.test.ts
 npx vitest run extensions/nuke-ai/src/browser/skills/nuke-skill-directory-contribution.test.ts
+npx vitest run extensions/nuke-ai/src/browser/skills/nuke-skill-root-cache.test.ts
 npx vitest run extensions/nuke-ai/src/browser/context/nuke-context-variable-contribution.test.ts
 npx vitest run extensions/nuke-ai/src/browser/resources/nuke-resource-service.test.ts
 npx vitest run extensions/nuke-ai/src/node/mcp/nuke-mcp-auth.test.ts
@@ -150,6 +155,7 @@ npx vitest run extensions/nuke-ai/src/node/mcp/nuke-mcp-audit.test.ts
 npx vitest run extensions/nuke-ai/src/node/mcp/nuke-mcp-session-registry.test.ts
 npx vitest run extensions/nuke-ai/src/node/mcp/nuke-mcp-contribution.test.ts
 npx vitest run extensions/nuke-ai/src/browser/mcp/nuke-capability-delegate-client.test.ts
+npx vitest run extensions/nuke-ai/src/browser/mcp/nuke-mcp-commands.test.ts
 yarn lint
 ```
 

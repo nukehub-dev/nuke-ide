@@ -43,7 +43,7 @@ The journals intentionally exclude:
 - credentials and secret-shaped text, which is redacted before writing.
 
 The applied-edit journal records changed path identifiers such as `run.batches`, but not the values at those paths. The
-full preview snapshot remains in the preview history under `.nuke-ide/ai/previews`; see [Previews and the Gallery](previews.md).
+bounded preview bundle/result snapshot remains in the preview history under `.nuke-ide/ai/previews`; see [Previews and the Gallery](previews.md).
 
 ## Delete the logs
 

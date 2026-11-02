@@ -94,8 +94,8 @@ export function NukePreviewGalleryView({ entries, loading, error, onOpen, onRefr
                     <span className="codicon codicon-device-camera nuke-preview-gallery-empty-icon" aria-hidden="true" />
                     <h3 className="nuke-preview-gallery-empty-title">No previews yet</h3>
                     <p className="nuke-preview-gallery-empty-text">
-                        Previews appear here after a NukeAI action captures a viewport or produces a CAD preview. Ask NukeAI to capture the
-                        active DAGMC view, then refresh this gallery.
+                        Previews appear here after a NukeAI action captures a viewport or returns a result with a preview or artifact. Ask
+                        NukeAI to capture the active DAGMC view, then refresh this gallery.
                     </p>
                 </div>
             )}

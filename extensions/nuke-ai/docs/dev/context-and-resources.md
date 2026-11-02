@@ -33,6 +33,8 @@ Workspace roots:
 - Missing fields and an empty root list render as `none`.
 - An absolute path outside every workspace root is rendered as `none`, so the variable never leaks an external
   path.
+- Path values are stripped of control characters, code ticks become apostrophes, and each value is capped at 512
+  characters before entering the prompt.
 - If context collection fails, the value is exactly `context unavailable`; resolution never throws.
 
 `canResolve` returns `100` for `nukeContext` and `0` for other variables. The contribution is bound to

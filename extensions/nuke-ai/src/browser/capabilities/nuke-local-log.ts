@@ -42,6 +42,7 @@ import { URI } from '@theia/core/lib/common/uri';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
 import type { WorkspaceService } from '@theia/workspace/lib/browser';
 import * as path from 'path';
+import { isSafeDirectoryPath, isSafeFileTarget } from '../preview/preview-path-policy';
 
 /** Workspace folder that holds NukeAI local logs. */
 export const NUKE_AI_LOCAL_LOG_ROOT = '.nuke-ide/ai';
@@ -89,6 +90,10 @@ export class NukeLocalJsonlLog {
      */
     append(entry: unknown): Promise<boolean> {
         const line = `${JSON.stringify(entry)}\n`;
+        if (utf8Length(line) > this.maxBytes()) {
+            this.logger.error(`[NukeAi] Refusing to write an oversized ${this.options.fileName} entry.`);
+            return Promise.resolve(false);
+        }
         const run = this.queue.then(
             () => this.performAppend(line),
             () => this.performAppend(line)
@@ -120,11 +125,24 @@ export class NukeLocalJsonlLog {
         }
         const dirUri = URI.fromFilePath(root).resolve(this.options.dir);
         const currentUri = dirUri.resolve(this.options.fileName);
+        const backupUri = dirUri.resolve(this.options.backupFileName);
+        const dirPath = path.join(root, this.options.dir);
+        if (!(await isSafeDirectoryPath(this.fileService, dirPath, [root]))) {
+            this.logger.error(`[NukeAi] Refusing to write ${this.options.fileName} through a symlinked directory.`);
+            return false;
+        }
+        if (
+            !(await isSafeFileTarget(this.fileService, currentUri.path.toString(), [root])) ||
+            !(await isSafeFileTarget(this.fileService, backupUri.path.toString(), [root]))
+        ) {
+            this.logger.error(`[NukeAi] Refusing to write ${this.options.fileName} through a symlinked file.`);
+            return false;
+        }
         try {
             await this.fileService.createFolder(dirUri, { fromUserGesture: false });
             const existing = await this.readIfExists(currentUri);
             if (existing !== undefined && utf8Length(existing) + utf8Length(line) > this.maxBytes()) {
-                await this.fileService.write(dirUri.resolve(this.options.backupFileName), existing);
+                await this.fileService.write(backupUri, existing);
                 await this.fileService.write(currentUri, line);
             } else {
                 const separator = existing !== undefined && existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
@@ -143,10 +161,17 @@ export class NukeLocalJsonlLog {
             return [];
         }
         const dirUri = URI.fromFilePath(root).resolve(this.options.dir);
+        if (!(await isSafeDirectoryPath(this.fileService, path.join(root, this.options.dir), [root]))) {
+            return [];
+        }
         const entries: unknown[] = [];
         try {
             for (const name of [this.options.backupFileName, this.options.fileName]) {
-                const text = await this.readIfExists(dirUri.resolve(name));
+                const target = dirUri.resolve(name);
+                if (!(await isSafeFileTarget(this.fileService, target.path.toString(), [root]))) {
+                    continue;
+                }
+                const text = await this.readIfExists(target);
                 if (text === undefined) {
                     continue;
                 }

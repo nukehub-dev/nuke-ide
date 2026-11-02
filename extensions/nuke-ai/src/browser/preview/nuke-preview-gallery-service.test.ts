@@ -44,6 +44,7 @@ interface FakeEntry {
     readonly directory: boolean;
     readonly text?: string;
     readonly mtime: number;
+    readonly symlink?: boolean;
 }
 
 interface BundleOptions {
@@ -69,6 +70,11 @@ class FakeFileService {
         this.entries.set(target, { directory: false, text, mtime });
     }
 
+    addSymlink(target: string): void {
+        this.ensureParents(path.dirname(target));
+        this.entries.set(target, { directory: false, mtime: 0, symlink: true });
+    }
+
     async read(uri: URI): Promise<{ value: string }> {
         const target = key(uri);
         this.reads.push(target);
@@ -89,9 +95,9 @@ class FakeFileService {
         return {
             resource: uri,
             name: path.basename(target),
-            isFile: !entry.directory,
-            isDirectory: entry.directory,
-            isSymbolicLink: false,
+            isFile: !entry.directory && entry.symlink !== true,
+            isDirectory: entry.directory && entry.symlink !== true,
+            isSymbolicLink: entry.symlink === true,
             isReadonly: false,
             mtime: entry.mtime,
             size: entry.text?.length ?? 0,
@@ -113,9 +119,9 @@ class FakeFileService {
             children.push({
                 resource: URI.fromFilePath(candidate),
                 name: relative,
-                isFile: !entry.directory,
-                isDirectory: entry.directory,
-                isSymbolicLink: false,
+                isFile: !entry.directory && entry.symlink !== true,
+                isDirectory: entry.directory && entry.symlink !== true,
+                isSymbolicLink: entry.symlink === true,
                 isReadonly: false,
                 mtime: entry.mtime,
                 size: entry.text?.length ?? 0
@@ -191,6 +197,9 @@ function addSession(fileService: FakeFileService, sessionId: string, createdAt: 
             ...(bundle.previewPath !== undefined ? { path: bundle.previewPath } : {})
         };
         fileService.addText(`${bundleUri}/result.json`, bundle.resultRaw ?? JSON.stringify({ ok: true, preview }), bundle.mtime ?? 0);
+        if (bundle.previewPath !== undefined) {
+            fileService.addText(bundle.previewPath, 'preview');
+        }
         if (bundle.capabilityId !== undefined) {
             trajectory.push(
                 JSON.stringify({
@@ -258,6 +267,21 @@ describe('NukePreviewGalleryService', () => {
             previewPath: `${PREVIEW_ROOT}/20260201-010101-bbbbbb/bundle-001/preview.png`,
             resultPath: `${PREVIEW_ROOT}/20260201-010101-bbbbbb/bundle-001/result.json`
         });
+    });
+
+    it('does not read a symlinked result.json', async () => {
+        const { fileService, service } = setup();
+        addSession(fileService, '20260101-010101-aaaaaa', '2026-01-01T01:01:01.000Z', [
+            { bundleId: 'bundle-001', capabilityId: 'nuke.viz.captureView', caption: 'First view' }
+        ]);
+        const resultPath = `${PREVIEW_ROOT}/20260101-010101-aaaaaa/bundle-001/result.json`;
+        fileService.addSymlink(resultPath);
+        fileService.reads.length = 0;
+
+        const entries = await service.list();
+
+        expect(entries).toEqual([]);
+        expect(fileService.reads).not.toContain(resultPath);
     });
 
     it('skips malformed sessions, results, and trajectory lines', async () => {

@@ -197,6 +197,7 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
         'nukeCad.aiAuthoringEnabled': {
             type: 'boolean',
             default: false,
+            scope: PreferenceScope.User,
             description:
                 'Allow NukeAI to propose and apply scalar feature-parameter edits (length, angle, radius, thickness), ' +
                 'sketch dimensions, topology changes, imported bodies, and assembly instance placements to saved .nuke-cad ' +

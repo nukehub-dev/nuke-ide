@@ -65,7 +65,11 @@ export default new ContainerModule((bind) => {
                 new RpcConnectionHandler<NukeCapabilityDelegateClient>(NukeCapabilityDelegatePath, (client) => {
                     const delegate = ctx.container.get<NukeCapabilityDelegateImpl>(NukeCapabilityDelegateImpl);
                     delegate.setClient(client);
-                    return delegate;
+                    // This channel only registers the frontend delegate. The
+                    // backend calls the injected singleton directly; exposing
+                    // the delegate itself here would let any RPC client invoke
+                    // write/execute capabilities without the chat confirmation.
+                    return {};
                 })
         )
         .inSingletonScope();

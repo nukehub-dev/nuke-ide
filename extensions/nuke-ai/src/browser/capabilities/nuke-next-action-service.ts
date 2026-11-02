@@ -52,6 +52,7 @@ import {
 import { validateCapabilityInput } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import { NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import { NukeAiActionService } from '../actions/nuke-ai-action-service';
+import { toToolCallContent } from './nuke-tool-result';
 import { NukeToolCallChangeSet } from './nuke-tool-call-summary';
 import { toToolName } from './nuke-tool-schema';
 
@@ -114,7 +115,7 @@ export class NukeNextActionService {
                 return;
             }
             const result = await capability.invoke({}, context);
-            response.updateResult(result);
+            response.updateResult(await toToolCallContent(result, undefined, { workspaceRoots: context.workspaceRoots }));
         } catch (error) {
             this.logger.error(`[NukeAI] Failed to run next action ${capabilityId}:`, error);
             this.messageService.error(`NukeAI could not run ${capability.title}: ${errorMessage(error)}`);
@@ -181,12 +182,12 @@ export class NukeNextActionService {
             }
             const result = await this.undoService.undo(token);
             if (result.ok) {
-                response.updateResult(result);
+                response.updateResult(await toToolCallContent(result));
                 return;
             }
             this.messageService.error(result.message ?? 'The change could not be undone.');
         } catch (error) {
-            this.logger.error(`[NukeAI] Failed to undo change ${token}:`, error);
+            this.logger.error('[NukeAI] Failed to undo an applied change.', error);
             this.messageService.error(`NukeAI could not undo this change: ${errorMessage(error)}`);
         } finally {
             this.undoing.delete(token);

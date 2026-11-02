@@ -54,6 +54,8 @@ import { randomUUID } from 'crypto';
 import type { NukeCapabilityResult } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { NukeCapabilityDelegate, NukeCapabilityDescriptor, NukeMcpResourceDescriptor } from '../../common/nuke-capability-delegate';
 import {
+    boundedMcpText,
+    boundedMcpValue,
     buildDiagnosticsPrompt,
     buildWorkflowPrompt,
     isAllowedMcpCapability,
@@ -61,6 +63,7 @@ import {
     isReadOnlyMcpCapability,
     MCP_CONTEXT_RESOURCE_URI,
     MCP_MAX_RESOURCES,
+    stringifyMcpResult,
     NUKE_DIAGNOSTICS_PROMPT_NAME,
     NUKE_WORKFLOW_PROMPT_NAME,
     NukeMcpToolSummary
@@ -207,22 +210,20 @@ export class NukeMcpContribution implements ExternalApiContribution {
         }
 
         this.pendingSessions += 1;
-        let session: McpSession;
+        let session: McpSession | undefined;
         try {
             session = await this.createSession(registry);
-        } finally {
-            this.pendingSessions -= 1;
-        }
-        try {
             await session.transport.handleRequest(request, response, request.body);
         } catch (error) {
             // An initialization request that fails before the session id is
             // registered would otherwise leak its server and transport until
             // the next routing rebuild.
-            if (!session.transport.sessionId) {
+            if (session && !session.transport.sessionId) {
                 await this.closeSession(session);
             }
             throw error;
+        } finally {
+            this.pendingSessions -= 1;
         }
     }
 
@@ -235,6 +236,7 @@ export class NukeMcpContribution implements ExternalApiContribution {
                 initializedId = sessionId;
                 if (!session || !registry.open(sessionId, session)) {
                     this.logger.warn('[NukeAI] MCP session rejected because the session limit was reached.');
+                    void session?.server.close().catch(() => undefined);
                     void transport.close().catch(() => undefined);
                     return;
                 }
@@ -275,58 +277,63 @@ export class NukeMcpContribution implements ExternalApiContribution {
             // an empty catalog when the frontend is unavailable.
             capabilities: { tools: {}, resources: {}, prompts: {} }
         });
-        const catalog = await this.loadCatalog();
-        const tools = new Map<string, NukeMcpCatalogTool>();
-        for (const tool of catalog) {
-            tools.set(tool.name, tool);
-            server.registerTool(
-                tool.name,
-                {
-                    title: tool.title,
-                    description: tool.description,
-                    inputSchema: tool.inputSchema,
-                    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
-                    annotations: tool.annotations
-                },
-                async (input) => this.invokeTool(tool, input, getSessionId(), registry)
-            );
-        }
+        try {
+            const catalog = await this.loadCatalog();
+            const tools = new Map<string, NukeMcpCatalogTool>();
+            for (const tool of catalog) {
+                tools.set(tool.name, tool);
+                server.registerTool(
+                    tool.name,
+                    {
+                        title: tool.title,
+                        description: tool.description,
+                        inputSchema: tool.inputSchema,
+                        ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+                        annotations: tool.annotations
+                    },
+                    async (input) => this.invokeTool(tool, input, getSessionId(), registry)
+                );
+            }
 
-        for (const resource of await this.loadResources()) {
-            server.registerResource(
-                resource.name,
-                resource.uri,
-                {
-                    title: resource.name,
-                    description: resource.description,
-                    mimeType: resource.mimeType
-                },
-                async (uri) => this.readResource(uri.toString(), resource.mimeType)
-            );
-        }
+            for (const resource of await this.loadResources()) {
+                server.registerResource(
+                    resource.name,
+                    resource.uri,
+                    {
+                        title: resource.name,
+                        description: resource.description,
+                        mimeType: resource.mimeType
+                    },
+                    async (uri) => this.readResource(uri.toString(), resource.mimeType)
+                );
+            }
 
-        const summaries: NukeMcpToolSummary[] = catalog.map((tool) => ({
-            name: tool.name,
-            capabilityId: tool.capabilityId,
-            title: tool.title
-        }));
-        server.registerPrompt(
-            NUKE_WORKFLOW_PROMPT_NAME,
-            {
-                title: 'Nuke workflow',
-                description: 'Walk through the CAD to DAGMC to OpenMC to visualizer workflow using only the exposed read-only tools.'
-            },
-            () => promptResult(buildWorkflowPrompt(summaries))
-        );
-        server.registerPrompt(
-            NUKE_DIAGNOSTICS_PROMPT_NAME,
-            {
-                title: 'Nuke diagnostics',
-                description: 'Triage CAD, OpenMC, and statepoint findings with the exposed read-only diagnostics tools.'
-            },
-            () => promptResult(buildDiagnosticsPrompt(summaries))
-        );
-        return { server, tools };
+            const summaries: NukeMcpToolSummary[] = catalog.map((tool) => ({
+                name: tool.name,
+                capabilityId: tool.capabilityId,
+                title: tool.title
+            }));
+            server.registerPrompt(
+                NUKE_WORKFLOW_PROMPT_NAME,
+                {
+                    title: 'Nuke workflow',
+                    description: 'Walk through the CAD to DAGMC to OpenMC to visualizer workflow using only the exposed read-only tools.'
+                },
+                () => promptResult(buildWorkflowPrompt(summaries))
+            );
+            server.registerPrompt(
+                NUKE_DIAGNOSTICS_PROMPT_NAME,
+                {
+                    title: 'Nuke diagnostics',
+                    description: 'Triage CAD, OpenMC, and statepoint findings with the exposed read-only diagnostics tools.'
+                },
+                () => promptResult(buildDiagnosticsPrompt(summaries))
+            );
+            return { server, tools };
+        } catch (error) {
+            await server.close().catch(() => undefined);
+            throw error;
+        }
     }
 
     /** Build the live catalog, or an empty one when the frontend is unavailable. */
@@ -453,8 +460,8 @@ export class NukeMcpContribution implements ExternalApiContribution {
             }
             ok = result.ok;
             return {
-                structuredContent: toStructuredContent(result),
-                content: [{ type: 'text', text: stringifyResult(result) }],
+                structuredContent: boundedMcpValue(toStructuredContent(result)) as Record<string, unknown>,
+                content: [{ type: 'text', text: stringifyMcpResult(result) }],
                 isError: !result.ok
             };
         } catch (error) {
@@ -494,7 +501,7 @@ export class NukeMcpContribution implements ExternalApiContribution {
                 throw new Error('the resource delegate returned a non-text payload.');
             }
             return {
-                contents: [{ uri, mimeType: mimeType || 'application/json', text }]
+                contents: [{ uri, mimeType: mimeType || 'application/json', text: boundedMcpText(text) }]
             };
         } catch (error) {
             this.logger.warn(`[NukeAI] MCP resource read failed for ${uri}.`);
@@ -552,14 +559,6 @@ function promptResult(text: string): { messages: Array<{ role: 'user'; content: 
     return {
         messages: [{ role: 'user', content: { type: 'text', text } }]
     };
-}
-
-function stringifyResult(result: unknown): string {
-    try {
-        return JSON.stringify(result);
-    } catch {
-        return '{"ok":false,"message":"Unable to serialize the capability result."}';
-    }
 }
 
 function isResourceDescriptor(value: unknown): value is NukeMcpResourceDescriptor {

@@ -50,7 +50,7 @@ Tool results include a short message, bounded structured JSON, and file or URI l
 
 When a tool can show a preview, the chat renders it next to the result with a caption, its limitations, and a marker
 when the image is approximate. Previews produced by tools, including the DAGMC viewport capture, are also recorded
-under the workspace at `.nuke-ide/ai/previews/` so the command-to-preview history can be replayed. See
+under the workspace at `.nuke-ide/ai/previews/` so the command-to-preview history can be reviewed. See
 [Previews and the Gallery](previews.md) for the folder layout and the read-only gallery; the IDE recreates the folder
 on the next capture.
 
@@ -58,7 +58,8 @@ on the next capture.
 
 CAD authoring is opt-in. Enable **Nuke CAD: AI Authoring** in **Settings → Nuke CAD** first. NukeAI can then propose
 scalar changes to an existing feature on a saved `.nuke-cad` document: pad/pocket length, revolve/groove angle, fillet
-radius, chamfer distance, draft angle, pattern spacing/angle, shell thickness, and blind-hole diameter/depth. It
+radius, chamfer distance, draft angle, linear-pattern spacing, circular-pattern angle, shell thickness, and hole
+diameter or blind-hole depth. It
 previews every change with a real build, shows the diff and impact (solid/face/triangle counts and bounding box), and
 applies only the returned proposal after explicit confirmation. Apply writes a hidden backup beside the document,
 schedules the normal rebuild, and offers **Undo** in the chat.

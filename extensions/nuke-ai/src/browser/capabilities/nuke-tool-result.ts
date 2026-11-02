@@ -46,6 +46,7 @@ import { URI } from '@theia/core/lib/common/uri';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
 import * as path from 'path';
 import { NukeArtifact, NukeCapabilityResult, NukeChange, NukeChangeSet, NukePreview } from 'nuke-core/lib/common/nuke-capability-protocol';
+import { isReferenceableFilePath } from '../preview/preview-path-policy';
 import {
     MAX_RENDERED_PREVIEW_BYTES,
     baseMimeType,
@@ -57,6 +58,11 @@ import {
 
 const MAX_STRING_BYTES = 8 * 1024;
 const MAX_JSON_BYTES = 32 * 1024;
+const MAX_ARTIFACT_LINES = 50;
+const MAX_FALLBACK_CHANGES = 8;
+const MAX_FALLBACK_FIELD_LENGTH = 512;
+const MAX_VALUE_ENTRIES = 500;
+const MAX_VALUE_DEPTH = 8;
 const TRUNCATION_MARKER = '[truncated]';
 const BASE64_OMITTED = '[base64 omitted]';
 const PREVIEW_OMITTED = '[preview omitted]';
@@ -70,6 +76,7 @@ const UTF8_DECODER = new TextDecoder();
 /** Extra capture metadata passed by the bridge without mutating the result. */
 export interface NukeToolResultMetadata {
     readonly previewPath?: string;
+    readonly workspaceRoots?: readonly string[];
 }
 
 /**
@@ -92,14 +99,18 @@ export async function toToolCallContent(
     }
     content.push({ type: 'text', text: truncateString(message) });
     if (result.preview) {
-        content.push(await renderPreview(result.preview, fileService));
+        content.push(await renderPreview(result.preview, fileService, metadata));
         content.push({ type: 'text', text: previewSummary(result.preview) });
     }
     if (result.data !== undefined || result.preview !== undefined || result.changeSet !== undefined || result.undoToken !== undefined) {
         content.push({ type: 'text', text: buildJson(result, metadata) });
     }
     if (result.artifacts && result.artifacts.length > 0) {
-        content.push({ type: 'text', text: result.artifacts.map(artifactLine).join('\n') });
+        const lines = result.artifacts.slice(0, MAX_ARTIFACT_LINES).map(artifactLine);
+        if (result.artifacts.length > MAX_ARTIFACT_LINES) {
+            lines.push(`[${result.artifacts.length - MAX_ARTIFACT_LINES} more artifacts]`);
+        }
+        content.push({ type: 'text', text: lines.join('\n') });
     }
     return { content };
 }
@@ -144,10 +155,26 @@ function buildJson(result: NukeCapabilityResult, metadata?: NukeToolResultMetada
     if (utf8Length(json) <= MAX_JSON_BYTES) {
         return json;
     }
-    return JSON.stringify({
+    const fallback: Record<string, unknown> = {
         ok: result.ok,
         truncated: true,
         note: `Result exceeded ${MAX_JSON_BYTES} bytes and was truncated. ${TRUNCATION_MARKER}`
+    };
+    if (result.changeSet) {
+        fallback.changeSet = compactChangeSet(result.changeSet);
+    }
+    if (result.undoToken !== undefined) {
+        fallback.undoToken = truncateString(result.undoToken);
+    }
+    const fallbackJson = JSON.stringify(fallback);
+    if (utf8Length(fallbackJson) <= MAX_JSON_BYTES) {
+        return fallbackJson;
+    }
+    return JSON.stringify({
+        ok: result.ok,
+        truncated: true,
+        note: `Result exceeded ${MAX_JSON_BYTES} bytes and was truncated. ${TRUNCATION_MARKER}`,
+        ...(result.undoToken !== undefined ? { undoToken: truncateString(result.undoToken) } : {})
     });
 }
 
@@ -190,6 +217,24 @@ function boundedChangeSet(changeSet: NukeChangeSet): Record<string, unknown> {
     return bounded;
 }
 
+function compactChangeSet(changeSet: NukeChangeSet): Record<string, unknown> {
+    return {
+        id: field(changeSet.id),
+        title: field(changeSet.title),
+        summary: field(changeSet.summary),
+        changes: changeSet.changes.slice(0, MAX_FALLBACK_CHANGES).map((change) => ({
+            path: field(change.path),
+            label: field(change.label),
+            kind: change.kind
+        })),
+        ...(changeSet.applyCapability !== undefined ? { applyCapability: field(changeSet.applyCapability) } : {})
+    };
+}
+
+function field(value: string): string {
+    return truncateString(value).slice(0, MAX_FALLBACK_FIELD_LENGTH);
+}
+
 function boundedChange(change: NukeChange): Record<string, unknown> {
     const bounded: Record<string, unknown> = {
         path: truncateString(change.path),
@@ -205,11 +250,15 @@ function boundedChange(change: NukeChange): Record<string, unknown> {
     return bounded;
 }
 
-async function renderPreview(preview: NukePreview, fileService?: FileService): Promise<ToolCallContentResult> {
+async function renderPreview(
+    preview: NukePreview,
+    fileService?: FileService,
+    metadata?: NukeToolResultMetadata
+): Promise<ToolCallContentResult> {
     switch (preview.kind) {
         case 'image':
         case 'svg':
-            return renderImagePreview(preview, fileService);
+            return renderImagePreview(preview, fileService, metadata);
         case 'html':
             return renderHtmlPreview(preview);
         case 'markdown':
@@ -219,11 +268,21 @@ async function renderPreview(preview: NukePreview, fileService?: FileService): P
     }
 }
 
-async function renderImagePreview(preview: NukePreview, fileService?: FileService): Promise<ToolCallContentResult> {
+async function renderImagePreview(
+    preview: NukePreview,
+    fileService?: FileService,
+    metadata?: NukeToolResultMetadata
+): Promise<ToolCallContentResult> {
     if (preview.data !== undefined && preview.data.length > 0) {
+        if (preview.data.length > Math.ceil((MAX_RENDERED_PREVIEW_BYTES * 4) / 3) + 1024) {
+            return { type: 'text', text: 'Preview unavailable: the inline preview is larger than 4 MiB.' };
+        }
         const parsed = parsePreviewDataUri(preview.data);
         if (!parsed) {
             return { type: 'text', text: 'Preview unavailable: the preview data URI is malformed.' };
+        }
+        if (parsed.bytes.byteLength > MAX_RENDERED_PREVIEW_BYTES) {
+            return { type: 'text', text: 'Preview unavailable: the inline preview is larger than 4 MiB.' };
         }
         const mimeType = baseMimeType(parsed.mimeType);
         if (preview.kind === 'svg' && mimeType !== 'image/svg+xml') {
@@ -235,17 +294,25 @@ async function renderImagePreview(preview: NukePreview, fileService?: FileServic
         return { type: 'image', base64data: parsed.base64, mimeType: parsed.mimeType };
     }
     if (preview.path !== undefined && preview.path.length > 0) {
-        return renderImagePath(preview, preview.path, fileService);
+        return renderImagePath(preview, preview.path, fileService, metadata?.workspaceRoots ?? []);
     }
     return { type: 'text', text: 'Preview unavailable: no preview data or path was provided.' };
 }
 
-async function renderImagePath(preview: NukePreview, imagePath: string, fileService?: FileService): Promise<ToolCallContentResult> {
+async function renderImagePath(
+    preview: NukePreview,
+    imagePath: string,
+    fileService: FileService | undefined,
+    workspaceRoots: readonly string[]
+): Promise<ToolCallContentResult> {
     if (!fileService) {
         return previewLink(preview, imagePath, 'no file service is available to read it.');
     }
     if (!path.isAbsolute(imagePath)) {
         return previewLink(preview, imagePath, 'the path is not absolute.');
+    }
+    if (!(await isReferenceableFilePath(fileService, imagePath, workspaceRoots))) {
+        return previewLink(preview, imagePath, 'the path is outside the workspace or contains a symlink.');
     }
     const resource = URI.fromFilePath(imagePath);
     try {
@@ -275,6 +342,12 @@ async function renderImagePath(preview: NukePreview, imagePath: string, fileServ
 
 function renderHtmlPreview(preview: NukePreview): ToolCallContentResult {
     if (preview.data !== undefined && preview.data.length > 0) {
+        if (preview.data.length > MAX_RENDERED_PREVIEW_BYTES + 1024) {
+            return { type: 'text', text: 'Preview unavailable: the inline HTML preview is larger than 4 MiB.' };
+        }
+        if (preview.data.length > Math.ceil((MAX_RENDERED_PREVIEW_BYTES * 4) / 3) + 1024) {
+            return { type: 'text', text: 'Preview unavailable: the inline preview is larger than 4 MiB.' };
+        }
         const parsed = parsePreviewDataUri(preview.data);
         if (parsed && baseMimeType(parsed.mimeType) !== 'text/html') {
             return { type: 'text', text: 'Preview unavailable: the HTML preview data URI is not text/html.' };
@@ -282,9 +355,13 @@ function renderHtmlPreview(preview: NukePreview): ToolCallContentResult {
         if (!parsed && preview.data.startsWith('data:')) {
             return { type: 'text', text: 'Preview unavailable: the preview data URI is malformed.' };
         }
+        const html = parsed ? previewText(parsed) : preview.data;
+        if (utf8Length(html) > MAX_RENDERED_PREVIEW_BYTES) {
+            return { type: 'text', text: 'Preview unavailable: the inline HTML preview is larger than 4 MiB.' };
+        }
         return {
             type: 'html',
-            html: parsed ? previewText(parsed) : preview.data,
+            html,
             ...(preview.caption !== undefined ? { title: preview.caption } : {})
         };
     }
@@ -296,6 +373,12 @@ function renderHtmlPreview(preview: NukePreview): ToolCallContentResult {
 
 function renderMarkdownPreview(preview: NukePreview): ToolCallContentResult {
     if (preview.data !== undefined && preview.data.length > 0) {
+        if (preview.data.length > MAX_RENDERED_PREVIEW_BYTES + 1024) {
+            return { type: 'text', text: 'Preview unavailable: the inline markdown preview is larger than 4 MiB.' };
+        }
+        if (preview.data.length > Math.ceil((MAX_RENDERED_PREVIEW_BYTES * 4) / 3) + 1024) {
+            return { type: 'text', text: 'Preview unavailable: the inline preview is larger than 4 MiB.' };
+        }
         const parsed = parsePreviewDataUri(preview.data);
         if (!parsed && preview.data.startsWith('data:')) {
             return { type: 'text', text: 'Preview unavailable: the preview data URI is malformed.' };
@@ -351,7 +434,7 @@ function boundedArtifact(artifact: NukeArtifact): Record<string, unknown> {
     return bounded;
 }
 
-function truncateValue(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+function truncateValue(value: unknown, seen: WeakSet<object> = new WeakSet(), depth = 0): unknown {
     if (typeof value === 'string') {
         return truncateString(value);
     }
@@ -361,20 +444,23 @@ function truncateValue(value: unknown, seen: WeakSet<object> = new WeakSet()): u
     if (seen.has(value)) {
         return CIRCULAR_MARKER;
     }
+    if (depth >= MAX_VALUE_DEPTH) {
+        return '[truncated]';
+    }
     seen.add(value);
     try {
         if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
             return BINARY_OMITTED;
         }
         if (Array.isArray(value)) {
-            return value.map((entry) => truncateValue(entry, seen));
+            return value.slice(0, MAX_VALUE_ENTRIES).map((entry) => truncateValue(entry, seen, depth + 1));
         }
         if (value instanceof Date) {
             return value.toISOString();
         }
         const bounded: Record<string, unknown> = {};
-        for (const [key, entry] of Object.entries(value)) {
-            bounded[key] = truncateValue(entry, seen);
+        for (const [key, entry] of Object.entries(value).slice(0, MAX_VALUE_ENTRIES)) {
+            bounded[key] = truncateValue(entry, seen, depth + 1);
         }
         return bounded;
     } finally {

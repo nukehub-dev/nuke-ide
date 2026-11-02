@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CancellationTokenSource } from '@theia/core/lib/common/cancellation';
 import { Emitter, Event } from '@theia/core/lib/common/event';
 import { ILogger } from '@theia/core/lib/common/logger';
-import { ToolCallContent, ToolCallContentResult, ToolRequest } from '@theia/ai-core/lib/common/language-model';
+import { ToolCallContent, ToolCallContentResult, ToolInvocationContext, ToolRequest } from '@theia/ai-core/lib/common/language-model';
 import { ToolInvocationRegistry } from '@theia/ai-core/lib/common/tool-invocation-registry';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
 import {
@@ -41,6 +41,7 @@ import {
     NukeJsonSchema
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { NukePreviewBundle, NukePreviewSession } from '../../common/nuke-preview-protocol';
+import { NUKE_DIAGNOSTICS_AGENT_ID } from '../agent/nuke-diagnostics-agent';
 import { NukePreviewStore } from '../preview/nuke-preview-store';
 import { NukeAiMetricsService } from './nuke-ai-metrics-service';
 import { NukeCapabilityToolBridge } from './nuke-capability-tool-bridge';
@@ -135,6 +136,7 @@ class FakeToolRegistry implements ToolInvocationRegistry {
 }
 
 class FakePreviewStore {
+    readonly releaseSession = vi.fn();
     readonly createSession = vi.fn(async (): Promise<NukePreviewSession> => ({
         id: 'session-1',
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -360,6 +362,7 @@ describe('NukeCapabilityToolBridge', () => {
         const { toolRegistry, bridge } = setup({
             capabilities: [
                 capability({ id: 'nuke.example.readRisk', risk: 'read' }),
+                capability({ id: 'nuke.example.readConfirmed', risk: 'read', requiresConfirmation: true }),
                 capability({ id: 'nuke.example.writeRisk', risk: 'write' }),
                 capability({ id: 'nuke.example.executeRisk', risk: 'execute' }),
                 capability({ id: 'nuke.example.destructiveRisk', risk: 'destructive' })
@@ -369,6 +372,7 @@ describe('NukeCapabilityToolBridge', () => {
         await bridge.onStart();
 
         expect(toolRegistry.tools.get(toToolName('nuke.example.readRisk'))?.confirmAlwaysAllow).toBeUndefined();
+        expect(toolRegistry.tools.get(toToolName('nuke.example.readConfirmed'))?.confirmAlwaysAllow).toBe(true);
         expect(toolRegistry.tools.get(toToolName('nuke.example.writeRisk'))?.confirmAlwaysAllow).toBe(true);
         expect(toolRegistry.tools.get(toToolName('nuke.example.executeRisk'))?.confirmAlwaysAllow).toBe(true);
         expect(toolRegistry.tools.get(toToolName('nuke.example.destructiveRisk'))?.confirmAlwaysAllow).toBe(
@@ -572,6 +576,30 @@ describe('NukeCapabilityToolBridge', () => {
         expect(capturedResult).toBe(result);
     });
 
+    it('creates a new preview session after the workspace roots change', async () => {
+        const invoke = vi.fn(async () => ({
+            ok: true,
+            message: 'Captured.',
+            preview: { kind: 'markdown' as const, data: 'A preview.', caption: 'Caption', truthful: true }
+        }));
+        const { contextService, toolRegistry, previewStore, bridge } = setup({
+            capabilities: [capability({ id: 'nuke.viz.captureView', invoke })]
+        });
+        await bridge.onStart();
+        const tool = toolRegistry.tools.get(toToolName('nuke.viz.captureView')) as ToolRequest;
+
+        await tool.handler('{"path":"/workspace/model"}');
+        expect(previewStore.createSession).toHaveBeenCalledTimes(1);
+
+        contextService.context = { workspaceRoots: ['/other-workspace'] };
+        await bridge.refresh();
+        await tool.handler('{"path":"/workspace/model"}');
+
+        expect(previewStore.createSession).toHaveBeenCalledTimes(2);
+        expect(previewStore.releaseSession).toHaveBeenCalledWith('session-1');
+        expect(previewStore.capture).toHaveBeenCalledTimes(2);
+    });
+
     it('still returns the tool result when preview capture fails', async () => {
         const invoke = vi.fn(async () => ({
             ok: true,
@@ -590,6 +618,35 @@ describe('NukeCapabilityToolBridge', () => {
         expect(content[0]).toEqual({ type: 'text', text: 'Captured.' });
         expect(content).toContainEqual({ type: 'text', text: 'A preview.' });
         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to capture preview'), expect.any(Error));
+    });
+
+    it('rejects a non-diagnostics capability when invoked by the diagnostics agent', async () => {
+        const invoke = vi.fn(async () => ({ ok: true }));
+        const { toolRegistry, bridge } = setup({
+            capabilities: [
+                capability({
+                    id: 'nuke.openmc.runSimulation',
+                    risk: 'execute',
+                    inputSchema: { type: 'object', properties: {} },
+                    invoke
+                })
+            ]
+        });
+        await bridge.onStart();
+        const tool = toolRegistry.tools.get(toToolName('nuke.openmc.runSimulation')) as ToolRequest;
+
+        const content = contentOf(
+            await tool.handler('{}', {
+                request: { agentId: NUKE_DIAGNOSTICS_AGENT_ID },
+                response: {}
+            } as unknown as ToolInvocationContext)
+        );
+
+        expect(content[0]).toEqual({
+            type: 'error',
+            data: 'Capability nuke.openmc.runSimulation is not available to the read-only Nuke Diagnostics agent.'
+        });
+        expect(invoke).not.toHaveBeenCalled();
     });
 
     it('returns an error for invalid JSON arguments', async () => {

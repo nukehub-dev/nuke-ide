@@ -28,6 +28,8 @@
 import { describe, expect, it } from 'vitest';
 import type { NukeCapabilityDescriptor } from '../../common/nuke-capability-delegate';
 import {
+    boundedMcpText,
+    boundedMcpValue,
     buildDiagnosticsPrompt,
     buildMcpToolDescription,
     buildWorkflowPrompt,
@@ -35,8 +37,11 @@ import {
     isAllowedMcpResourceUri,
     isReadOnlyMcpCapability,
     MCP_READ_ONLY_CAPABILITY_IDS,
+    MCP_MAX_RESULT_BYTES,
+    MCP_MAX_STRING_LENGTH,
     MCP_TOOL_DESCRIPTION_LIMIT,
     MCP_TOOL_NAME_PATTERN,
+    stringifyMcpResult,
     toMcpToolName
 } from '../../common/nuke-mcp-protocol';
 
@@ -155,6 +160,25 @@ describe('prompt builders', () => {
         expect(prompt).not.toContain('nuke.cad.exportDagmc');
         expect(prompt).not.toContain('nuke.openmc.runSimulation');
         expect(prompt).not.toContain('nuke_cad_export_dagmc');
+    });
+
+    it('bounds MCP result and resource payloads', () => {
+        const bounded = boundedMcpValue({
+            note: 'x'.repeat(MCP_MAX_STRING_LENGTH + 10),
+            data: `data:image/png;base64,${'A'.repeat(5000)}`,
+            rows: Array.from({ length: 250 }, (_, index) => index)
+        }) as Record<string, unknown>;
+        expect((bounded.note as string).length).toBeLessThanOrEqual(MCP_MAX_STRING_LENGTH);
+        expect(bounded.data).toBe('[inline data omitted]');
+        expect((bounded.rows as unknown[]).length).toBe(200);
+
+        const json = stringifyMcpResult({ ok: true, data: Array.from({ length: 200 }, () => 'word '.repeat(2500)) });
+        expect(json.length).toBeLessThanOrEqual(MCP_MAX_RESULT_BYTES);
+        expect(JSON.parse(json)).toMatchObject({ truncated: true });
+
+        const text = boundedMcpText('x'.repeat(MCP_MAX_RESULT_BYTES + 100));
+        expect(text.length).toBeLessThanOrEqual(MCP_MAX_RESULT_BYTES);
+        expect(text).toContain('[truncated]');
     });
 
     it('states when no tools are exposed', () => {

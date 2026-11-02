@@ -49,6 +49,8 @@ const MAX_LOG_STRING = 200;
 const TRUNCATION_SUFFIX = '... [truncated]';
 const MAX_LOG_DEPTH = 5;
 const MAX_LOG_ENTRIES = 50;
+const BEARER_SECRET = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+const KEY_VALUE_SECRET = /\b(api[-_]?key|token|secret|password|authorization)\b(\s*[:=]\s*)(["']?)(?!\[redacted\]|Bearer\b)[^\s"',;}]+/gi;
 
 /** One tool-call audit row. */
 export interface NukeMcpAuditEntry {
@@ -119,7 +121,7 @@ function redactValue(value: unknown, depth: number, seen: WeakSet<object>): unkn
         return value;
     }
     if (typeof value === 'string') {
-        return capLogString(value);
+        return capLogString(value.replace(BEARER_SECRET, 'Bearer [redacted]').replace(KEY_VALUE_SECRET, '$1$2$3[redacted]'));
     }
     if (typeof value === 'bigint') {
         return value.toString();

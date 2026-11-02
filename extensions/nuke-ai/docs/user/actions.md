@@ -25,7 +25,8 @@ Command Palette. The **NukeAI** section is the first section in the sidebar.
 | Capture DAGMC View        | Capture the active DAGMC viewport and describe the preview.                        |
 
 Every action is also available in the Command Palette under the `NukeAI:` prefix. The command-palette label names the
-action, and the chat transcript shows the shorter action label.
+action, and the chat transcript shows the shorter action label. **Review OpenMC Settings** is a Command Palette and
+welcome quick-start action; the other rows also appear in the NukeAI sidebar section.
 
 ## In domain menus
 
@@ -115,7 +116,7 @@ document or project. Any action that sends a request includes the same context a
 
 ## Preview gallery
 
-Saved previews from viewport captures and CAD/OpenMC previews live under `.nuke-ide/ai/previews`. Run **NukeAI: Open
+Saved viewport captures and tool results that carry a preview or artifact live under `.nuke-ide/ai/previews`. Run **NukeAI: Open
 Preview Gallery** to browse the newest bundles in a read-only widget; selecting a card opens the saved image or
 artifact. The gallery never deletes or regenerates anything. See [Preview Gallery](previews.md) for the bundle layout
 and retention.

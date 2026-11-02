@@ -33,8 +33,9 @@ both.
 ## What clients can do
 
 The catalog is read live from the open IDE for every MCP session. Tools appear only when their capability is enabled in
-the current context, so a CAD tool appears after a CAD document is open and an OpenMC run-status tool appears while a
-run exists. `tools/list` can be empty until the IDE frontend has opened and the relevant capabilities are active.
+the current context, so a CAD tool appears after a CAD document is open. The OpenMC run-status tool is always listed
+when OpenMC is available; it reports `running: false` when no run is active. `tools/list` can be empty until the IDE
+frontend has opened and the relevant capabilities are active.
 
 The endpoint may expose these read-only tools:
 
@@ -53,8 +54,8 @@ The endpoint may expose these read-only tools:
 | `nuke_viz_capture_view`         | A truthful image preview of the active DAGMC viewport |
 
 Every tool advertises MCP annotations that mark it read-only, idempotent, and closed-world. The catalog is dynamic:
-write, execute, and destructive capabilities are never exposed, and each tool uses the live input and output schema
-from its owning extension.
+write, execute, and destructive capabilities are never exposed, and each tool uses the live input schema and, when
+declared, the output schema from its owning extension.
 
 Resources:
 

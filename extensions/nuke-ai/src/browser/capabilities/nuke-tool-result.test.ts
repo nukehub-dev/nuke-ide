@@ -29,6 +29,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ToolCallContentResult, ToolCallTextResult } from '@theia/ai-core/lib/common/language-model';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { MAX_RENDERED_PREVIEW_BYTES } from '../../common/nuke-preview-protocol';
 import { toToolCallContent } from './nuke-tool-result';
 
 function textBlocks(content: ToolCallContentResult[]): string[] {
@@ -222,6 +223,46 @@ describe('toToolCallContent', () => {
         });
     });
 
+    it('caps the artifact text block and reports the remainder', async () => {
+        const artifacts = Array.from({ length: 55 }, (_, index) => ({
+            kind: 'file' as const,
+            label: `File ${index}`,
+            path: `/workspace/file-${index}.dat`
+        }));
+        const content = (await toToolCallContent({ ok: true, message: 'Files ready.', artifacts })).content;
+        const text = textBlocks(content).join('\n');
+
+        expect(text).toContain('File 49: /workspace/file-49.dat');
+        expect(text).not.toContain('File 50: /workspace/file-50.dat');
+        expect(text).toContain('[5 more artifacts]');
+    });
+
+    it('keeps the apply and undo fields when the JSON payload is truncated', async () => {
+        const content = (
+            await toToolCallContent({
+                ok: true,
+                data: Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`key${index}`, 'word '.repeat(2_000)])),
+                changeSet: {
+                    id: 'proposal-1',
+                    title: 'Run settings',
+                    summary: 'Increase batches.',
+                    applyCapability: 'nuke.openmc.applySettings',
+                    changes: [{ path: 'run.batches', label: 'Batches', kind: 'update', before: 10, after: 20 }]
+                },
+                undoToken: 'undo-1'
+            })
+        ).content;
+
+        const json = jsonBlock(content);
+        expect(json.truncated).toBe(true);
+        expect(json.undoToken).toBe('undo-1');
+        expect(json.changeSet).toMatchObject({
+            id: 'proposal-1',
+            applyCapability: 'nuke.openmc.applySettings',
+            changes: [{ path: 'run.batches', label: 'Batches', kind: 'update' }]
+        });
+    });
+
     it('truncates long strings inside the JSON block at 8 KiB', async () => {
         const log = 'log line '.repeat(2000);
         const content = (await toToolCallContent({ ok: true, data: { log } })).content;
@@ -294,7 +335,8 @@ describe('toToolCallContent', () => {
                     ok: true,
                     preview: { kind: 'image', path: target, caption: 'Path preview', truthful: true }
                 },
-                fileService
+                fileService,
+                { workspaceRoots: ['/workspace'] }
             )
         ).content;
 
@@ -324,6 +366,45 @@ describe('toToolCallContent', () => {
         expect(content).toContainEqual({ type: 'html', html: '<p>Report</p>', title: 'Summary' });
     });
 
+    it('does not read a path preview outside the workspace', async () => {
+        const target = '/home/user/.ssh/id_rsa';
+        const fileService = fakeFileService({ [target]: new Uint8Array([1]) });
+
+        const content = (
+            await toToolCallContent(
+                { ok: true, preview: { kind: 'image', path: target, caption: 'Secret', truthful: true } },
+                fileService,
+                { workspaceRoots: ['/workspace'] }
+            )
+        ).content;
+
+        expect(textBlocks(content).join('\n')).toContain('outside the workspace');
+        expect(content.some((item) => item.type === 'image')).toBe(false);
+        expect(fileService.readFile).not.toHaveBeenCalled();
+    });
+
+    it('does not follow a symlinked path preview', async () => {
+        const target = '/workspace/link.png';
+        const fileService = fakeFileService({ [target]: new Uint8Array([1]) });
+        (fileService.resolve as ReturnType<typeof vi.fn>).mockResolvedValue({
+            isFile: false,
+            isDirectory: false,
+            isSymbolicLink: true,
+            size: 1,
+            resource: { path: { toString: () => target } }
+        });
+
+        const content = (
+            await toToolCallContent({ ok: true, preview: { kind: 'image', path: target, caption: 'Link', truthful: true } }, fileService, {
+                workspaceRoots: ['/workspace']
+            })
+        ).content;
+
+        expect(textBlocks(content).join('\n')).toContain('contains a symlink');
+        expect(content.some((item) => item.type === 'image')).toBe(false);
+        expect(fileService.readFile).not.toHaveBeenCalled();
+    });
+
     it('returns a text link for an oversized image preview', async () => {
         const target = '/workspace/huge.png';
         const fileService = fakeFileService({ [target]: new Uint8Array([1]) }, { [target]: 4 * 1024 * 1024 + 1 });
@@ -334,7 +415,8 @@ describe('toToolCallContent', () => {
                     ok: true,
                     preview: { kind: 'image', path: target, caption: 'Huge', truthful: true }
                 },
-                fileService
+                fileService,
+                { workspaceRoots: ['/workspace'] }
             )
         ).content;
 
@@ -352,6 +434,31 @@ describe('toToolCallContent', () => {
 
         expect(content).toContainEqual({ type: 'text', text: 'Preview unavailable: the preview data URI is malformed.' });
         expect(textBlocks(content)).toContain('Preview: Broken');
+    });
+
+    it('falls back to text for an oversized inline preview', async () => {
+        const base64 = Buffer.from(new Uint8Array(MAX_RENDERED_PREVIEW_BYTES + 1)).toString('base64');
+        const content = (
+            await toToolCallContent({
+                ok: true,
+                preview: { kind: 'image', data: `data:image/png;base64,${base64}`, caption: 'Huge', truthful: true }
+            })
+        ).content;
+
+        expect(textBlocks(content).join('\n')).toContain('inline preview is larger than 4 MiB');
+        expect(content.some((item) => item.type === 'image')).toBe(false);
+    });
+
+    it('falls back to text for oversized inline HTML', async () => {
+        const content = (
+            await toToolCallContent({
+                ok: true,
+                preview: { kind: 'html', data: 'x'.repeat(MAX_RENDERED_PREVIEW_BYTES + 1), caption: 'Huge', truthful: true }
+            })
+        ).content;
+
+        expect(textBlocks(content).join('\n')).toContain('inline HTML preview is larger than 4 MiB');
+        expect(content.some((item) => item.type === 'html')).toBe(false);
     });
 
     it('never puts raw preview base64 in the JSON block', async () => {

@@ -21,12 +21,15 @@ Previews are written under the workspace config folder, one folder per AI sessio
 - `<session-id>` is `YYYYMMDD-HHmmss-<short-random>`.
 - `session.json` contains `{ id, createdAt, updatedAt, rootDir }`.
 - `bundle-NNN` is created in order and contains at most one preview file.
-- `result.json` is the capability result with inline data removed; a persisted data URI is replaced by the preview
-  file path.
-- `trajectory.jsonl` has one command-to-preview record per capture.
+- `result.json` is a bounded snapshot: inline data is removed, secret-shaped values are redacted, undo tokens are
+  omitted, and a snapshot over 1 MiB is replaced by preview metadata plus a truncation marker; a persisted data URI is
+  replaced by the preview file path.
+- `trajectory.jsonl` has one command-to-preview record per capture and keeps the newest records up to 1 MiB.
 
 Sessions are created in memory when the first capability result needs a preview; the folder is created on the first
-capture. A session that never captures leaves nothing on disk.
+capture. A session that never captures leaves nothing on disk. Without a workspace, at most 100 bundles stay in memory.
+A change to the workspace roots starts a new preview session and releases the old in-memory state, so path checks and
+the session directory follow the active workspace.
 
 ## Truthful and approximate previews
 
@@ -82,16 +85,16 @@ Persistence rules:
 - Data URIs are decoded byte-for-byte and written as `preview.png`, `preview.jpeg`, `preview.webp`, `preview.svg`, or
   `preview.html`. Unsupported mime types are rejected with a text note and no preview file.
 - An in-workspace `path` is referenced, never copied. The path must be absolute, inside the workspace, and free of
-  symlinked components.
+  symlinked components. Chat rendering applies the same check before reading a path preview.
 - Inline non-data text is persisted only for `markdown`, as `preview.txt`. Other inline formats are not guessed.
 - HTML previews that need a file should be encoded as a `text/html` data URI.
 
 ## Size and lifetime limits
 
-- Persisted previews are capped at 8 MiB. A larger preview is not written; the bundle keeps a warning and the chat
-  still renders the original data URI.
-- Path previews read for the chat are capped at 4 MiB. A failed or oversized read becomes a text link with the path
-  and a warning instead of an image block.
+- Persisted previews are capped at 8 MiB. A larger preview is not written; the bundle keeps a warning. The chat renders an
+  inline preview up to 4 MiB and falls back to text above that cap.
+- Path previews read for the chat are capped at 4 MiB. Inline image, SVG, and HTML previews share the 4 MiB cap. A
+  failed or oversized preview becomes a text link with the path and a warning instead of an image block.
 - The store keeps one bundle per capability invocation and does not prune. Delete `.nuke-ide/ai/previews` in the
   workspace to remove every recorded preview and trajectory. The IDE recreates the folder on the next capture.
 - On dispose the bridge does not delete its session. Closing and reopening the IDE keeps the history.

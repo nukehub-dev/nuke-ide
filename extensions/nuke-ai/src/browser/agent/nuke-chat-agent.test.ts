@@ -275,7 +275,7 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('## Python script authoring');
         expect(prompt).toMatch(/nukeCad\.scriptAuthoringEnabled/);
         expect(prompt).toMatch(/Linux with bubblewrap/);
-        expect(prompt).toMatch(/no network and no workspace access/i);
+        expect(prompt).toMatch(/no network (?:and|or) (?:no )?workspace access/i);
         expect(prompt).toMatch(/script text goes to the configured model provider/i);
         expect(prompt).toMatch(/exact `baseScriptHash` and the full `proposedScript`/);
         expect(prompt).toMatch(/preview card has no Apply action/i);

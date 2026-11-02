@@ -106,7 +106,8 @@ the number is not mistaken for a spatial result. Use the statepoint viewer for p
 The agent and its tools only read state. They never export DAGMC, import geometry, edit a project, open a viewer,
 start, stop, or cancel a run, or write files. They also leave the CAD selection, visibility, and loaded statepoint
 unchanged. Between-step comparisons and series reads go through the headless OpenMC backend, so neither compared file
-is loaded into the viewer and the active statepoint stays as it was.
+is loaded into the viewer and the active statepoint stays as it was. The capability bridge rejects a non-diagnostics
+tool call when the request agent is Nuke Diagnostics, even if the message manually references that tool.
 
 State-changing capabilities such as export, import, run, and viewer opening still exist in the **NukeAI** agent and
 require explicit confirmation in the conversation. A diagnostic answer never performs or confirms them for you.

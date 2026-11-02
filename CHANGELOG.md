@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: AI runtime, providers, and chat theming move to an optional extension; NUKE_EXCLUDE_EXTENSIONS=nuke-ai omits it.
 - nuke-ai: NukeAI gains domain skills, an active-workspace context variable, and read-only project resources.
 - nuke-ai: opt-in, token-protected MCP endpoint exposes read-only NukeIDE context to external agents.
-- nuke-ai: tool results can show truthful viewport previews and keep a replayable command-to-preview history.
+- nuke-ai: tool results can show truthful viewport previews and keep a reviewable command-to-preview history.
 - nuke-ai: NukeAI adds a dedicated agent, context-aware actions in the Nuke Tools sidebar, and a one-click context chip.
 - nuke-ai: NukeAI tool results render as compact cards with status, counts, warnings, previews, artifacts, and next actions.
 - nuke-ai: NukeAI result cards run read-only next steps directly and route write or execute steps through NukeAI confirmation.
@@ -31,12 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: capability tools expose a local catalog and local metrics/edit journals; undo remains session-scoped.
 - nuke-cad: NukeAI can diagnose the active CAD model without rebuilding it.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
-- nuke-cad: the CAD Edit Review panel shows pending feature proposals, renders the candidate as a viewport ghost, and applies/dismisses/undoes them.
-- nuke-cad: NukeAI previews and applies scalar feature edits (extrusion length, revolve/draft/pattern angles, fillet/chamfer scalars, hole diameter/depth, shell thickness) behind the default-off CAD AI authoring setting, with a real build, backup, rebuild, and undo.
+- nuke-cad: the CAD Edit Review panel shows pending CAD authoring proposals, renders candidate geometry as a viewport ghost, and applies/dismisses/undoes them.
+- nuke-cad: NukeAI previews and applies scalar feature edits (extrusion length, revolve/draft angles, linear-pattern spacing, circular-pattern angle, fillet/chamfer scalars, hole diameter/depth, shell thickness) behind the default-off CAD AI authoring setting, with a real build, backup, rebuild, and undo.
 - nuke-cad: NukeAI previews and applies sketch-dimension edits with document-parameter cascade, review panel, atomic commit, and undo.
 - nuke-cad: NukeAI applies hole depth-mode and pattern-count edits with region-impact acknowledgement, OpenMC reference checks, and undo.
 - nuke-cad: NukeAI imports a user-chosen STEP/IGES/BREP source as editable bodies with a plan-only review, source re-inspection, backup, rebuild, and undo.
 - nuke-cad: NukeAI adds, removes, and repositions assembly instances with real-build preview, BOM delta, overlap warnings, region checks, and undo.
+- nuke-cad: NukeAI adjusts existing drawing-sheet size, view display, and dimension visibility with a plan-only review, backup, sheet refresh, and undo.
 - nuke-cad: NukeAI inspects and sandbox-previews full Python model scripts on Linux with bubblewrap plus a libseccomp denylist, panel-only nonce approval, backup/undo, and sandboxed rebuilds that block simulation export.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
@@ -360,6 +361,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
+- nuke-ai: script authoring tools refresh immediately when the workspace Script Authoring switch changes.
+- nuke-ai: preview history omits undo tokens, redacts credentials, and caps result snapshots; oversized inline previews and artifact lists fall back to bounded text.
+- nuke-ai: external MCP rejects concurrent initialize bursts beyond the 16-session cap.
 - nuke-ai: CAD and other capability tools appear after a document opens during chat startup instead of waiting for the next context change.
 - nuke-ai: NukeAI is the default chat agent on a fresh profile, and the default-agent picker lists NukeAI and Nuke Diagnostics.
 - nuke-ai: NukeAI can run the CAD, OpenMC project/run, and statepoint diagnostic tools directly, so diagnosis prompts work in the general agent too.

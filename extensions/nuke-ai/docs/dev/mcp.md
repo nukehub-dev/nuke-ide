@@ -61,8 +61,9 @@ The catalog is rebuilt per session from `delegate.listCapabilities()`:
   annotations do not contradict read-only (`readOnlyHint: false` or `destructiveHint: true`).
 - `toMcpToolName` preserves the original `nuke.cad.summarizeDocument` to `nuke_cad_summarize_document` name and maps
   every other ID from dots to underscores and camelCase to snake_case. Names must match `^[a-z0-9_]{1,128}$`.
-- Each tool advertises its live JSON input and output schemas through `zod.fromJSONSchema`, canonical read-only
-  annotations, a bounded description, and one worked example.
+- Each tool advertises its live JSON input schema and, when the capability declares one, its output schema through
+  `zod.fromJSONSchema`, canonical read-only annotations, a bounded description, and one worked example.
+- Tool results and resource reads are bounded to 1 MiB; inline data URIs are omitted from the MCP result projection.
 - Missing, disabled, unsafe, duplicate, or unconvertible descriptors are skipped at debug level. The catalog is capped
   at 24 tools.
 - When the frontend is not connected the session opens with an empty tool list. A tool invocation that loses the
@@ -111,7 +112,8 @@ The enable command owns the external API preferences for this endpoint:
 It also sets `nuke.ai.mcp.enabled` and `nuke.ai.mcp.port`. The backend does not trust user-scope preferences: the
 enable command writes `<configDir>/nuke-ai-mcp.json` with `{ "enabled": true, "token": "...", "port": 3210 }`, and
 `NukeAIMcpConfigService` reads that file with a one-second cache. Missing, malformed, or invalid files mean disabled.
-The service logs a one-time warning when the file is world-readable and never logs the token.
+The service tightens a world-readable file to owner-only on POSIX hosts, logs one warning if it cannot, and never
+logs the token.
 
 Disabling sets the `nuke.ai.mcp.enabled` preference to false, turns delivery off, clears the token and MCP port, and
 deletes the config file. Both commands are idempotent. The external API configuration is backend-global and is not
@@ -152,8 +154,8 @@ The MCP SDK allows one transport per `McpServer`, so the endpoint creates one `M
 
 `NukeMcpAuditLog` keeps the last 200 tool-call rows in memory. A row carries the timestamp, session id, tool name,
 duration, `ok`, a truncated SHA-256 input hash, and a bounded redacted input summary. Credential-like keys
-(`authorization`, `token`, `apiKey`, `secret`, `password`) become `[redacted]`, strings are capped, and neither file
-contents, resource contents, result payloads, nor the bearer token are stored. The ring is process-local and is not
+(`authorization`, `token`, `apiKey`, `secret`, `password`) and Bearer/key-value secret values become `[redacted]`,
+strings are capped, and neither file contents, resource contents, result payloads, nor the bearer token are stored. The ring is process-local and is not
 persisted.
 
 ## Extending the catalog
@@ -166,7 +168,9 @@ persisted.
    resource, or prompt, including the real client round trip.
 5. Keep the endpoint off by default and keep write/execute/destructive actions out until a separate security review.
 
-Multi-frontend routing, OAuth, persistent audit storage, and MCP apps/HTML tool results are out of scope.
+Multi-frontend routing, OAuth, persistent audit storage, and MCP apps/HTML tool results are out of scope. With more than
+one IDE window connected, the most recently connected frontend serves the endpoint; close the other windows if the
+wrong workspace answers.
 
 ## Verification
 

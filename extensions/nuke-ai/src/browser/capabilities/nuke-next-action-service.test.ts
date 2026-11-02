@@ -127,7 +127,9 @@ describe('NukeNextActionService', () => {
 
         expect(invoke).toHaveBeenCalledTimes(1);
         expect(invoke).toHaveBeenCalledWith({}, CONTEXT);
-        expect(harness.updateResult).toHaveBeenCalledWith(result);
+        expect(harness.updateResult).toHaveBeenCalledWith({
+            content: [{ type: 'text', text: 'Project is valid.' }]
+        });
         expect(harness.ask).not.toHaveBeenCalled();
         expect(harness.warn).not.toHaveBeenCalled();
         expect(harness.error).not.toHaveBeenCalled();
@@ -374,7 +376,9 @@ describe('NukeNextActionService', () => {
         await harness.service.undo('undo-1', harness.response);
 
         expect(harness.undo).toHaveBeenCalledWith('undo-1');
-        expect(harness.updateResult).toHaveBeenCalledWith(result);
+        expect(harness.updateResult).toHaveBeenCalledWith({
+            content: [{ type: 'text', text: 'Settings change undone.' }]
+        });
         expect(harness.error).not.toHaveBeenCalled();
     });
 
@@ -398,7 +402,8 @@ describe('NukeNextActionService', () => {
 
         await expect(harness.service.undo('undo-1', harness.response)).resolves.toBeUndefined();
 
-        expect(harness.loggerError).toHaveBeenCalledWith(expect.stringContaining('undo-1'), expect.any(Error));
+        expect(harness.loggerError).toHaveBeenCalledWith('[NukeAI] Failed to undo an applied change.', expect.any(Error));
+        expect(JSON.stringify(harness.loggerError.mock.calls)).not.toContain('undo-1');
         expect(harness.error).toHaveBeenCalledWith(expect.stringContaining('could not undo this change'));
         expect(harness.updateResult).not.toHaveBeenCalled();
     });

@@ -93,7 +93,7 @@ export class NukeContextVariableContribution implements AIVariableContribution, 
 /** Render the exact compact Markdown block used for `#nukeContext`. */
 export function formatNukeContext(context: NukeCapabilityContext): string {
     const roots = context.workspaceRoots ?? [];
-    const rootLines = roots.length > 0 ? roots.map((root) => `- ${root}`) : ['- none'];
+    const rootLines = roots.length > 0 ? roots.map((root) => `- ${sanitizeContextValue(root)}`) : ['- none'];
     return [
         `Active CAD document: ${scopedPath(context.activeCadDocument, roots)}`,
         `Active OpenMC project: ${scopedPath(context.activeOpenmcProject, roots)}`,
@@ -111,5 +111,14 @@ function scopedPath(value: string | undefined, roots: readonly string[]): string
     if (path.isAbsolute(value) && !isWithinWorkspace(value, roots)) {
         return 'none';
     }
-    return value;
+    return sanitizeContextValue(value);
+}
+
+/** Strip control characters, code ticks, and excessive length from prompt text. */
+function sanitizeContextValue(value: string): string {
+    const sanitized = value
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/`/g, "'")
+        .trim();
+    return sanitized.length > 512 ? `${sanitized.slice(0, 509)}...` : sanitized || 'none';
 }

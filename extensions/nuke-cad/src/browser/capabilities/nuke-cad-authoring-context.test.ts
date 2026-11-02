@@ -44,7 +44,7 @@ function createPreferences(): { preferences: PreferenceService; fire: (name: str
 }
 
 describe('NukeCadAuthoringContextContribution', () => {
-    it('emits a context change only when the authoring switch changes', () => {
+    it('emits a context change when either authoring switch changes', () => {
         const { preferences, fire } = createPreferences();
         const contribution = new NukeCadAuthoringContextContribution(preferences);
         const listener = vi.fn();
@@ -56,6 +56,9 @@ describe('NukeCadAuthoringContextContribution', () => {
 
         fire('nukeCad.aiAuthoringEnabled');
         expect(listener).toHaveBeenCalledTimes(1);
+
+        fire('nukeCad.scriptAuthoringEnabled');
+        expect(listener).toHaveBeenCalledTimes(2);
     });
 
     it('returns no ambient fields of its own', () => {

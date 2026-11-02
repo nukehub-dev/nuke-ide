@@ -34,8 +34,13 @@ import type { FileStat } from '@theia/filesystem/lib/common/files';
 import type { WorkspaceService } from '@theia/workspace/lib/browser';
 import * as path from 'path';
 import { NukeCapabilityResult } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { MAX_PERSISTED_PREVIEW_BYTES, NukePreviewSession, bytesToBase64 } from '../../common/nuke-preview-protocol';
-import { NukePreviewStore } from './nuke-preview-store';
+import {
+    MAX_PERSISTED_PREVIEW_BYTES,
+    MAX_PERSISTED_RESULT_BYTES,
+    NukePreviewSession,
+    bytesToBase64
+} from '../../common/nuke-preview-protocol';
+import { NukePreviewStore, NukePreviewStoreOptions } from './nuke-preview-store';
 
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class FileService {} }));
 vi.mock('@theia/workspace/lib/browser', () => ({ WorkspaceService: class WorkspaceService {} }));
@@ -44,6 +49,7 @@ interface FakeEntry {
     readonly directory: boolean;
     readonly bytes?: Uint8Array;
     readonly mtime: number;
+    readonly symlink?: boolean;
 }
 
 class FakeFileService {
@@ -58,6 +64,11 @@ class FakeFileService {
     addFile(target: string, bytes: Uint8Array): void {
         this.ensureDirectory(path.dirname(target));
         this.entries.set(target, { directory: false, bytes, mtime: 0 });
+    }
+
+    addSymlink(target: string): void {
+        this.ensureDirectory(path.dirname(target));
+        this.entries.set(target, { directory: false, mtime: 0, symlink: true });
     }
 
     textAt(target: string): string {
@@ -130,9 +141,9 @@ class FakeFileService {
         return {
             resource: uri,
             name: path.basename(target),
-            isFile: !entry.directory,
-            isDirectory: entry.directory,
-            isSymbolicLink: false,
+            isFile: !entry.directory && entry.symlink !== true,
+            isDirectory: entry.directory && entry.symlink !== true,
+            isSymbolicLink: entry.symlink === true,
             isReadonly: false,
             mtime: entry.mtime,
             size: entry.bytes?.byteLength ?? 0,
@@ -154,9 +165,9 @@ class FakeFileService {
             children.push({
                 resource: URI.fromFilePath(candidate),
                 name: relative,
-                isFile: !entry.directory,
-                isDirectory: entry.directory,
-                isSymbolicLink: false,
+                isFile: !entry.directory && entry.symlink !== true,
+                isDirectory: entry.directory && entry.symlink !== true,
+                isSymbolicLink: entry.symlink === true,
                 isReadonly: false,
                 mtime: entry.mtime,
                 size: entry.bytes?.byteLength ?? 0
@@ -178,9 +189,9 @@ class FakeFileService {
         return {
             resource: uri,
             name: path.basename(target),
-            isFile: !entry.directory,
-            isDirectory: entry.directory,
-            isSymbolicLink: false,
+            isFile: !entry.directory && entry.symlink !== true,
+            isDirectory: entry.directory && entry.symlink !== true,
+            isSymbolicLink: entry.symlink === true,
             isReadonly: false,
             mtime: entry.mtime,
             size: entry.bytes?.byteLength ?? 0
@@ -216,7 +227,10 @@ function createLogger(): ILogger & { warn: ReturnType<typeof vi.fn>; error: Retu
     } as unknown as ILogger & { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
 }
 
-function setup(roots: string[] = ['/workspace']): {
+function setup(
+    roots: string[] = ['/workspace'],
+    options: NukePreviewStoreOptions = {}
+): {
     fileService: FakeFileService;
     logger: ILogger & { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
     store: NukePreviewStore;
@@ -226,7 +240,8 @@ function setup(roots: string[] = ['/workspace']): {
     const store = new NukePreviewStore(
         fileService as unknown as FileService,
         new FakeWorkspaceService(roots) as unknown as WorkspaceService,
-        logger
+        logger,
+        options
     );
     return { fileService, logger, store };
 }
@@ -525,5 +540,89 @@ describe('NukePreviewStore', () => {
         expect(entry.input.inline).toContain('token=[redacted]');
         expect(fileService.textAt(bundlePath(session, 'trajectory.jsonl'))).not.toContain('super-secret');
         expect(fileService.textAt(bundlePath(session, 'trajectory.jsonl'))).not.toContain('sk-live-secret');
+    });
+
+    it('omits undo tokens and redacts secret-shaped result fields', async () => {
+        const { fileService, store } = setup();
+        const session = await store.createSession();
+        const result: NukeCapabilityResult = {
+            ...imageResult(),
+            undoToken: 'undo-secret',
+            data: {
+                apiKey: 'sk-live-secret',
+                nested: { token: 'abc123' },
+                note: 'Authorization: Bearer abc.def.ghi'
+            }
+        };
+
+        await store.capture(session, 'nuke.example.apply', { path: '/workspace/model.py' }, result);
+
+        const text = fileService.textAt(bundlePath(session, 'bundle-001/result.json'));
+        const persisted = JSON.parse(text) as Record<string, any>;
+        expect(persisted.undoToken).toBeUndefined();
+        expect(persisted.data.apiKey).toBe('[redacted]');
+        expect(persisted.data.nested.token).toBe('[redacted]');
+        expect(persisted.data.note).toContain('Bearer [redacted]');
+        expect(text).not.toContain('undo-secret');
+        expect(text).not.toContain('sk-live-secret');
+        expect(text).not.toContain('abc123');
+    });
+
+    it('caps oversized result snapshots while keeping preview metadata', async () => {
+        const { fileService, store } = setup();
+        const session = await store.createSession();
+        const result: NukeCapabilityResult = {
+            ...imageResult(),
+            data: { blob: 'x'.repeat(MAX_PERSISTED_RESULT_BYTES + 1024) }
+        };
+
+        await store.capture(session, 'nuke.example.describe', { path: '/workspace/model.py' }, result);
+
+        const text = fileService.textAt(bundlePath(session, 'bundle-001/result.json'));
+        const persisted = JSON.parse(text) as Record<string, any>;
+        expect(persisted.truncated).toBe(true);
+        expect(persisted.preview.path).toBe(bundlePath(session, 'bundle-001/preview.png'));
+        expect(text.length).toBeLessThan(MAX_PERSISTED_RESULT_BYTES / 2);
+    });
+
+    it('keeps only the newest trajectory records under the byte cap', async () => {
+        const { fileService, store } = setup(['/workspace'], { maxTrajectoryBytes: 500 });
+        const session = await store.createSession();
+
+        for (let index = 0; index < 8; index++) {
+            await store.capture(session, 'nuke.example.describe', { query: `q${index}` }, imageResult());
+        }
+
+        const text = fileService.textAt(bundlePath(session, 'trajectory.jsonl'));
+        const lines = trajectoryLines(fileService, session);
+        expect(text.length).toBeLessThanOrEqual(500);
+        expect(lines.length).toBeLessThan(8);
+        expect((lines[lines.length - 1].input as { query: string }).query).toBe('q7');
+        expect(text).not.toContain('q0');
+    });
+
+    it('does not write previews through a symlinked workspace directory', async () => {
+        const { fileService, logger, store } = setup();
+        fileService.addSymlink('/workspace/.nuke-ide');
+        const session = await store.createSession();
+
+        const bundle = await store.capture(session, 'nuke.example.describe', {}, imageResult());
+
+        expect(bundle).toBeUndefined();
+        expect([...fileService.entries.keys()].some((path) => path.includes('/.nuke-ide/'))).toBe(false);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to persist preview'), expect.any(Error));
+    });
+
+    it('caps in-memory bundles without a workspace', async () => {
+        const { store } = setup([], { maxInMemoryBundles: 2 });
+        const session = await store.createSession();
+
+        for (let index = 0; index < 4; index++) {
+            await store.capture(session, 'nuke.example.describe', { query: `q${index}` }, imageResult());
+        }
+
+        const bundles = await store.list(session);
+        expect(bundles).toHaveLength(2);
+        expect(bundles[1].id).toBe('bundle-004');
     });
 });

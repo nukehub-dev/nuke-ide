@@ -28,9 +28,9 @@
 /**
  * NukeCAD Authoring Context
  *
- * Emits a capability-context change when the AI authoring kill switch flips,
- * so the tool bridge and capability catalog add or remove the preview/apply
- * tools immediately instead of waiting for the next document change.
+ * Emits a capability-context change when either AI authoring switch flips, so
+ * the tool bridge and capability catalog add or remove the preview/apply tools
+ * immediately instead of waiting for the next document change.
  *
  * @module nuke-cad/browser/capabilities
  */
@@ -40,7 +40,7 @@ import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposa
 import { Emitter, Event } from '@theia/core/lib/common/event';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { NukeCapabilityContext, NukeCapabilityContextContribution } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { AI_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
+import { AI_AUTHORING_PREFERENCE, SCRIPT_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
 
 /** Context contribution that refreshes the tool set when the authoring switch changes. */
 @injectable()
@@ -53,7 +53,7 @@ export class NukeCadAuthoringContextContribution implements NukeCapabilityContex
     constructor(@inject(PreferenceService) protected readonly preferences: PreferenceService) {
         this.toDispose.push(
             this.preferences.onPreferenceChanged((event) => {
-                if (event.preferenceName === AI_AUTHORING_PREFERENCE) {
+                if (event.preferenceName === AI_AUTHORING_PREFERENCE || event.preferenceName === SCRIPT_AUTHORING_PREFERENCE) {
                     this.onDidChangeContextEmitter.fire();
                 }
             })

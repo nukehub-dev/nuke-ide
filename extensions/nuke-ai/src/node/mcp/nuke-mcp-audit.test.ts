@@ -87,6 +87,18 @@ describe('MCP audit input summaries', () => {
         expect(summary.inputSummary.length).toBeLessThanOrEqual(MCP_AUDIT_SUMMARY_LIMIT);
     });
 
+    it('redacts credential-shaped values as well as keys', () => {
+        const summary = summarizeMcpInput({
+            note: 'Authorization: Bearer abc.def.ghi',
+            query: 'token=super-secret'
+        });
+
+        expect(summary.inputSummary).toContain('Bearer [redacted]');
+        expect(summary.inputSummary).toContain('token=[redacted]');
+        expect(summary.inputSummary).not.toContain('super-secret');
+        expect(summary.inputSummary).not.toContain('abc.def.ghi');
+    });
+
     it('caps long and deeply nested inputs', () => {
         const summary = summarizeMcpInput({ long: 'a'.repeat(5_000), nested: { deep: { deeper: { deepest: 'x' } } } });
 

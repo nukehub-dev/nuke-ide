@@ -38,6 +38,23 @@
 
 import type { NukeCapabilityDescriptor } from './nuke-capability-delegate';
 
+/** Maximum serialized tool result or resource text returned over MCP. */
+export const MCP_MAX_RESULT_BYTES = 1024 * 1024;
+
+/** Maximum length of one string in an MCP result projection. */
+export const MCP_MAX_STRING_LENGTH = 8 * 1024;
+
+/** Maximum array/object entries in an MCP result projection. */
+export const MCP_MAX_ENTRIES = 200;
+
+/** Maximum nesting depth in an MCP result projection. */
+export const MCP_MAX_DEPTH = 6;
+
+const MCP_INLINE_DATA = /^data:[^,]*,/i;
+const MCP_BASE64_LIKE = /^[A-Za-z0-9+/]+={0,2}$/;
+const MCP_UTF8_ENCODER = new TextEncoder();
+const MCP_UTF8_DECODER = new TextDecoder();
+
 /** MCP tool names must satisfy the MCP SDK's portable identifier rules. */
 export const MCP_TOOL_NAME_PATTERN = /^[a-z0-9_]{1,128}$/;
 
@@ -172,6 +189,76 @@ export function buildMcpToolDescription(descriptor: NukeCapabilityDescriptor): s
     const exampleText = `${capText(example.description, 160)} Input: ${capText(safeJson(example.input), MCP_TOOL_EXAMPLE_LIMIT)}`;
     const prefix = capText(base, Math.max(0, MCP_TOOL_DESCRIPTION_LIMIT - exampleText.length - ' Example: '.length));
     return capText(`${prefix} Example: ${exampleText}`, MCP_TOOL_DESCRIPTION_LIMIT);
+}
+
+/** Bound an arbitrary capability result before it crosses the MCP boundary. */
+export function boundedMcpValue(value: unknown, depth = 0, seen: WeakSet<object> = new WeakSet()): unknown {
+    if (typeof value === 'string') {
+        if (MCP_INLINE_DATA.test(value)) {
+            return '[inline data omitted]';
+        }
+        if (value.length <= MCP_MAX_STRING_LENGTH) {
+            return value;
+        }
+        if (MCP_BASE64_LIKE.test(value)) {
+            return '[base64 omitted]';
+        }
+        return `${value.slice(0, MCP_MAX_STRING_LENGTH - 3)}...`;
+    }
+    if (value === null || typeof value !== 'object') {
+        return typeof value === 'bigint' ? value.toString() : value;
+    }
+    if (depth >= MCP_MAX_DEPTH) {
+        return '[truncated]';
+    }
+    if (seen.has(value)) {
+        return '[circular]';
+    }
+    seen.add(value);
+    try {
+        if (Array.isArray(value)) {
+            return value.slice(0, MCP_MAX_ENTRIES).map((entry) => boundedMcpValue(entry, depth + 1, seen));
+        }
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+        const record: Record<string, unknown> = {};
+        for (const [key, entry] of Object.entries(value).slice(0, MCP_MAX_ENTRIES)) {
+            record[key] = boundedMcpValue(entry, depth + 1, seen);
+        }
+        return record;
+    } finally {
+        seen.delete(value);
+    }
+}
+
+/** Serialize a bounded MCP tool result, preserving its ok flag. */
+export function stringifyMcpResult(value: unknown): string {
+    const bounded = boundedMcpValue(value);
+    const json = JSON.stringify(bounded);
+    if (utf8Length(json) <= MCP_MAX_RESULT_BYTES) {
+        return json;
+    }
+    const record = value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+    return JSON.stringify({
+        ok: record.ok === true,
+        truncated: true,
+        note: `MCP result exceeded ${MCP_MAX_RESULT_BYTES} bytes and was truncated.`
+    });
+}
+
+/** Bound one MCP resource read to a single response budget. */
+export function boundedMcpText(value: string): string {
+    if (utf8Length(value) <= MCP_MAX_RESULT_BYTES) {
+        return value;
+    }
+    const marker = '\n... [truncated]';
+    const bytes = MCP_UTF8_ENCODER.encode(value).slice(0, MCP_MAX_RESULT_BYTES - MCP_UTF8_ENCODER.encode(marker).length);
+    return MCP_UTF8_DECODER.decode(bytes) + marker;
+}
+
+function utf8Length(value: string): number {
+    return MCP_UTF8_ENCODER.encode(value).byteLength;
 }
 
 /** Generate the workflow prompt from the tools the session actually exposes. */

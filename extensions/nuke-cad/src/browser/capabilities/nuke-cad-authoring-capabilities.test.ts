@@ -61,6 +61,7 @@ import type { CadDocumentStore, ImportBodyDraft, ImportBodiesRequest } from '../
 import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import type { NukeCadPreferences } from '../nuke-cad-preferences';
 import type { CadModel, NukeCadStateManager, SolidSummary } from '../state/nuke-cad-state-manager';
+import { SCRIPT_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
 import {
     APPLY_ASSEMBLY_CHANGE_ID,
     APPLY_DRAWING_CHANGE_ID,
@@ -80,7 +81,6 @@ import {
     PREVIEW_SCRIPT_CHANGE_ID,
     PREVIEW_SKETCH_CHANGE_ID,
     PREVIEW_TOPOLOGY_CHANGE_ID,
-    SCRIPT_AUTHORING_PREFERENCE,
     SUMMARIZE_ASSEMBLY_ID,
     SUMMARIZE_DRAWING_ID,
     readAssemblyActions,

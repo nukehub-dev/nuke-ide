@@ -1056,7 +1056,7 @@ AI script authoring edits the active **saved `.py` model** and is default-off. O
 **Open Active Python Model in CAD** to load it into the viewport. NukeAI chat and the non-script CAD tools remain
 cross-platform; this sandboxed script flow is Linux-only. It needs both **Nuke CAD: AI Authoring**
 and the workspace setting **Nuke CAD: Script Authoring**, and it runs only on Linux with bubblewrap and libseccomp; macOS,
-Windows, and environments without a working user namespace or libseccomp show the tools as unavailable. There is no
+Windows, and environments without a working user namespace or libseccomp report script authoring unavailable. There is no
 unsandboxed fallback.
 
 1. NukeAI inspects the script first. Inspecting returns the text, hash, imports, and whether the script assigns a
@@ -1075,7 +1075,7 @@ After apply, the model is marked sandboxed: later `.py` rebuilds use the same sa
 until a later review removes the marking. Every build loads a libseccomp BPF denylist inside bubblewrap that blocks
 network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls; a host without
 libseccomp reports script authoring unavailable. The filter is a denylist, so kernel and bubblewrap correctness still
-matter. See [Safe Edits](../../nuke-ai/docs/user/safe-edits.md) for the full warning list.
+matter. See [Safe Edits](../../../nuke-ai/docs/user/safe-edits.md) for the full warning list.
 
 ### Reference repair
 

@@ -49,7 +49,7 @@ import type { NukeCapabilityDescriptor } from '../../common/nuke-capability-dele
 import { FRONTEND_NOT_CONNECTED } from './nuke-capability-delegate';
 import { NukeAIMcpConfig, NukeAIMcpConfigService } from './nuke-mcp-config-service';
 import { MCP_DISABLED_MESSAGE } from './nuke-mcp-auth';
-import { MCP_SESSION_IDLE_MS, MCP_TOOL_RATE_LIMIT } from './nuke-mcp-session-registry';
+import { MCP_SESSION_IDLE_MS, MCP_TOOL_RATE_LIMIT, MAX_MCP_SESSIONS } from './nuke-mcp-session-registry';
 import { NukeMcpContribution, redactMcpInput } from './nuke-mcp-contribution';
 
 const TOKEN = 'test-token';
@@ -408,6 +408,32 @@ describe('NukeMcpContribution authentication', () => {
 
         expect(response.status).toBe(503);
         expect(response.body).toContain('Too many active MCP sessions');
+    });
+
+    it('enforces the session cap when initialize requests race', async () => {
+        const harness = await createHarness();
+        const responses = await Promise.all(
+            Array.from({ length: MAX_MCP_SESSIONS + 4 }, (_, index) =>
+                fetch(harness.url, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: AUTHORIZATION,
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream'
+                    },
+                    body: JSON.stringify({ ...INITIALIZE_REQUEST, id: index + 100 })
+                })
+            )
+        );
+        const statuses = await Promise.all(
+            responses.map(async (response) => {
+                await response.text();
+                return response.status;
+            })
+        );
+
+        expect(statuses.filter((status) => status === 200)).toHaveLength(MAX_MCP_SESSIONS);
+        expect(statuses.filter((status) => status === 503)).toHaveLength(4);
     });
 });
 

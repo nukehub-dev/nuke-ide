@@ -168,7 +168,7 @@ export class NukeMcpCommandContribution implements CommandContribution {
         const message = [`MCP endpoint: ${mcpEndpointUrl(port)}`, `Bearer token: ${token}`, '', 'Client configuration:', snippet].join(
             '\n'
         );
-        this.logger.info(`[NukeAI] MCP endpoint enabled.\n${message}`);
+        this.logger.info(`[NukeAI] MCP endpoint enabled at ${mcpEndpointUrl(port)}.`);
         const action = await this.messageService.info(message, COPY_CLIENT_CONFIG_ACTION);
         if (action === COPY_CLIENT_CONFIG_ACTION) {
             await this.clipboard.writeText(snippet);

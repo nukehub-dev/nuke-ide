@@ -42,7 +42,7 @@ import { ILogger } from '@theia/core/lib/common/logger';
 import { URI } from '@theia/core/lib/common/uri';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { isValidSkillName, SKILL_FILE_NAME } from '@theia/ai-core/lib/common/skill';
-import * as path from 'path';
+import { isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import {
     NukeCapabilityContext,
     NukeCapabilityContextService,
@@ -320,12 +320,13 @@ export class NukeResourceService {
         }
         let lastError: string | undefined;
         for (const root of roots) {
-            const rootPath = path.resolve(root);
-            const targetPath = path.resolve(rootPath, name, SKILL_FILE_NAME);
-            if (!isInside(rootPath, targetPath)) {
+            const rootUri = URI.fromFilePath(root);
+            const rootPath = rootUri.path.toString();
+            const target = rootUri.resolve(name).resolve(SKILL_FILE_NAME);
+            const targetPath = target.path.toString();
+            if (!isWithinWorkspace(targetPath, [rootPath])) {
                 return `Unable to read ${uri}: the path escapes the skill root.`;
             }
-            const target = URI.fromFilePath(targetPath);
             try {
                 if (!(await this.fileService.exists(target))) {
                     continue;
@@ -346,12 +347,6 @@ function formatResourceData(result: NukeCapabilityResult, uri: string): string {
         return typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2);
     }
     return result.message ?? `No summary is available for ${uri}.`;
-}
-
-/** True when `candidate` is the root itself or one of its descendants. */
-function isInside(root: string, candidate: string): boolean {
-    const relative = path.relative(root, candidate);
-    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
 function errorMessage(error: unknown): string {

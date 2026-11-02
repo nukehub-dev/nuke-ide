@@ -122,7 +122,7 @@ describe('NukePreviewGalleryView', () => {
 
         expect(html).toContain('data-state="empty"');
         expect(html).toContain('No previews yet');
-        expect(html).toContain('captures a viewport or produces a CAD preview');
+        expect(html).toContain('captures a viewport or returns a result with a preview or artifact');
         expect(html).not.toContain('nuke-preview-gallery-grid');
     });
 

@@ -82,6 +82,14 @@ class FakeFileService {
         }
     }
 
+    async resolve(uri: URI): Promise<FileStat> {
+        const target = key(uri);
+        if (!this.files.has(target) && !this.directories.has(target)) {
+            throw new Error(`missing: ${target}`);
+        }
+        return this.statFor(target, uri);
+    }
+
     async read(uri: URI): Promise<{ value: string }> {
         const value = this.files.get(key(uri));
         if (value === undefined) {
@@ -240,7 +248,7 @@ describe('NukeEditJournal', () => {
     });
 
     it('rotates the current file to one backup and overwrites the older backup', async () => {
-        const { fileService, journal } = setup({ maxBytes: 160 });
+        const { fileService, journal } = setup({ maxBytes: 300 });
         const makeResult = (id: string): NukeCapabilityResult => ({
             ok: true,
             changeSet: changeSet({ id, title: 'Settings', summary: 'A change.' })

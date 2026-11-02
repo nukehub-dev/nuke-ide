@@ -148,7 +148,7 @@ import { buildBomRows, instanceSolidIds, solveAssemblyTransforms } from '../widg
 import { compareCandidateSolids } from '../preview/ghost-preview-diff';
 import { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 import { parseTessellationAsync } from '../widgets/cad-viewport/tess-parse-client';
-import { AI_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
+import { AI_AUTHORING_PREFERENCE, SCRIPT_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
 import { NukeCadSketchEditService, sketchDefinitionsEqual } from '../sketch/sketch-edit-service';
 import { CAD_SKETCH_EDIT_LIMIT, PreparedSketchEdit, SketchEditRequest } from '../sketch/sketch-edit-types';
 import { readOpenmcRegionReferences } from './openmc-region-reference-reader';
@@ -179,9 +179,6 @@ export const APPLY_DRAWING_CHANGE_ID = 'nuke.cad.applyDrawingChange';
 export const INSPECT_SCRIPT_SOURCE_ID = 'nuke.cad.inspectScriptSource';
 export const PREVIEW_SCRIPT_CHANGE_ID = 'nuke.cad.previewScriptChange';
 export const APPLY_SCRIPT_CHANGE_ID = 'nuke.cad.applyScriptChange';
-
-/** Preference that additionally arms AI authoring of the active Python model script. */
-export const SCRIPT_AUTHORING_PREFERENCE = 'nukeCad.scriptAuthoringEnabled';
 
 /** Upper bound the import planner and backend inspection must share. */
 const IMPORT_MAX_SOLIDS = 500;

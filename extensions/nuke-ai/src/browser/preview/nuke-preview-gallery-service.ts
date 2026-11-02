@@ -45,7 +45,9 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import type { FileStat, FileStatWithMetadata } from '@theia/filesystem/lib/common/files';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import * as path from 'path';
+import { MAX_PERSISTED_RESULT_BYTES, MAX_PERSISTED_TRAJECTORY_BYTES } from '../../common/nuke-preview-protocol';
 import { isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
+import { isReferenceableFilePath } from './preview-path-policy';
 
 /** Preview history location inside the workspace config folder. */
 export const NUKE_PREVIEW_GALLERY_ROOT = '.nuke-ide/ai/previews';
@@ -61,6 +63,9 @@ const BUNDLE_DIRECTORY_PATTERN = /^bundle-(\d+)$/;
 
 /** Preview files written by the preview store. */
 const PREVIEW_FILE_PATTERN = /^preview\.[A-Za-z0-9]+$/;
+
+/** Smallest session metadata cap; the store never writes more than this. */
+const MAX_SESSION_METADATA_BYTES = 256 * 1024;
 
 /** One preview bundle shown in the gallery. */
 export interface NukePreviewGalleryEntry {
@@ -98,10 +103,13 @@ export class NukePreviewGalleryService {
         if (!rootStat?.isDirectory || rootStat.isSymbolicLink) {
             return [];
         }
+        const sessions = (rootStat.children ?? [])
+            .filter((sessionDir) => sessionDir.isDirectory && !sessionDir.isSymbolicLink && SESSION_DIRECTORY_PATTERN.test(sessionDir.name))
+            .sort((left, right) => mtimeOf(right) - mtimeOf(left));
         const entries: NukePreviewGalleryEntry[] = [];
-        for (const sessionDir of rootStat.children ?? []) {
-            if (!sessionDir.isDirectory || sessionDir.isSymbolicLink || !SESSION_DIRECTORY_PATTERN.test(sessionDir.name)) {
-                continue;
+        for (const sessionDir of sessions) {
+            if (entries.length >= NUKE_PREVIEW_GALLERY_LIMIT) {
+                break;
             }
             entries.push(...(await this.readSession(sessionDir, roots)));
         }
@@ -113,7 +121,12 @@ export class NukePreviewGalleryService {
         const sessionUri = sessionDir.resource;
         const sessionJsonUri = sessionUri.resolve('session.json');
         const sessionJsonStat = await this.resolve(sessionJsonUri);
-        if (!sessionJsonStat || sessionJsonStat.isSymbolicLink) {
+        if (
+            !sessionJsonStat ||
+            sessionJsonStat.isSymbolicLink ||
+            !sessionJsonStat.isFile ||
+            ((sessionJsonStat as FileStatWithMetadata).size ?? 0) > MAX_SESSION_METADATA_BYTES
+        ) {
             return [];
         }
         const session = await this.readJson(sessionJsonUri);
@@ -148,8 +161,17 @@ export class NukePreviewGalleryService {
         roots: readonly string[]
     ): Promise<NukePreviewGalleryEntry | undefined> {
         const resultUri = bundleDir.resource.resolve('result.json');
-        const [result, resultStat] = await Promise.all([this.readJson(resultUri), this.resolve(resultUri)]);
-        if (!result || !resultStat || resultStat.isSymbolicLink) {
+        const resultStat = await this.resolve(resultUri);
+        if (
+            !resultStat ||
+            resultStat.isSymbolicLink ||
+            !resultStat.isFile ||
+            ((resultStat as FileStatWithMetadata).size ?? 0) > MAX_PERSISTED_RESULT_BYTES
+        ) {
+            return undefined;
+        }
+        const result = await this.readJson(resultUri);
+        if (!result) {
             return undefined;
         }
         const bundleStat = (await this.resolve(bundleDir.resource)) ?? bundleDir;
@@ -159,8 +181,7 @@ export class NukePreviewGalleryService {
         const info = trajectory.get(bundleDir.name);
         const preview = isRecord(result.preview) ? result.preview : undefined;
         const previewPath =
-            this.withinWorkspace(preview?.path, roots) ??
-            info?.previewPath ??
+            (await this.referenceableCandidate([preview?.path, info?.previewPath], roots)) ??
             (bundleStat.children ?? [])
                 .find((child) => child.isFile && !child.isSymbolicLink && PREVIEW_FILE_PATTERN.test(child.name))
                 ?.resource.path.toString();
@@ -181,7 +202,12 @@ export class NukePreviewGalleryService {
         const trajectory = new Map<string, TrajectoryInfo>();
         const trajectoryUri = sessionUri.resolve('trajectory.jsonl');
         const trajectoryStat = await this.resolve(trajectoryUri);
-        if (!trajectoryStat || trajectoryStat.isSymbolicLink) {
+        if (
+            !trajectoryStat ||
+            trajectoryStat.isSymbolicLink ||
+            !trajectoryStat.isFile ||
+            ((trajectoryStat as FileStatWithMetadata).size ?? 0) > MAX_PERSISTED_TRAJECTORY_BYTES
+        ) {
             return trajectory;
         }
         let text: string;
@@ -238,6 +264,15 @@ export class NukePreviewGalleryService {
         }
     }
 
+    protected async referenceableCandidate(values: readonly unknown[], roots: readonly string[]): Promise<string | undefined> {
+        for (const value of values) {
+            if (typeof value === 'string' && value.length > 0 && (await isReferenceableFilePath(this.fileService, value, roots))) {
+                return value;
+            }
+        }
+        return undefined;
+    }
+
     protected withinWorkspace(value: unknown, roots: readonly string[]): string | undefined {
         return typeof value === 'string' && value.length > 0 && isWithinWorkspace(value, roots) ? value : undefined;
     }
@@ -253,6 +288,10 @@ export class NukePreviewGalleryService {
             return [];
         }
     }
+}
+
+function mtimeOf(stat: FileStat): number {
+    return (stat as FileStatWithMetadata).mtime ?? 0;
 }
 
 function compareEntries(left: NukePreviewGalleryEntry, right: NukePreviewGalleryEntry): number {

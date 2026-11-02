@@ -38,7 +38,7 @@
  * @module nuke-ai/browser/preview
  */
 
-import { inject, injectable } from '@theia/core/shared/inversify';
+import { inject, injectable, unmanaged } from '@theia/core/shared/inversify';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { URI } from '@theia/core/lib/common/uri';
@@ -47,9 +47,9 @@ import type { FileStat, FileStatWithMetadata } from '@theia/filesystem/lib/commo
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import * as path from 'path';
 import { NukeArtifact, NukeCapabilityResult, NukePreview } from 'nuke-core/lib/common/nuke-capability-protocol';
-import { isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import {
     MAX_PERSISTED_PREVIEW_BYTES,
+    MAX_PERSISTED_RESULT_BYTES,
     MAX_TRAJECTORY_INPUT_STRING_LENGTH,
     NukePreviewBundle,
     NukePreviewSession,
@@ -58,6 +58,7 @@ import {
     previewExtensionForMime,
     previewMimeForExtension
 } from '../../common/nuke-preview-protocol';
+import { isReferenceableFilePath, isSafeDirectoryPath, isSafeFileTarget } from './preview-path-policy';
 
 const PREVIEW_ROOT = '.nuke-ide/ai/previews';
 const BUNDLE_DIRECTORY_PATTERN = /^bundle-(\d+)$/;
@@ -67,6 +68,14 @@ const SECRET_KEY = /(?:api[-_]?key|token|secret|password|authorization|credentia
 const BEARER_SECRET = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
 const KEY_VALUE_SECRET = /\b(api[-_]?key|token|secret|password|authorization)\b(\s*[:=]\s*)(["']?)(?!\[redacted\]|Bearer\b)[^\s"',;}]+/gi;
 const UTF8_ENCODER = new TextEncoder();
+const DEFAULT_MAX_TRAJECTORY_BYTES = 1024 * 1024;
+const DEFAULT_MAX_IN_MEMORY_BUNDLES = 100;
+
+/** Optional bounds used by tests; production uses the defaults above. */
+export interface NukePreviewStoreOptions {
+    readonly maxTrajectoryBytes?: number;
+    readonly maxInMemoryBundles?: number;
+}
 
 interface PreviewStorage {
     readonly previewPath?: string;
@@ -92,7 +101,8 @@ export class NukePreviewStore {
     constructor(
         @inject(FileService) protected readonly fileService: FileService,
         @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService,
-        @inject(ILogger) protected readonly logger: ILogger
+        @inject(ILogger) protected readonly logger: ILogger,
+        @unmanaged() protected readonly options: NukePreviewStoreOptions = {}
     ) {}
 
     /**
@@ -138,6 +148,11 @@ export class NukePreviewStore {
         return this.enqueue(state, () => this.performCapture(session, state, capabilityId, input, result));
     }
 
+    /** Drop the in-memory state for a session that will not be reused. */
+    releaseSession(sessionId: string): void {
+        this.sessions.delete(sessionId);
+    }
+
     /** Return the most recent bundle, or `undefined` when none exist. */
     async latest(session: NukePreviewSession): Promise<NukePreviewBundle | undefined> {
         const bundles = await this.list(session);
@@ -173,18 +188,35 @@ export class NukePreviewStore {
             };
             state.nextBundleIndex++;
             state.inMemoryBundles.push(bundle);
+            const maxInMemory = this.options.maxInMemoryBundles ?? DEFAULT_MAX_IN_MEMORY_BUNDLES;
+            if (state.inMemoryBundles.length > maxInMemory) {
+                state.inMemoryBundles.splice(0, state.inMemoryBundles.length - maxInMemory);
+            }
             this.logPersistenceDisabled();
             return bundle;
         }
         try {
             const sessionUri = this.sessionUri(session);
+            if (!(await isSafeDirectoryPath(this.fileService, sessionUri.path.toString(), state.workspaceRoots))) {
+                throw new Error('Preview session directory is symlinked or outside the workspace.');
+            }
             await this.fileService.createFolder(sessionUri, { fromUserGesture: false });
+            if (!(await isSafeFileTarget(this.fileService, sessionUri.resolve('session.json').path.toString(), state.workspaceRoots))) {
+                throw new Error('Preview session metadata target is symlinked or outside the workspace.');
+            }
             await this.writeSessionJson(session, sessionUri, createdAt);
             const bundleUri = sessionUri.resolve(bundleId);
+            if (!(await isSafeDirectoryPath(this.fileService, bundleUri.path.toString(), state.workspaceRoots))) {
+                throw new Error('Preview bundle directory is symlinked or outside the workspace.');
+            }
             await this.fileService.createFolder(bundleUri, { fromUserGesture: false });
             const storage = result.preview ? await this.storePreview(state, result.preview, bundleUri) : {};
             const persisted = this.persistedResult(result, storage);
-            await this.fileService.write(bundleUri.resolve('result.json'), JSON.stringify(persisted, null, 2));
+            const resultUri = bundleUri.resolve('result.json');
+            if (!(await isSafeFileTarget(this.fileService, resultUri.path.toString(), state.workspaceRoots))) {
+                throw new Error('Preview result target is symlinked or outside the workspace.');
+            }
+            await this.fileService.write(resultUri, this.serializePersistedResult(persisted));
             await this.appendTrajectory(sessionUri, state, this.trajectoryEntry(capabilityId, input, result, bundleId, storage));
             state.nextBundleIndex++;
             return {
@@ -208,6 +240,9 @@ export class NukePreviewStore {
 
     protected async storePreview(state: SessionState, preview: NukePreview, bundleUri: URI): Promise<PreviewStorage> {
         if (preview.data !== undefined && preview.data.length > 0) {
+            if (preview.data.length > Math.ceil((MAX_PERSISTED_PREVIEW_BYTES * 4) / 3) + 1024) {
+                return this.oversizeWarning();
+            }
             const parsed = parsePreviewDataUri(preview.data);
             if (parsed) {
                 const extension = previewExtensionForMime(parsed.mimeType);
@@ -218,6 +253,9 @@ export class NukePreviewStore {
                     return this.oversizeWarning();
                 }
                 const target = bundleUri.resolve(`preview.${extension}`);
+                if (!(await isSafeFileTarget(this.fileService, target.path.toString(), state.workspaceRoots))) {
+                    return { warning: 'Preview target is symlinked or outside the workspace; no preview file was written.' };
+                }
                 await this.fileService.writeFile(target, BinaryBuffer.wrap(parsed.bytes));
                 return { previewPath: target.path.toString(), previewMimeType: parsed.mimeType };
             }
@@ -227,6 +265,9 @@ export class NukePreviewStore {
                     return this.oversizeWarning();
                 }
                 const target = bundleUri.resolve('preview.txt');
+                if (!(await isSafeFileTarget(this.fileService, target.path.toString(), state.workspaceRoots))) {
+                    return { warning: 'Preview target is symlinked or outside the workspace; no preview file was written.' };
+                }
                 await this.fileService.writeFile(target, BinaryBuffer.wrap(bytes));
                 return { previewPath: target.path.toString(), previewMimeType: 'text/plain' };
             }
@@ -237,11 +278,8 @@ export class NukePreviewStore {
             };
         }
         if (preview.path !== undefined && preview.path.length > 0) {
-            if (!isWithinWorkspace(preview.path, state.workspaceRoots)) {
-                return { warning: 'Preview path is outside the workspace; it was not referenced.' };
-            }
-            if (!(await this.isReferenceablePath(preview.path, state.workspaceRoots))) {
-                return { warning: 'Preview path is a symlink or is not a file; it was not referenced.' };
+            if (!(await isReferenceableFilePath(this.fileService, preview.path, state.workspaceRoots))) {
+                return { warning: 'Preview path is outside the workspace or is a symlink; it was not referenced.' };
             }
             const mimeType = preview.mimeType ?? previewMimeForPath(preview.path);
             return {
@@ -252,43 +290,6 @@ export class NukePreviewStore {
         return { warning: 'Preview has no data or path; no preview file was written.' };
     }
 
-    /**
-     * Reject symlinked path components and non-files. Theia's file service does
-     * not expose realpath, so every component from the workspace root down is
-     * resolved and checked instead.
-     */
-    protected async isReferenceablePath(candidate: string, roots: readonly string[]): Promise<boolean> {
-        const normalized = path.resolve(candidate);
-        const root = roots
-            .map((entry) => path.resolve(entry))
-            .filter((entry) => isWithinWorkspace(normalized, [entry]))
-            .sort((left, right) => right.length - left.length)[0];
-        if (!root) {
-            return false;
-        }
-        const relative = path.relative(root, normalized);
-        const segments = relative.split(path.sep).filter((segment) => segment.length > 0);
-        if (segments.length === 0) {
-            return false;
-        }
-        let current = root;
-        try {
-            for (const segment of segments) {
-                current = path.join(current, segment);
-                const stat = await this.fileService.resolve(URI.fromFilePath(current));
-                if (stat.isSymbolicLink) {
-                    return false;
-                }
-                if (current === normalized && !stat.isFile) {
-                    return false;
-                }
-            }
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
     protected oversizeWarning(): PreviewStorage {
         return { warning: 'Preview is larger than 8 MiB and was not saved; the preview is still shown in the chat.' };
     }
@@ -296,7 +297,7 @@ export class NukePreviewStore {
     protected persistedResult(result: NukeCapabilityResult, storage: PreviewStorage): Record<string, unknown> {
         const persisted: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(result)) {
-            if (key === 'preview') {
+            if (key === 'preview' || key === 'undoToken') {
                 continue;
             }
             persisted[key] = sanitizeForDisk(value);
@@ -307,10 +308,10 @@ export class NukePreviewStore {
                 truthful: result.preview.truthful
             };
             if (result.preview.caption !== undefined) {
-                preview.caption = result.preview.caption;
+                preview.caption = sanitizeForDisk(result.preview.caption);
             }
             if (result.preview.limitations !== undefined) {
-                preview.limitations = [...result.preview.limitations];
+                preview.limitations = result.preview.limitations.map((limitation) => sanitizeForDisk(limitation));
             }
             const mimeType = storage.previewMimeType ?? result.preview.mimeType;
             if (mimeType !== undefined) {
@@ -325,6 +326,25 @@ export class NukePreviewStore {
             persisted.warnings = [...(result.warnings ?? []), storage.warning].map((warning) => sanitizeForDisk(warning));
         }
         return persisted;
+    }
+
+    /** Keep the snapshot bounded; a huge result keeps only preview metadata. */
+    protected serializePersistedResult(persisted: Record<string, unknown>): string {
+        const json = JSON.stringify(persisted, null, 2);
+        if (utf8Length(json) <= MAX_PERSISTED_RESULT_BYTES) {
+            return json;
+        }
+        const preview = isRecord(persisted.preview) ? persisted.preview : undefined;
+        return JSON.stringify(
+            {
+                ok: persisted.ok === true,
+                truncated: true,
+                note: `Result snapshot exceeded ${MAX_PERSISTED_RESULT_BYTES} bytes; only preview metadata was kept.`,
+                ...(preview ? { preview } : {})
+            },
+            null,
+            2
+        );
     }
 
     protected trajectoryEntry(
@@ -348,11 +368,18 @@ export class NukePreviewStore {
 
     protected async appendTrajectory(sessionUri: URI, state: SessionState, entry: NukeTrajectoryEntry): Promise<void> {
         const target = sessionUri.resolve('trajectory.jsonl');
+        if (!(await isSafeFileTarget(this.fileService, target.path.toString(), state.workspaceRoots))) {
+            this.logger.warn('[NukeAi] Preview trajectory target is symlinked or outside the workspace; skipping the write.');
+            return;
+        }
         if (!state.trajectoryLoaded) {
             state.trajectoryLoaded = true;
             try {
                 if (await this.fileService.exists(target)) {
-                    state.trajectoryText = (await this.fileService.read(target)).value;
+                    state.trajectoryText = trimTrajectory(
+                        (await this.fileService.read(target)).value,
+                        this.options.maxTrajectoryBytes ?? DEFAULT_MAX_TRAJECTORY_BYTES
+                    );
                 }
             } catch (error) {
                 this.logger.warn('[NukeAi] Failed to read the existing preview trajectory; starting a new one:', error);
@@ -360,7 +387,8 @@ export class NukePreviewStore {
         }
         const existing = state.trajectoryText ?? '';
         const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
-        state.trajectoryText = `${existing}${separator}${JSON.stringify(entry)}\n`;
+        const next = `${existing}${separator}${JSON.stringify(entry)}\n`;
+        state.trajectoryText = trimTrajectory(next, this.options.maxTrajectoryBytes ?? DEFAULT_MAX_TRAJECTORY_BYTES);
         await this.fileService.write(target, state.trajectoryText);
     }
 
@@ -529,7 +557,7 @@ function capTrajectoryString(value: string): string {
 /** Remove inline data before persisting a result snapshot. */
 function sanitizeForDisk(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
     if (typeof value === 'string') {
-        return INLINE_DATA_URI.test(value) ? '[inline data omitted]' : value;
+        return INLINE_DATA_URI.test(value) ? '[inline data omitted]' : redactSecret(value);
     }
     if (value === null || typeof value !== 'object') {
         return typeof value === 'bigint' ? value.toString() : value;
@@ -550,10 +578,41 @@ function sanitizeForDisk(value: unknown, seen: WeakSet<object> = new WeakSet()):
         }
         const record: Record<string, unknown> = {};
         for (const [key, entry] of Object.entries(value)) {
-            record[key] = sanitizeForDisk(entry, seen);
+            record[key] = SECRET_KEY.test(key) ? '[redacted]' : sanitizeForDisk(entry, seen);
         }
         return record;
     } finally {
         seen.delete(value);
     }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Keep the newest complete JSONL records within the byte cap. */
+function trimTrajectory(text: string, maxBytes: number): string {
+    if (utf8Length(text) <= maxBytes) {
+        return text;
+    }
+    const lines = text.split('\n').filter((line) => line.length > 0);
+    const kept: string[] = [];
+    let size = 0;
+    for (let index = lines.length - 1; index >= 0; index--) {
+        const line = `${lines[index]}\n`;
+        const lineBytes = utf8Length(line);
+        if (lineBytes > maxBytes) {
+            break;
+        }
+        if (kept.length > 0 && size + lineBytes > maxBytes) {
+            break;
+        }
+        kept.unshift(lines[index]);
+        size += lineBytes;
+    }
+    return kept.length > 0 ? `${kept.join('\n')}\n` : '';
+}
+
+function utf8Length(value: string): number {
+    return UTF8_ENCODER.encode(value).byteLength;
 }

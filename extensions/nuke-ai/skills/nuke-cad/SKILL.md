@@ -1,6 +1,6 @@
 ---
 name: nuke-cad
-description: Inspect, summarize, and export the active NukeCAD document to DAGMC. Use before an OpenMC import to confirm solid counts, selection, manifest links, and export artifacts, or to review a sandboxed Python model script change.
+description: Inspect, summarize, export, and author the active NukeCAD document. Use before an OpenMC import to confirm solid counts, selection, manifest links, and export artifacts, or to preview feature, sketch, topology, import, assembly, drawing, or sandboxed Python script changes.
 ---
 
 # NukeCAD
@@ -273,18 +273,18 @@ drawings and refreshes the sheet.
 ## Author a Python model script
 
 Script authoring is default-off and Linux-only: it needs both **Nuke CAD: AI Authoring** and workspace-scoped **Nuke CAD:
-Script Authoring**, plus an active saved `.py` model and bubblewrap. Preview and apply are absent when either switch is
-off. Never suggest editing a `.py` file through a raw file write.
+Script Authoring**, plus an active saved `.py` model, bubblewrap, and libseccomp. Preview and apply are absent when either
+switch is off. Never suggest editing a `.py` file through a raw file write.
 
 1. Call `nuke_cad_inspectScriptSource` with `{}`. It returns the script path, bounded text and SHA-256 hash, imports, and
    whether a top-level `model` is assigned. The text is sent to the configured model provider; tell the user before
    inspecting a large private script.
 2. Read the returned text, then produce the complete replacement body, not a patch. Call
    `nuke_cad_previewScriptChange` with `{ "baseScriptHash": "<exact hash>", "proposedScript": "<full UTF-8 body>",
-"summary": "<short description>"? }`. The preview runs the script in a bubblewrap sandbox with no network and no
-   workspace access, read-only source, a private writable output, and time, memory, process, and file limits. It returns a
-   unified diff, imports, sandbox limits, build counts, duration, and audit id. It publishes no ghost and never writes the
-   script; sandbox artifacts are discarded.
+"summary": "<short description>"? }`. The preview runs the script in a bubblewrap sandbox with a libseccomp denylist,
+   no network and no workspace access, read-only source, a private writable output, and time, memory, process, and file
+   limits. It returns a unified diff, imports, sandbox limits, build counts, duration, and audit id. It publishes no
+   ghost and never writes the script; sandbox artifacts are discarded.
 3. The preview card has **no Apply action**. Apply is panel-only. Tell the user to open the **CAD Edit Review** panel and
    review the diff, sandbox limits, and build counts there. The panel holds the approval nonce; the model cannot apply and
    must not claim it can.

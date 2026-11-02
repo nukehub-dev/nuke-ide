@@ -104,12 +104,18 @@ authoring tools are absent from NukeAI. Only a saved `.nuke-cad` document can be
 
 The allowlist is deliberately narrow:
 
-| Feature         | Parameter   | Rule                                          |
-| --------------- | ----------- | --------------------------------------------- |
-| Pad, Pocket     | `length`    | blind/default end only; positive              |
-| Revolve, Groove | `angle`     | greater than 0 and at most 360 degrees        |
-| Fillet          | `radius`    | positive; the feature must already have edges |
-| Shell           | `thickness` | positive                                      |
+| Feature          | Parameter   | Rule                                          |
+| ---------------- | ----------- | --------------------------------------------- |
+| Pad, Pocket      | `length`    | blind/default end only; positive              |
+| Revolve, Groove  | `angle`     | greater than 0 and at most 360 degrees        |
+| Fillet           | `radius`    | positive; the feature must already have edges |
+| Chamfer          | `distance`  | positive; symmetric mode only                 |
+| Draft            | `angle`     | between -90 and 90 degrees                    |
+| Linear pattern   | `spacing`   | positive                                      |
+| Circular pattern | `angle`     | greater than 0 and at most 360 degrees        |
+| Hole             | `diameter`  | positive                                      |
+| Hole (blind)     | `depth`     | positive                                      |
+| Shell            | `thickness` | positive                                      |
 
 A preview writes a transient hidden candidate beside the source, builds it with the same geometry backend, and
 compares it with the current build. The preview is rejected if the build fails, a feature fails, the solid count
@@ -303,8 +309,8 @@ edit the title block, or touch geometry.
 AI script authoring replaces the active saved `.py` build123d/CadQuery model as a whole file. It is default-off and
 Linux-only; NukeAI chat, model setup, and the other capability tools are not Linux-specific. Turn on both **Nuke CAD:
 AI Authoring** and the workspace-scoped **Nuke CAD: Script Authoring** in **Settings → Nuke CAD**. It needs a working
-bubblewrap user namespace and libseccomp; macOS, Windows, and environments without them show no preview or apply tools.
-There is no unsandboxed fallback.
+bubblewrap user namespace and libseccomp; macOS, Windows, and environments without them fail closed with a Linux-only
+unavailable message. There is no unsandboxed fallback.
 
 1. Open the `.py` in the editor and run **Open Active Python Model in CAD** so it is the active model. NukeAI inspects the script with `nuke_cad_inspectScriptSource`. The result carries the path, bounded text, SHA-256
    hash, imports, and whether a top-level `model` is assigned. **The script text is sent to the configured model

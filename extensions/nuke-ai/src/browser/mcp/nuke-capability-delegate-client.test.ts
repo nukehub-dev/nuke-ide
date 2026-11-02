@@ -195,6 +195,37 @@ describe('NukeCapabilityDelegateClientImpl', () => {
         expect(invoke).toHaveBeenCalledWith({ includeSolids: true }, context);
     });
 
+    it('rejects a write capability even when the RPC caller asks for it', async () => {
+        const candidate = {
+            ...cadCapability(),
+            id: 'nuke.cad.previewFeatureChange',
+            risk: 'execute' as const,
+            invoke: vi.fn(async () => ({ ok: true }))
+        };
+        const { client, invoke } = setup(candidate);
+
+        const result = await client.invoke(candidate.id, {});
+
+        expect(result.ok).toBe(false);
+        expect(result.message).toContain('read-only MCP endpoint');
+        expect(invoke).not.toHaveBeenCalled();
+    });
+
+    it('rejects a read capability that is not on the MCP allowlist', async () => {
+        const candidate = {
+            ...cadCapability(),
+            id: 'nuke.cad.listSketchDimensions',
+            invoke: vi.fn(async () => ({ ok: true }))
+        };
+        const { client, invoke } = setup(candidate);
+
+        const result = await client.invoke(candidate.id, {});
+
+        expect(result.ok).toBe(false);
+        expect(result.message).toContain('read-only MCP endpoint');
+        expect(invoke).not.toHaveBeenCalled();
+    });
+
     it('rejects invalid input before calling the capability', async () => {
         const { client, invoke } = setup();
 

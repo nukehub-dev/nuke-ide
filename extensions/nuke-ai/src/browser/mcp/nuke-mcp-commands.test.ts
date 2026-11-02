@@ -64,6 +64,7 @@ interface Harness {
     readonly write: ReturnType<typeof vi.fn>;
     readonly deleteFile: ReturnType<typeof vi.fn>;
     readonly messageService: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
+    readonly logger: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
 }
 
 function createHarness(options: { writeError?: Error; failPreferenceOnce?: string; portAnswer?: string | null } = {}): Harness {
@@ -104,7 +105,11 @@ function createHarness(options: { writeError?: Error; failPreferenceOnce?: strin
         error: vi.fn(async () => undefined)
     };
     const clipboard = { writeText: vi.fn() } as unknown as ClipboardService;
-    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as ILogger;
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as ILogger & {
+        info: ReturnType<typeof vi.fn>;
+        warn: ReturnType<typeof vi.fn>;
+        error: ReturnType<typeof vi.fn>;
+    };
     const commands = new TestableCommands(
         { set } as unknown as PreferenceService,
         fileService,
@@ -114,7 +119,7 @@ function createHarness(options: { writeError?: Error; failPreferenceOnce?: strin
         clipboard,
         logger
     );
-    return { commands, files, preferences, set, write, deleteFile, messageService };
+    return { commands, files, preferences, set, write, deleteFile, messageService, logger };
 }
 
 function writtenConfig(files: Map<string, string>): { enabled: boolean; token: string; port: number } {
@@ -132,6 +137,7 @@ describe('NukeMcpCommandContribution', () => {
         await harness.commands.enableNow();
 
         const config = writtenConfig(harness.files);
+        expect(JSON.stringify(harness.logger.info.mock.calls)).not.toContain(config.token);
         expect(config.enabled).toBe(true);
         expect(config.port).toBe(3210);
         expect(config.token).toMatch(/^[0-9a-f-]{36}$/);

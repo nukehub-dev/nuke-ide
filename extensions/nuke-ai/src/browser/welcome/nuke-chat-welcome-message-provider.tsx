@@ -33,6 +33,7 @@ import { codicon, CommonCommands, LocalizedMarkdown, MarkdownRenderer } from '@t
 import { CommandRegistry, DisposableCollection, Emitter, Event, PreferenceScope } from '@theia/core';
 import { AgentService, FrontendLanguageModelRegistry } from '@theia/ai-core/lib/common';
 import { PreferenceService } from '@theia/core/lib/common';
+import { ILogger } from '@theia/core/lib/common/logger';
 import { DEFAULT_CHAT_AGENT_PREF, BYPASS_MODEL_REQUIREMENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-preferences';
 import { ChatAgentRecommendationService, ChatAgentService } from '@theia/ai-chat/lib/common';
 import { OPEN_AI_CONFIG_VIEW } from '@theia/ai-ide/lib/browser/ai-configuration/ai-configuration-view-contribution';
@@ -68,6 +69,9 @@ export class NukeChatWelcomeMessageProvider implements ChatWelcomeMessageProvide
     @inject(AgentService)
     protected agentService: AgentService;
 
+    @inject(ILogger)
+    protected readonly logger: ILogger;
+
     protected readonly toDispose = new DisposableCollection();
     protected _hasReadyModels = false;
     protected _modelRequirementBypassed = false;
@@ -82,11 +86,10 @@ export class NukeChatWelcomeMessageProvider implements ChatWelcomeMessageProvide
 
     @postConstruct()
     protected init(): void {
-        console.log('NukeChatWelcomeMessageProvider initialized with priority', this.priority);
-        this.checkLanguageModelStatus();
+        this.refreshLanguageModelStatus();
         this.toDispose.push(
             this.languageModelRegistry.onChange(() => {
-                this.checkLanguageModelStatus();
+                this.refreshLanguageModelStatus();
             })
         );
         this.toDispose.push(
@@ -111,22 +114,26 @@ export class NukeChatWelcomeMessageProvider implements ChatWelcomeMessageProvide
                 this.notifyStateChanged();
             })
         );
-        this.analyzeModelConfiguration().then((config) => {
-            this.modelConfig = config;
-            this.notifyStateChanged();
-        });
-        this.preferenceService.ready.then(() => {
-            const defaultAgentValue = this.preferenceService.get(DEFAULT_CHAT_AGENT_PREF, '');
-            const bypassValue = this.preferenceService.get(BYPASS_MODEL_REQUIREMENT_PREF, false);
-            if (!defaultAgentValue && this.chatAgentService.getAgent(NUKE_CHAT_AGENT_ID)) {
-                this._defaultAgent = NUKE_CHAT_AGENT_ID;
-                void this.preferenceService.set(DEFAULT_CHAT_AGENT_PREF, NUKE_CHAT_AGENT_ID, PreferenceScope.User);
-            } else {
-                this._defaultAgent = defaultAgentValue;
-            }
-            this._modelRequirementBypassed = bypassValue;
-            this.notifyStateChanged();
-        });
+        this.preferenceService.ready
+            .then(() => {
+                const defaultAgentValue = this.preferenceService.get(DEFAULT_CHAT_AGENT_PREF, '');
+                const bypassValue = this.preferenceService.get(BYPASS_MODEL_REQUIREMENT_PREF, false);
+                if (!defaultAgentValue && this.chatAgentService.getAgent(NUKE_CHAT_AGENT_ID)) {
+                    this._defaultAgent = NUKE_CHAT_AGENT_ID;
+                    void this.preferenceService.set(DEFAULT_CHAT_AGENT_PREF, NUKE_CHAT_AGENT_ID, PreferenceScope.User);
+                } else {
+                    this._defaultAgent = defaultAgentValue;
+                }
+                this._modelRequirementBypassed = bypassValue;
+                this.notifyStateChanged();
+            })
+            .catch((error) => this.logger.error('[NukeAI] Failed to initialize the welcome defaults:', error));
+    }
+
+    protected refreshLanguageModelStatus(): void {
+        void this.checkLanguageModelStatus().catch((error) =>
+            this.logger.error('[NukeAI] Failed to refresh the language-model status:', error)
+        );
     }
 
     protected async checkLanguageModelStatus(): Promise<void> {

@@ -145,7 +145,7 @@ describe('NukeAIMcpConfigService', () => {
         expect((await service.getConfig())?.enabled).toBe(false);
     });
 
-    it('warns once when the config file is world-readable and never includes the token', async () => {
+    it.skipIf(process.platform === 'win32')('tightens a world-readable config file to owner-only without logging the token', async () => {
         const directory = temporaryConfigDir();
         const filePath = path.join(directory, NUKE_MCP_CONFIG_FILE);
         await writeConfig(directory, { enabled: true, token: 'super-secret-token', port: 3210 });
@@ -158,8 +158,9 @@ describe('NukeAIMcpConfigService', () => {
         now += NUKE_MCP_CONFIG_CACHE_MS;
         await service.getConfig();
 
-        expect(logger.warn).toHaveBeenCalledTimes(1);
-        expect(String(logger.warn.mock.calls[0][0])).toContain('world-readable');
-        expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('super-secret-token');
+        expect((await fs.stat(filePath)).mode & 0o777).toBe(0o600);
+        expect(JSON.stringify([...logger.info.mock.calls, ...logger.warn.mock.calls, ...logger.error.mock.calls])).not.toContain(
+            'super-secret-token'
+        );
     });
 });

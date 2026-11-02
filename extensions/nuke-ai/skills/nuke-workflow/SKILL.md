@@ -128,7 +128,8 @@ Never claim a later step succeeded when an earlier step failed. Never invent pat
 
 Read tools (`nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_openmc_summarizeProject`,
 `nuke_openmc_validateProject`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`,
-`nuke_viz_captureView`) run without an always-allow prompt.
+`nuke_viz_captureView`) follow the IDE's read-tool confirmation preference and may be marked Always allow.
 
 Write and execute tools (`nuke_cad_exportDagmc`, `nuke_openmc_importCad`, `nuke_openmc_runSimulation`,
-`nuke_viz_openStatepoint`) ask for confirmation and must be run with explicit user intent.
+`nuke_viz_openStatepoint`) never inherit a global always-allow; they ask for confirmation and must be run with explicit
+user intent.

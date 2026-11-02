@@ -63,19 +63,22 @@ by name when a conversation needs progressive disclosure.
   `nuke_cad_applyAssemblyChange`, `nuke_cad_summarizeDrawing`, `nuke_cad_previewDrawingChange`,
   `nuke_cad_applyDrawingChange`, `nuke_cad_inspectScriptSource`, `nuke_cad_previewScriptChange`,
   `nuke_cad_applyScriptChange`, `nuke_openmc_summarizeProject`, `nuke_openmc_validateProject`,
+  `nuke_openmc_previewSettings`, `nuke_openmc_applySettings`, `nuke_openmc_previewMaterialChange`,
+  `nuke_openmc_applyMaterialChange`, `nuke_openmc_previewTallyChange`, `nuke_openmc_applyTallyChange`,
   `nuke_openmc_importCad`, `nuke_openmc_runSimulation`, `nuke_openmc_getRunStatus`, `nuke_openmc_diagnoseProject`,
   `nuke_openmc_diagnoseRun`, `nuke_viz_summarizeStatepoint`, `nuke_viz_openStatepoint`, `nuke_viz_captureView`,
   `nuke_viz_diagnoseStatepoint`, `nuke_viz_compareStatepoints`, `nuke_viz_analyzeTallySeries`.
+  `nuke_viz_compareStatepoints` and `nuke_viz_analyzeTallySeries` are exposed only to the read-only Diagnostics agent.
 - Call instructions use the sanitized tool names. Each skill includes one short mapping note because the
   capability id stays the stable registry identifier: `nuke.cad.summarizeDocument` is exposed as
   `nuke_cad_summarizeDocument`, and the remaining ids replace dots with underscores in the same way.
 - State that write and execute tools ask for confirmation and require explicit user intent.
-- Script guidance states the two default-off switches, the Linux+bubblewrap requirement, that inspected source text goes to
+- Script guidance states the two default-off switches, the Linux+bubblewrap+libseccomp requirement, that inspected source text goes to
   the model provider, that preview runs without network/workspace and writes nothing, and that apply is panel-only with a
   hidden approval nonce, backup, and undo. Never describe a chat-side script apply.
 - Keep paths absolute and inside the workspace, as the capabilities enforce.
-- Keep each skill under roughly 150 lines; split into sibling files referenced relative to `SKILL.md` only when
-  the content genuinely needs it.
+- Keep each skill focused; split into sibling files referenced relative to `SKILL.md` when it exceeds roughly 400
+  lines or covers independent workflows. The broad `nuke-cad` skill is intentionally at the upper end.
 - Do not cite planning material, edit capability behavior in prose, or invent ids, paths, or result fields.
 
 ## Adding a skill

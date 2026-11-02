@@ -55,7 +55,7 @@ Change events are debounced with `setTimeout(0)`. Concurrent refreshes share one
 - **description** — the capability description plus up to three `Example: ...` lines.
 - **parameters** — the capability input schema converted to `ToolRequestParameters`.
 - **providerName** — `nuke-ai`.
-- **confirmAlwaysAllow** — `undefined` for `read`, `true` for `write` and `execute`, and a warning string for `destructive`.
+- **confirmAlwaysAllow** — `undefined` for a plain `read`, `true` for `write`/`execute` and for any capability with `requiresConfirmation: true`, and a warning string for `destructive`.
 - **getArgumentsShortLabel** — uses the first present key from `path`, `documentPath`, `projectPath`, `statepointPath`, `workingDirectory`, or `query`.
 - **handler** — parses the argument JSON, validates required keys and top-level types, merges the ambient context, bridges cancellation to an `AbortSignal`, captures a preview bundle when the result has a preview or artifacts, and converts the result.
 
@@ -79,17 +79,18 @@ Capability results are untrusted and may be large. `toToolCallContent`:
 - always emits a human-readable message (`Done.` or `Failed.` when the capability provides none);
 - emits an error block first when `ok` is false;
 - emits compact JSON for `data` plus warnings, next actions, handle, artifacts, and preview metadata;
-- appends one `label: path` or `label: uri` line per artifact;
-- truncates any single string at 8 KiB and replaces a JSON payload over 32 KiB with a marked summary;
+- appends at most 50 `label: path` or `label: uri` lines per artifact, then a count of the remaining artifacts;
+- caps strings at 8 KiB, arrays/objects at 500 entries and 8 levels, and replaces a JSON payload over 32 KiB with a
+  marked summary that keeps a compact change set and undo token;
 - omits inline base64 data URIs and oversized base64-like payloads, and represents binary buffers as `[binary omitted]`.
 
 ## Previews
 
 A result with a `preview` gets one preview block before its JSON block:
 
-- image and SVG data URIs become Theia image blocks;
+- image and SVG data URIs become Theia image blocks, capped at 4 MiB;
 - image and SVG paths are read through `FileService`, capped at 4 MiB, and become image blocks; a failed or oversized read becomes a text link;
-- HTML becomes a Theia HTML app block titled with the caption;
+- HTML becomes a Theia HTML app block titled with the caption, capped at 4 MiB;
 - markdown becomes a text block.
 
 Every preview is followed by a caption block with the caption, `Limitations: ...` when present, and

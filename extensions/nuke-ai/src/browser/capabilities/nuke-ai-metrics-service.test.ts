@@ -43,7 +43,13 @@ const BACKUP_PATH = '/workspace/.nuke-ide/ai/metrics.1.jsonl';
 class FakeFileService {
     readonly files = new Map<string, string>();
     readonly directories = new Set<string>(['/']);
+    readonly symlinks = new Set<string>();
     failWrites = false;
+
+    addSymlink(target: string): void {
+        this.ensureDirectory(path.dirname(target));
+        this.symlinks.add(target);
+    }
     writeDelayMs = 0;
     activeWrites = 0;
     maxActiveWrites = 0;
@@ -80,6 +86,14 @@ class FakeFileService {
         }
     }
 
+    async resolve(uri: URI): Promise<FileStat> {
+        const target = key(uri);
+        if (!this.files.has(target) && !this.directories.has(target) && !this.symlinks.has(target)) {
+            throw new Error(`missing: ${target}`);
+        }
+        return this.statFor(target, uri);
+    }
+
     async read(uri: URI): Promise<{ value: string }> {
         const value = this.files.get(key(uri));
         if (value === undefined) {
@@ -102,7 +116,7 @@ class FakeFileService {
             name: path.basename(target),
             isFile: !this.directories.has(target),
             isDirectory: this.directories.has(target),
-            isSymbolicLink: false,
+            isSymbolicLink: this.symlinks.has(target),
             isReadonly: false
         } as FileStat;
     }
@@ -225,7 +239,7 @@ describe('NukeAiMetricsService', () => {
     });
 
     it('rotates the current file to one backup and overwrites the older backup', async () => {
-        const { fileService, service } = setup({ maxBytes: 140 });
+        const { fileService, service } = setup({ maxBytes: 250 });
 
         await service.record(record({ capabilityId: 'nuke.example.first' }));
         await service.record(record({ capabilityId: 'nuke.example.second' }));
@@ -238,6 +252,25 @@ describe('NukeAiMetricsService', () => {
 
         const all = await service.readEntries();
         expect(all.map((entry) => entry.capabilityId)).toEqual(['nuke.example.second', 'nuke.example.third']);
+    });
+
+    it('refuses to write through a symlinked workspace log directory', async () => {
+        const { fileService, logger, service } = setup();
+        fileService.addSymlink('/workspace/.nuke-ide');
+
+        await service.record(record());
+
+        expect(fileService.files.has(METRICS_PATH)).toBe(false);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('symlinked'));
+    });
+
+    it('refuses to write a line larger than the journal cap', async () => {
+        const { fileService, logger, service } = setup({ maxBytes: 50 });
+
+        await service.record(record());
+
+        expect(fileService.files.has(METRICS_PATH)).toBe(false);
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('oversized'));
     });
 
     it('logs a failed write and never rejects', async () => {
