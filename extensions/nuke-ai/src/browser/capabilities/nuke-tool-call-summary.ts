@@ -122,6 +122,8 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
     nuke_cad_summarizeDocument: 'CAD summary',
     nuke_cad_inspectSelection: 'CAD selection',
     nuke_cad_diagnoseModel: 'CAD diagnosis',
+    nuke_cad_previewFeatureChange: 'CAD feature preview',
+    nuke_cad_applyFeatureChange: 'CAD feature applied',
     nuke_cad_exportDagmc: 'DAGMC export',
     nuke_openmc_summarizeProject: 'OpenMC project',
     nuke_openmc_validateProject: 'OpenMC validation',

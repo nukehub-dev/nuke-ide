@@ -93,17 +93,17 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
         }
         this.started = true;
         this.stopped = false;
+        // Subscribe before the first refresh: a document can open while the
+        // registry becomes ready or the first tool pass runs, and that change
+        // must not be lost between the initial context read and subscription.
+        this.toDispose.push(this.capabilityRegistry.onDidChange(() => this.scheduleRefresh()));
+        this.toDispose.push(this.contextService.onDidChangeContext(() => this.scheduleRefresh()));
         try {
             await this.capabilityRegistry.ready;
         } catch (error) {
             this.logger.error('[NukeAi] Capability registry did not become ready:', error);
         }
         await this.refresh();
-        if (this.stopped) {
-            return;
-        }
-        this.toDispose.push(this.capabilityRegistry.onDidChange(() => this.scheduleRefresh()));
-        this.toDispose.push(this.contextService.onDidChangeContext(() => this.scheduleRefresh()));
     }
 
     onStop(): void {

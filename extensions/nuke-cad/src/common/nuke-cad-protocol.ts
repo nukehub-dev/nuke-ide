@@ -424,6 +424,10 @@ export interface BuildDocumentRequest {
      * transport solvers that expect meters.
      */
     readonly lengthScale?: number;
+    /** Caller-chosen process id, so a long preview build can be cancelled before it returns. */
+    readonly jobId?: string;
+    /** Process timeout in seconds; the backend default applies when omitted. */
+    readonly timeoutSeconds?: number;
 }
 
 /** Single volume entry in the region manifest. */

@@ -2,11 +2,17 @@
 
 ## Status and gate
 
-**Design only.** No CAD authoring capability is implemented, registered, or exposed. The shipped CAD surface stays
-read/export-only until this design is approved and every item in the [security gate checklist](#security-gate-checklist)
-is satisfied.
+**Phase 1 slice implemented behind a default-off switch.** The shipped authoring surface is limited to scalar
+feature-parameter edits (`nuke.cad.previewFeatureChange` / `nuke.cad.applyFeatureChange`) and is disabled unless
+`nukeCad.aiAuthoringEnabled` is on. Script, sketch, parameter, topology, and import authoring remain design-only. This
+page is the contract for the full implementation and its remaining security gate.
 
-This page is the contract for a future implementation:
+The Phase 1 slice still follows the security model below: real-build preview, topology/selector/region invariance,
+stale-proposal rejection, a pre-apply backup, one atomic document-store commit, a scheduled rebuild, session-scoped
+undo, and no MCP exposure. The full [security gate checklist](#security-gate-checklist) remains the gate for broader
+authoring.
+
+This page is the contract for the remaining implementation:
 
 - It is not a commitment to ship.
 - It does not authorize `.py`/build123d script editing, raw Python execution, sketch editing, or free-form JSON patches.
@@ -29,14 +35,16 @@ a second geometry kernel, a second build path, or a model-facing file API.
 | Prompt injection via names/text | Body names, feature names, parameter names, material tags, build warnings, and import product names come from documents and external CAD files. They are untrusted data that the model reads and that UIs render. A malicious document can carry instructions, Markdown/HTML, control characters, or misleading labels.                       |
 | Simulation impact               | `label`, `material`, selector maps, and body identity feed the region manifest and DAGMC export. A geometry edit that changes solid identity or region coverage can invalidate a coupled OpenMC model even when the shape still builds.                                                                                                       |
 
-The current CAD AI surface is deliberately read/export-only:
+The shipped CAD AI surface is read/export plus the gated scalar feature-edit slice:
 
-| Capability                   | Risk      | Effect                                                                |
-| ---------------------------- | --------- | --------------------------------------------------------------------- |
-| `nuke.cad.summarizeDocument` | `read`    | Build counts, selection, manifest, optional per-solid summaries       |
-| `nuke.cad.inspectSelection`  | `read`    | Selected solids and hidden ids                                        |
-| `nuke.cad.diagnoseModel`     | `read`    | Build, manifest, selection, and per-solid findings without rebuilding |
-| `nuke.cad.exportDagmc`       | `execute` | Builds a source and writes STEP, DAGMC, manifest, and cache artifacts |
+| Capability                      | Risk      | Effect                                                                |
+| ------------------------------- | --------- | --------------------------------------------------------------------- |
+| `nuke.cad.summarizeDocument`    | `read`    | Build counts, selection, manifest, optional per-solid summaries       |
+| `nuke.cad.inspectSelection`     | `read`    | Selected solids and hidden ids                                        |
+| `nuke.cad.diagnoseModel`        | `read`    | Build, manifest, selection, and per-solid findings without rebuilding |
+| `nuke.cad.previewFeatureChange` | `read`    | Real-build preview of scalar feature edits; gated by the switch       |
+| `nuke.cad.applyFeatureChange`   | `execute` | Applies a previewed proposal, rebuilds, and registers undo            |
+| `nuke.cad.exportDagmc`          | `execute` | Builds a source and writes STEP, DAGMC, manifest, and cache artifacts |
 
 `nuke.cad.diagnoseModel` already gives the model a bounded way to inspect a model. Nothing in the current surface mutates
 `CadDocumentStore`, and external MCP never exposes write/execute CAD tools.
@@ -45,7 +53,7 @@ The current CAD AI surface is deliberately read/export-only:
 
 | Layer                                                                                             | Today                                                                                                                                                                                                                                                 | Required for authoring                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Capability registration (`extensions/nuke-cad/src/browser/capabilities/nuke-cad-capabilities.ts`) | Four read/export capabilities; no document store injected                                                                                                                                                                                             | Add preview/apply/undo contributions; inject `CadDocumentStore`, `NukeUndoService`, a CAD proposal service, and the kill-switch preference                                                                       |
+| Capability registration (`extensions/nuke-cad/src/browser/capabilities/nuke-cad-capabilities.ts`) | Four read/export capabilities; the Phase 1 authoring contribution adds a store-backed preview/apply pair behind the switch                                                                                                                            | Extend the slice for parameters, sketches, and the remaining design surfaces; keep the switch and undo boundary                                                                                                  |
 | Document state (`CadDocumentStore`)                                                               | Framework-free in-memory authority; immutable snapshots; depth-100 snapshot undo/redo; one history entry per committed mutation; `documentEpoch` on install; `loadDocument` resets history                                                            | Add a revision/identity accessor, a single-transaction patch API (one history entry for a multi-operation patch), a guarded restore-by-transaction API, and the revision that the active build was produced from |
 | Build orchestration (`NukeCadFrontendService` → `NukeCadBackendService`)                          | `buildDocument` → `geometry_service.py --from-document`; display builds skip DAGMC/mesh; the backend defaults to a one-hour process timeout and has `cancelJob` for tracked jobs, but `buildDocument` does not expose a timeout or cancellation input | Add a bounded preview build seam: explicit job id, timeout, abort/cancel, private output directory, cleanup guarantee; record the built document revision on the installed model                                 |
 | Proposal/undo pattern                                                                             | OpenMC has a scoped in-memory proposal store (20 entries, 10-minute TTL, deep-cloned snapshots) and session-scoped `NukeUndoService` tokens. nuke-cad has neither                                                                                     | Add a CAD-owned proposal store with the same invariants; register reverse handlers with `NukeUndoService`                                                                                                        |
@@ -561,7 +569,7 @@ Rollback and kill switch:
 
 ## Related documentation
 
-- [CAD AI capabilities](../../../nuke-cad/docs/dev/ai-capabilities.md) — the current read/export-only surface.
+- [CAD AI capabilities](../../../nuke-cad/docs/dev/ai-capabilities.md) — the shipped read/export and gated feature-edit surface.
 - [CAD document schema](../../../nuke-cad/docs/dev/document-schema.md) — store history, parameters, features, and imports.
 - [CAD backend pipeline](../../../nuke-cad/docs/dev/backend-pipeline.md) — document builds, timeouts, tessellation, and artifacts.
 - [CAD features and patterns](../../../nuke-cad/docs/dev/features-patterns.md) — feature parameters and build behavior.

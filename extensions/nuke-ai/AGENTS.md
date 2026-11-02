@@ -29,8 +29,10 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and
   write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings, materials, and tallies, a
   shown diff, confirmation, and undo reporting; see `docs/user/safe-edits.md`.
-- CAD authoring remains design-only and gated; the design, threat model, and security checklist live in
-  `docs/dev/cad-authoring-design.md`.
+- CAD feature authoring ships as a gated Phase 1 slice: NukeAI previews and applies scalar feature params
+  (length/angle/radius/thickness) on saved `.nuke-cad` documents only while `nukeCad.aiAuthoringEnabled` is on.
+  The preview runs a real build; apply is one commit, backs up the document, rebuilds, and is undoable. Scripts,
+  sketches, parameters, topology, imports, and MCP remain excluded. See `docs/dev/cad-authoring-design.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
   and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.
@@ -63,7 +65,7 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `nuke-preview-gallery-service.ts` scans `<workspace>/.nuke-ide/ai/previews` read-only, returns at most 100
   newest-first entries, skips malformed/symlinked paths, and never reads outside the workspace; the gallery has no
   delete or regenerate control. See `docs/user/previews.md`.
-- `src/browser/capabilities/nuke-capability-tool-bridge.ts` keeps one tool per enabled capability under provider name `nuke-ai`. It unregisters stale tools before every refresh, debounces changes, coalesces concurrent refreshes, and disposes subscriptions and registrations on stop.
+- `src/browser/capabilities/nuke-capability-tool-bridge.ts` keeps one tool per enabled capability under provider name `nuke-ai`. It subscribes to registry/context changes before the first refresh (a document can open during startup), unregisters stale tools before every refresh, debounces changes, coalesces concurrent refreshes, and disposes subscriptions and registrations on stop.
 - `src/browser/capabilities/` journals local-only metrics and applied edits under `<workspace>/.nuke-ide/ai`: no inputs,
   file contents, metric paths, raw tokens, or before/after values; undo tokens are SHA-256 hashed. Writes are serialized,
   capped at 1 MiB with one backup, and never fail a tool call. See `docs/dev/metrics.md`.

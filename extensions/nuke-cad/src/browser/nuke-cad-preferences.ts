@@ -192,6 +192,14 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             type: 'boolean',
             default: true,
             description: 'Show the world-origin Z axis in the CAD viewport.'
+        },
+        'nukeCad.aiAuthoringEnabled': {
+            type: 'boolean',
+            default: false,
+            description:
+                'Allow NukeAI to propose and apply scalar feature-parameter edits (length, angle, radius, thickness) to ' +
+                'saved .nuke-cad documents. Every edit is previewed with a real build, shown as a diff, applied only after ' +
+                'confirmation, and can be undone. Script editing, sketches, topology changes, and imports stay disabled.'
         }
     }
 };
@@ -234,6 +242,8 @@ export interface NukeCadConfiguration {
     'nukeCad.showOriginY': boolean;
     /** Show the world-origin Z axis in the CAD viewport. */
     'nukeCad.showOriginZ': boolean;
+    /** Allow NukeAI to preview and apply scalar feature-parameter edits to saved .nuke-cad documents. */
+    'nukeCad.aiAuthoringEnabled': boolean;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

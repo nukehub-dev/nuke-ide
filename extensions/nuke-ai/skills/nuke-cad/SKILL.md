@@ -5,9 +5,10 @@ description: Inspect, summarize, and export the active NukeCAD document to DAGMC
 
 # NukeCAD
 
-Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, or wants to know
-whether a CAD document is ready for simulation. Geometry authoring stays in the CAD viewport and Feature Tree;
-this capability set only reads the active model and exports it.
+Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
+CAD document is ready for simulation, or asks for a small parameter change. Read/export is always available. Scalar
+feature edits are available only when the user enabled **Nuke CAD: AI Authoring**; sketches, scripts, document
+parameters, topology, booleans, imports, assemblies, and drawings stay in the CAD viewport and Feature Tree.
 
 ## Tool names
 
@@ -27,6 +28,29 @@ and triangle counts, the bounding box, warnings, the current selection, and the 
 
 Use `nuke_cad_inspectSelection` when the user refers to "the selected body" or "this face". It returns the primary
 solid, every highlighted solid, and the hidden solid ids. Pass no arguments.
+
+## Edit a feature parameter
+
+Only use this flow when the user asks to change the model and the preview tool is present. If
+`nuke_cad_previewFeatureChange` is unavailable, CAD AI authoring is off; point the user to **Settings → Nuke CAD → AI
+Authoring** and stop. The document must be saved.
+
+Allowed edits:
+
+- pad/pocket `length` on a blind/default end;
+- revolve/groove `angle` between 0 and 360 degrees;
+- fillet `radius` on a feature with edges;
+- shell `thickness`.
+
+Call `nuke_cad_previewFeatureChange` with `{ "changes": [{ "featureId", "param", "value" }] }`. It runs a real build,
+returns a proposal id, a diff, and an impact summary, and writes nothing. Show the diff and impact before asking to
+apply.
+
+Call `nuke_cad_applyFeatureChange` with only `{ "proposalId" }`, and only after explicit confirmation. It writes a
+hidden backup, applies the batch, schedules the rebuild, and returns an `undoToken`. If the preview is expired, the
+document changed, or the affected feature changed, preview again instead of reusing the old id.
+
+Never invent a feature id or parameter. Ask for the exact feature when the document has more than one candidate.
 
 ## Inspect before export
 
@@ -85,6 +109,8 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 
 ## Boundaries
 
-- Do not author, edit, or delete geometry through this skill. Direct the user to the CAD viewport or Feature Tree.
+- Do not author geometry beyond the scalar feature-edit flow. Sketches, scripts, document parameters, topology,
+  booleans, imports, assemblies, and drawings stay in the CAD viewport or Feature Tree.
+- Do not apply a feature change without an explicit confirmation, and never send CAD authoring tools through MCP.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

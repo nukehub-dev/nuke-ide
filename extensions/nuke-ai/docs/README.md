@@ -14,7 +14,7 @@ The AI chat and capability tools become useful as domain extensions publish capa
 
 → Read [**Nuke Diagnostics**](user/diagnostics.md) for the read-only diagnostics agent and the CAD, OpenMC project/run, and statepoint diagnostic actions.
 
-→ Read [**Safe OpenMC Edits**](user/safe-edits.md) for previewing settings, material, and tally diffs, applying them with confirmation, and undoing them in-session.
+→ Read [**Safe Edits**](user/safe-edits.md) for previewing settings, material, tally, and CAD feature diffs, applying them with confirmation, and undoing them in-session.
 
 → Read [**Preview Gallery**](user/previews.md) for the saved preview history and the read-only gallery.
 

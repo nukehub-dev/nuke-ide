@@ -109,6 +109,24 @@ describe('NukeCadFrontendService', () => {
         expect(capture.requests[0].tolerance).toBe(0.01);
     });
 
+    it('forwards a preview job id, timeout, and private output directory', async () => {
+        const capture: { requests: CapturedRequest[] } = { requests: [] };
+        const service = new NukeCadFrontendService(makeProxy(capture), makePreferences());
+        await service.buildDocument({
+            scriptPath: MODEL_PATH,
+            outputDirectory: '/tmp/preview',
+            useCache: false,
+            jobId: 'preview-1',
+            timeoutSeconds: 120
+        });
+        expect(capture.requests[0]).toMatchObject({
+            outputDirectory: '/tmp/preview',
+            useCache: false,
+            jobId: 'preview-1',
+            timeoutSeconds: 120
+        });
+    });
+
     it('uses export tolerance for script builds', async () => {
         const capture: { requests: CapturedRequest[] } = { requests: [] };
         const service = new NukeCadFrontendService(makeProxy(capture), makePreferences());

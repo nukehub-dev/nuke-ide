@@ -5,27 +5,36 @@ registry owned by `nuke-core`. AI consumers, MCP servers, and other extensions
 read the same `NukeCapability` objects without importing CAD widgets.
 
 The implementation lives in
-`src/browser/capabilities/nuke-cad-capabilities.ts`:
+`src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and
+`src/browser/capabilities/nuke-cad-authoring-capabilities.ts` (the gated
+feature-edit slice):
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
-  the four capabilities below.
+  the read/export capabilities below.
+- `NukeCadAuthoringCapabilities` registers the feature preview/apply pair. It is
+  default-off behind `nukeCad.aiAuthoringEnabled`.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
-- Both are bound in `nuke-cad-frontend-module.ts`. The nuke-core frontend module
+  `NukeCadAuthoringContextContribution` additionally refreshes the tool set when
+  the authoring switch changes.
+- All are bound in `nuke-cad-frontend-module.ts`. The nuke-core frontend module
   owns the contribution providers, registry, and context service.
 
 The handlers never reimplement geometry or export logic. Summaries read the
 active `NukeCadStateManager` model; export delegates to
-`NukeCadFrontendService.buildDocument` or `buildGeometry`.
+`NukeCadFrontendService.buildDocument` or `buildGeometry`; preview builds a
+transient candidate document through the same `buildDocument` path.
 
 ## Capabilities
 
-| ID                           | Risk      | Active model required | Purpose                                                     |
-| ---------------------------- | --------- | --------------------- | ----------------------------------------------------------- |
-| `nuke.cad.summarizeDocument` | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries      |
-| `nuke.cad.inspectSelection`  | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids        |
-| `nuke.cad.diagnoseModel`     | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings |
-| `nuke.cad.exportDagmc`       | `execute` | No                    | Build a source file and export DAGMC + region manifest      |
+| ID                              | Risk      | Active model required | Purpose                                                       |
+| ------------------------------- | --------- | --------------------- | ------------------------------------------------------------- |
+| `nuke.cad.summarizeDocument`    | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries        |
+| `nuke.cad.inspectSelection`     | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids          |
+| `nuke.cad.diagnoseModel`        | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings   |
+| `nuke.cad.previewFeatureChange` | `read`    | Yes, saved            | Validate scalar feature edits with a real build and diff them |
+| `nuke.cad.applyFeatureChange`   | `execute` | Yes, saved            | Apply a previewed proposal, rebuild, and register undo        |
+| `nuke.cad.exportDagmc`          | `execute` | No                    | Build a source file and export DAGMC + region manifest        |
 
 ### `nuke.cad.summarizeDocument`
 
@@ -136,6 +145,51 @@ Export is `execute` and sets `requiresConfirmation: true` because it runs the
 geometry pipeline and writes STEP, DAGMC, cache, and manifest files into the
 workspace. Confirmation protects against overwriting earlier exports and
 against expensive or failing builds triggered without an explicit user action.
+
+## Feature authoring (gated)
+
+`nukeCad.aiAuthoringEnabled` defaults to `false`. While it is off, both
+feature-edit capabilities are disabled: their `when` predicates are false and
+`invoke` returns a clear disabled message. The switch is re-checked on every
+call; flipping it refreshes the capability context and the AI tool set.
+
+The preview accepts one to sixteen scalar edits on an existing feature:
+
+| Feature             | Param       | Rule                                      |
+| ------------------- | ----------- | ----------------------------------------- |
+| `pad`, `pocket`     | `length`    | blind/default end only; finite `> 0`      |
+| `revolve`, `groove` | `angle`     | finite `(0, 360]`                         |
+| `fillet`            | `radius`    | finite `> 0`; the feature must have edges |
+| `shell`             | `thickness` | finite `> 0`                              |
+
+Preview validation is the pure `prepareFeatureEdit` engine. The preview writes
+the candidate document beside the source as `.nuke-ai-preview-<uuid>.nuke-cad`
+(so document-relative imports keep resolving), builds it with
+`useCache: false`, a 120-second timeout, and a caller-chosen job id, then
+compares the result with the current build:
+
+- the build must succeed and no feature may fail;
+- the solid count must be unchanged;
+- the selector map must be unchanged;
+- the region-manifest volume and surface selectors must be unchanged;
+- the build must produce tessellation and a finite, non-degenerate bounding box.
+
+The preview is read-only; it stores a proposal and returns a `changeSet` with a
+`proposalId` and an impact summary. The candidate document, its manifest
+sidecar, and the private preview directory are deleted in `finally`, including
+on failure or cancellation.
+
+Apply accepts only `{ proposalId }`. It rejects a missing/expired proposal, a
+different document epoch, a changed document revision, or any affected feature
+whose params changed after the preview. It writes a hidden
+`.nuke-ai-backup-<document>` snapshot before mutating, applies all edits in one
+document-store commit, schedules `nuke.cad.rebuild`, and registers a
+session-scoped undo token. Undo re-checks the epoch, revision, and applied
+params, restores the before params in one batch, and schedules the rebuild.
+
+The full design and its remaining security gates are documented in
+[Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Script,
+sketch, parameter, topology, and import authoring remain out of scope.
 
 ## Path scoping
 

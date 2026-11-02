@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: capability tools expose a local catalog and local metrics/edit journals; undo remains session-scoped.
 - nuke-cad: NukeAI can diagnose the active CAD model without rebuilding it.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
+- nuke-cad: NukeAI previews and applies scalar feature edits (length, angle, radius, thickness) behind the default-off CAD AI authoring setting, with a real build, backup, rebuild, and undo.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
 - nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.
@@ -353,6 +354,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
+- nuke-ai: CAD and other capability tools appear after a document opens during chat startup instead of waiting for the next context change.
 - nuke-ai: NukeAI is the default chat agent on a fresh profile, and the default-agent picker lists NukeAI and Nuke Diagnostics.
 - nuke-ai: NukeAI can run the CAD, OpenMC project/run, and statepoint diagnostic tools directly, so diagnosis prompts work in the general agent too.
 - nuke-ai: external MCP sessions and NukeAI skills resolve the packaged skill root instead of a missing `applications/skills` path.

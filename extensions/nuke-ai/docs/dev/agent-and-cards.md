@@ -9,7 +9,7 @@ for finished Nuke capability calls.
 
 - extends `AbstractStreamParsingChatAgent` and is bound as both `Agent` and `ChatAgent`;
 - uses the `chat` language-model purpose and the `nuke-system` prompt;
-- declares `nuke.context` and the twenty-one capability tool names in its `functions` list;
+- declares `nuke.context` and the twenty-three capability tool names in its `functions` list;
 - references every capability tool through `~{toolName}` in the prompt, where `toolName` is the sanitized name
   registered by the bridge (for example `nuke_cad_summarizeDocument`), not the capability id, so the model receives
   the typed tools without a separate registration step.
@@ -19,9 +19,11 @@ the model to ask before a write, execute, or destructive tool. Export, import, r
 Theia confirmation requirement. Never add a write or execute tool to the prompt without a matching confirmation path.
 
 The safe-edit section requires NukeAI to preview with `nuke_openmc_previewSettings`, `nuke_openmc_previewMaterialChange`,
-or `nuke_openmc_previewTallyChange`, show the diff, apply with the matching apply tool only after explicit confirmation,
-and report undo availability from the apply result. The read-only Diagnostics agent never receives a preview or apply
-tool; see [Safe OpenMC Edits](../user/safe-edits.md).
+`nuke_openmc_previewTallyChange`, or `nuke_cad_previewFeatureChange`, show the diff, apply with the matching apply tool
+only after explicit confirmation, and report undo availability from the apply result. CAD previews are exposed only
+while `nukeCad.aiAuthoringEnabled` is on; they accept scalar feature params on a saved document and reject topology,
+selector-map, or region-coverage changes. The read-only Diagnostics agent never receives a preview or apply tool; see
+[Safe Edits](../user/safe-edits.md) and [CAD Feature Authoring](../user/safe-edits.md#cad-feature-edits).
 
 The agent receives the same active-workspace summary as `#nukeContext`. Missing documents, projects, or datasets are
 reported as `none`; the agent must not invent model state.

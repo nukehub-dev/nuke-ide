@@ -112,7 +112,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - CAD AI capabilities live in `src/browser/capabilities/nuke-cad-capabilities.ts`, use the
   nuke-core capability contract, and delegate to existing CAD services; never expose raw
   commands. `nuke.cad.diagnoseModel` reports build, manifest, selection, and per-solid
-  findings without rebuilding. See `docs/dev/ai-capabilities.md`.
+  findings without rebuilding. The gated `nuke-cad-authoring-capabilities.ts` pair previews
+  scalar feature edits with a real build and applies them through the document store; it is
+  default-off (`nukeCad.aiAuthoringEnabled`), requires a saved document, and never exposes
+  scripts, sketches, topology, or MCP. See `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
   floating bottom-left command-search launcher (`/`) over the shared `cad-command-registry.ts` table
@@ -192,6 +195,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 
 ```bash
 npx lerna run build --scope nuke-cad
+npx vitest run extensions/nuke-cad/src/common/cad-feature-edit.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/nuke-cad-authoring-capabilities.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/nuke-cad-proposal-service.test.ts \
+  extensions/nuke-cad/src/browser/document/cad-document-store.test.ts
 yarn test:python   # includes nuke-cad tests/python and tests/e2e (e2e skips without env gates)
 yarn lint
 ```

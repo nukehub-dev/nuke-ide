@@ -296,6 +296,81 @@ describe('CadDocumentStore', () => {
             expect(store.document?.features).toHaveLength(0);
         });
 
+        it('updates multiple features atomically with one undo entry and one revision bump', () => {
+            const store = new CadDocumentStore();
+            store.createDocument('test');
+            store.addBody('Body 1');
+            store.addFeature({ ...feature('pad1', 'pad'), params: { length: 1 } });
+            store.addFeature({ ...feature('pad2', 'pad'), params: { length: 2 } });
+            const beforeRevision = store.revision;
+            let changes = 0;
+            store.onChange(() => changes++);
+
+            const result = store.updateFeatureParamsBatch([
+                { id: 'pad1', params: { length: 5 } },
+                { id: 'pad2', params: { length: 8 } }
+            ]);
+
+            expect(result.success).toBe(true);
+            expect(changes).toBe(1);
+            expect(store.revision).toBe(beforeRevision + 1);
+            expect(store.dirty).toBe(true);
+            expect(store.document?.features.map((f) => f.params)).toEqual([{ length: 5 }, { length: 8 }]);
+            expect(store.selection.selectedFeatureId).toBe('pad2');
+
+            expect(store.undo().success).toBe(true);
+            expect(store.document?.features.map((f) => f.params)).toEqual([{ length: 1 }, { length: 2 }]);
+        });
+
+        it('rejects empty, missing, and duplicate batch ids without mutation or history', () => {
+            const store = new CadDocumentStore();
+            expect(store.loadDocument(minimalDoc({ features: [feature('pad1', 'pad'), feature('pad2', 'pad')] })).success).toBe(true);
+            const beforeRevision = store.revision;
+            const before = JSON.stringify(store.document);
+            let changes = 0;
+            store.onChange(() => changes++);
+
+            const empty = store.updateFeatureParamsBatch([]);
+            expect(empty.success).toBe(false);
+            expect(empty.error).toContain('at least one');
+
+            const missing = store.updateFeatureParamsBatch([
+                { id: 'pad1', params: { length: 5 } },
+                { id: 'missing', params: { length: 2 } }
+            ]);
+            expect(missing.success).toBe(false);
+            expect(missing.error).toBe("Feature 'missing' not found");
+
+            const duplicate = store.updateFeatureParamsBatch([
+                { id: 'pad1', params: { length: 5 } },
+                { id: 'pad1', params: { length: 6 } }
+            ]);
+            expect(duplicate.success).toBe(false);
+            expect(duplicate.error).toContain("Duplicate feature id 'pad1'");
+
+            expect(JSON.stringify(store.document)).toBe(before);
+            expect(store.revision).toBe(beforeRevision);
+            expect(store.canUndo).toBe(false);
+            expect(changes).toBe(0);
+        });
+
+        it('keeps single-feature updates shallow-merged with one commit and selection', () => {
+            const store = new CadDocumentStore();
+            store.createDocument('test');
+            store.addBody('Body 1');
+            store.addFeature({ ...feature('pad1', 'pad'), params: { length: 1, symmetric: true } });
+            const beforeRevision = store.revision;
+
+            const result = store.updateFeatureParams('pad1', { length: 5 });
+
+            expect(result.success).toBe(true);
+            expect(store.document?.features[0].params).toEqual({ length: 5, symmetric: true });
+            expect(store.selection.selectedFeatureId).toBe('pad1');
+            expect(store.revision).toBe(beforeRevision + 1);
+            expect(store.undo().success).toBe(true);
+            expect(store.document?.features[0].params).toEqual({ length: 1, symmetric: true });
+        });
+
         it('toggles feature suppression', () => {
             const store = new CadDocumentStore();
             store.createDocument('test');
@@ -3229,6 +3304,60 @@ describe('undo/redo history', () => {
         expect(store.canUndo).toBe(false);
         expect(store.redo().success).toBe(true);
         expect(store.document?.bodies).toHaveLength(1);
+    });
+});
+
+describe('edit revision', () => {
+    it('starts at 0 and increments once per successful commit and install', () => {
+        const store = new CadDocumentStore();
+        expect(store.revision).toBe(0);
+
+        expect(store.createDocument('test').success).toBe(true);
+        expect(store.revision).toBe(1);
+
+        expect(store.addBody('Body 1').success).toBe(true);
+        expect(store.revision).toBe(2);
+
+        store.markSaved();
+        expect(store.revision).toBe(2);
+
+        expect(store.loadDocument(minimalDoc()).success).toBe(true);
+        expect(store.revision).toBe(3);
+
+        const failedLoad = store.loadDocument({ version: NUKE_CAD_SCHEMA_VERSION + 1, name: 'future' });
+        expect(failedLoad.success).toBe(false);
+        expect(store.revision).toBe(3);
+    });
+
+    it('does not increment on failed commit validation', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const before = store.revision;
+
+        const result = store.addFeature({ ...feature('bad', 'pad'), params: { length: -1 } });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('length');
+        expect(store.revision).toBe(before);
+    });
+
+    it('increments on successful undo and redo only', () => {
+        const empty = new CadDocumentStore();
+        expect(empty.undo().success).toBe(false);
+        expect(empty.redo().success).toBe(false);
+        expect(empty.revision).toBe(0);
+
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const beforeUndo = store.revision;
+        expect(store.undo().success).toBe(true);
+        expect(store.revision).toBe(beforeUndo + 1);
+
+        const beforeRedo = store.revision;
+        expect(store.redo().success).toBe(true);
+        expect(store.revision).toBe(beforeRedo + 1);
     });
 });
 

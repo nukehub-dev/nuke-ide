@@ -92,7 +92,7 @@ normal confirmation flow still applies.
 
 OpenMC run settings, materials, and tallies use a dedicated preview → apply → undo loop. NukeAI previews the change as
 a **Changes** diff card, applies it only after explicit confirmation with **Apply with NukeAI**, and offers **Undo**
-for an applied change. See [Safe OpenMC Edits](safe-edits.md) for the supported fields, the confirmation behavior, and
+for an applied change. See [Safe Edits](safe-edits.md) for the supported fields, the confirmation behavior, and
 the in-memory undo lifetime.
 
 ## The NukeAI agent

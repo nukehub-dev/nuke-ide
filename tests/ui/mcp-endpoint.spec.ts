@@ -86,6 +86,8 @@ test('MCP endpoint can be enabled, used by a real client, and disabled', async (
         expect(toolNames).toContain('nuke_viz_summarize_statepoint');
         for (const forbidden of [
             'nuke_cad_export_dagmc',
+            'nuke_cad_preview_feature_change',
+            'nuke_cad_apply_feature_change',
             'nuke_openmc_run_simulation',
             'nuke_openmc_import_cad',
             'nuke_openmc_apply_settings',

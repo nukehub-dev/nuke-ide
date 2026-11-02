@@ -1,7 +1,8 @@
-# Safe OpenMC Edits
+# Safe Edits
 
-NukeAI can change basic OpenMC run settings, materials, and tallies without writing directly to your project from the
-chat model. Every edit goes through a preview, an explicit apply step with confirmation, and an in-session undo.
+NukeAI can change basic OpenMC run settings, materials, tallies, and scalar CAD feature parameters without writing
+directly from the chat model. Every edit goes through a preview, an explicit apply step with confirmation, and an
+in-session undo.
 
 ## Supported settings
 
@@ -93,6 +94,34 @@ Undo state is in memory for the current IDE session only:
 - it does not survive an IDE restart or window reload;
 - each token is one-shot and is removed after a successful undo;
 - an unknown, expired, or already used token reports `This change can no longer be undone.`
+
+## CAD feature edits
+
+CAD edits are opt-in. Turn on **Nuke CAD: AI Authoring** in **Settings → Nuke CAD**; while it is off, both CAD
+preview and apply tools are absent from NukeAI. Only a saved `.nuke-cad` document can be edited.
+
+The allowlist is deliberately narrow:
+
+| Feature         | Parameter   | Rule                                          |
+| --------------- | ----------- | --------------------------------------------- |
+| Pad, Pocket     | `length`    | blind/default end only; positive              |
+| Revolve, Groove | `angle`     | greater than 0 and at most 360 degrees        |
+| Fillet          | `radius`    | positive; the feature must already have edges |
+| Shell           | `thickness` | positive                                      |
+
+A preview writes a transient hidden candidate beside the source, builds it with the same geometry backend, and
+compares it with the current build. The preview is rejected if the build fails, a feature fails, the solid count
+changes, the selector map changes, the region-manifest volume or surface coverage changes, no tessellation is produced,
+or the bounding box is invalid. The candidate and its sidecar are deleted whether the build succeeds or fails.
+
+Apply accepts only the proposal id. It rejects a proposal from another document, an expired proposal, a changed
+document revision, or a feature whose parameters changed after the preview. Before mutating, it writes a hidden
+`.nuke-ai-backup-<document>` snapshot beside the source. It then applies every edit in one document-store commit,
+schedules the normal rebuild, and exposes **Undo** in the card. Undo re-checks the revision and applied values, restores
+the before parameters in one batch, and schedules the rebuild again.
+
+Sketches, document parameters, scripts, topology, booleans, imports, assemblies, and drawings are outside this surface.
+External MCP never exposes the CAD preview or apply tools.
 
 ## Related
 

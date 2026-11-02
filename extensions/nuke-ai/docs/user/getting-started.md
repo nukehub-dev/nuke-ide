@@ -54,6 +54,16 @@ under the workspace at `.nuke-ide/ai/previews/` so the command-to-preview histor
 [Previews and the Gallery](previews.md) for the folder layout and the read-only gallery; the IDE recreates the folder
 on the next capture.
 
+### CAD feature edits
+
+CAD authoring is opt-in. Enable **Nuke CAD: AI Authoring** in **Settings → Nuke CAD** first. NukeAI can then propose
+scalar changes to an existing feature on a saved `.nuke-cad` document: pad/pocket length, revolve/groove angle, fillet
+radius, and shell thickness. It previews every change with a real build, shows the diff and impact (solid/face/triangle
+counts and bounding box), and applies only the returned proposal after explicit confirmation. Apply writes a hidden
+backup beside the document, schedules the normal rebuild, and offers **Undo** in the chat. Sketches, document
+parameters, scripts, topology, booleans, imports, assemblies, and drawings are not editable in this mode. The preview
+rejects any edit that changes the solid count, selector map, or region-manifest coverage.
+
 ## Preview gallery
 
 Run **NukeAI: Open Preview Gallery** from the Command Palette to browse the saved previews. The gallery lists bundles

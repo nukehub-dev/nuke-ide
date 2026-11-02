@@ -195,6 +195,13 @@ interface StoreState {
      * never trigger a full geometry rebuild.
      */
     drawingVersion: number;
+    /**
+     * Monotonic edit revision: incremented by every successful commit,
+     * document install, and undo/redo restore. Failed mutations leave it
+     * unchanged. Unlike {@link CadDocumentStore.documentEpoch}, it changes on
+     * edits as well as document identity changes.
+     */
+    revision: number;
 }
 
 let idCounter = 0;
@@ -981,7 +988,8 @@ export class CadDocumentStore {
         featureResults: new Map<string, FeatureResult>(),
         projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
         referenceResults: [],
-        drawingVersion: 0
+        drawingVersion: 0,
+        revision: 0
     };
 
     /** Monotonic identity bumped whenever a different document is installed. */
@@ -1040,6 +1048,19 @@ export class CadDocumentStore {
      */
     get documentEpoch(): number {
         return this.documentEpochCounter;
+    }
+
+    /**
+     * Monotonic edit revision.
+     *
+     * Incremented by every successful commit, document install, and
+     * undo/redo restore; failed validations and read-only operations
+     * (`markSaved`, selection changes) leave it unchanged. Consumers can use it
+     * to detect any document change, including edits that `documentEpoch`
+     * intentionally ignores.
+     */
+    get revision(): number {
+        return this.state.revision;
     }
 
     /** Whether the document has unsaved changes. */
@@ -1143,7 +1164,8 @@ export class CadDocumentStore {
             featureResults: new Map<string, FeatureResult>(),
             projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
             referenceResults: [],
-            drawingVersion: 0
+            drawingVersion: 0,
+            revision: this.state.revision + 1
         };
         this.emitChange();
         return { success: true };
@@ -1244,7 +1266,13 @@ export class CadDocumentStore {
         if (!validation.valid) {
             return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
         }
-        this.state = { ...this.state, document: cloneDocument(entry.document), dirty: true, drawingVersion: entry.drawingVersion };
+        this.state = {
+            ...this.state,
+            document: cloneDocument(entry.document),
+            dirty: true,
+            drawingVersion: entry.drawingVersion,
+            revision: this.state.revision + 1
+        };
         this.emitChange();
         return { success: true };
     }
@@ -1354,6 +1382,46 @@ export class CadDocumentStore {
         }
         feature.params = { ...feature.params, ...(params as Record<string, unknown>) };
         return this.commit(doc, { selectFeature: id });
+    }
+
+    /**
+     * Apply parameter updates to multiple features atomically.
+     *
+     * Every edit is resolved before any mutation: an empty batch, a duplicate
+     * id, or a missing feature rejects the whole batch with no document change,
+     * no undo entry, and no change event. Supplied parameters are shallow-merged
+     * into each feature's existing parameters exactly like
+     * {@link updateFeatureParams}. The merged document is committed once, so the
+     * batch produces one undo entry and one change event. Selection is left
+     * unchanged (the batch never removes features).
+     */
+    updateFeatureParamsBatch(edits: readonly { id: string; params: FeatureParams }[]): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (edits.length === 0) {
+            return { success: false, error: 'Select at least one feature edit' };
+        }
+        const seen = new Set<string>();
+        for (const edit of edits) {
+            if (seen.has(edit.id)) {
+                return { success: false, error: `Duplicate feature id '${edit.id}' in batch` };
+            }
+            seen.add(edit.id);
+        }
+        const doc = cloneDocument(check.value!);
+        const features = new Map(doc.features.map((f) => [f.id, f] as const));
+        for (const edit of edits) {
+            if (!features.has(edit.id)) {
+                return { success: false, error: `Feature '${edit.id}' not found` };
+            }
+        }
+        for (const edit of edits) {
+            const feature = features.get(edit.id)!;
+            feature.params = { ...feature.params, ...(edit.params as Record<string, unknown>) };
+        }
+        return this.commit(doc);
     }
 
     /** Rename an existing feature. */
@@ -3193,7 +3261,14 @@ export class CadDocumentStore {
             selection = { ...selection, selectedCurveId: options.selectCurve };
         }
         const drawingVersion = this.state.drawingVersion + (options?.markDrawing === true ? 1 : 0);
-        this.state = { ...this.state, document: doc, dirty: true, selection, drawingVersion };
+        this.state = {
+            ...this.state,
+            document: doc,
+            dirty: true,
+            selection,
+            drawingVersion,
+            revision: this.state.revision + 1
+        };
         this.emitChange();
         return { success: true };
     }

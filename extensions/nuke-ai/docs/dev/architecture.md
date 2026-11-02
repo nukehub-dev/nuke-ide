@@ -37,7 +37,7 @@ External MCP exposure is a separate, opt-in surface; see [External MCP](mcp.md).
 
 ## Registration and refresh
 
-On application start the bridge waits for `NukeCapabilityRegistry.ready`, performs one refresh, then subscribes to `NukeCapabilityRegistry.onDidChange` and `NukeCapabilityContextService.onDidChangeContext`.
+On application start the bridge subscribes to `NukeCapabilityRegistry.onDidChange` and `NukeCapabilityContextService.onDidChangeContext` **before** awaiting `NukeCapabilityRegistry.ready` and performing the first refresh. A document can open while startup is still settling, and that context change must not fall between the first context read and the subscription.
 
 A refresh:
 

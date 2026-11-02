@@ -33,6 +33,8 @@ const CAPABILITY_IDS = [
     'nuke.cad.summarizeDocument',
     'nuke.cad.inspectSelection',
     'nuke.cad.diagnoseModel',
+    'nuke.cad.previewFeatureChange',
+    'nuke.cad.applyFeatureChange',
     'nuke.cad.exportDagmc',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
@@ -70,12 +72,12 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all twenty-one capability tool names', () => {
+    it('exposes the nukeContext variable and all twenty-three capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(21);
+        expect(agent.functions).toHaveLength(23);
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -113,6 +115,8 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('nuke_openmc_applySettings');
         expect(prompt).toContain('nuke_openmc_previewMaterialChange');
         expect(prompt).toContain('nuke_openmc_applyMaterialChange');
+        expect(prompt).toContain('nuke_cad_previewFeatureChange');
+        expect(prompt).toContain('nuke_cad_applyFeatureChange');
         expect(prompt).toContain('nuke_openmc_previewTallyChange');
         expect(prompt).toContain('nuke_openmc_applyTallyChange');
         expect(prompt).toMatch(/Preview every change/);
@@ -122,13 +126,15 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('run.particles');
         expect(prompt).toContain('sourceRejectionFraction');
         expect(prompt).toMatch(/filters,\s+triggers, and derivatives are preserved/);
-        expect(prompt).toMatch(/Applying a\s+previewed settings, material, or tally change also requires explicit confirmation/i);
+        expect(prompt).toMatch(
+            /Applying a\s+previewed settings, material, tally, or CAD feature change also requires explicit confirmation/i
+        );
     });
 
     it('stays within a bounded prompt budget', () => {
         const lines = promptTemplate().split('\n');
 
         expect(lines.length).toBeGreaterThanOrEqual(80);
-        expect(lines.length).toBeLessThanOrEqual(210);
+        expect(lines.length).toBeLessThanOrEqual(230);
     });
 });

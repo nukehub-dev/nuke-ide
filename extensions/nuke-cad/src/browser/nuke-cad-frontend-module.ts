@@ -41,6 +41,9 @@ import { NukeCapabilityContribution, NukeCapabilityContextContribution } from 'n
 import { NukeCadBackendService, NukeCadBackendServicePath } from '../common/nuke-cad-protocol';
 import { NukeCadFrontendService } from './nuke-cad-frontend-service';
 import { NukeCadCapabilities, NukeCadContextContribution } from './capabilities/nuke-cad-capabilities';
+import { NukeCadAuthoringCapabilities } from './capabilities/nuke-cad-authoring-capabilities';
+import { NukeCadAuthoringContextContribution } from './capabilities/nuke-cad-authoring-context';
+import { NukeCadProposalService } from './capabilities/nuke-cad-proposal-service';
 import { bindNukeCadPreferences, NukeCadPreferences } from './nuke-cad-preferences';
 import { NukeCadStateManager } from './state/nuke-cad-state-manager';
 import { CadDocumentStore } from './document/cad-document-store';
@@ -73,8 +76,13 @@ export default new ContainerModule((bind) => {
 
     bind(NukeCadCapabilities).toSelf().inSingletonScope();
     bind(NukeCapabilityContribution).toService(NukeCadCapabilities);
+    bind(NukeCadProposalService).toSelf().inSingletonScope();
+    bind(NukeCadAuthoringCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(NukeCadAuthoringCapabilities);
     bind(NukeCadContextContribution).toSelf().inSingletonScope();
     bind(NukeCapabilityContextContribution).toService(NukeCadContextContribution);
+    bind(NukeCadAuthoringContextContribution).toSelf().inSingletonScope();
+    bind(NukeCapabilityContextContribution).toService(NukeCadAuthoringContextContribution);
 
     bind(NukeCadCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(NukeCadCommandContribution);

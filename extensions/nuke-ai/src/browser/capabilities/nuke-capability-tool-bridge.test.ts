@@ -80,11 +80,19 @@ class FakeCapabilityRegistry implements NukeCapabilityRegistry {
 
 class FakeContextService implements NukeCapabilityContextService {
     context: NukeCapabilityContext = { workspaceRoots: ['/workspace'] };
+    subscribed = false;
+    observedContextReadBeforeSubscription = false;
     protected readonly onDidChangeContextEmitter = new Emitter<void>();
 
-    readonly onDidChangeContext = this.onDidChangeContextEmitter.event;
+    get onDidChangeContext(): Event<void> {
+        this.subscribed = true;
+        return this.onDidChangeContextEmitter.event;
+    }
 
     async getContext(): Promise<NukeCapabilityContext> {
+        if (!this.subscribed) {
+            this.observedContextReadBeforeSubscription = true;
+        }
         return this.context;
     }
 
@@ -233,6 +241,14 @@ describe('NukeCapabilityToolBridge', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('subscribes to context changes before the first tool refresh', async () => {
+        const { contextService, bridge } = setup({ capabilities: [] });
+
+        await bridge.onStart();
+
+        expect(contextService.observedContextReadBeforeSubscription).toBe(false);
     });
 
     it('registers one tool per enabled capability with sanitized id and name, parameters, and provider', async () => {

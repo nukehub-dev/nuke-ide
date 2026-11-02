@@ -590,7 +590,10 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         }
 
         const args = buildDocumentArgs(request, scriptPath);
-        return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
+        return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath, {
+            jobId: request.jobId,
+            timeoutSeconds: request.timeoutSeconds
+        });
     }
 
     /**
