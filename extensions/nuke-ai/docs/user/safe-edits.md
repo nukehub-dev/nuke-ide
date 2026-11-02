@@ -114,6 +114,8 @@ compares it with the current build. The preview is rejected if the build fails, 
 changes, the selector map changes, the region-manifest volume or surface coverage changes, no tessellation is produced,
 or the bounding box is invalid. The candidate and its sidecar are deleted whether the build succeeds or fails.
 
+A successful preview opens the **CAD Edit Review** panel beside the viewport. The panel shows the same diff and impact, keeps the candidate geometry as a translucent ghost over the current model (changed solids use a warmer accent), and offers **Apply**, **Dismiss**, and **Undo**. The chat card remains available; both surfaces invoke the same apply capability and confirmation path.
+
 Apply accepts only the proposal id. It rejects a proposal from another document, an expired proposal, a changed
 document revision, or a feature whose parameters changed after the preview. Before mutating, it writes a hidden
 `.nuke-ai-backup-<document>` snapshot beside the source. It then applies every edit in one document-store commit,

@@ -191,6 +191,24 @@ The full design and its remaining security gates are documented in
 [Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Script,
 sketch, parameter, topology, and import authoring remain out of scope.
 
+## Review panel and ghost preview
+
+A successful preview also publishes the candidate tessellation to
+`NukeCadGhostPreviewService` and reveals the **CAD Edit Review** panel. The
+viewport renders the candidate as a translucent `cad-ghost` group: unchanged
+solids use a cool ghost material, changed solids use a warmer accent. The group
+is scene-level, so a real model rebuild never disposes it, and it is hidden in
+sketch mode. The ghost is display-only and never participates in picking,
+selection, explode, fit, or the document store.
+
+The panel (`CadReviewPanelWidget`, command `nuke.cad.openReviewPanel`) lists the
+stored proposals with the same `changeSet` rows, the solid/face/triangle impact,
+and the build counts. **Apply** confirms, resolves
+`nuke.cad.applyFeatureChange` from the capability registry, and keeps the
+returned undo token for **Undo**. **Dismiss** removes the proposal; the ghost
+service clears the overlay when the backing proposal disappears. The panel
+never writes the document directly; the capability remains the only writer.
+
 ## Path scoping
 
 Both `documentPath` and an explicit `outputDirectory` must be absolute and pass

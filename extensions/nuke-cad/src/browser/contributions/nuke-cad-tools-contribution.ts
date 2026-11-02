@@ -83,6 +83,18 @@ export class NukeCadToolsContribution implements NukeToolsContribution {
         });
 
         registry.registerItem({
+            id: 'nuke.cad.openReviewPanel',
+            label: 'CAD Edit Review',
+            commandId: NukeCadCommands.OPEN_REVIEW_PANEL.id,
+            category: ['CAD Studio', 'Review'],
+            sectionOrder: 'b',
+            categoryOrder: 'a1',
+            order: 'a',
+            icon: 'git-compare',
+            description: 'Review, apply, and undo AI-proposed CAD feature edits.'
+        });
+
+        registry.registerItem({
             id: 'nuke.cad.openBomPanel',
             label: 'BOM',
             commandId: NukeCadCommands.OPEN_BOM_PANEL.id,

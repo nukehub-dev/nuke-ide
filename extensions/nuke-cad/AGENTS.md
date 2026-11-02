@@ -115,7 +115,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   findings without rebuilding. The gated `nuke-cad-authoring-capabilities.ts` pair previews
   scalar feature edits with a real build and applies them through the document store; it is
   default-off (`nukeCad.aiAuthoringEnabled`), requires a saved document, and never exposes
-  scripts, sketches, topology, or MCP. See `docs/dev/ai-capabilities.md`.
+  scripts, sketches, topology, or MCP. A successful preview publishes the candidate tessellation to
+  `NukeCadGhostPreviewService` and reveals the **CAD Edit Review** panel; the panel applies the same capability
+  and the viewport renders the candidate in the scene-level `cad-ghost` group only. See `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
   floating bottom-left command-search launcher (`/`) over the shared `cad-command-registry.ts` table

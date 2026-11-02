@@ -199,4 +199,161 @@ describe('NukeCadProposalService', () => {
         expect(service.get(ids[1])?.summary).toBe('Change 2');
         expect(service.get(ids[NUKE_CAD_FEATURE_PROPOSAL_LIMIT])?.summary).toBe(`Change ${NUKE_CAD_FEATURE_PROPOSAL_LIMIT + 1}`);
     });
+
+    it('lists live proposals as detached clones', () => {
+        const service = new NukeCadProposalService();
+        const first = service.create(buildInput('First'));
+        const second = service.create(buildInput('Second'));
+
+        const listed = service.list();
+        expect(listed.map((proposal) => proposal.id)).toEqual([first.id, second.id]);
+        expect(listed[0]).not.toBe(first);
+        expect(listed[1]).not.toBe(second);
+
+        (listed[0] as { summary: string }).summary = 'Mutated list entry';
+        expect(service.get(first.id)?.summary).toBe('First');
+        expect(service.list()[0].summary).toBe('First');
+        expect(service.list()).not.toBe(service.list());
+    });
+
+    it('fires on create and on remove only when the set changes', () => {
+        const service = new NukeCadProposalService();
+        const onChange = vi.fn();
+        const subscription = service.onDidChange(onChange);
+
+        const first = service.create(buildInput('First'));
+        expect(onChange).toHaveBeenCalledTimes(1);
+
+        const second = service.create(buildInput('Second'));
+        expect(onChange).toHaveBeenCalledTimes(2);
+
+        service.remove(first.id);
+        expect(onChange).toHaveBeenCalledTimes(3);
+
+        service.remove(first.id);
+        expect(onChange).toHaveBeenCalledTimes(3);
+
+        service.remove(second.id);
+        expect(onChange).toHaveBeenCalledTimes(4);
+
+        subscription.dispose();
+    });
+
+    it('announces expiry only through an explicit prune', () => {
+        const service = new InspectableProposalService();
+        const onChange = vi.fn();
+        service.onDidChange(onChange);
+
+        service.create(buildInput('First'));
+        expect(onChange).toHaveBeenCalledTimes(1);
+
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS);
+        service.prune();
+        expect(service.size).toBe(0);
+        expect(onChange).toHaveBeenCalledTimes(2);
+
+        service.prune();
+        expect(onChange).toHaveBeenCalledTimes(2);
+
+        service.create(buildInput('Second'));
+        expect(onChange).toHaveBeenCalledTimes(3);
+
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS);
+        service.create(buildInput('Third'));
+        expect(service.size).toBe(1);
+        expect(onChange).toHaveBeenCalledTimes(4);
+    });
+
+    it('expires proposals silently during get and has', () => {
+        const service = new InspectableProposalService();
+        const onChange = vi.fn();
+        service.onDidChange(onChange);
+
+        const proposal = service.create(buildInput());
+        expect(onChange).toHaveBeenCalledTimes(1);
+
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS);
+        expect(service.has(proposal.id)).toBe(false);
+        expect(service.get(proposal.id)).toBeUndefined();
+        expect(service.size).toBe(0);
+        expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('expires proposals silently during list', () => {
+        const service = new InspectableProposalService();
+        const onChange = vi.fn();
+        service.onDidChange(onChange);
+
+        service.create(buildInput());
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS);
+
+        expect(service.list()).toEqual([]);
+        expect(service.size).toBe(0);
+        expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps impact and build metadata through clone round trips', () => {
+        const service = new NukeCadProposalService();
+        const input: NukeCadFeatureProposalInput = {
+            ...buildInput('Imprint the pellet'),
+            impact: {
+                solids: { before: 2, after: 3 },
+                faces: { before: 13, after: 21 },
+                triangles: { before: 800, after: 1200 },
+                boundingBox: {
+                    before: { min: [0, 0, 0], max: [1, 1, 1] },
+                    after: { min: [-1, -1, -1], max: [2, 2, 2] }
+                }
+            },
+            build: { success: true, solidCount: 3, faceCount: 21, triangleCount: 1200 }
+        };
+        const impact = input.impact!;
+        const build = input.build!;
+
+        const created = service.create(input);
+        (impact.solids as { before: number }).before = 99;
+        impact.boundingBox.before!.min[0] = 99;
+        (build as { success: boolean }).success = false;
+        (build as { solidCount: number }).solidCount = 99;
+
+        expect(created.impact).toEqual({
+            solids: { before: 2, after: 3 },
+            faces: { before: 13, after: 21 },
+            triangles: { before: 800, after: 1200 },
+            boundingBox: {
+                before: { min: [0, 0, 0], max: [1, 1, 1] },
+                after: { min: [-1, -1, -1], max: [2, 2, 2] }
+            }
+        });
+        expect(created.build).toEqual({ success: true, solidCount: 3, faceCount: 21, triangleCount: 1200 });
+
+        created.impact!.boundingBox.after!.max[0] = 42;
+        (created.build as { triangleCount: number }).triangleCount = 42;
+
+        const stored = service.get(created.id)!;
+        expect(stored.impact).toEqual({
+            solids: { before: 2, after: 3 },
+            faces: { before: 13, after: 21 },
+            triangles: { before: 800, after: 1200 },
+            boundingBox: {
+                before: { min: [0, 0, 0], max: [1, 1, 1] },
+                after: { min: [-1, -1, -1], max: [2, 2, 2] }
+            }
+        });
+        expect(stored.build).toEqual({ success: true, solidCount: 3, faceCount: 21, triangleCount: 1200 });
+        expect(stored).not.toBe(created);
+        expect(stored.impact).not.toBe(created.impact);
+        expect(stored.build).not.toBe(created.build);
+
+        const listed = service.list()[0];
+        expect(listed.impact).toEqual(stored.impact);
+        expect(listed.build).toEqual(stored.build);
+        expect(listed).not.toBe(stored);
+
+        const plain = service.create(buildInput('Plain'));
+        expect(plain.impact).toBeUndefined();
+        expect(plain.build).toBeUndefined();
+        expect('impact' in plain).toBe(false);
+        expect('build' in plain).toBe(false);
+    });
 });

@@ -4,7 +4,8 @@
 
 **Phase 1 slice implemented behind a default-off switch.** The shipped authoring surface is limited to scalar
 feature-parameter edits (`nuke.cad.previewFeatureChange` / `nuke.cad.applyFeatureChange`) and is disabled unless
-`nukeCad.aiAuthoringEnabled` is on. Script, sketch, parameter, topology, and import authoring remain design-only. This
+`nukeCad.aiAuthoringEnabled` is on. The scalar slice also ships the **CAD Edit Review** panel and a display-only
+viewport ghost for the candidate geometry. Script, sketch, parameter, topology, and import authoring remain design-only. This
 page is the contract for the full implementation and its remaining security gate.
 
 The Phase 1 slice still follows the security model below: real-build preview, topology/selector/region invariance,
@@ -394,7 +395,7 @@ after verifying its hash. A user can also recover manually from the reported `ba
 
 ## Confirmation and undo UX
 
-The existing NukeAI tool card is the confirmation surface; no new CAD UI is introduced.
+The NukeAI tool card and the **CAD Edit Review** panel are the confirmation surfaces. The panel renders the same proposal, shows the candidate geometry as a viewport ghost, and invokes the same apply capability; it never writes the document directly.
 
 Preview card:
 

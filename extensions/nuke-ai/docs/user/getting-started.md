@@ -61,8 +61,7 @@ scalar changes to an existing feature on a saved `.nuke-cad` document: pad/pocke
 radius, chamfer distance, draft angle, pattern spacing/angle, shell thickness, and blind-hole diameter/depth. It previews every change with a real build, shows the diff and impact (solid/face/triangle
 counts and bounding box), and applies only the returned proposal after explicit confirmation. Apply writes a hidden
 backup beside the document, schedules the normal rebuild, and offers **Undo** in the chat. Sketches, document
-parameters, scripts, topology, booleans, imports, assemblies, and drawings are not editable in this mode. The preview
-rejects any edit that changes the solid count, selector map, or region-manifest coverage.
+parameters, scripts, topology, booleans, imports, assemblies, and drawings are not editable in this mode. A successful preview also opens the **CAD Edit Review** panel and shows the candidate geometry as a translucent ghost in the viewport; changed solids use a warmer accent. Apply, Dismiss, and Undo are available there as well as in the chat card. The preview rejects any edit that changes the solid count, selector map, or region-manifest coverage.
 
 ## Preview gallery
 

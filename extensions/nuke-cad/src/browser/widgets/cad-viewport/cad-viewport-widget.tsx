@@ -255,6 +255,7 @@ import {
     type AppearancePreset
 } from './body-appearance';
 import { AssemblyInstanceList } from './assembly-instance-list';
+import { NukeCadGhostPreviewService, type NukeCadGhostPreviewState } from '../../preview/nuke-cad-ghost-preview-service';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
 import { NukeContextAction, NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
@@ -420,6 +421,9 @@ export class CadViewportWidget extends ReactWidget {
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
 
+    @inject(NukeCadGhostPreviewService)
+    protected readonly ghostPreviewService: NukeCadGhostPreviewService;
+
     @inject(MonacoWorkspace)
     protected readonly monacoWorkspace: MonacoWorkspace;
 
@@ -545,6 +549,8 @@ export class CadViewportWidget extends ReactWidget {
     private matePreviewEnabled = false;
     /** Tessellation of the pending sweep/pipe draft (ghosted preview), if any. */
     private previewTessData?: TessData;
+    /** Candidate geometry from the current CAD authoring proposal, if any. */
+    private ghostPreview?: NukeCadGhostPreviewState;
     /** Monotonically increasing token; stale preview builds are dropped. */
     private featurePreviewToken = 0;
     /** True while the viewport section plane is engaged. */
@@ -2921,6 +2927,12 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
         this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
+        this.toDispose.push(
+            this.ghostPreviewService.onDidChange((state) => {
+                this.ghostPreview = state;
+                this.update();
+            })
+        );
         this.toDispose.push(this.contextActions.onDidChange(() => this.update()));
         // Display precision is a rendering-only preference: re-render the React
         // chrome (measure popover props) and let the mounted scene refresh its
@@ -3011,6 +3023,8 @@ export class CadViewportWidget extends ReactWidget {
         this.rebuildPromise = undefined;
         this.pendingPartialJobId = undefined;
         this.clearSaveRebuildTimer();
+        this.ghostPreview = undefined;
+        this.ghostPreviewService?.clear();
         // Partial test doubles may omit the state manager entirely; the real
         // singleton always provides both methods.
         this.stateManager?.setModel?.(undefined);
@@ -3320,6 +3334,8 @@ export class CadViewportWidget extends ReactWidget {
     }
 
     private async doRebuildDocument(restoreFromCache = false, loadingMessage?: string): Promise<void> {
+        // A real rebuild supersedes any candidate preview for the old model.
+        this.ghostPreviewService?.clear();
         const doc = this.documentStore.document;
         if (doc === undefined) {
             this.messageService.warn('No CAD document is active.');
@@ -4214,6 +4230,7 @@ export class CadViewportWidget extends ReactWidget {
                 onRenameInstance={this.handleRenameInstance}
                 onSelectInstance={this.handleSelectInstance}
                 previewTessData={this.previewTessData}
+                ghostPreview={this.ghostPreview}
                 onPreviewChange={this.handleFeaturePreviewChange}
                 sectionActive={this.sectionActive}
                 onSetSectionActive={this.handleSetSectionActive}
@@ -4407,6 +4424,7 @@ interface CadViewportComponentProps {
     readonly onRenameInstance: (instanceId: string, newId: string) => void;
     readonly onSelectInstance: (instanceId: string) => void;
     readonly previewTessData?: TessData;
+    readonly ghostPreview?: NukeCadGhostPreviewState;
     readonly onPreviewChange: (request: FeaturePreviewRequest | undefined) => void;
     readonly onSetSectionActive: (active: boolean) => void;
     readonly onExitSection: () => void;
@@ -4607,6 +4625,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setConnectorPickMode?: (active: boolean) => void;
         setConnectorTriads?: (triads: readonly ConnectorTriad[]) => void;
         setPreviewTessellation?: (tessData?: TessData) => void;
+        setGhostTessellation?: (tessData?: TessData, changedSolidIds?: readonly number[]) => void;
         fitView?: () => void;
         zoomView?: (factor: number) => void;
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
@@ -4944,6 +4963,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setConnectorPickMode = api.setConnectorPickMode;
             viewportApi.current.setConnectorTriads = api.setConnectorTriads;
             viewportApi.current.setPreviewTessellation = api.setPreviewTessellation;
+            viewportApi.current.setGhostTessellation = api.setGhostTessellation;
             viewportApi.current.fitView = api.fitView;
             viewportApi.current.zoomView = api.zoomView;
             viewportApi.current.setStandardView = api.setStandardView;
@@ -4966,6 +4986,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             api.setCurvePickMode(props.curvePickMode ?? false);
             api.setConnectorPickMode(props.connectorPickMode !== undefined);
             api.setPreviewTessellation(props.previewTessData);
+            api.setGhostTessellation(props.ghostPreview?.tessData, props.ghostPreview?.changedSolidIds);
             setController(api.controller);
         })().catch((err) => {
             console.error('[CadViewport] Failed to initialize viewport:', err);
@@ -4983,6 +5004,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setConnectorPickMode = undefined;
             viewportApi.current.setConnectorTriads = undefined;
             viewportApi.current.setPreviewTessellation = undefined;
+            viewportApi.current.setGhostTessellation = undefined;
             viewportApi.current.fitView = undefined;
             viewportApi.current.zoomView = undefined;
             viewportApi.current.setStandardView = undefined;
@@ -5062,6 +5084,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setPreviewTessellation?.(props.previewTessData);
     }, [props.previewTessData, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setGhostTessellation?.(props.ghostPreview?.tessData, props.ghostPreview?.changedSolidIds);
+    }, [props.ghostPreview, controller]);
 
     React.useEffect(() => {
         viewportApi.current.updateSelectedCurve?.(props.selectedCurveId);
@@ -5404,6 +5430,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const statusHints = [
         shadingMode === 'edgesOnly' ? 'Edges-only: face/solid picking disabled' : undefined,
         props.sectionActive ? `Section: ${sectionLabel} — Esc to exit` : undefined,
+        props.ghostPreview ? `Candidate preview: ${props.ghostPreview.changedSolidIds.length} changed solid(s)` : undefined,
         explodeFactor > 0 ? `Explode ${Math.round(explodeFactor * 100)}% — F to refit` : undefined,
         measureActive && activeMeasureTool !== 'radius' && shadingMode === 'edgesOnly' && measureMode === 'model3d'
             ? 'Measure: point picking disabled by edges-only shading'
@@ -5915,6 +5942,7 @@ interface ViewportApi {
     readonly setConnectorPickMode: (active: boolean) => void;
     readonly setConnectorTriads: (triads: readonly ConnectorTriad[]) => void;
     readonly setPreviewTessellation: (tessData?: TessData) => void;
+    readonly setGhostTessellation: (tessData?: TessData, changedSolidIds?: readonly number[]) => void;
     readonly setOriginAxes: (axes: OriginAxesVisibility, suppressed?: boolean) => void;
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
@@ -6079,6 +6107,14 @@ function initViewport(
     scene.add(previewGroup);
     let previewMeshes: THREE.Mesh[] = [];
 
+    // Candidate geometry from the CAD authoring proposal. This group is
+    // scene-level like `cad-preview`, so a real model rebuild never disposes
+    // it; the ghost preview service owns its lifetime.
+    const ghostGroup = new THREE.Group();
+    ghostGroup.name = 'cad-ghost';
+    scene.add(ghostGroup);
+    let ghostMeshes: THREE.Mesh[] = [];
+
     // Connector-frame triads for mate authoring: one RGB triad per connector
     // at its solved assembly pose. Shown during connector-pick mode (hover
     // triad highlight of connector frames) and the ghosted mate preview
@@ -6159,6 +6195,8 @@ function initViewport(
     let curvePickHoverId: string | undefined;
     let lastCenter = new THREE.Vector3();
     let lastDiag = 10;
+    /** Candidate ghost diagonal, used to keep clip planes from cutting a larger preview. */
+    let ghostDiag = 0;
     // Display-only world-origin triad: three RGB lines at the scene origin,
     // each parented to `origin-axes` so per-axis visibility is one flag per
     // line. Scale follows the model diagonal so it stays legible at tokamak
@@ -6248,6 +6286,24 @@ function initViewport(
         side: THREE.DoubleSide,
         transparent: true,
         opacity: DEFAULT_GHOST_OPACITY,
+        depthWrite: false
+    });
+    const ghostCandidateMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#5ea0ff'),
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false
+    });
+    const ghostChangedMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#ffa94d'),
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.34,
         depthWrite: false
     });
 
@@ -6715,13 +6771,14 @@ function initViewport(
         // or an empty/reset document with no tessellation) never shows it.
         const hasLoadedModel = currentTessData !== undefined && meshes.length > 0;
         originAxesGroup.visible = originAxesEnabled && hasLoadedModel && !controller.isActive && !originAxesSuppressed;
+        ghostGroup.visible = ghostMeshes.length > 0 && !controller.isActive;
         // Clip planes follow the scene scale on every render (build, fit,
         // dolly, orbit, zoom): a fixed far plane clips any model larger than
         // ~5.8 km (the tokamak's 6.4 km diagonal) and a fixed 1e6 near/far
         // ratio z-fights concentric shells. Sketch mode keeps its own ortho
         // frustum, so only the perspective model camera is re-fit.
         if (cam === camera) {
-            const clip = computeClipPlanes(camera.position.distanceTo(controls.target), lastDiag / 2);
+            const clip = computeClipPlanes(camera.position.distanceTo(controls.target), Math.max(lastDiag, ghostDiag) / 2);
             if (camera.near !== clip.near || camera.far !== clip.far) {
                 camera.near = clip.near;
                 camera.far = clip.far;
@@ -6812,6 +6869,10 @@ function initViewport(
             material.clippingPlanes = clippingPlanes;
             material.needsUpdate = true;
         }
+        ghostCandidateMaterial.clippingPlanes = clippingPlanes;
+        ghostChangedMaterial.clippingPlanes = clippingPlanes;
+        ghostCandidateMaterial.needsUpdate = true;
+        ghostChangedMaterial.needsUpdate = true;
         // Per-body appearance materials follow the same flags, except that a
         // body opacity applies in `shaded` mode only: x-ray/ghost opacity wins,
         // and shaded-wireframe/edges-only keep full opacity (edges stay
@@ -7279,6 +7340,38 @@ function initViewport(
             const mesh = new THREE.Mesh(geometry, previewGhostMaterial);
             previewGroup.add(mesh);
             previewMeshes.push(mesh);
+        }
+        renderScene();
+    };
+
+    /**
+     * Replace the candidate geometry overlay. Unchanged solids use the cool
+     * translucent material; changed solids use the warmer accent. Geometry is
+     * owned exclusively by this group and disposed on replacement/cleanup.
+     */
+    const setGhostTessellation = (data?: TessData, changedSolidIds: readonly number[] = []): void => {
+        for (const mesh of ghostMeshes) {
+            ghostGroup.remove(mesh);
+            mesh.geometry.dispose();
+        }
+        ghostMeshes = [];
+        if (data === undefined) {
+            ghostDiag = 0;
+            renderScene();
+            return;
+        }
+        const box = data.boundingBox;
+        ghostDiag = new THREE.Vector3(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]).length();
+        const changed = new Set(changedSolidIds);
+        for (const face of data.faces) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(face.positions, 3));
+            geometry.setIndex(new THREE.BufferAttribute(face.indices, 1));
+            geometry.computeVertexNormals();
+            const mesh = new THREE.Mesh(geometry, changed.has(face.solidId) ? ghostChangedMaterial : ghostCandidateMaterial);
+            mesh.userData = { ghost: true, solidId: face.solidId, bodyId: face.bodyId };
+            ghostGroup.add(mesh);
+            ghostMeshes.push(mesh);
         }
         renderScene();
     };
@@ -8771,6 +8864,7 @@ function initViewport(
         },
         setConnectorTriads,
         setPreviewTessellation,
+        setGhostTessellation,
         setOriginAxes,
         fitView,
         zoomView,
@@ -8884,14 +8978,21 @@ function initViewport(
             for (const mesh of previewMeshes) {
                 mesh.geometry.dispose();
             }
+            for (const mesh of ghostMeshes) {
+                mesh.geometry.dispose();
+            }
             bodyMaterial.dispose();
             highlightMaterial.dispose();
             edgeLineMaterial.dispose();
             curveLineMaterial.dispose();
             curveLineHighlightMaterial.dispose();
             previewGhostMaterial.dispose();
+            ghostCandidateMaterial.dispose();
+            ghostChangedMaterial.dispose();
             previewMeshes = [];
+            ghostMeshes = [];
             scene.remove(previewGroup);
+            scene.remove(ghostGroup);
             for (const line of originAxisLines) {
                 line.geometry.dispose();
                 (line.material as THREE.Material).dispose();

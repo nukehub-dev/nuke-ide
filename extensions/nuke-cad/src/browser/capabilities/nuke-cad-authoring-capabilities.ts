@@ -68,7 +68,10 @@ import { NukeCadPreferences } from '../nuke-cad-preferences';
 import { CadDocumentStore } from '../document/cad-document-store';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../commands';
-import { NukeCadFeatureProposal, NukeCadProposalService } from './nuke-cad-proposal-service';
+import { NukeCadFeatureProposal, NukeCadProposalBuild, NukeCadProposalImpact, NukeCadProposalService } from './nuke-cad-proposal-service';
+import { compareCandidateSolids } from '../preview/ghost-preview-diff';
+import { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
+import { parseTessellationAsync } from '../widgets/cad-viewport/tess-parse-client';
 import { AI_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
 
 /** Stable capability ids for the feature-authoring slice. */
@@ -142,7 +145,8 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         @inject(FileService) protected readonly fileService: FileService,
         @inject(NukeCadPreferences) protected readonly preferences: NukeCadPreferences,
         @inject(CommandService) protected readonly commands: CommandService,
-        @inject(NukeUndoService) protected readonly undoService: NukeUndoService
+        @inject(NukeUndoService) protected readonly undoService: NukeUndoService,
+        @inject(NukeCadGhostPreviewService) protected readonly ghostPreview: NukeCadGhostPreviewService
     ) {}
 
     registerCapabilities(registry: NukeCapabilityRegistry): void {
@@ -240,6 +244,7 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         }
         const baseEpoch = this.store.documentEpoch;
         const baseRevision = this.store.revision;
+        this.ghostPreview.clear();
         const workspaceRoot = context.workspaceRoots[0];
         if (!workspaceRoot) {
             return { ok: false, message: 'A workspace root is required to run a CAD preview build.' };
@@ -296,6 +301,7 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             }
             const summary = summarize(prepared.result.edits);
             const impact = buildImpact(model.result, build);
+            const parsedCandidate = await this.readCandidateTessellation(build.tessPath);
             const proposal = this.proposals.create({
                 scope: 'features',
                 summary,
@@ -305,8 +311,19 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                 changes: prepared.result.changes,
                 edits: prepared.result.edits,
                 before,
-                after
+                after,
+                impact,
+                build: buildSummary(build)
             });
+            if (parsedCandidate) {
+                const diff = compareCandidateSolids(this.stateManager.solidSummaries, parsedCandidate);
+                this.ghostPreview.show({
+                    proposalId: proposal.id,
+                    tessData: parsedCandidate,
+                    ...diff
+                });
+            }
+            void this.commands.executeCommand(NukeCadCommands.OPEN_REVIEW_PANEL.id).catch(() => undefined);
             return {
                 ok: true,
                 data: {
@@ -339,6 +356,22 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                     .catch(() => undefined),
                 this.fileService.delete(new URI(previewDirectory), { recursive: true, useTrash: false }).catch(() => undefined)
             ]);
+        }
+    }
+
+    /** Read and parse the candidate tessellation before the temp directory is deleted. */
+    protected async readCandidateTessellation(
+        tessPath: string | undefined
+    ): Promise<Awaited<ReturnType<typeof parseTessellationAsync>> | undefined> {
+        if (!tessPath) {
+            return undefined;
+        }
+        try {
+            const content = await this.fileService.readFile(new URI(tessPath));
+            return await parseTessellationAsync(content.value.toString());
+        } catch (error) {
+            console.warn('[NukeCadAuthoring] Candidate tessellation could not be parsed:', error);
+            return undefined;
         }
     }
 
@@ -522,17 +555,16 @@ function formatNumber(value: number): string {
     return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
 }
 
-function buildSummary(build: GeometryBuildResult): Record<string, unknown> {
+function buildSummary(build: GeometryBuildResult): NukeCadProposalBuild {
     return {
         success: build.success,
         solidCount: build.solidCount ?? 0,
         faceCount: build.faceCount ?? 0,
-        triangleCount: build.triangleCount ?? 0,
-        boundingBox: build.boundingBox
+        triangleCount: build.triangleCount ?? 0
     };
 }
 
-function buildImpact(before: GeometryBuildResult, after: GeometryBuildResult): Record<string, unknown> {
+function buildImpact(before: GeometryBuildResult, after: GeometryBuildResult): NukeCadProposalImpact {
     return {
         solids: { before: before.solidCount ?? 0, after: after.solidCount ?? 0 },
         faces: { before: before.faceCount ?? 0, after: after.faceCount ?? 0 },

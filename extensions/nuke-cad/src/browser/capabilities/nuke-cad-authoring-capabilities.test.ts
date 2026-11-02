@@ -52,6 +52,7 @@ import {
     readFeatureParamChanges
 } from './nuke-cad-authoring-capabilities';
 import { NukeCadProposalService } from './nuke-cad-proposal-service';
+import type { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 
 const WORKSPACE = '/workspace/project';
 const DOCUMENT_PATH = `${WORKSPACE}/pincell.nuke-cad`;
@@ -190,6 +191,12 @@ function createHarness(overrides: { enabled?: boolean; build?: GeometryBuildResu
         has: vi.fn(() => true),
         undo: vi.fn(async () => ({ ok: true }))
     } as unknown as NukeUndoService;
+    const ghostPreview = {
+        show: vi.fn(),
+        clear: vi.fn(),
+        state: undefined,
+        onDidChange: vi.fn()
+    } as unknown as NukeCadGhostPreviewService;
     const proposals = new NukeCadProposalService();
     const capabilities = new NukeCadAuthoringCapabilities(
         stateManager,
@@ -199,7 +206,8 @@ function createHarness(overrides: { enabled?: boolean; build?: GeometryBuildResu
         fileService as unknown as FileService,
         preferences as unknown as NukeCadPreferences,
         commandService as unknown as CommandService,
-        undoService
+        undoService,
+        ghostPreview
     );
     const registered = new Map<string, NukeCapability>();
     capabilities.registerCapabilities({
@@ -361,7 +369,7 @@ describe('NukeCadAuthoringCapabilities', () => {
         expect(result.changeSet).not.toHaveProperty('applyCapability');
         expect(result.undoToken).toBe('undo-token-1');
         expect(harness.edits).toEqual([[{ id: 'pad-1', params: expect.objectContaining({ length: 120 }) }]]);
-        expect(harness.commands).toEqual(['nuke.cad.rebuild']);
+        expect(harness.commands).toContain('nuke.cad.rebuild');
         expect(harness.undoEntries).toHaveLength(1);
         expect(harness.proposals.get(proposalId)).toBeUndefined();
     });
@@ -389,7 +397,7 @@ describe('NukeCadAuthoringCapabilities', () => {
         expect(result).toMatchObject({ ok: true, message: 'CAD change undone.' });
         expect(harness.edits).toHaveLength(2);
         expect(harness.edits[1]).toEqual([{ id: 'pad-1', params: expect.objectContaining({ length: 100 }) }]);
-        expect(harness.commands).toEqual(['nuke.cad.rebuild', 'nuke.cad.rebuild']);
+        expect(harness.commands.filter((command) => command === 'nuke.cad.rebuild')).toHaveLength(2);
     });
 
     it('rejects a missing proposal', async () => {

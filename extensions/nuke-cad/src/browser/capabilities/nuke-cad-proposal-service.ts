@@ -35,19 +35,42 @@
  * after ten minutes and the store keeps at most twenty, mirroring the OpenMC
  * change proposal store.
  *
+ * Store changes are announced through `onDidChange` for review surfaces.
+ * Reads (`get`/`has`/`list`) drop expired proposals silently so polling a
+ * proposal never spams listeners; only explicit `prune()` announces expiry.
+ *
  * @module nuke-cad/browser/capabilities
  */
 
+import { Disposable } from '@theia/core/lib/common/disposable';
+import { Emitter, Event } from '@theia/core/lib/common/event';
 import { injectable } from '@theia/core/shared/inversify';
 import { NukeChange } from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { ResolvedFeatureEdit } from '../../common/cad-feature-edit';
 import { FeatureParams } from '../../common/cad-document';
+import { CadBoundingBox } from '../../common/nuke-cad-protocol';
 
 /** Maximum number of feature proposals kept in memory. */
 export const NUKE_CAD_FEATURE_PROPOSAL_LIMIT = 20;
 
 /** Feature proposal lifetime in milliseconds. */
 export const NUKE_CAD_FEATURE_PROPOSAL_TTL_MS = 10 * 60 * 1000;
+
+/** Topology and size delta measured while previewing a feature proposal. */
+export interface NukeCadProposalImpact {
+    readonly solids: { readonly before: number; readonly after: number };
+    readonly faces: { readonly before: number; readonly after: number };
+    readonly triangles: { readonly before: number; readonly after: number };
+    readonly boundingBox: { readonly before?: CadBoundingBox; readonly after?: CadBoundingBox };
+}
+
+/** Outcome of the preview build backing a feature proposal. */
+export interface NukeCadProposalBuild {
+    readonly success: boolean;
+    readonly solidCount: number;
+    readonly faceCount: number;
+    readonly triangleCount: number;
+}
 
 /** A previewed feature change awaiting apply. */
 export interface NukeCadFeatureProposal {
@@ -65,6 +88,10 @@ export interface NukeCadFeatureProposal {
     readonly before: Record<string, FeatureParams>;
     /** Parameter snapshot per feature id after the change. */
     readonly after: Record<string, FeatureParams>;
+    /** Optional topology and size delta measured by the preview. */
+    readonly impact?: NukeCadProposalImpact;
+    /** Optional outcome of the preview build. */
+    readonly build?: NukeCadProposalBuild;
     readonly createdAt: number;
 }
 
@@ -79,6 +106,10 @@ export interface NukeCadFeatureProposalInput {
     readonly edits: readonly ResolvedFeatureEdit[];
     readonly before: Record<string, FeatureParams>;
     readonly after: Record<string, FeatureParams>;
+    /** Optional topology and size delta measured by the preview. */
+    readonly impact?: NukeCadProposalImpact;
+    /** Optional outcome of the preview build. */
+    readonly build?: NukeCadProposalBuild;
 }
 
 /**
@@ -93,8 +124,12 @@ function cloneValue<T>(value: T): T {
 
 /** In-memory feature proposal store with a fixed capacity and TTL. */
 @injectable()
-export class NukeCadProposalService {
+export class NukeCadProposalService implements Disposable {
     protected readonly proposals = new Map<string, NukeCadFeatureProposal>();
+    protected readonly onDidChangeEmitter = new Emitter<void>();
+
+    /** Fires whenever a proposal is added or removed from the store. */
+    readonly onDidChange: Event<void> = this.onDidChangeEmitter.event;
 
     /** Current time; overridden by tests for deterministic TTL checks. */
     protected now(): number {
@@ -111,12 +146,12 @@ export class NukeCadProposalService {
      * store is full. Snapshots are cloned so later caller mutations do not
      * change the stored proposal.
      *
-     * @param input - Summary, document binding, diff, resolved edits, and
-     * before/after parameter snapshots.
+     * @param input - Summary, document binding, diff, resolved edits,
+     * before/after parameter snapshots, and optional preview metadata.
      * @returns A detached copy of the stored proposal.
      */
     create(input: NukeCadFeatureProposalInput): NukeCadFeatureProposal {
-        this.prune();
+        this.pruneExpired();
         while (this.proposals.size >= NUKE_CAD_FEATURE_PROPOSAL_LIMIT) {
             const oldest = this.proposals.keys().next().value as string | undefined;
             if (oldest === undefined) {
@@ -135,9 +170,12 @@ export class NukeCadProposalService {
             edits: cloneValue(input.edits),
             before: cloneValue(input.before),
             after: cloneValue(input.after),
+            ...(input.impact === undefined ? {} : { impact: cloneValue(input.impact) }),
+            ...(input.build === undefined ? {} : { build: cloneValue(input.build) }),
             createdAt: this.now()
         };
         this.proposals.set(proposal.id, proposal);
+        this.onDidChangeEmitter.fire();
         return cloneValue(proposal);
     }
 
@@ -149,7 +187,7 @@ export class NukeCadProposalService {
      * @returns The proposal, or `undefined` when missing or expired.
      */
     get(id: string): NukeCadFeatureProposal | undefined {
-        this.prune();
+        this.pruneExpired();
         const proposal = this.proposals.get(id);
         return proposal === undefined ? undefined : cloneValue(proposal);
     }
@@ -162,8 +200,19 @@ export class NukeCadProposalService {
      * @returns Whether the proposal exists and has not expired.
      */
     has(id: string): boolean {
-        this.prune();
+        this.pruneExpired();
         return this.proposals.has(id);
+    }
+
+    /**
+     * List every live proposal in insertion order as detached clones. Expired
+     * proposals are removed before the listing.
+     *
+     * @returns The live proposals.
+     */
+    list(): readonly NukeCadFeatureProposal[] {
+        this.pruneExpired();
+        return Array.from(this.proposals.values(), (proposal) => cloneValue(proposal));
     }
 
     /**
@@ -172,16 +221,36 @@ export class NukeCadProposalService {
      * @param id - Proposal id.
      */
     remove(id: string): void {
-        this.proposals.delete(id);
+        if (this.proposals.delete(id)) {
+            this.onDidChangeEmitter.fire();
+        }
     }
 
-    /** Remove every expired proposal. */
+    /** Remove every expired proposal and notify listeners when the set changed. */
     prune(): void {
+        if (this.pruneExpired()) {
+            this.onDidChangeEmitter.fire();
+        }
+    }
+
+    /**
+     * Drop expired proposals without notifying listeners.
+     *
+     * @returns Whether any proposal was removed.
+     */
+    protected pruneExpired(): boolean {
         const cutoff = this.now() - NUKE_CAD_FEATURE_PROPOSAL_TTL_MS;
+        let removed = false;
         for (const [id, proposal] of this.proposals) {
             if (proposal.createdAt <= cutoff) {
                 this.proposals.delete(id);
+                removed = true;
             }
         }
+        return removed;
+    }
+
+    dispose(): void {
+        this.onDidChangeEmitter.dispose();
     }
 }

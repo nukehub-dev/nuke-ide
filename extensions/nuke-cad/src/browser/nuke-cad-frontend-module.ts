@@ -44,6 +44,8 @@ import { NukeCadCapabilities, NukeCadContextContribution } from './capabilities/
 import { NukeCadAuthoringCapabilities } from './capabilities/nuke-cad-authoring-capabilities';
 import { NukeCadAuthoringContextContribution } from './capabilities/nuke-cad-authoring-context';
 import { NukeCadProposalService } from './capabilities/nuke-cad-proposal-service';
+import { NukeCadGhostPreviewService } from './preview/nuke-cad-ghost-preview-service';
+import { CadReviewPanelWidget } from './widgets/review-panel/review-panel-widget';
 import { bindNukeCadPreferences, NukeCadPreferences } from './nuke-cad-preferences';
 import { NukeCadStateManager } from './state/nuke-cad-state-manager';
 import { CadDocumentStore } from './document/cad-document-store';
@@ -77,6 +79,7 @@ export default new ContainerModule((bind) => {
     bind(NukeCadCapabilities).toSelf().inSingletonScope();
     bind(NukeCapabilityContribution).toService(NukeCadCapabilities);
     bind(NukeCadProposalService).toSelf().inSingletonScope();
+    bind(NukeCadGhostPreviewService).toSelf().inSingletonScope();
     bind(NukeCadAuthoringCapabilities).toSelf().inSingletonScope();
     bind(NukeCapabilityContribution).toService(NukeCadAuthoringCapabilities);
     bind(NukeCadContextContribution).toSelf().inSingletonScope();
@@ -103,6 +106,14 @@ export default new ContainerModule((bind) => {
         }))
         .inSingletonScope();
     bind(CadViewportWidget).toSelf();
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: CadReviewPanelWidget.ID,
+            createWidget: () => ctx.container.get(CadReviewPanelWidget)
+        }))
+        .inSingletonScope();
+    bind(CadReviewPanelWidget).toSelf();
 
     bind(WidgetFactory)
         .toDynamicValue((ctx) => ({

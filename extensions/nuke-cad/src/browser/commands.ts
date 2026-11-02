@@ -104,6 +104,11 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/openBomPanel', 'Open BOM')
     };
 
+    export const OPEN_REVIEW_PANEL: Command = {
+        id: 'nuke.cad.openReviewPanel',
+        label: nls.localize('nuke/cad/openReviewPanel', 'Open CAD Edit Review')
+    };
+
     export const OPEN_DRAWING_SHEET: Command = {
         id: 'nuke.cad.openDrawingSheet',
         label: nls.localize('nuke/cad/openDrawingSheet', 'Open Drawing Sheet')

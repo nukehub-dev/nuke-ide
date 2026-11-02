@@ -1002,6 +1002,15 @@ stale. Deleting a feature with dependents prompts you to either cancel or
 pattern/mirror `source` references). Reordering with the up/down arrows preserves
 the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
 
+### AI edit review
+
+When NukeAI proposes a feature-parameter change and **Nuke CAD: AI Authoring** is enabled, the **CAD Edit
+Review** panel opens beside the viewport. It shows the target document, the before/after values, and the
+solid/face/triangle/bounding-box impact. The viewport overlays the candidate as a translucent ghost; changed
+solids use a warmer accent, and the real model is untouched. **Apply** confirms and writes the change,
+**Dismiss** discards it, and **Undo** restores the previous parameters for the current session. Open the panel
+manually with **Open CAD Edit Review** in the Command Palette, the CAD Studio menu, or the Nuke Tools sidebar.
+
 ### Reference repair
 
 Topological references sometimes become ambiguous or unmatched after a parametric

@@ -32,7 +32,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - CAD feature authoring ships as a gated Phase 1 slice: NukeAI previews and applies scalar feature params
   (extrusion length, revolve/draft/pattern angles, fillet/chamfer scalars, hole diameter/depth, shell thickness) on saved
   `.nuke-cad` documents only while `nukeCad.aiAuthoringEnabled` is on.
-  The preview runs a real build; apply is one commit, backs up the document, rebuilds, and is undoable. Scripts,
+  The preview runs a real build, reveals the CAD Edit Review panel, and shows a display-only ghost overlay; apply is one
+  commit, backs up the document, rebuilds, and is undoable. Scripts,
   sketches, parameters, topology, imports, and MCP remain excluded. See `docs/dev/cad-authoring-design.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic

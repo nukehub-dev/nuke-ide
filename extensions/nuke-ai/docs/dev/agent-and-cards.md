@@ -22,7 +22,9 @@ The safe-edit section requires NukeAI to preview with `nuke_openmc_previewSettin
 `nuke_openmc_previewTallyChange`, or `nuke_cad_previewFeatureChange`, show the diff, apply with the matching apply tool
 only after explicit confirmation, and report undo availability from the apply result. CAD previews are exposed only
 while `nukeCad.aiAuthoringEnabled` is on; they accept scalar feature params on a saved document and reject topology,
-selector-map, or region-coverage changes. The read-only Diagnostics agent never receives a preview or apply tool; see
+selector-map, or region-coverage changes. The **CAD Edit Review** panel renders the same pending proposal, invokes the same apply capability after confirmation,
+and keeps the returned undo token; it never writes the document directly. The read-only Diagnostics agent never receives
+a preview or apply tool; see
 [Safe Edits](../user/safe-edits.md) and [CAD Feature Authoring](../user/safe-edits.md#cad-feature-edits).
 
 The agent receives the same active-workspace summary as `#nukeContext`. Missing documents, projects, or datasets are
