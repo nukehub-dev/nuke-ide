@@ -276,9 +276,9 @@ Script authoring is default-off and Linux-only: it needs both **Nuke CAD: AI Aut
 Script Authoring**, plus an active saved `.py` model, bubblewrap, and libseccomp. Preview and apply are absent when either
 switch is off. Never suggest editing a `.py` file through a raw file write.
 
-1. Call `nuke_cad_inspectScriptSource` with `{}`. It returns the script path, bounded text and SHA-256 hash, imports, and
-   whether a top-level `model` is assigned. The text is sent to the configured model provider; tell the user before
-   inspecting a large private script.
+1. Call `nuke_cad_inspectScriptSource` with `{}`. It asks for confirmation because the script text leaves the IDE. It
+   returns the script path, bounded text and SHA-256 hash, imports, and whether a top-level `model` is assigned. The text
+   is sent to the configured model provider; tell the user before inspecting a large private script.
 2. Read the returned text, then produce the complete replacement body, not a patch. Call
    `nuke_cad_previewScriptChange` with `{ "baseScriptHash": "<exact hash>", "proposedScript": "<full UTF-8 body>",
 "summary": "<short description>"? }`. The preview runs the script in a bubblewrap sandbox with a libseccomp denylist,

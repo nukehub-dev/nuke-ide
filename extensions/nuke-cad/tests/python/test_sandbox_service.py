@@ -344,6 +344,7 @@ def test_seccomp_denylist_covers_privileged_syscalls() -> None:
     ):
         assert name in denied
     assert "execve" not in denied
+    assert "clone3" in sandbox.SECCOMP_ENOSYS_SYSCALLS
 
 
 @pytest.mark.parametrize("platform", ["darwin", "win32"])

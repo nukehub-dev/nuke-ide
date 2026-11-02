@@ -28,9 +28,11 @@
 /**
  * Nuke Capability Delegate Backend
  *
- * Holds the connected frontend client used by the MCP contribution. The
- * external API configuration is backend-global, so this endpoint deliberately
- * assumes one frontend; multi-frontend routing is out of scope.
+ * Holds connected frontend clients for the MCP contribution. The external API
+ * configuration is backend-global. Multiple IDE windows are registered in
+ * connection order; the oldest live connection serves MCP so a second window
+ * cannot silently replace the first. When the serving window closes, the next
+ * live connection takes over.
  *
  * @module nuke-ai/node/mcp
  */
@@ -50,32 +52,43 @@ export const FRONTEND_NOT_CONNECTED = 'NukeIDE frontend is not connected.';
 /** Forward capability calls to the current frontend client. */
 @injectable()
 export class NukeCapabilityDelegateImpl implements NukeCapabilityDelegate {
-    protected client: NukeCapabilityDelegateClient | undefined;
+    protected readonly clients: NukeCapabilityDelegateClient[] = [];
 
     setClient(client: NukeCapabilityDelegateClient): void {
-        this.client = client;
+        if (!this.clients.includes(client)) {
+            this.clients.push(client);
+        }
     }
 
-    listCapabilities(): Promise<NukeCapabilityDescriptor[]> {
+    /** Release one frontend connection; the next live connection takes over. */
+    removeClient(client: NukeCapabilityDelegateClient): void {
+        const index = this.clients.indexOf(client);
+        if (index >= 0) {
+            this.clients.splice(index, 1);
+        }
+    }
+
+    async listCapabilities(): Promise<NukeCapabilityDescriptor[]> {
         return this.getClient().listCapabilities();
     }
 
-    listResources(): Promise<NukeMcpResourceDescriptor[]> {
+    async listResources(): Promise<NukeMcpResourceDescriptor[]> {
         return this.getClient().listResources();
     }
 
-    invoke(capabilityId: string, input: unknown): Promise<NukeCapabilityResult> {
+    async invoke(capabilityId: string, input: unknown): Promise<NukeCapabilityResult> {
         return this.getClient().invoke(capabilityId, input);
     }
 
-    readResource(uri: string): Promise<string> {
+    async readResource(uri: string): Promise<string> {
         return this.getClient().readResource(uri);
     }
 
     protected getClient(): NukeCapabilityDelegateClient {
-        if (!this.client) {
+        const client = this.clients[0];
+        if (!client) {
             throw new Error(FRONTEND_NOT_CONNECTED);
         }
-        return this.client;
+        return client;
     }
 }

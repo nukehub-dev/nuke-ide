@@ -304,7 +304,7 @@ export class NukeMcpContribution implements ExternalApiContribution {
                         description: resource.description,
                         mimeType: resource.mimeType
                     },
-                    async (uri) => this.readResource(uri.toString(), resource.mimeType)
+                    async (uri) => this.readResource(uri.toString(), resource.mimeType, getSessionId(), registry)
                 );
             }
 
@@ -494,18 +494,53 @@ export class NukeMcpContribution implements ExternalApiContribution {
         }
     }
 
-    protected async readResource(uri: string, mimeType: string): Promise<ReadResourceResult> {
+    protected async readResource(
+        uri: string,
+        mimeType: string,
+        rawSessionId?: string,
+        registry?: NukeMcpSessionRegistry<McpSession>
+    ): Promise<ReadResourceResult> {
+        const sessionId = rawSessionId ?? 'uninitialized';
+        const started = Date.now();
+        const { inputHash, inputSummary } = summarizeMcpInput({ uri });
+        let ok = false;
         try {
+            if (registry) {
+                const admission = registry.beginToolCall(sessionId);
+                if (admission === 'unknown-session') {
+                    throw new McpError(ErrorCode.InvalidRequest, 'Unknown MCP session. Reconnect the MCP client.');
+                }
+                if (admission === 'rate-limited') {
+                    throw new McpError(
+                        ErrorCode.InvalidRequest,
+                        `Rate limit exceeded: at most ${MCP_TOOL_RATE_LIMIT} tool or resource calls per ${MCP_TOOL_RATE_WINDOW_MS / 1000} seconds per MCP session.`
+                    );
+                }
+            }
             const text = await this.delegate.readResource(uri);
             if (typeof text !== 'string') {
                 throw new Error('the resource delegate returned a non-text payload.');
             }
+            ok = true;
             return {
                 contents: [{ uri, mimeType: mimeType || 'application/json', text: boundedMcpText(text) }]
             };
         } catch (error) {
+            if (error instanceof McpError) {
+                throw error;
+            }
             this.logger.warn(`[NukeAI] MCP resource read failed for ${uri}.`);
             throw new McpError(ErrorCode.InternalError, `Unable to read ${uri}: ${errorMessage(error)}`);
+        } finally {
+            this.recordAudit({
+                timestamp: started,
+                sessionId,
+                tool: capText(`resource:${uri}`, 128),
+                durationMs: Date.now() - started,
+                ok,
+                inputHash,
+                inputSummary
+            });
         }
     }
 

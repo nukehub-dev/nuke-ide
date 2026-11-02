@@ -1059,8 +1059,8 @@ and the workspace setting **Nuke CAD: Script Authoring**, and it runs only on Li
 Windows, and environments without a working user namespace or libseccomp report script authoring unavailable. There is no
 unsandboxed fallback.
 
-1. NukeAI inspects the script first. Inspecting returns the text, hash, imports, and whether the script assigns a
-   top-level `model`; the script text is sent to the configured model provider.
+1. NukeAI inspects the script first. Inspecting asks for confirmation and returns the text, hash, imports, and whether
+   the script assigns a top-level `model`; the script text is sent to the configured model provider.
 2. The preview sends the exact base hash and the complete replacement script. It runs in a sandbox with no network and
    no workspace access, a read-only source, and time, memory, process, and file-size limits. The **CAD Edit Review** panel
    shows the unified diff, imports, sandbox engine/version/userns/seccomp and limits, build counts, duration, exit code, and audit id. The
@@ -1073,9 +1073,9 @@ with no network or workspace access and that Apply overwrites the script with a 
 
 After apply, the model is marked sandboxed: later `.py` rebuilds use the same sandbox, and DAGMC/FEM export stays blocked
 until a later review removes the marking. Every build loads a libseccomp BPF denylist inside bubblewrap that blocks
-network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls; a host without
-libseccomp reports script authoring unavailable. The filter is a denylist, so kernel and bubblewrap correctness still
-matter. See [Safe Edits](../../../nuke-ai/docs/user/safe-edits.md) for the full warning list.
+network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls, and forces
+`clone3` to `ENOSYS`; a host without libseccomp reports script authoring unavailable. The filter is a denylist, so kernel
+and bubblewrap correctness still matter. See [Safe Edits](../../../nuke-ai/docs/user/safe-edits.md) for the full warning list.
 
 ### Reference repair
 

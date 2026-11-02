@@ -100,11 +100,15 @@ DEV_SHM_BYTES = 64 * 1024 * 1024
 # namespace/mount, and kernel-inspection surface the sandbox never needs.
 SCMP_ACT_ALLOW = 0x7FFF0000
 SCMP_ACT_ERRNO_EPERM = 0x00050000 | 1
+SCMP_ACT_ERRNO_ENOSYS = 0x00050000 | 38
 
 SECCOMP_LIBRARY_NAMES = ("libseccomp.so.2", "libseccomp.so")
+SECCOMP_ENOSYS_SYSCALLS = ("clone3",)
 
 # ``execve`` stays allowed: the geometry service and its script child are
 # started with it. ``execveat`` is not part of the fixed launch contract.
+# ``clone3`` is forced to ENOSYS so libc falls back to ``clone``; this keeps a
+# script from using the unfilterable clone3 argument block to open namespaces.
 SECCOMP_DENIED_SYSCALLS = (
     # Network.
     "socket",
@@ -348,6 +352,16 @@ def build_seccomp_filter() -> SeccompFilter:
             result = library.seccomp_rule_add(context, SCMP_ACT_ERRNO_EPERM, number, 0)
             if result < 0:
                 raise SeccompError(f"libseccomp could not deny {name} (error {result}).")
+            denied += 1
+        for name in SECCOMP_ENOSYS_SYSCALLS:
+            number = library.seccomp_syscall_resolve_name(name.encode("ascii"))
+            if number < 0:
+                continue
+            result = library.seccomp_rule_add(context, SCMP_ACT_ERRNO_ENOSYS, number, 0)
+            if result < 0:
+                raise SeccompError(
+                    f"libseccomp could not return ENOSYS for {name} (error {result})."
+                )
             denied += 1
         if denied == 0:
             raise SeccompError("libseccomp resolved none of the sandbox syscall denylist.")

@@ -77,7 +77,8 @@ No export, import, run, edit, write, or delete action is exposed by this endpoin
 
 - At most 16 concurrent MCP sessions.
 - A session idle for 30 minutes is closed automatically.
-- At most 60 tool calls per session in any 60-second window. Additional calls return a tool error instead of running.
+- At most 60 tool or resource calls per session in any 60-second window. Additional calls return an error instead of
+  running.
 - At most 24 tools are advertised in one session.
 - The audit ring keeps the last 200 tool-call summaries in memory. It stores a redacted input hash/summary, never file
   or resource contents, and it is lost when the IDE backend restarts.
@@ -107,7 +108,7 @@ Other checks:
   changes.
 - **`NukeIDE frontend is not connected.`** — the MCP tool call arrived before the IDE frontend opened its capability
   delegate channel. Keep the IDE window open; the backend cannot read CAD or project state without it.
-- **`Rate limit exceeded`** — a session made more than 60 tool calls in 60 seconds. Wait for the window to roll over;
+- **`Rate limit exceeded`** — a session made more than 60 tool or resource calls in 60 seconds. Wait for the window to roll over;
   the excess calls are audited and were not executed.
 - **No CAD summary** — open a CAD document in NukeCAD. The tool still returns `isError: true` with a clear message
   when no document is active.

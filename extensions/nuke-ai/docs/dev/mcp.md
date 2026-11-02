@@ -147,12 +147,12 @@ The MCP SDK allows one transport per `McpServer`, so the endpoint creates one `M
 - at most 16 concurrent sessions;
 - sessions idle for 30 minutes are evicted; the sweep timer is unref'd and stopped when the map empties;
 - eviction and routing rebuilds close the server and transport;
-- each session may make 60 tool calls per 60-second window. Excess calls return a clear MCP tool error and an audit row;
+- each session may make 60 tool or resource calls per 60-second window. Excess calls return a clear MCP error and an audit row;
 - `router.toDispose` closes every remaining session when Theia rebuilds the external API routing or shuts down.
 
 ## Audit ring
 
-`NukeMcpAuditLog` keeps the last 200 tool-call rows in memory. A row carries the timestamp, session id, tool name,
+`NukeMcpAuditLog` keeps the last 200 tool/resource-call rows in memory. A row carries the timestamp, session id, tool or resource name,
 duration, `ok`, a truncated SHA-256 input hash, and a bounded redacted input summary. Credential-like keys
 (`authorization`, `token`, `apiKey`, `secret`, `password`) and Bearer/key-value secret values become `[redacted]`,
 strings are capped, and neither file contents, resource contents, result payloads, nor the bearer token are stored. The ring is process-local and is not
@@ -169,8 +169,8 @@ persisted.
 5. Keep the endpoint off by default and keep write/execute/destructive actions out until a separate security review.
 
 Multi-frontend routing, OAuth, persistent audit storage, and MCP apps/HTML tool results are out of scope. With more than
-one IDE window connected, the most recently connected frontend serves the endpoint; close the other windows if the
-wrong workspace answers.
+one IDE window connected, the oldest live frontend serves the endpoint; close it to hand the endpoint to the next
+window, or close the other windows if the wrong workspace answers.
 
 ## Verification
 

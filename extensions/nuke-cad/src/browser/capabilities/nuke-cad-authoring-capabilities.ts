@@ -1139,6 +1139,7 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             outputSchema: INSPECT_SCRIPT_SOURCE_OUTPUT_SCHEMA,
             risk: 'read',
             annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            requiresConfirmation: true,
             tags: ['cad', 'authoring', 'script', 'read'],
             when: () => this.scriptAuthoringEnabled() && this.activeScriptPath() !== undefined,
             invoke: (_input, context) => this.inspectScriptSource(context)

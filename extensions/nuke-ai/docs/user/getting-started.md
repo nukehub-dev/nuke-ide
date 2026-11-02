@@ -115,15 +115,15 @@ rebuilding geometry.
 
 Python model scripts are the seventh flow, available only on Linux with bubblewrap and libseccomp; NukeAI chat, model
 setup, and the other capability tools are cross-platform. Enable both **Nuke CAD: AI Authoring** and the workspace
-**Nuke CAD: Script Authoring** setting, then open a saved `.py` model. NukeAI can inspect
-the script, but its text is sent to the configured model provider. A preview runs the complete replacement in a sandbox
+**Nuke CAD: Script Authoring** setting, then open a saved `.py` model. NukeAI can inspect the script after an explicit
+confirmation, but its text is sent to the configured model provider. A preview runs the complete replacement in a sandbox
 with no network and no workspace access, then shows a plain-text unified diff, imports, sandbox limits, build counts, and
 an audit id in the **CAD Edit Review** panel; it writes nothing and shows no ghost. The chat card has no Apply action.
 Apply is panel-only: it confirms the overwrite, keeps a hidden backup, rebuilds in the sandbox, and offers **Undo**.
 Later rebuilds of that model stay sandboxed and DAGMC/FEM export stays blocked. Every build loads a libseccomp BPF
 denylist inside bubblewrap that blocks network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory,
-and `seccomp` syscalls; a host without libseccomp reports script authoring unavailable. The filter is a denylist, so it is
-not a guarantee against kernel bugs.
+and `seccomp` syscalls, and forces `clone3` to `ENOSYS`; a host without libseccomp reports script authoring unavailable.
+The filter is a denylist, so it is not a guarantee against kernel bugs.
 
 ## Preview gallery
 

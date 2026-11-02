@@ -312,17 +312,19 @@ AI Authoring** and the workspace-scoped **Nuke CAD: Script Authoring** in **Sett
 bubblewrap user namespace and libseccomp; macOS, Windows, and environments without them fail closed with a Linux-only
 unavailable message. There is no unsandboxed fallback.
 
-1. Open the `.py` in the editor and run **Open Active Python Model in CAD** so it is the active model. NukeAI inspects the script with `nuke_cad_inspectScriptSource`. The result carries the path, bounded text, SHA-256
-   hash, imports, and whether a top-level `model` is assigned. **The script text is sent to the configured model
-   provider**; inspect a sensitive script only when you want NukeAI to read it.
+1. Open the `.py` in the editor and run **Open Active Python Model in CAD** so it is the active model. NukeAI inspects
+   the script with `nuke_cad_inspectScriptSource`; inspection asks for confirmation because the source text leaves the
+   IDE. The result carries the path, bounded text, SHA-256 hash, imports, and whether a top-level `model` is assigned.
+   **The script text is sent to the configured model provider**; inspect a sensitive script only when you want NukeAI to
+   read it.
 2. A preview requires the exact base hash and the complete proposed script. It runs in a bubblewrap sandbox with no
    network and no workspace access, a read-only source, one private writable output directory, CPU/memory/process/file
    limits, and a timeout that kills the whole PID namespace. Sandbox artifacts are validated and then discarded. The
    preview never writes the script and shows no viewport ghost.
 3. The **CAD Edit Review** panel shows a **Script change** section with a prominent executable warning, the unified diff
    (plain text, never rendered HTML or Markdown), added/removed/hunk counts, a truncation notice, imports, the `model`
-   assignment advisory, sandbox engine/version/userns/seccomp/limits, build counts, duration, timeout, exit code, and the audit id. The
-   chat card has **no Apply action**.
+   assignment advisory, sandbox engine/version/userns/seccomp/limits, build counts, duration, timeout, exit code, and the
+   audit id. The chat card has **no Apply action**.
 4. Apply is available only in the panel. It uses a hidden approval nonce, confirms that the Python file will be
    overwritten and that a hidden backup is kept, then writes the script, rebuilds in the sandbox, installs the model, and
    offers **Undo**. NukeAI cannot apply a script from chat and must never claim it can.
@@ -330,8 +332,8 @@ unavailable message. There is no unsandboxed fallback.
    blocked while the marking remains. Undo restores the previous script bytes and rebuilds in the sandbox.
 
 Every build also loads a libseccomp BPF denylist inside bubblewrap (`--seccomp`) that blocks network,
-namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls; a host without
-libseccomp reports script authoring unavailable, with no unsandboxed fallback. The sandbox is a namespace, resource, and
+namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls, and forces `clone3`
+to `ENOSYS`; a host without libseccomp reports script authoring unavailable, with no unsandboxed fallback. The sandbox is a namespace, resource, and
 seccomp boundary, not a complete security guarantee: because the filter is a denylist, kernel and bubblewrap correctness
 still matter. The audit log under `<workspace>/.nuke-ide/ai/` records hashes, outcome,
 duration, exit, timeout, counts, sandbox version, and limits, never script text, absolute paths, or process output. None

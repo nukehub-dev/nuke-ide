@@ -50,7 +50,7 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   `nuke.cad.rebuild`.
   The seventh slice is Linux-only sandboxed `.py` authoring, requiring both `nukeCad.aiAuthoringEnabled` and
   workspace-scoped `nukeCad.scriptAuthoringEnabled`: `inspectScriptSource` returns bounded text/hash/imports (text goes to
-  the model provider), `previewScriptChange` takes an exact base hash plus the full body, runs `bwrap` with no
+  the model provider; inspection requires confirmation), `previewScriptChange` takes an exact base hash plus the full body, runs `bwrap` with no
   network/workspace, returns a diff/sandbox/build audit and no ghost, and omits `applyCapability` so chat has no Apply.
   Apply is panel-only with a hidden approval nonce, overwrites with a backup, rebuilds sandboxed, and blocks DAGMC/FEM
   export while the model stays sandboxed. No fallback without bubblewrap or libseccomp; the filter is a denylist, so

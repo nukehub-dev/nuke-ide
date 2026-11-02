@@ -3844,6 +3844,7 @@ describe('NukeCadAuthoringCapabilities', () => {
 describe('NukeCadAuthoringCapabilities script authoring', () => {
     it('inspects the active script with its hash, imports, and sandbox status', async () => {
         const harness = scriptHarness();
+        expect(harness.registered.get(INSPECT_SCRIPT_SOURCE_ID)?.requiresConfirmation).toBe(true);
 
         const result = await inspectScript(harness);
 

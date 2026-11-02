@@ -506,8 +506,8 @@ workspace-contained regular `.py` file (no symlink, at most 64 KiB / 2000 lines)
 feature unavailable; there is **no fallback** to unsandboxed execution.
 
 - `nuke.cad.inspectScriptSource` takes `{}` and returns the active script path, bounded text, SHA-256 hash, imports, and
-  whether a top-level `model` assignment exists. The script text is sent to the configured model provider; this is the
-  source-code privacy boundary.
+  whether a top-level `model` assignment exists. It requires confirmation because the script text is sent to the
+  configured model provider; this is the source-code privacy boundary.
 - `nuke.cad.previewScriptChange` takes the exact `baseScriptHash` and the **full** `proposedScript` plus an optional
   summary. It rejects a stale hash, unchanged text, NUL bytes, or a non-`.py`/non-workspace target, then runs the script
   in the sandbox. It returns a unified diff, imports, sandbox version/limits, build counts, duration, timeout, exit code,
@@ -532,8 +532,8 @@ version, and limits, never script text, absolute paths, stdout/stderr, or errors
 A model applied through this flow is marked `sandboxed`. Every later `.py` rebuild for that model uses the sandboxed
 builder, and DAGMC/FEM export is blocked until a later review removes the marking. Every build loads a libseccomp BPF
 denylist inside bwrap (`--seccomp`) covering network, namespace/mount, tracing, BPF, keyring, module, io_uring,
-process-memory, and `seccomp` syscalls; a host without libseccomp reports script authoring unavailable, with no
-unsandboxed fallback. The filter is a denylist, so kernel and bubblewrap correctness remain part of the trust boundary.
+process-memory, and `seccomp` syscalls; `clone3` returns `ENOSYS` so libc falls back to the filtered `clone`, and a host
+without libseccomp reports script authoring unavailable, with no unsandboxed fallback. The filter is a denylist, so kernel and bubblewrap correctness remain part of the trust boundary.
 None of the
 three script ids is on the external MCP read-only allowlist, and the chat card never exposes Apply.
 

@@ -495,7 +495,7 @@ describe('NukeMcpContribution MCP contract', () => {
             expect(diagnosticsText).toContain(OPENMC_DIAGNOSE_TOOL);
             expect(diagnosticsText).toContain('Prioritize findings by severity');
 
-            const audit = harness.contribution.getAuditEntries(2);
+            const audit = harness.contribution.getAuditEntries(10).filter((entry) => !entry.tool.startsWith('resource:'));
             expect(audit).toHaveLength(2);
             expect(audit[0].tool).toBe(INSPECT_TOOL);
             expect(audit[1].tool).toBe(CAD_TOOL);
