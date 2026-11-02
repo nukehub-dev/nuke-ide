@@ -58,7 +58,7 @@ on the next capture.
 
 CAD authoring is opt-in. Enable **Nuke CAD: AI Authoring** in **Settings → Nuke CAD** first. NukeAI can then propose
 scalar changes to an existing feature on a saved `.nuke-cad` document: pad/pocket length, revolve/groove angle, fillet
-radius, and shell thickness. It previews every change with a real build, shows the diff and impact (solid/face/triangle
+radius, chamfer distance, draft angle, pattern spacing/angle, shell thickness, and blind-hole diameter/depth. It previews every change with a real build, shows the diff and impact (solid/face/triangle
 counts and bounding box), and applies only the returned proposal after explicit confirmation. Apply writes a hidden
 backup beside the document, schedules the normal rebuild, and offers **Undo** in the chat. Sketches, document
 parameters, scripts, topology, booleans, imports, assemblies, and drawings are not editable in this mode. The preview

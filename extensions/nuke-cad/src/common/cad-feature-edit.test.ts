@@ -205,13 +205,13 @@ describe('prepareFeatureEdit', () => {
     });
 
     it('rejects a feature type outside the allowlist', () => {
-        const doc = makeDocument([makeFeature('chamfer1', 'chamfer', { edges: [EDGE], distance: 1 })]);
-        expectRejected(doc, [change('chamfer1', 'angle', 45)], /has no editable parameters/);
+        const doc = makeDocument([makeFeature('mirror1', 'mirror', { source: 'pad1', plane: 'XY' })]);
+        expectRejected(doc, [change('mirror1', 'angle', 45)], /has no editable parameters/);
     });
 
     it('rejects a parameter that does not belong to the feature type', () => {
         const doc = makeDocument([makeFeature('pad1', 'pad', { length: 2 })]);
-        expectRejected(doc, [change('pad1', 'angle', 45)], /edits 'length', not 'angle'/);
+        expectRejected(doc, [change('pad1', 'angle', 45)], /edits length, not 'angle'/);
     });
 
     it('rejects non-number and non-finite values', () => {
@@ -227,12 +227,46 @@ describe('prepareFeatureEdit', () => {
             { type: 'pad', params: { length: 2 }, param: 'length', value: 0 },
             { type: 'revolve', params: { axis: 'z', angle: 90 }, param: 'angle', value: -45 },
             { type: 'fillet', params: { edges: [EDGE], radius: 1 }, param: 'radius', value: 0 },
-            { type: 'shell', params: { faces: [], thickness: 1 }, param: 'thickness', value: -2 }
+            { type: 'shell', params: { faces: [], thickness: 1 }, param: 'thickness', value: -2 },
+            { type: 'chamfer', params: { edges: [EDGE], distance: 1 }, param: 'distance', value: 0 },
+            { type: 'hole', params: { face: EDGE, center: [0, 0], diameter: 2, depth: 3 }, param: 'diameter', value: -1 },
+            { type: 'hole', params: { face: EDGE, center: [0, 0], diameter: 2, depth: 3 }, param: 'depth', value: 0 }
         ];
         for (const testCase of cases) {
             const doc = makeDocument([makeFeature('feature1', testCase.type, testCase.params)]);
             expectRejected(doc, [change('feature1', testCase.param, testCase.value)], /greater than 0/);
         }
+    });
+
+    it('edits chamfer symmetric distance, draft angle, pattern spacing, and circular sweep', () => {
+        const chamfer = makeDocument([makeFeature('chamfer1', 'chamfer', { edges: [EDGE], distance: 1 })]);
+        expect(expectAccepted(chamfer, [change('chamfer1', 'distance', 2)]).edits[0]).toMatchObject({ before: 1, after: 2 });
+
+        const draft = makeDocument([makeFeature('draft1', 'draft', { faces: [], angle: 5, pullDirection: [0, 0, 1] })]);
+        expect(expectAccepted(draft, [change('draft1', 'angle', -5)]).edits[0]).toMatchObject({ before: 5, after: -5 });
+
+        const linear = makeDocument([makeFeature('pattern1', 'linearPattern', { source: 'pad1', count: 3, spacing: 4, axis: 'x' })]);
+        expect(expectAccepted(linear, [change('pattern1', 'spacing', -4)]).edits[0]).toMatchObject({ before: 4, after: -4 });
+
+        const circular = makeDocument([makeFeature('pattern2', 'circularPattern', { source: 'pad1', count: 3, axis: 'z' })]);
+        expect(expectAccepted(circular, [change('pattern2', 'angle', 180)]).edits[0]).toMatchObject({ before: 360, after: 180 });
+    });
+
+    it('edits blind-hole diameter and depth but rejects through-hole depth', () => {
+        const blind = makeDocument([makeFeature('hole1', 'hole', { face: EDGE, center: [0, 0], diameter: 2, depth: 3 })]);
+        const accepted = expectAccepted(blind, [change('hole1', 'diameter', 2.5), change('hole1', 'depth', 4)]);
+        expect(accepted.edits).toHaveLength(2);
+
+        const through = makeDocument([makeFeature('hole2', 'hole', { face: EDGE, center: [0, 0], diameter: 2 })]);
+        expectRejected(through, [change('hole2', 'depth', 4)], /blind hole/);
+    });
+
+    it('rejects two-distance chamfer and a partial circular sweep with count 1', () => {
+        const twoDistance = makeDocument([makeFeature('chamfer2', 'chamfer', { edges: [EDGE], distances: [1, 2] })]);
+        expectRejected(twoDistance, [change('chamfer2', 'distance', 1.5)], /two-distance/);
+
+        const single = makeDocument([makeFeature('pattern3', 'circularPattern', { source: 'pad1', count: 1, axis: 'z' })]);
+        expectRejected(single, [change('pattern3', 'angle', 180)], /count of at least 2/);
     });
 
     it('rejects a no-op edit', () => {

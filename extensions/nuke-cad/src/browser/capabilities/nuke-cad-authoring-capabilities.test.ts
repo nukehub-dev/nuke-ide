@@ -45,7 +45,12 @@ import type { CadDocumentStore } from '../document/cad-document-store';
 import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import type { NukeCadPreferences } from '../nuke-cad-preferences';
 import type { CadModel, NukeCadStateManager } from '../state/nuke-cad-state-manager';
-import { APPLY_FEATURE_CHANGE_ID, NukeCadAuthoringCapabilities, PREVIEW_FEATURE_CHANGE_ID } from './nuke-cad-authoring-capabilities';
+import {
+    APPLY_FEATURE_CHANGE_ID,
+    NukeCadAuthoringCapabilities,
+    PREVIEW_FEATURE_CHANGE_ID,
+    readFeatureParamChanges
+} from './nuke-cad-authoring-capabilities';
 import { NukeCadProposalService } from './nuke-cad-proposal-service';
 
 const WORKSPACE = '/workspace/project';
@@ -227,6 +232,30 @@ async function preview(harness: Harness): Promise<NukeCapabilityResult> {
 function apply(harness: Harness, proposalId: string): Promise<NukeCapabilityResult> {
     return harness.registered.get(APPLY_FEATURE_CHANGE_ID)!.invoke({ proposalId }, CONTEXT);
 }
+
+describe('readFeatureParamChanges', () => {
+    it('accepts the expanded topology-preserving parameter set', () => {
+        const result = readFeatureParamChanges({
+            changes: [
+                { featureId: 'chamfer1', param: 'distance', value: 1.5 },
+                { featureId: 'draft1', param: 'angle', value: 5 },
+                { featureId: 'pattern1', param: 'spacing', value: -4 },
+                { featureId: 'pattern2', param: 'angle', value: 180 },
+                { featureId: 'hole1', param: 'diameter', value: 2.5 },
+                { featureId: 'hole1', param: 'depth', value: 3 }
+            ]
+        });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.changes).toHaveLength(6);
+        }
+    });
+
+    it('rejects an unknown parameter', () => {
+        const result = readFeatureParamChanges({ changes: [{ featureId: 'pad1', param: 'width', value: 2 }] });
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('Unsupported') });
+    });
+});
 
 describe('NukeCadAuthoringCapabilities', () => {
     beforeEach(() => {

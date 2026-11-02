@@ -92,19 +92,25 @@ Why document parameters are not first, despite the lower-looking schema risk:
 
 Starter allowlist (first implementation):
 
-| Feature type | Allowed key | Condition                           | Why it is safe                                                                             |
-| ------------ | ----------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
-| `pad`        | `length`    | `end` absent or `blind`             | Positive extrusion distance; topology changes only if the build itself fails or intersects |
-| `pocket`     | `length`    | `end` absent or `blind`             | Positive cut depth; same build validation as a manual edit                                 |
-| `revolve`    | `angle`     | `end` absent or `blind`             | Finite angle in `(0, 360]`; no sketch or reference change                                  |
-| `groove`     | `angle`     | `end` absent or `blind`             | Same as revolve                                                                            |
-| `fillet`     | `radius`    | Existing feature, non-empty `edges` | Positive scalar; a too-large radius fails the build and is rejected by preview             |
-| `shell`      | `thickness` | Existing feature, non-empty `faces` | Positive scalar; build failure is caught before apply                                      |
+| Feature type      | Allowed key | Condition                           | Why it is safe                                                                             |
+| ----------------- | ----------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `pad`             | `length`    | `end` absent or `blind`             | Positive extrusion distance; topology changes only if the build itself fails or intersects |
+| `pocket`          | `length`    | `end` absent or `blind`             | Positive cut depth; same build validation as a manual edit                                 |
+| `revolve`         | `angle`     | Existing feature                    | Finite angle in `(0, 360]`; no sketch or reference change                                  |
+| `groove`          | `angle`     | Existing feature                    | Same as revolve                                                                            |
+| `fillet`          | `radius`    | Existing feature, non-empty `edges` | Positive scalar; a too-large radius fails the build and is rejected by preview             |
+| `chamfer`         | `distance`  | Symmetric mode (`distances` absent) | Positive scalar; two-distance mode is not editable                                         |
+| `draft`           | `angle`     | Existing feature                    | Finite angle in `(-90, 90)`; pull direction is not editable                                |
+| `linearPattern`   | `spacing`   | Existing feature                    | Non-zero scalar; count is not editable                                                     |
+| `circularPattern` | `angle`     | Existing feature                    | `(0, 360]`; partial sweep keeps count >= 2                                                 |
+| `hole`            | `diameter`  | Existing feature                    | Positive scalar; counterbore/countersink/counterdrill modes are not editable               |
+| `hole`            | `depth`     | Existing blind hole                 | Positive scalar; through-hole depth and drill-point mode are not editable                  |
+| `shell`           | `thickness` | Existing feature, non-empty `faces` | Positive scalar; build failure is caught before apply                                      |
 
-Deliberately outside the first allowlist: pattern/mirror/lattice counts and spacing (topology and cell-count changes),
-hole depth/diameter (face references and drilling modes), chamfer modes (`distances`/`angle`), primitive `dimensions`
-arrays (index-addressed), `translate` vectors (array paths), booleans and consumed bodies, imports, sketches, datums,
-assemblies, drawings, suppression, reorder, add, and delete.
+Deliberately outside the first allowlist: pattern/mirror/lattice **counts** (cell-count changes), hole
+counterbore/countersink/counterdrill modes and placement, chamfer **two-distance** mode and chamfer angle, draft pull
+direction, primitive `dimensions` arrays (index-addressed), `translate` vectors (array paths), booleans and consumed
+bodies, imports, sketches, datums, assemblies, drawings, suppression, reorder, add, and delete.
 
 The allowlist is a static table in the capability module, not something the model can extend. A feature type or key
 missing from the table is rejected before any build.

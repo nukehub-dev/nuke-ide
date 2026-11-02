@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: capability tools expose a local catalog and local metrics/edit journals; undo remains session-scoped.
 - nuke-cad: NukeAI can diagnose the active CAD model without rebuilding it.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
-- nuke-cad: NukeAI previews and applies scalar feature edits (length, angle, radius, thickness) behind the default-off CAD AI authoring setting, with a real build, backup, rebuild, and undo.
+- nuke-cad: NukeAI previews and applies scalar feature edits (extrusion length, revolve/draft/pattern angles, fillet/chamfer scalars, hole diameter/depth, shell thickness) behind the default-off CAD AI authoring setting, with a real build, backup, rebuild, and undo.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
 - nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.

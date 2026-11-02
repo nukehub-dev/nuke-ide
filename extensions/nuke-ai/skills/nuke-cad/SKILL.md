@@ -40,6 +40,10 @@ Allowed edits:
 - pad/pocket `length` on a blind/default end;
 - revolve/groove `angle` between 0 and 360 degrees;
 - fillet `radius` on a feature with edges;
+- chamfer `distance` in symmetric mode;
+- draft `angle` between -90 and 90 degrees;
+- linear-pattern `spacing` or circular-pattern `angle`;
+- hole `diameter`, and `depth` on a blind hole;
 - shell `thickness`.
 
 Call `nuke_cad_previewFeatureChange` with `{ "changes": [{ "featureId", "param", "value" }] }`. It runs a real build,

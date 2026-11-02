@@ -96,7 +96,7 @@ const PREVIEW_INPUT_SCHEMA: NukeJsonSchema = {
                     featureId: { type: 'string', description: 'Feature id from the active document.' },
                     param: {
                         type: 'string',
-                        enum: ['length', 'angle', 'radius', 'thickness'],
+                        enum: ['length', 'angle', 'radius', 'thickness', 'distance', 'spacing', 'diameter', 'depth'],
                         description: 'Editable scalar for that feature type.'
                     },
                     value: { type: 'number', description: 'New finite scalar value.' }
@@ -486,7 +486,16 @@ export function readFeatureParamChanges(
         if (typeof record.featureId !== 'string' || record.featureId.length === 0) {
             return { ok: false, message: 'Each change needs a non-empty featureId.' };
         }
-        if (record.param !== 'length' && record.param !== 'angle' && record.param !== 'radius' && record.param !== 'thickness') {
+        if (
+            record.param !== 'length' &&
+            record.param !== 'angle' &&
+            record.param !== 'radius' &&
+            record.param !== 'thickness' &&
+            record.param !== 'distance' &&
+            record.param !== 'spacing' &&
+            record.param !== 'diameter' &&
+            record.param !== 'depth'
+        ) {
             return { ok: false, message: `Unsupported feature parameter '${String(record.param)}'.` };
         }
         if (typeof record.value !== 'number' || !Number.isFinite(record.value)) {
