@@ -29,14 +29,14 @@
  * CAD edit review panel widget.
  *
  * Hosts {@link CadReviewPanelView} and owns the proposal lifecycle: it lists
- * previewed feature, sketch, topology, import, and assembly edits, tracks
- * region-impact acknowledgement, confirms and invokes the proposal's apply
- * capability (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
- * `nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`, or
- * `nuke.cad.applyAssemblyChange`), keeps applied entries for session undo
- * through `NukeUndoService`, and dismisses proposals. Opened through
- * `nuke.cad.openReviewPanel` in the right area, the CAD Studio menu, and the
- * Nuke Tools sidebar.
+ * previewed feature, sketch, topology, import, assembly, and drawing edits,
+ * tracks region-impact acknowledgement, confirms and invokes the proposal's
+ * apply capability (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
+ * `nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`,
+ * `nuke.cad.applyAssemblyChange`, or `nuke.cad.applyDrawingChange`), keeps
+ * applied entries for session undo through `NukeUndoService`, and dismisses
+ * proposals. Opened through `nuke.cad.openReviewPanel` in the right area, the
+ * CAD Studio menu, and the Nuke Tools sidebar.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -56,7 +56,7 @@ import { CadDocumentStore } from '../../document/cad-document-store';
 import { NukeCadProposal, NukeCadProposalService } from '../../capabilities/nuke-cad-proposal-service';
 import { APPLY_FEATURE_CHANGE_ID } from '../../capabilities/nuke-cad-authoring-capabilities';
 import { AI_AUTHORING_PREFERENCE } from '../../capabilities/nuke-cad-authoring-constants';
-import { CadReviewAppliedEntry, CadReviewPanelView, CadReviewProposalView } from './review-panel-view';
+import { CadReviewAppliedEntry, CadReviewDrawingContext, CadReviewPanelView, CadReviewProposalView } from './review-panel-view';
 import './review-panel.css';
 
 @injectable()
@@ -232,6 +232,20 @@ export class CadReviewPanelWidget extends ReactWidget {
                 }
             };
         }
+        if (proposal.scope === 'drawing') {
+            const details = proposal.drawing;
+            return {
+                ...common,
+                drawing: {
+                    sheet: details.sheet,
+                    viewChanges: details.viewChanges,
+                    dimensionChanges: details.dimensionChanges,
+                    warnings: details.warnings,
+                    titleBlockEditable: details.titleBlockEditable,
+                    requiresDrawingRefresh: details.requiresDrawingRefresh
+                }
+            };
+        }
         return common;
     }
 
@@ -297,7 +311,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                     ? 'Apply this CAD import?'
                     : proposal.scope === 'assembly'
                       ? 'Apply this CAD assembly change?'
-                      : 'Apply this CAD feature change?';
+                      : proposal.scope === 'drawing'
+                        ? 'Apply this CAD drawing change?'
+                        : 'Apply this CAD feature change?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${proposal.summary}`, 'Apply');
         if (confirmation !== 'Apply') {
             return;
@@ -350,7 +366,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                             ? (describeImportApply(result.data) ?? describeAppliedChange(proposal.changes[0]))
                             : proposal.scope === 'assembly'
                               ? (describeAssemblyApply(result.data) ?? describeAssemblyChange(proposal.changes[0]))
-                              : describeAppliedChange(proposal.changes[0]),
+                              : proposal.scope === 'drawing'
+                                ? (describeDrawingChange(proposal.drawing) ?? describeAppliedChange(proposal.changes[0]))
+                                : describeAppliedChange(proposal.changes[0]),
                     undoToken: result.undoToken ?? '',
                     scope: proposal.scope
                 },
@@ -389,7 +407,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                     ? 'Undo this CAD import and remove the imported bodies?'
                     : entry.scope === 'assembly'
                       ? 'Undo this CAD assembly change and restore the previous instances and placements?'
-                      : 'Undo this CAD edit and restore the previous feature parameters?';
+                      : entry.scope === 'drawing'
+                        ? 'Undo this CAD drawing change and restore the previous sheet settings?'
+                        : 'Undo this CAD edit and restore the previous feature parameters?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${entry.summary}`, 'Undo');
         if (confirmation !== 'Undo') {
             return;
@@ -430,6 +450,24 @@ function describeAssemblyChange(change: CadReviewProposalView['changes'][number]
     }
     const after = change.after as { readonly position?: readonly number[] } | undefined;
     return after?.position !== undefined ? `Moved ${id} to [${after.position.join(', ')}]` : `Moved ${id}`;
+}
+
+/** Short applied detail from a drawing proposal's sheet, view, and dimension changes. */
+function describeDrawingChange(details: CadReviewDrawingContext | undefined): string | undefined {
+    if (details === undefined) {
+        return undefined;
+    }
+    const parts: string[] = [];
+    if (details.sheet.sizeBefore !== details.sheet.sizeAfter) {
+        parts.push(`${details.sheet.sizeBefore} \u2192 ${details.sheet.sizeAfter}`);
+    }
+    if (details.viewChanges.length > 0) {
+        parts.push(formatCount(details.viewChanges.length, 'view', 'views'));
+    }
+    if (details.dimensionChanges.length > 0) {
+        parts.push(formatCount(details.dimensionChanges.length, 'dimension', 'dimensions'));
+    }
+    return parts.length > 0 ? parts.join(' \u00b7 ') : undefined;
 }
 
 function describeAppliedChange(change: CadReviewProposalView['changes'][number] | undefined): string | undefined {

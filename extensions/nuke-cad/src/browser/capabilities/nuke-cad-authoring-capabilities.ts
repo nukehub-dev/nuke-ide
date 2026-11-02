@@ -30,17 +30,21 @@
  *
  * The narrow AI authoring slice: scalar feature-parameter edits, sketch
  * driving-dimension edits, topology-impacting hole-depth/pattern-count edits,
- * and imported STEP/IGES/BREP bodies on a saved `.nuke-cad` document. Feature,
+ * imported STEP/IGES/BREP bodies, assembly-instance placements, and drawing
+ * sheet/view/dimension settings on a saved `.nuke-cad` document. Feature,
  * sketch, and topology previews run a real build in a private temporary
  * directory and store a short-lived proposal. Scalar and sketch previews keep
  * the solid count, selector map, and region coverage unchanged; topology
  * previews report the solid and region impact and check saved OpenMC DAGMC
  * references before apply. Import inspection is read-only, previews re-inspect
  * the authorized source and plan bodies without building, and apply commits one
- * `addImportBodies` batch. Every apply writes through the document store,
- * schedules the existing rebuild, and registers a session-scoped undo. The
- * whole authoring surface is default-off behind `nukeCad.aiAuthoringEnabled`;
- * listing sketch dimensions is read-only metadata and stays available.
+ * `addImportBodies` batch. Drawing summaries are read-only, drawing previews
+ * plan settings with no build or ghost, and apply commits one
+ * `applyDrawingChanges` batch, refreshes the sheet, and never rebuilds geometry.
+ * Every geometry apply writes through the document store, schedules the
+ * existing rebuild, and registers a session-scoped undo. The whole authoring
+ * surface is default-off behind `nukeCad.aiAuthoringEnabled`; drawing and sketch
+ * listing summaries are read-only metadata and stay available.
  *
  * @module nuke-cad/browser/capabilities
  */
@@ -86,6 +90,8 @@ import {
     ResolvedTopologyEdit
 } from '../../common/cad-topology-edit';
 import { CAD_ASSEMBLY_EDIT_LIMIT, AssemblyChangeInput, AssemblyRemovedRegion, prepareAssemblyEdit } from '../../common/cad-assembly-edit';
+import { DRAWING_CHANGE_LIMIT, DrawingChangeAction, prepareDrawingEdit, type PreparedDrawingEdit } from '../../common/cad-drawing-edit';
+import { DRAWING_SHEET_DIMENSIONS_MM, formatDrawingScale, isPointOnSheet, type DrawingSheet } from '../../common/cad-drawing';
 import { AssemblyBomQuantityRow } from '../../common/assembly-bom';
 import { AssemblyInstance, instancePlacementToMatrix, isQuaternion, isVec3, PosQuatPlacement, Vec3 } from '../../common/assembly-document';
 import { findOpenmcRegionBlockers, OpenmcRegionBlocker } from '../../common/openmc-region-references';
@@ -111,11 +117,14 @@ import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../commands';
 import {
     isAssemblyProposal,
+    isDrawingProposal,
     isImportProposal,
     isSketchProposal,
     isTopologyProposal,
     NukeCadAssemblyProposal,
     NukeCadAssemblyProposalDetails,
+    NukeCadDrawingProposal,
+    NukeCadDrawingProposalDetails,
     NukeCadFeatureProposal,
     NukeCadImportProposal,
     NukeCadImportProposalDetails,
@@ -152,6 +161,9 @@ export const APPLY_IMPORT_BODIES_ID = 'nuke.cad.applyImportBodies';
 export const SUMMARIZE_ASSEMBLY_ID = 'nuke.cad.summarizeAssembly';
 export const PREVIEW_ASSEMBLY_CHANGE_ID = 'nuke.cad.previewAssemblyChange';
 export const APPLY_ASSEMBLY_CHANGE_ID = 'nuke.cad.applyAssemblyChange';
+export const SUMMARIZE_DRAWING_ID = 'nuke.cad.summarizeDrawing';
+export const PREVIEW_DRAWING_CHANGE_ID = 'nuke.cad.previewDrawingChange';
+export const APPLY_DRAWING_CHANGE_ID = 'nuke.cad.applyDrawingChange';
 
 /** Upper bound the import planner and backend inspection must share. */
 const IMPORT_MAX_SOLIDS = 500;
@@ -450,6 +462,100 @@ const SUMMARIZE_ASSEMBLY_OUTPUT_SCHEMA: NukeJsonSchema = {
     required: ['documentPath', 'hasAssembly', 'groundedInstanceId', 'overlapCheck', 'instances', 'bom', 'connectors', 'mates', 'warnings']
 };
 
+const SUMMARIZE_DRAWING_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+};
+
+const SUMMARIZE_DRAWING_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        documentPath: { type: 'string', description: 'Canonical path of the active .nuke-cad document.' },
+        hasDrawings: { type: 'boolean' },
+        drawingVersion: { type: 'integer' },
+        sheets: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string' },
+                    size: { type: 'string', enum: ['A4', 'A3'] },
+                    orientation: { type: 'string', enum: ['landscape'] },
+                    sheetSizeMm: {
+                        type: 'object',
+                        properties: { width: { type: 'number' }, height: { type: 'number' } },
+                        required: ['width', 'height'],
+                        additionalProperties: false
+                    },
+                    scaleLabel: { type: 'string' }
+                },
+                required: ['id', 'name', 'size', 'orientation', 'sheetSizeMm', 'scaleLabel'],
+                additionalProperties: false
+            }
+        },
+        views: { type: 'array', items: { type: 'object' } },
+        dimensions: { type: 'array', items: { type: 'object' } },
+        titleBlock: { type: 'object' },
+        warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['documentPath', 'hasDrawings', 'drawingVersion', 'sheets', 'views', 'dimensions', 'titleBlock', 'warnings']
+};
+
+const PREVIEW_DRAWING_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        changes: {
+            type: 'array',
+            minItems: 1,
+            maxItems: DRAWING_CHANGE_LIMIT,
+            items: {
+                type: 'object',
+                properties: {
+                    action: {
+                        type: 'string',
+                        enum: ['setSheetSize', 'setViewDisplay', 'setDimensionVisibility'],
+                        description: 'Drawing setting to change.'
+                    },
+                    sheetId: { type: 'string', description: 'Existing drawing sheet id; every action targets the same sheet.' },
+                    size: { type: 'string', enum: ['A4', 'A3'], description: 'New landscape sheet size; only for setSheetSize.' },
+                    viewId: { type: 'string', description: 'Existing view id; only for setViewDisplay.' },
+                    scale: { type: 'number', description: 'View multiplier in [0.001, 1000]; only for setViewDisplay.' },
+                    showHidden: { type: 'boolean', description: 'Draw hidden lines; only for setViewDisplay.' },
+                    dimensionId: { type: 'string', description: 'Existing dimension id; only for setDimensionVisibility.' },
+                    visible: { type: 'boolean', description: 'Show the dimension; only for setDimensionVisibility.' }
+                },
+                required: ['action', 'sheetId'],
+                additionalProperties: false
+            }
+        }
+    },
+    required: ['changes'],
+    additionalProperties: false
+};
+
+const PREVIEW_DRAWING_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string' },
+        summary: { type: 'string' },
+        changes: { type: 'array' },
+        drawing: { type: 'object' },
+        warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['proposalId', 'summary', 'changes', 'drawing', 'warnings']
+};
+
+const APPLY_DRAWING_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string', description: 'Proposal id returned by nuke.cad.previewDrawingChange.' }
+    },
+    required: ['proposalId'],
+    additionalProperties: false
+};
+
 const PREVIEW_OUTPUT_SCHEMA: NukeJsonSchema = {
     type: 'object',
     properties: {
@@ -585,6 +691,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         registry.register(this.summarizeAssemblyCapability());
         registry.register(this.previewAssemblyCapability());
         registry.register(this.applyAssemblyCapability());
+        registry.register(this.summarizeDrawingCapability());
+        registry.register(this.previewDrawingCapability());
+        registry.register(this.applyDrawingCapability());
     }
 
     protected previewCapability(): NukeCapability {
@@ -829,6 +938,63 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             tags: ['cad', 'authoring', 'apply', 'assembly'],
             when: () => this.enabled() && this.hasActiveDocument(),
             invoke: (input, context) => this.applyAssemblyChange(input, context)
+        };
+    }
+
+    protected summarizeDrawingCapability(): NukeCapability {
+        return {
+            id: SUMMARIZE_DRAWING_ID,
+            title: 'Summarize CAD drawing',
+            description:
+                'Read the active .nuke-cad drawing sheets: sheet size and millimetre bounds, views with scale and hidden-line ' +
+                'display, dimensions with visibility/value/staleness and target feature ids, and the read-only title-block ' +
+                'fields. Read-only metadata for planning drawing settings; it works even when AI authoring is off.',
+            category: CATEGORY,
+            inputSchema: SUMMARIZE_DRAWING_INPUT_SCHEMA,
+            outputSchema: SUMMARIZE_DRAWING_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'drawing', 'read'],
+            when: () => this.store.document !== undefined,
+            invoke: () => this.summarizeDrawing()
+        };
+    }
+
+    protected previewDrawingCapability(): NukeCapability {
+        return {
+            id: PREVIEW_DRAWING_CHANGE_ID,
+            title: 'Preview CAD drawing change',
+            description:
+                'Propose sheet-size, view scale/hidden-line, and dimension-visibility changes for one sheet of the active ' +
+                'saved .nuke-cad document and open the CAD Edit Review panel. The preview never builds geometry, writes files, ' +
+                'or publishes a ghost; applying it only refreshes the drawing sheet.',
+            category: CATEGORY,
+            inputSchema: PREVIEW_DRAWING_INPUT_SCHEMA,
+            outputSchema: PREVIEW_DRAWING_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'drawing', 'preview'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.previewDrawingChange(input, context)
+        };
+    }
+
+    protected applyDrawingCapability(): NukeCapability {
+        return {
+            id: APPLY_DRAWING_CHANGE_ID,
+            title: 'Apply CAD drawing change',
+            description:
+                'Apply a previewed drawing-sheet settings change to the active .nuke-cad document in one drawing commit, back ' +
+                'up the document, open and refresh the Drawing Sheet, and return an undo token. Never rebuilds geometry.',
+            category: CATEGORY,
+            inputSchema: APPLY_DRAWING_INPUT_SCHEMA,
+            risk: 'execute',
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            requiresConfirmation: true,
+            undoable: true,
+            tags: ['cad', 'authoring', 'apply', 'drawing'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input) => this.applyDrawingChange(input)
         };
     }
 
@@ -1374,6 +1540,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (isAssemblyProposal(proposal)) {
             return 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.';
         }
+        if (isDrawingProposal(proposal)) {
+            return 'This proposal is a drawing change; apply it with nuke.cad.applyDrawingChange.';
+        }
         return 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.';
     }
 
@@ -1609,6 +1778,103 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                 })),
                 warnings
             }
+        };
+    }
+
+    /**
+     * Read-only drawing metadata: sheet bounds, views, dimensions, and the
+     * fixed title-block fields. No topology fingerprints are returned.
+     */
+    protected async summarizeDrawing(): Promise<NukeCapabilityResult> {
+        const document = this.store.document;
+        if (!document) {
+            return this.inactiveResult();
+        }
+        const sheets = document.drawings ?? [];
+        const warnings: string[] = [];
+        if (sheets.length === 0) {
+            warnings.push('This document has no drawing sheets.');
+        }
+        const model = this.stateManager.model;
+        if (model !== undefined && !model.result.success) {
+            warnings.push('The active CAD build failed; drawing values may be stale.');
+        }
+        const sheetRows = sheets.map((sheet) => {
+            const bounds = DRAWING_SHEET_DIMENSIONS_MM[sheet.size];
+            if (sheet.views.length === 0) {
+                warnings.push(`Drawing sheet '${sheet.name}' has no views.`);
+            }
+            return {
+                id: sheet.id,
+                name: sheet.name,
+                size: sheet.size,
+                orientation: sheet.orientation,
+                sheetSizeMm: { width: bounds.width, height: bounds.height },
+                scaleLabel: drawingSheetScaleLabel(sheet)
+            };
+        });
+        const views = sheets.flatMap((sheet) =>
+            sheet.views.map((view) => {
+                const bounds = DRAWING_SHEET_DIMENSIONS_MM[sheet.size];
+                if (!isPointOnSheet(view.position, bounds.width, bounds.height)) {
+                    warnings.push(`View '${view.id}' lies outside drawing sheet '${sheet.name}'.`);
+                }
+                return {
+                    sheetId: sheet.id,
+                    id: view.id,
+                    kind: view.kind,
+                    orientation: view.orientation,
+                    scale: view.scale,
+                    scaleLabel: formatDrawingScale(view.scale),
+                    position: [view.position[0], view.position[1]] as [number, number],
+                    ...(view.parentId !== undefined ? { parentId: view.parentId } : {}),
+                    showHidden: view.showHidden === true
+                };
+            })
+        );
+        const dimensions = sheets.flatMap((sheet) =>
+            sheet.dimensions.map((dimension) => ({
+                sheetId: sheet.id,
+                id: dimension.id,
+                kind: dimension.kind,
+                viewId: dimension.viewId,
+                visible: dimension.hidden !== true,
+                ...(dimension.value !== undefined ? { value: dimension.value } : {}),
+                stale: dimension.stale === true,
+                targetFeatureIds: [...new Set(dimension.targets.map((target) => target.featureId))],
+                targetKinds: [...new Set(dimension.targets.map((target) => target.kind))]
+            }))
+        );
+        const staleDimensions = dimensions.filter((dimension) => dimension.stale).map((dimension) => dimension.id);
+        if (staleDimensions.length > 0) {
+            warnings.push(`Stale drawing dimension(s): ${staleDimensions.join(', ')}.`);
+        }
+        const firstSheet = sheets[0];
+        const titleBlock = {
+            editable: false as const,
+            fields: {
+                documentName: document.name,
+                sheetName: firstSheet?.name ?? '',
+                size: firstSheet?.size ?? 'A4',
+                orientation: firstSheet?.orientation ?? 'landscape',
+                scaleLabel: firstSheet !== undefined ? drawingSheetScaleLabel(firstSheet) : '—',
+                brand: 'NUKE CAD',
+                product: 'NukeIDE'
+            }
+        };
+        return {
+            ok: true,
+            data: {
+                documentPath: this.activeDocumentPath() ?? '',
+                hasDrawings: sheets.length > 0,
+                drawingVersion: this.store.drawingVersion,
+                sheets: sheetRows,
+                views,
+                dimensions,
+                titleBlock,
+                warnings
+            },
+            warnings
         };
     }
 
@@ -2253,6 +2519,206 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         this.stateManager.setSelection({});
     }
 
+    /**
+     * Plan drawing-sheet settings with the pure planner.
+     *
+     * No geometry build, temporary files, or ghost preview run: drawings are
+     * derived linework, so the proposal only needs the sheet/view/dimension
+     * rows the store will later apply in one drawing commit.
+     */
+    protected async previewDrawingChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        if (!this.hasActiveDocument()) {
+            return this.inactiveResult();
+        }
+        const document = this.store.document;
+        const documentPath = this.activeDocumentPath();
+        if (!document || !documentPath) {
+            return this.inactiveResult();
+        }
+        const pathError = this.scopeError(documentPath, context.workspaceRoots);
+        if (pathError) {
+            return { ok: false, message: pathError };
+        }
+        const parsed = readDrawingChangeActions(input);
+        if (!parsed.ok) {
+            return { ok: false, message: parsed.message };
+        }
+        const prepared = prepareDrawingEdit(document, parsed.actions);
+        if (!prepared.ok) {
+            return { ok: false, message: prepared.message };
+        }
+        const baseEpoch = this.store.documentEpoch;
+        const baseRevision = this.store.revision;
+        this.ghostPreview.clear();
+        const details = drawingProposalDetails(prepared.result);
+        const summary = summarizeDrawingEdit(prepared.result);
+        const proposal = this.proposals.create({
+            scope: 'drawing',
+            applyCapability: APPLY_DRAWING_CHANGE_ID,
+            summary,
+            documentPath,
+            documentEpoch: baseEpoch,
+            baseRevision,
+            changes: prepared.result.changes,
+            drawing: details
+        });
+        void this.commands.executeCommand(NukeCadCommands.OPEN_REVIEW_PANEL.id).catch(() => undefined);
+        return {
+            ok: true,
+            data: {
+                proposalId: proposal.id,
+                summary,
+                changes: proposal.changes,
+                drawing: details,
+                warnings: details.warnings
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD drawing change',
+                summary,
+                changes: proposal.changes,
+                applyCapability: APPLY_DRAWING_CHANGE_ID
+            },
+            warnings: details.warnings
+        };
+    }
+
+    /**
+     * Commit a previewed drawing change in one `applyDrawingChanges` batch.
+     *
+     * The planner is re-run against the live document and its sheet, view,
+     * dimension, and change rows must still match the preview exactly. A backup
+     * is written before the commit, the Drawing Sheet is opened and refreshed
+     * for the affected sheet, and geometry is never rebuilt.
+     */
+    protected async applyDrawingChange(input: unknown): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        if (!this.hasActiveDocument()) {
+            return this.inactiveResult();
+        }
+        const proposalId = readProposalId(input);
+        if (!proposalId) {
+            return { ok: false, message: 'proposalId is required.' };
+        }
+        const proposal = this.proposals.get(proposalId);
+        if (!proposal) {
+            return { ok: false, message: 'This CAD preview is missing or expired. Preview the change again.' };
+        }
+        if (!isDrawingProposal(proposal)) {
+            return { ok: false, message: this.wrongScopeApplyMessage(proposal) };
+        }
+        const stale = this.drawingStaleReason(proposal);
+        if (stale) {
+            return { ok: false, message: stale };
+        }
+        const document = this.store.document;
+        if (!document) {
+            return { ok: false, message: 'No CAD document is active.' };
+        }
+        const replanned = prepareDrawingEdit(document, proposal.drawing.actions);
+        if (!replanned.ok) {
+            return { ok: false, message: replanned.message };
+        }
+        const current = drawingProposalDetails(replanned.result);
+        // Proposal storage is JSON-detached; normalize the re-planned changes
+        // the same way before comparing so dropped `undefined` fields cannot
+        // fake a drift.
+        const replannedChanges = JSON.parse(JSON.stringify(replanned.result.changes)) as unknown;
+        if (
+            stableStringify(current.sheet) !== stableStringify(proposal.drawing.sheet) ||
+            stableStringify(current.viewChanges) !== stableStringify(proposal.drawing.viewChanges) ||
+            stableStringify(current.dimensionChanges) !== stableStringify(proposal.drawing.dimensionChanges) ||
+            stableStringify(replannedChanges) !== stableStringify(proposal.changes)
+        ) {
+            return { ok: false, message: 'The drawing changed after this preview. Preview the change again.' };
+        }
+        const backupPath = path.join(path.dirname(proposal.documentPath), `.nuke-ai-backup-${path.basename(proposal.documentPath)}`);
+        try {
+            const snapshot = this.store.toJson();
+            if (!snapshot) {
+                return { ok: false, message: 'The active CAD document could not be read for a backup.' };
+            }
+            await this.fileService.create(new URI(backupPath), snapshot, { overwrite: true });
+        } catch (error) {
+            return { ok: false, message: `Could not write the pre-apply CAD backup: ${errorMessage(error)}` };
+        }
+        const applied = this.store.applyDrawingChanges({ actions: proposal.drawing.actions });
+        if (!applied.success) {
+            return {
+                ok: false,
+                message: applied.error || 'The CAD document rejected the drawing change.',
+                warnings: formatIssues(applied.issues)
+            };
+        }
+        const appliedRevision = this.store.revision;
+        this.proposals.remove(proposal.id);
+        this.openAndRefreshDrawingSheet(proposal.drawing.sheet.id);
+        const undoToken = this.undoService.register({
+            title: 'CAD drawing change',
+            undo: () => this.undoDrawingChange(proposal, appliedRevision)
+        });
+        return {
+            ok: true,
+            message: 'CAD drawing change applied; drawing refresh scheduled.',
+            data: {
+                proposalId: proposal.id,
+                documentPath: proposal.documentPath,
+                sheetId: proposal.drawing.sheet.id,
+                revision: appliedRevision,
+                backupPath,
+                drawingRefreshScheduled: true,
+                geometryRebuildScheduled: false,
+                changes: proposal.changes
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD drawing change',
+                summary: proposal.summary,
+                changes: proposal.changes
+            },
+            undoToken
+        };
+    }
+
+    protected async undoDrawingChange(proposal: NukeCadDrawingProposal, appliedRevision: number): Promise<NukeCapabilityResult> {
+        if (!this.hasActiveDocument()) {
+            return { ok: false, message: 'Open the document again before undoing this change.' };
+        }
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return { ok: false, message: 'This change belongs to a different document and can no longer be undone.' };
+        }
+        if (this.store.revision !== appliedRevision) {
+            return { ok: false, message: 'The document changed after this edit. Preview the change again.' };
+        }
+        const result = this.store.undo();
+        if (!result.success) {
+            return { ok: false, message: result.error || 'The CAD document rejected the undo.', warnings: formatIssues(result.issues) };
+        }
+        this.openAndRefreshDrawingSheet(proposal.drawing.sheet.id);
+        return { ok: true, message: 'CAD drawing change undone.' };
+    }
+
+    protected drawingStaleReason(proposal: NukeCadDrawingProposal): string | undefined {
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return 'The active document changed after this preview. Preview the change again.';
+        }
+        if (this.store.revision !== proposal.baseRevision) {
+            return 'The document changed after this preview. Preview the change again.';
+        }
+        return undefined;
+    }
+
+    /** Open the Drawing Sheet and rebuild only the affected sheet's linework. */
+    protected openAndRefreshDrawingSheet(sheetId: string): void {
+        void this.commands.executeCommand(NukeCadCommands.OPEN_DRAWING_SHEET.id).catch(() => undefined);
+        void this.commands.executeCommand(NukeCadCommands.REFRESH_DRAWING_SHEET.id, sheetId).catch(() => undefined);
+    }
+
     protected async applyFeatureChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
         if (!this.enabled()) {
             return this.disabledResult();
@@ -2279,6 +2745,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         }
         if (isAssemblyProposal(proposal)) {
             return { ok: false, message: 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.' };
+        }
+        if (isDrawingProposal(proposal)) {
+            return { ok: false, message: 'This proposal is a drawing change; apply it with nuke.cad.applyDrawingChange.' };
         }
         const stale = this.staleReason(proposal);
         if (stale) {
@@ -2399,6 +2868,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (isAssemblyProposal(proposal)) {
             return { ok: false, message: 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.' };
         }
+        if (isDrawingProposal(proposal)) {
+            return { ok: false, message: 'This proposal is a drawing change; apply it with nuke.cad.applyDrawingChange.' };
+        }
         if (!isSketchProposal(proposal)) {
             return { ok: false, message: 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.' };
         }
@@ -2516,7 +2988,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                       ? 'This proposal is an import; apply it with nuke.cad.applyImportBodies.'
                       : isAssemblyProposal(proposal)
                         ? 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.'
-                        : 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.'
+                        : isDrawingProposal(proposal)
+                          ? 'This proposal is a drawing change; apply it with nuke.cad.applyDrawingChange.'
+                          : 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.'
             };
         }
         const firstBlocker = proposal.topology.blockedRegions[0];
@@ -2823,6 +3297,73 @@ function importSummary(solidCount: number, bodyCount: number, baseName: string):
     return `Import ${solidCount} ${solids} from ${baseName} as ${bodyCount} ${bodies}`;
 }
 
+/** Single drafting scale when every view shares it, otherwise `AS SHOWN`. */
+function drawingSheetScaleLabel(sheet: DrawingSheet): string {
+    if (sheet.views.length === 0) {
+        return '—';
+    }
+    const labels = new Set(sheet.views.map((view) => formatDrawingScale(view.scale)));
+    return labels.size === 1 ? [...labels][0] : 'AS SHOWN';
+}
+
+/** Detached proposal details from a prepared drawing edit. */
+function drawingProposalDetails(prepared: PreparedDrawingEdit): NukeCadDrawingProposalDetails {
+    return {
+        actions: prepared.actions,
+        sheet: {
+            id: prepared.sheetId,
+            name: prepared.sheetName,
+            sizeBefore: prepared.sizeBefore,
+            sizeAfter: prepared.sizeAfter
+        },
+        viewChanges: prepared.views.map((view) => ({
+            id: view.id,
+            kind: view.kind,
+            orientation: view.orientation,
+            scaleBefore: view.scaleBefore,
+            scaleAfter: view.scaleAfter,
+            showHiddenBefore: view.showHiddenBefore,
+            showHiddenAfter: view.showHiddenAfter
+        })),
+        dimensionChanges: prepared.dimensions.map((dimension) => ({
+            id: dimension.id,
+            kind: dimension.kind,
+            viewId: dimension.viewId,
+            visibleBefore: dimension.visibleBefore,
+            visibleAfter: dimension.visibleAfter
+        })),
+        titleBlockEditable: false,
+        requiresDrawingRefresh: true,
+        warnings: prepared.warnings
+    };
+}
+
+/** One short human summary for a prepared drawing edit. */
+function summarizeDrawingEdit(prepared: PreparedDrawingEdit): string {
+    const parts: string[] = [];
+    if (prepared.sizeBefore !== prepared.sizeAfter) {
+        parts.push(`Sheet '${prepared.sheetName}' ${prepared.sizeBefore} → ${prepared.sizeAfter}`);
+    }
+    for (const view of prepared.views) {
+        const changes: string[] = [];
+        if (view.scaleBefore !== view.scaleAfter) {
+            changes.push(`scale ${formatDrawingScale(view.scaleBefore)} → ${formatDrawingScale(view.scaleAfter)}`);
+        }
+        if (view.showHiddenBefore !== view.showHiddenAfter) {
+            changes.push(view.showHiddenAfter ? 'hidden lines on' : 'hidden lines off');
+        }
+        if (changes.length > 0) {
+            parts.push(`${view.kind} ${view.orientation} view: ${changes.join(', ')}`);
+        }
+    }
+    for (const dimension of prepared.dimensions) {
+        if (dimension.visibleBefore !== dimension.visibleAfter) {
+            parts.push(`${dimension.visibleAfter ? 'Show' : 'Hide'} ${dimension.kind} dimension '${dimension.id}'`);
+        }
+    }
+    return parts.length > 0 ? parts.join('; ') : 'Change drawing sheet settings';
+}
+
 /** Whether the candidate is the directory itself or lives below it. */
 function isInsideDirectory(directory: string, candidate: string): boolean {
     const relative = path.relative(path.resolve(directory), candidate);
@@ -3052,6 +3593,98 @@ export function readAssemblyActions(
                 action: 'setPlacement',
                 instanceId: record.instanceId,
                 placement: clonePosQuatPlacement(record.placement)
+            });
+            continue;
+        }
+        return { ok: false, message: `${label} has an unknown action '${String(action)}'.` };
+    }
+    return { ok: true, actions };
+}
+
+/**
+ * Strictly shape-check one drawing preview request list.
+ *
+ * The pure planner validates sheet existence, duplicate/no-op targets, mixed
+ * sheets, scale bounds, and A3 → A4 fit; this parser rejects malformed action
+ * objects and unknown fields before planning starts.
+ */
+export function readDrawingChangeActions(
+    input: unknown
+): { ok: true; actions: readonly DrawingChangeAction[] } | { ok: false; message: string } {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'changes is required.' };
+    }
+    const raw = (input as { changes?: unknown }).changes;
+    if (!Array.isArray(raw) || raw.length === 0) {
+        return { ok: false, message: `changes must contain 1 to ${DRAWING_CHANGE_LIMIT} drawing actions.` };
+    }
+    if (raw.length > DRAWING_CHANGE_LIMIT) {
+        return { ok: false, message: `changes must contain at most ${DRAWING_CHANGE_LIMIT} drawing actions.` };
+    }
+    const actions: DrawingChangeAction[] = [];
+    for (const [index, entry] of raw.entries()) {
+        const label = `Action ${index + 1}`;
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            return { ok: false, message: `${label} must be an object.` };
+        }
+        const record = entry as Record<string, unknown>;
+        const action = record.action;
+        if (typeof record.sheetId !== 'string' || record.sheetId.length === 0) {
+            return { ok: false, message: `${label} needs a non-empty sheetId.` };
+        }
+        if (action === 'setSheetSize') {
+            const unexpected = unexpectedKey(record, ['action', 'sheetId', 'size']);
+            if (unexpected !== undefined) {
+                return { ok: false, message: `${label} has an unknown field '${unexpected}'.` };
+            }
+            if (record.size !== 'A4' && record.size !== 'A3') {
+                return { ok: false, message: `${label} sheet size must be 'A4' or 'A3'.` };
+            }
+            actions.push({ action: 'setSheetSize', sheetId: record.sheetId, size: record.size });
+            continue;
+        }
+        if (action === 'setViewDisplay') {
+            const unexpected = unexpectedKey(record, ['action', 'sheetId', 'viewId', 'scale', 'showHidden']);
+            if (unexpected !== undefined) {
+                return { ok: false, message: `${label} has an unknown field '${unexpected}'.` };
+            }
+            if (typeof record.viewId !== 'string' || record.viewId.length === 0) {
+                return { ok: false, message: `${label} needs a non-empty viewId.` };
+            }
+            if (record.scale === undefined && record.showHidden === undefined) {
+                return { ok: false, message: `${label} needs a scale or showHidden change.` };
+            }
+            if (record.scale !== undefined && (typeof record.scale !== 'number' || !Number.isFinite(record.scale) || record.scale <= 0)) {
+                return { ok: false, message: `${label} scale must be a positive finite number.` };
+            }
+            if (record.showHidden !== undefined && typeof record.showHidden !== 'boolean') {
+                return { ok: false, message: `${label} showHidden must be a boolean.` };
+            }
+            actions.push({
+                action: 'setViewDisplay',
+                sheetId: record.sheetId,
+                viewId: record.viewId,
+                ...(record.scale !== undefined ? { scale: record.scale } : {}),
+                ...(record.showHidden !== undefined ? { showHidden: record.showHidden } : {})
+            });
+            continue;
+        }
+        if (action === 'setDimensionVisibility') {
+            const unexpected = unexpectedKey(record, ['action', 'sheetId', 'dimensionId', 'visible']);
+            if (unexpected !== undefined) {
+                return { ok: false, message: `${label} has an unknown field '${unexpected}'.` };
+            }
+            if (typeof record.dimensionId !== 'string' || record.dimensionId.length === 0) {
+                return { ok: false, message: `${label} needs a non-empty dimensionId.` };
+            }
+            if (typeof record.visible !== 'boolean') {
+                return { ok: false, message: `${label} visible must be a boolean.` };
+            }
+            actions.push({
+                action: 'setDimensionVisibility',
+                sheetId: record.sheetId,
+                dimensionId: record.dimensionId,
+                visible: record.visible
             });
             continue;
         }

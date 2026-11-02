@@ -196,6 +196,22 @@ def test_emit_svg_golden() -> None:
     assert ">10.00</text>" in svg
 
 
+def test_emit_svg_skips_hidden_dimensions() -> None:
+    """A hidden dimension is omitted; a dimension without ``hidden`` renders."""
+    dims = [
+        {"id": "shown", "text": "10.00", "anchors": [[0.0, 0.0], [10.0, 0.0]]},
+        {
+            "id": "hidden",
+            "text": "HIDDEN-DIM",
+            "anchors": [[0.0, 0.0], [10.0, 0.0]],
+            "hidden": True,
+        },
+    ]
+    svg = drawing_service.emit_svg((297.0, 210.0), [], dims)
+    assert ">10.00</text>" in svg
+    assert "HIDDEN-DIM" not in svg
+
+
 def test_emit_dxf_guard_and_layers() -> None:
     """DXF without ezdxf is a structured error; with it, layers exist."""
     views = [
@@ -228,6 +244,24 @@ def test_emit_dxf_guard_and_layers() -> None:
     assert "LINE" in dxf
     assert "HATCH" in dxf
     assert "10.00" in dxf
+
+
+def test_emit_dxf_skips_hidden_dimensions() -> None:
+    """Hidden dimensions are not emitted; missing ``hidden`` defaults to visible."""
+    if not drawing_service.HAS_EZDXF:
+        pytest.skip("ezdxf not installed")
+    dims = [
+        {"id": "shown", "text": "10.00", "anchors": [[0.0, 0.0], [10.0, 0.0]]},
+        {
+            "id": "hidden",
+            "text": "HIDDEN-DIM",
+            "anchors": [[0.0, 0.0], [10.0, 0.0]],
+            "hidden": True,
+        },
+    ]
+    dxf = drawing_service.emit_dxf((297.0, 210.0), [], dims)
+    assert "10.00" in dxf
+    assert "HIDDEN-DIM" not in dxf
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +491,40 @@ def test_build_drawing_grounded_assembly_uses_placed_shape(tmp_path: Path, monke
     assert len(result["views"][0]["visible"]) == 4
 
 
+def test_compute_dimensions_keeps_hidden_metadata() -> None:
+    """Hidden dims stay in the result with their value/stale state."""
+    frames = {
+        "base": {
+            "center": [0.0, 0.0, 0.0],
+            "right": (1.0, 0.0, 0.0),
+            "up": (0.0, 1.0, 0.0),
+            "scale": 1.0,
+            "position": [0.0, 0.0],
+        }
+    }
+    dims = drawing_service.compute_dimensions(
+        [
+            {"id": "shown", "kind": "distance", "viewId": "base", "targets": [], "value": 4.0},
+            {
+                "id": "hidden",
+                "kind": "distance",
+                "viewId": "base",
+                "targets": [],
+                "value": 5.0,
+                "hidden": True,
+            },
+        ],
+        None,
+        frames,
+    )
+    assert [d["id"] for d in dims] == ["shown", "hidden"]
+    assert dims[0]["hidden"] is False
+    assert dims[1]["hidden"] is True
+    assert dims[1]["stale"] is True
+    assert dims[1]["value"] == pytest.approx(5.0)
+    assert dims[1]["text"] == "5.00"
+
+
 def test_dimension_value_updates_after_param_edit(tmp_path: Path) -> None:
     """Re-resolving stored face refs after a z-size edit updates the value."""
     _require_build123d()
@@ -487,6 +555,58 @@ def test_dimension_value_updates_after_param_edit(tmp_path: Path) -> None:
     assert dims[0]["stale"] is False
     assert dims[0]["value"] == pytest.approx(20.0, rel=1e-6)
     assert dims[0]["text"] == "20.00"
+
+
+def test_build_drawing_hidden_dimension_metadata_and_exports(tmp_path: Path) -> None:
+    """Hidden dims keep resolved metadata but are absent from SVG and DXF."""
+    _require_build123d()
+    shape = _box_shape(10.0, 10.0, 20.0)
+    bottom_ref, top_ref = _z_face_refs(shape)
+    import reference_resolver  # noqa: E402
+
+    x_faces = [
+        fp
+        for fp in reference_resolver.extract_face_fingerprints(shape)
+        if fp.surface_type == "plane" and fp.normal is not None and abs(fp.normal[0]) > 0.99
+    ]
+    assert len(x_faces) == 2
+    left_ref = _face_ref("face", next(fp for fp in x_faces if fp.normal[0] < 0.0))
+    right_ref = _face_ref("face", next(fp for fp in x_faces if fp.normal[0] > 0.0))
+    sheet = _base_sheet(
+        dimensions=[
+            {
+                "id": "visible",
+                "kind": "distance",
+                "viewId": "base",
+                "targets": [bottom_ref, top_ref],
+            },
+            {
+                "id": "hidden",
+                "kind": "distance",
+                "viewId": "base",
+                "targets": [left_ref, right_ref],
+                "hidden": True,
+            },
+        ]
+    )
+    doc_path = _write_box_doc(tmp_path / "box.nuke-cad", dz=20.0, sheet=sheet)
+    result = drawing_service.build_drawing(str(doc_path), "sheet-1")
+    assert result["success"] is True, result.get("error", "")
+    dims = {d["id"]: d for d in result["dimensions"]}
+    assert list(dims) == ["visible", "hidden"]
+    assert dims["visible"]["hidden"] is False
+    assert dims["visible"]["value"] == pytest.approx(20.0, rel=1e-6)
+    assert dims["hidden"]["hidden"] is True
+    assert dims["hidden"]["stale"] is False
+    assert dims["hidden"]["value"] == pytest.approx(10.0, rel=1e-6)
+    assert dims["hidden"]["anchors"]
+    assert "20.00" in result["svg"]
+    assert "10.00" not in result["svg"]
+    if drawing_service.HAS_EZDXF:
+        assert result["dxf"] is not None
+        assert "20.00" in result["dxf"]
+    else:
+        assert result["dxf"] is None
 
 
 def test_dimension_stale_on_deleted_ref() -> None:

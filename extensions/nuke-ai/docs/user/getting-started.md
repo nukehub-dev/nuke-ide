@@ -69,7 +69,8 @@ sketch or parametric curve references. A literal dimension changes only its sket
 cascades to every sketch and curve that references the parameter, and the diff names the parameter and all affected
 dimensions. Reference dimensions, missing sketches or parameters, unchanged values, and conflicting solves are
 rejected. New sketch entities, free-form sketch creation, unreferenced document parameters, scripts, booleans,
-body/feature add/delete/reorder, lattices, and drawings are not editable in this mode.
+body/feature add/delete/reorder, and lattices are not editable in this mode. Drawing sheets have their own settings flow
+below.
 
 Topology-impact edits are the third flow. NukeAI can switch an existing hole between blind and through, or change the
 count of an existing linear or circular pattern. The preview builds the change and reports solid/face/triangle deltas,
@@ -103,6 +104,14 @@ a saved OpenMC reference to the removed group or material blocks Apply. Apply co
 offers **Undo**. NukeAI does not create an assembly from a single part, change grounding, edit mates or connectors, add a
 new external source, replace a part, change an existing instance's scale, or rename an instance.
 
+Drawing sheet settings are the sixth flow, for a document that already contains a drawing sheet. NukeAI reports every
+sheet's size and views, each view's scale and hidden-line setting, and each dimension's visibility. It can switch an
+existing sheet between A4 and A3, change a view's scale or hidden lines, or hide a dimension. A3 to A4 is refused when a
+view would fall outside A4, and views are never moved. Hiding is presentation-only: the dimension stays in the list but
+leaves SVG and DXF output. The title block is fixed and read-only. The preview is plan-only — no geometry build and no
+ghost — and apply commits one drawing batch, opens and refreshes the Drawing Sheet, and offers **Undo** without
+rebuilding geometry.
+
 ## Preview gallery
 
 Run **NukeAI: Open Preview Gallery** from the Command Palette to browse the saved previews. The gallery lists bundles
@@ -114,7 +123,7 @@ delete `.nuke-ide/ai/previews` in the file explorer. See [Previews and the Galle
 
 NukeAI ships five skills that load only when a task needs them:
 
-- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, and preview/apply feature, sketch, topology, import, or assembly-placement edits.
+- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, and preview/apply feature, sketch, topology, import, assembly-placement, or drawing-settings edits.
 - `/openmc-studio` — summarize, validate, import CAD, run, and poll an OpenMC project.
 - `/nuke-visualizer` — summarize or open a statepoint and capture a DAGMC viewport.
 - `/nuke-workflow` — the end-to-end CAD → DAGMC → OpenMC → statepoint → capture handoff.

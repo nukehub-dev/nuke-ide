@@ -275,6 +275,9 @@ describe('toolLabel', () => {
         expect(toolLabel('nuke_cad_summarizeAssembly')).toBe('CAD assembly summary');
         expect(toolLabel('nuke_cad_previewAssemblyChange')).toBe('CAD assembly preview');
         expect(toolLabel('nuke_cad_applyAssemblyChange')).toBe('CAD assembly applied');
+        expect(toolLabel('nuke_cad_summarizeDrawing')).toBe('CAD drawing summary');
+        expect(toolLabel('nuke_cad_previewDrawingChange')).toBe('CAD drawing preview');
+        expect(toolLabel('nuke_cad_applyDrawingChange')).toBe('CAD drawing applied');
         expect(toolLabel('nuke_cad_exportDagmc')).toBe('DAGMC export');
         expect(toolLabel('nuke_openmc_summarizeProject')).toBe('OpenMC project');
         expect(toolLabel('nuke_openmc_validateProject')).toBe('OpenMC validation');

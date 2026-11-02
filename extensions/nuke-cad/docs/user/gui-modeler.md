@@ -1301,7 +1301,10 @@ for the current document:
    left-drag to pan; **Fit sheet** resets the view. Grid and 5 mm snapping have
    their own toggles.
 4. The right inspector lists the sheet, the selected view, its scale,
-   hidden-line toggle, delete actions, all views, and all dimensions. **Fit**
+   hidden-line toggle, delete actions, all views, and all dimensions. Each
+   dimension row has a show/hide eye: hiding keeps the dimension in the list and
+   in the document but omits its annotation from SVG and DXF output, so it is
+   never a delete. The title block is a fixed template and is read-only. **Fit**
    chooses a standard scale for the selected view from its linework; a new
    base view that would sit as a dot at 1:1 auto-fits once. The status bar
    shows the selected view's kind, scale, and linework extent.
@@ -1321,6 +1324,16 @@ changed, the build reports the import hash error; use **Refresh imports** in the
 error notice (or run **Refresh Import Sources**) before rebuilding the sheet.
 Export SVG (native) or DXF (visible/hidden/section/dimension layers) from the
 sheet. PDF export is not in this release.
+
+NukeAI can adjust an existing sheet when **Nuke CAD: AI Authoring** is on:
+switch the sheet between A4 and A3, change a view's scale or hidden-line
+display, or hide/show a dimension. It never adds or deletes a sheet, view, or
+dimension, never moves a view, never edits the title block, and never changes
+geometry. Shrinking A3 to A4 is refused when a view would fall outside A4. The
+preview is a plan in the **CAD Edit Review** panel, not a ghost; apply writes a
+backup, commits one drawing batch, opens and refreshes this sheet, and offers
+**Undo**. Hidden dimensions stay in the inspector list; both apply and undo
+refresh the drawing without rebuilding the model.
 
 ## Undo and redo
 

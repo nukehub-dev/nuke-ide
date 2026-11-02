@@ -114,6 +114,11 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/openDrawingSheet', 'Open Drawing Sheet')
     };
 
+    export const REFRESH_DRAWING_SHEET: Command = {
+        id: 'nuke.cad.refreshDrawingSheet',
+        label: nls.localize('nuke/cad/refreshDrawingSheet', 'Refresh Drawing Sheet')
+    };
+
     export const SAVE_NAMED_VIEW: Command = {
         id: 'nuke.cad.saveNamedView',
         label: nls.localize('nuke/cad/saveNamedView', 'Save Named View')

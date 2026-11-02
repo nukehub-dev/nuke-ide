@@ -564,6 +564,41 @@ def test_compute_dimensions_stale_and_label_offset_paths() -> None:
     assert "needs 1 target" in dims[2]["note"]
 
 
+def test_compute_dimensions_hidden_flag_defaults_false() -> None:
+    """Missing ``hidden`` defaults to false; explicit true rides through."""
+    frames = {
+        "base": {
+            "center": [0.0, 0.0, 0.0],
+            "right": (1.0, 0.0, 0.0),
+            "up": (0.0, 1.0, 0.0),
+            "scale": 1.0,
+            "position": [0.0, 0.0],
+        }
+    }
+    dims = ds.compute_dimensions(
+        [
+            {"id": "absent", "kind": "distance", "viewId": "base", "targets": []},
+            {
+                "id": "explicit-false",
+                "kind": "distance",
+                "viewId": "base",
+                "targets": [],
+                "hidden": False,
+            },
+            {
+                "id": "explicit-true",
+                "kind": "distance",
+                "viewId": "base",
+                "targets": [],
+                "hidden": True,
+            },
+        ],
+        None,
+        frames,
+    )
+    assert [d["hidden"] for d in dims] == [False, False, True]
+
+
 def test_compute_dimensions_radius_non_circular_target_is_stale() -> None:
     _require_ocp()
     import reference_resolver
@@ -643,6 +678,19 @@ def test_emit_svg_circle_arc_and_dimension_anchor_variants() -> None:
     assert 'x="5" y="205"' in svg
 
 
+def test_emit_svg_hidden_dimension_is_omitted() -> None:
+    """Hidden dimension labels are skipped; visible linework is unaffected."""
+    dims = [
+        {"id": "visible", "text": "10.00", "anchors": [[0.0, 0.0], [10.0, 0.0]]},
+        {"id": "hidden", "text": "99.00", "anchors": [[0.0, 0.0]], "hidden": True},
+        {"id": "default", "text": "4.00", "anchors": [[1.0, 1.0]]},
+    ]
+    svg = ds.emit_svg((297.0, 210.0), [], dims)
+    assert ">10.00</text>" in svg
+    assert ">4.00</text>" in svg
+    assert "99.00" not in svg
+
+
 def test_svg_arc_path_sweep_flags() -> None:
     large = ds._svg_arc_path(
         {"center": [0.0, 0.0], "radius": 10.0, "startAngle": 0.0, "endAngle": 270.0}, 100.0
@@ -704,6 +752,20 @@ def test_emit_dxf_arcs_polylines_and_error_guards() -> None:
     assert "LWPOLYLINE" in dxf
     assert "R2.50" in dxf
     assert "orphan" not in dxf
+
+
+def test_emit_dxf_hidden_dimension_is_omitted() -> None:
+    """Hidden dimension TEXT entities are skipped; missing flag means visible."""
+    _require_ezdxf()
+    dims = [
+        {"id": "visible", "text": "10.00", "anchors": [[0.0, 0.0], [10.0, 0.0]]},
+        {"id": "hidden", "text": "99.00", "anchors": [[0.0, 0.0]], "hidden": True},
+        {"id": "default", "text": "4.00", "anchors": [[1.0, 1.0]]},
+    ]
+    dxf = ds.emit_dxf((297.0, 210.0), [], dims)
+    assert "10.00" in dxf
+    assert "4.00" in dxf
+    assert "99.00" not in dxf
 
 
 def test_emit_dxf_without_text_alignment_enum(monkeypatch) -> None:
@@ -964,6 +1026,46 @@ def test_build_drawing_defaults_to_first_sheet(monkeypatch, tmp_path: Path) -> N
     assert result["success"] is True, result.get("error")
     assert result["sheetId"] == "sheet-1"
     assert any("No sheet-id given" in warning for warning in result["warnings"])
+
+
+def test_build_drawing_hidden_stale_dimension_keeps_metadata(monkeypatch, tmp_path: Path) -> None:
+    """A hidden stale dimension keeps value/text metadata but no export label."""
+    _require_ocp()
+    bogus = {
+        "kind": "face",
+        "fingerprint": {
+            "surfaceType": "sphere",
+            "area": 1e9,
+            "center": [1e6, 1e6, 1e6],
+            "radius": 1e6,
+        },
+    }
+    sheet = _base_sheet(
+        dimensions=[
+            {
+                "id": "hidden",
+                "kind": "distance",
+                "viewId": "base",
+                "targets": [bogus, bogus],
+                "value": 7.5,
+                "text": "7.50",
+                "hidden": True,
+            }
+        ]
+    )
+    doc = _write_document(tmp_path / "sheet.nuke-cad", {"version": 3, "drawings": [sheet]})
+    _fake_loader(monkeypatch, shape=_box_shape())
+    result = ds.build_drawing(str(doc), "sheet-1")
+    assert result["success"] is True, result.get("error")
+    entry = result["dimensions"][0]
+    assert entry["hidden"] is True
+    assert entry["stale"] is True
+    assert entry["value"] == pytest.approx(7.5)
+    assert entry["text"] == "7.50"
+    assert "7.50" not in result["svg"]
+    if ds.HAS_EZDXF:
+        assert result["dxf"] is not None
+        assert "7.50" not in result["dxf"]
 
 
 def test_build_drawing_surfaces_dxf_failure_and_unexpected_errors(

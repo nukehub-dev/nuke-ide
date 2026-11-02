@@ -28,13 +28,14 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   and `ChatAgent`; an empty default-agent preference is set to NukeAI, and the welcome picker lists NukeAI and Nuke
   Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and
   write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings,
-  materials, tallies, and CAD feature/sketch/topology/import/assembly edits, a shown diff or plan, confirmation, and undo
-  reporting; see `docs/user/safe-edits.md`.
-- CAD authoring ships five gated slices on saved `.nuke-cad` documents while `nukeCad.aiAuthoringEnabled` is on:
+  materials, tallies, and CAD feature/sketch/topology/import/assembly/drawing edits, a shown diff or plan, confirmation, and
+  undo reporting; see `docs/user/safe-edits.md`.
+- CAD authoring ships six gated slices on saved `.nuke-cad` documents while `nukeCad.aiAuthoringEnabled` is on:
   scalar feature params; existing sketch dimensions or referenced parameters; topology-impacting hole blind/through
-  mode or linear/circular pattern count; imported STEP/IGES/BREP bodies; and placement-only edits on an existing grounded
-  assembly. The feature, sketch, topology, and assembly slices run a real-build preview, CAD Edit Review panel + ghost,
-  atomic commit, backup, rebuild, and undo; parameter-bound edits cascade. The topology slice reports added/removed solids
+  mode or linear/circular pattern count; imported STEP/IGES/BREP bodies; placement-only edits on an existing grounded
+  assembly; and presentation settings on existing drawing sheets. The feature, sketch, topology, and assembly slices run
+  a real-build preview, CAD Edit Review panel + ghost, atomic commit, backup, rebuild, and undo; parameter-bound edits
+  cascade. The topology slice reports added/removed solids
   and named regions, checks the saved active OpenMC project's DAGMC references, and requires acknowledgement; apply never
   rewrites OpenMC. The import slice uses a user-chosen source with a plan-only preview (no build or ghost), stale source
   re-inspection, one `addImportBodies` commit, backup, rebuild, and undo; document-folder references are self-contained,
@@ -42,9 +43,14 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   removes a non-grounded connector-free embedded instance (final count >= 1), or sets pos+quat on a grounded/unmated
   instance; it reports placement rows, BOM delta, exact overlap warnings, and `overlapCheck:false`, requires
   acknowledgement only when a removal loses the last instance of a labeled embedded body, and blocks apply on a saved
-  OpenMC reference.
+  OpenMC reference. The drawing slice summarizes existing sheets/views/dimensions and previews one sheet with 1-16
+  `setSheetSize`, `setViewDisplay`, or `setDimensionVisibility` actions; preview is plan-only (no build or ghost), A3→A4
+  is rejected when a view is outside A4 and views never move, hidden dimensions stay listed but leave SVG/DXF, and the
+  title block is fixed. Drawing apply is one `applyDrawingChanges` commit with backup, sheet refresh, undo, and no
+  `nuke.cad.rebuild`.
   Booleans, body/feature add/delete/reorder, lattices, scripts, unreferenced parameters, assembly structure beyond
-  placement, drawings, and MCP stay excluded. See `docs/dev/cad-authoring-design.md`.
+  placement, drawing creation/deletion or view placement, title-block edits, and MCP stay excluded. See
+  `docs/dev/cad-authoring-design.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
   and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.

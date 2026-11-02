@@ -29,12 +29,12 @@
  * Presentational CAD edit review panel.
  *
  * Renders NukeAI CAD edit proposals (feature-parameter, sketch-dimension,
- * topology, import, and assembly-placement changes) with their document binding,
- * plan or parameter diff, build and region impact, and Apply/Dismiss actions,
- * plus the applied entries that can still be undone in this session. The widget
- * in `review-panel-widget.tsx` owns all service interaction; this module stays a
- * pure, hook-free function of its props so it can be rendered in tests with
- * `renderToStaticMarkup`.
+ * topology, import, assembly-placement, and drawing-sheet changes) with their
+ * document binding, plan or parameter diff, build and region impact, and
+ * Apply/Dismiss actions, plus the applied entries that can still be undone in
+ * this session. The widget in `review-panel-widget.tsx` owns all service
+ * interaction; this module stays a pure, hook-free function of its props so it
+ * can be rendered in tests with `renderToStaticMarkup`.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -48,6 +48,13 @@ import { NukeFormRow, NukeSection } from 'nuke-essentials/lib/theme/browser/comp
 import { NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components/nuke-loading-overlay';
 import type { AssemblyBomDelta } from '../../../common/assembly-bom';
 import type { InstancePlacement } from '../../../common/assembly-document';
+import {
+    formatDrawingScale,
+    type DrawingDimensionKind,
+    type DrawingSheetSize,
+    type DrawingViewKind,
+    type DrawingViewOrientation
+} from '../../../common/cad-drawing';
 import type { AssemblyPlacementPlan, AssemblyRemovedRegion } from '../../../common/cad-assembly-edit';
 import type { OpenmcReferenceSnapshot, OpenmcRegionBlocker } from '../../../common/openmc-region-references';
 import type { TopologyChangedRegion, TopologyImpact, TopologyRegionRef } from '../../../common/topology-impact';
@@ -142,18 +149,54 @@ export interface CadReviewImportContext {
     readonly warnings: readonly string[];
 }
 
+/** One planned per-view scale or hidden-line change on a drawing sheet. */
+export interface CadReviewDrawingViewChange {
+    readonly id: string;
+    readonly kind: DrawingViewKind;
+    readonly orientation: DrawingViewOrientation;
+    readonly scaleBefore: number;
+    readonly scaleAfter: number;
+    readonly showHiddenBefore: boolean;
+    readonly showHiddenAfter: boolean;
+}
+
+/** One planned dimension-visibility change on a drawing sheet; hidden dimensions stay on the sheet. */
+export interface CadReviewDrawingDimensionChange {
+    readonly id: string;
+    readonly kind: DrawingDimensionKind;
+    readonly viewId: string;
+    readonly visibleBefore: boolean;
+    readonly visibleAfter: boolean;
+}
+
+/** Sheet, view, dimension, and safety context attached to a drawing proposal. */
+export interface CadReviewDrawingContext {
+    readonly sheet: {
+        readonly id: string;
+        readonly name: string;
+        readonly sizeBefore: DrawingSheetSize;
+        readonly sizeAfter: DrawingSheetSize;
+    };
+    readonly viewChanges: readonly CadReviewDrawingViewChange[];
+    readonly dimensionChanges: readonly CadReviewDrawingDimensionChange[];
+    readonly warnings: readonly string[];
+    readonly titleBlockEditable: boolean;
+    readonly requiresDrawingRefresh: boolean;
+}
+
 /** One proposal as rendered by the panel. */
 export interface CadReviewProposalView {
     readonly id: string;
     readonly summary: string;
     readonly documentPath: string;
     readonly changes: readonly NukeChange[];
-    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly';
+    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly' | 'drawing';
     readonly applyCapability?: string;
     readonly sketch?: CadReviewSketchContext;
     readonly topology?: CadReviewTopologyContext;
     readonly importContext?: CadReviewImportContext;
     readonly assembly?: CadReviewAssemblyContext;
+    readonly drawing?: CadReviewDrawingContext;
     readonly impact?: CadReviewImpact;
     readonly build?: CadReviewBuild;
 }
@@ -166,7 +209,7 @@ export interface CadReviewAppliedEntry {
     readonly detail?: string;
     /** Opaque `NukeUndoService` token; empty when the apply returned none. */
     readonly undoToken: string;
-    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly';
+    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly' | 'drawing';
 }
 
 /** Props for the pure review panel view. */
@@ -590,6 +633,90 @@ function ImportPlan(props: { readonly context: CadReviewImportContext }): React.
     );
 }
 
+/** Sheet, view-scale/hidden-line, dimension-visibility, and title-block summary for a drawing proposal. */
+function DrawingPlan(props: { readonly context: CadReviewDrawingContext }): React.ReactElement {
+    const context = props.context;
+    const sheet = context.sheet;
+    return (
+        <div className="cad-review-drawing" role="group" aria-label="Drawing settings">
+            <span className="cad-review-drawing-section-title">Drawing settings</span>
+            <div className="cad-review-drawing-sheet">
+                <span className="cad-review-drawing-sheet-name">{sheet.name}</span>
+                <span className="cad-review-drawing-sheet-size">
+                    <span className="cad-review-drawing-before">{sheet.sizeBefore}</span>
+                    <span className="cad-review-drawing-arrow" aria-hidden="true">
+                        {'\u2192'}
+                    </span>
+                    <span className="cad-review-drawing-after">{sheet.sizeAfter}</span>
+                </span>
+            </div>
+            {context.viewChanges.length > 0 && (
+                <div className="cad-review-drawing-views" role="group" aria-label="View changes">
+                    <span className="cad-review-drawing-section-title">Views</span>
+                    {context.viewChanges.map((change) => (
+                        <div key={change.id} className="cad-review-drawing-row cad-review-drawing-view-row">
+                            <div className="cad-review-drawing-row-head">
+                                <span className="cad-review-drawing-id">{change.id}</span>
+                                <span className="cad-review-drawing-kind">{change.kind}</span>
+                                <span className="cad-review-drawing-orientation">{change.orientation}</span>
+                            </div>
+                            <div className="cad-review-drawing-row-meta">
+                                <span className="cad-review-drawing-meta-label">Scale</span>
+                                <span className="cad-review-drawing-before">{formatDrawingScale(change.scaleBefore)}</span>
+                                <span className="cad-review-drawing-arrow" aria-hidden="true">
+                                    {'\u2192'}
+                                </span>
+                                <span className="cad-review-drawing-after">{formatDrawingScale(change.scaleAfter)}</span>
+                            </div>
+                            <div className="cad-review-drawing-row-meta">
+                                <span className="cad-review-drawing-meta-label">Hidden lines</span>
+                                <span className="cad-review-drawing-before">{change.showHiddenBefore ? 'On' : 'Off'}</span>
+                                <span className="cad-review-drawing-arrow" aria-hidden="true">
+                                    {'\u2192'}
+                                </span>
+                                <span className="cad-review-drawing-after">{change.showHiddenAfter ? 'On' : 'Off'}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            {context.dimensionChanges.length > 0 && (
+                <div className="cad-review-drawing-dimensions" role="group" aria-label="Dimension visibility changes">
+                    <span className="cad-review-drawing-section-title">Dimensions</span>
+                    {context.dimensionChanges.map((change) => (
+                        <div key={change.id} className="cad-review-drawing-row cad-review-drawing-dimension-row">
+                            <div className="cad-review-drawing-row-head">
+                                <span className="cad-review-drawing-id">{change.id}</span>
+                                <span className="cad-review-drawing-kind">{change.kind}</span>
+                                <span className="cad-review-drawing-view">{`view ${change.viewId}`}</span>
+                            </div>
+                            <div className="cad-review-drawing-row-meta">
+                                <span className="cad-review-drawing-meta-label">Visibility</span>
+                                <span className="cad-review-drawing-before">{change.visibleBefore ? 'Visible' : 'Hidden'}</span>
+                                <span className="cad-review-drawing-arrow" aria-hidden="true">
+                                    {'\u2192'}
+                                </span>
+                                <span className="cad-review-drawing-after">{change.visibleAfter ? 'Visible' : 'Hidden'}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <p className="cad-review-drawing-note">
+                Sheet edits do not rebuild 3D geometry and have no viewport ghost; hidden dimensions are not deleted.
+            </p>
+            <p className="cad-review-drawing-title-block">Title block is fixed and read-only in this slice.</p>
+            {context.warnings.length > 0 && (
+                <ul className="cad-review-drawing-warnings">
+                    {context.warnings.map((warning, index) => (
+                        <li key={`${index}-${warning}`}>{warning}</li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 function ProposalCard(props: {
     readonly proposal: CadReviewProposalView;
     readonly applying: boolean;
@@ -608,7 +735,9 @@ function ProposalCard(props: {
                 ? 'Import bodies'
                 : proposal.scope === 'assembly'
                   ? 'Assembly change'
-                  : 'Feature change';
+                  : proposal.scope === 'drawing'
+                    ? 'Drawing settings'
+                    : 'Feature change';
     const blocked =
         (proposal.topology !== undefined && proposal.topology.blockedRegions.length > 0) ||
         (proposal.assembly !== undefined && proposal.assembly.blockedRegions.length > 0);
@@ -627,6 +756,7 @@ function ProposalCard(props: {
                     {proposal.scope === 'topology' && <NukeBadge className="cad-review-topology-badge">Topology</NukeBadge>}
                     {proposal.scope === 'import' && <NukeBadge className="cad-review-import-badge">Import</NukeBadge>}
                     {proposal.scope === 'assembly' && <NukeBadge className="cad-review-assembly-badge">Assembly</NukeBadge>}
+                    {proposal.scope === 'drawing' && <NukeBadge className="cad-review-drawing-badge">Drawing</NukeBadge>}
                 </span>
             }
         >
@@ -635,6 +765,7 @@ function ProposalCard(props: {
                 <span className="cad-review-document-path">{proposal.documentPath}</span>
             </div>
             {proposal.sketch !== undefined && <SketchContext sketch={proposal.sketch} />}
+            {proposal.scope === 'drawing' && proposal.drawing !== undefined && <DrawingPlan context={proposal.drawing} />}
             {proposal.scope === 'import' && proposal.importContext !== undefined && <ImportPlan context={proposal.importContext} />}
             {proposal.scope === 'assembly' && proposal.assembly !== undefined && (
                 <AssemblyPlan
@@ -644,7 +775,7 @@ function ProposalCard(props: {
                     onAcknowledge={props.onAcknowledge}
                 />
             )}
-            {proposal.scope !== 'import' && proposal.scope !== 'assembly' && (
+            {proposal.scope !== 'import' && proposal.scope !== 'assembly' && proposal.scope !== 'drawing' && (
                 <div className="cad-review-changes">
                     {proposal.changes.map((change, index) => (
                         <NukeFormRow key={`${index}-${change.path}`} label={change.label} className="cad-review-change-row">
@@ -713,7 +844,9 @@ function AppliedSection(props: {
                                             ? 'CAD import'
                                             : entry.scope === 'assembly'
                                               ? 'Assembly change'
-                                              : 'Feature parameter'}
+                                              : entry.scope === 'drawing'
+                                                ? 'Drawing change'
+                                                : 'Feature parameter'}
                                 </span>
                                 <span className="cad-review-applied-detail">
                                     {entry.detail ?? (entry.summary.length > 0 ? entry.summary : 'CAD edit')}

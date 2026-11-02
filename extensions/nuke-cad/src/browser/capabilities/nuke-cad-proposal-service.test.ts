@@ -37,12 +37,15 @@ import type { TopologyImpact, TopologyRegionRef } from '../../common/topology-im
 import type { ImportSolidInfo } from '../../common/nuke-cad-protocol';
 import type { ImportBodyDraft } from '../document/cad-document-store';
 import type { AssemblyInstance } from '../../common/assembly-document';
+import type { DrawingChangeAction } from '../../common/cad-drawing-edit';
 import {
     NUKE_CAD_FEATURE_PROPOSAL_LIMIT,
     NUKE_CAD_FEATURE_PROPOSAL_TTL_MS,
     NukeCadAssemblyProposal,
     NukeCadAssemblyProposalDetails,
     NukeCadAssemblyProposalInput,
+    NukeCadDrawingProposal,
+    NukeCadDrawingProposalInput,
     NukeCadFeatureProposal,
     NukeCadFeatureProposalInput,
     NukeCadImportProposal,
@@ -53,6 +56,7 @@ import {
     NukeCadTopologyProposal,
     NukeCadTopologyProposalInput,
     isAssemblyProposal,
+    isDrawingProposal,
     isImportProposal,
     isSketchProposal,
     isTopologyProposal
@@ -368,6 +372,58 @@ function blocker(): OpenmcRegionBlocker {
     };
 }
 
+const DRAWING_ACTIONS: readonly DrawingChangeAction[] = [
+    { action: 'setSheetSize', sheetId: 'sheet-1', size: 'A3' },
+    { action: 'setViewDisplay', sheetId: 'sheet-1', viewId: 'view-front', scale: 0.5, showHidden: true },
+    { action: 'setDimensionVisibility', sheetId: 'sheet-1', dimensionId: 'dim-1', visible: false }
+];
+
+function buildDrawingInput(summary = "Change sheet 'Sheet 1' drawing settings"): NukeCadDrawingProposalInput {
+    return {
+        scope: 'drawing',
+        summary,
+        documentPath: DOCUMENT_PATH,
+        documentEpoch: 12,
+        baseRevision: BASE_REVISION,
+        changes: [
+            { path: 'drawings.sheet-1.size', label: 'Sheet Sheet 1 size', kind: 'update', before: 'A4', after: 'A3' },
+            {
+                path: 'drawings.sheet-1.views.view-front.scale',
+                label: 'View view-front scale',
+                kind: 'update',
+                before: 1,
+                after: 0.5
+            },
+            {
+                path: 'drawings.sheet-1.dimensions.dim-1.hidden',
+                label: 'Dimension dim-1 visibility',
+                kind: 'update',
+                before: false,
+                after: true
+            }
+        ],
+        drawing: {
+            actions: DRAWING_ACTIONS,
+            sheet: { id: 'sheet-1', name: 'Sheet 1', sizeBefore: 'A4', sizeAfter: 'A3' },
+            viewChanges: [
+                {
+                    id: 'view-front',
+                    kind: 'base',
+                    orientation: 'front',
+                    scaleBefore: 1,
+                    scaleAfter: 0.5,
+                    showHiddenBefore: false,
+                    showHiddenAfter: true
+                }
+            ],
+            dimensionChanges: [{ id: 'dim-1', kind: 'distance', viewId: 'view-front', visibleBefore: true, visibleAfter: false }],
+            titleBlockEditable: false,
+            requiresDrawingRefresh: true,
+            warnings: ['View view-front uses non-standard scale 1:2.5.']
+        }
+    };
+}
+
 function featureProposal(proposal: NukeCadProposal | undefined): NukeCadFeatureProposal {
     if (proposal === undefined || proposal.scope !== 'features') {
         throw new Error('Expected a feature proposal');
@@ -392,6 +448,13 @@ function importProposal(proposal: NukeCadProposal | undefined): NukeCadImportPro
 function assemblyProposal(proposal: NukeCadProposal | undefined): NukeCadAssemblyProposal {
     if (proposal === undefined || proposal.scope !== 'assembly') {
         throw new Error('Expected an assembly proposal');
+    }
+    return proposal;
+}
+
+function drawingProposal(proposal: NukeCadProposal | undefined): NukeCadDrawingProposal {
+    if (proposal === undefined || proposal.scope !== 'drawing') {
+        throw new Error('Expected a drawing proposal');
     }
     return proposal;
 }
@@ -1043,5 +1106,95 @@ describe('NukeCadProposalService', () => {
         advance(1);
         expect(service.list()).toEqual([]);
         expect(service.size).toBe(0);
+    });
+
+    it('creates a drawing proposal with its default apply capability and detached rows', () => {
+        const service = new NukeCadProposalService();
+        const input = buildDrawingInput();
+        const created = service.create(input);
+
+        expect(created.scope).toBe('drawing');
+        expect(created.applyCapability).toBe('nuke.cad.applyDrawingChange');
+        expect(created.createdAt).toBe(START);
+        expect(created.drawing.sheet).toEqual({ id: 'sheet-1', name: 'Sheet 1', sizeBefore: 'A4', sizeAfter: 'A3' });
+        expect(created.drawing.viewChanges).toEqual([
+            {
+                id: 'view-front',
+                kind: 'base',
+                orientation: 'front',
+                scaleBefore: 1,
+                scaleAfter: 0.5,
+                showHiddenBefore: false,
+                showHiddenAfter: true
+            }
+        ]);
+        expect(created.drawing.dimensionChanges).toEqual([
+            { id: 'dim-1', kind: 'distance', viewId: 'view-front', visibleBefore: true, visibleAfter: false }
+        ]);
+        expect(created.drawing.titleBlockEditable).toBe(false);
+        expect(created.drawing.requiresDrawingRefresh).toBe(true);
+        expect(created.drawing.warnings).toEqual(['View view-front uses non-standard scale 1:2.5.']);
+
+        (input.drawing.actions[0] as { size: string }).size = 'A4';
+        (input.drawing.sheet as { name: string }).name = 'Mutated input';
+        (input.drawing.viewChanges[0] as { scaleAfter: number }).scaleAfter = 99;
+        (input.drawing.dimensionChanges[0] as { visibleAfter: boolean }).visibleAfter = true;
+        (input.drawing.warnings as string[]).push('Mutated input warning');
+
+        (created.drawing.actions[0] as { size: string }).size = 'A4';
+        (created.drawing.sheet as { name: string }).name = 'Mutated return';
+        (created.drawing.viewChanges[0] as { scaleAfter: number }).scaleAfter = 42;
+        (created.drawing.dimensionChanges[0] as { visibleAfter: boolean }).visibleAfter = true;
+        (created.drawing.warnings as string[]).push('Mutated return warning');
+
+        const stored = drawingProposal(service.get(created.id));
+        expect(stored.drawing.actions[0]).toEqual({ action: 'setSheetSize', sheetId: 'sheet-1', size: 'A3' });
+        expect(stored.drawing.sheet.name).toBe('Sheet 1');
+        expect(stored.drawing.viewChanges[0].scaleAfter).toBe(0.5);
+        expect(stored.drawing.dimensionChanges[0].visibleAfter).toBe(false);
+        expect(stored.drawing.warnings).toEqual(['View view-front uses non-standard scale 1:2.5.']);
+        expect(stored.drawing).not.toBe(created.drawing);
+        expect(service.get(created.id)).not.toBe(service.get(created.id));
+
+        const listed = drawingProposal(service.list()[0]);
+        expect(listed).not.toBe(stored);
+        (listed.drawing.viewChanges[0] as { scaleAfter: number }).scaleAfter = 7;
+        (listed.drawing.actions[0] as { size: string }).size = 'A4';
+        expect(drawingProposal(service.get(created.id)).drawing.viewChanges[0].scaleAfter).toBe(0.5);
+        expect(drawingProposal(service.get(created.id)).drawing.actions[0]).toEqual({
+            action: 'setSheetSize',
+            sheetId: 'sheet-1',
+            size: 'A3'
+        });
+
+        const custom = service.create({ ...buildDrawingInput('Custom drawing'), applyCapability: 'nuke.test.applyDrawing' });
+        expect(custom.applyCapability).toBe('nuke.test.applyDrawing');
+    });
+
+    it('keeps drawing proposals in one store with every other scope and narrows them', () => {
+        const service = new NukeCadProposalService();
+        const feature = service.create(buildInput('Feature change'));
+        const sketch = service.create(buildSketchInput('Sketch change'));
+        const topology = service.create(buildTopologyInput('Topology change'));
+        const imported = service.create(buildImportInput('Import change'));
+        const assembly = service.create(buildAssemblyInput('Assembly change'));
+        const drawing = service.create(buildDrawingInput('Drawing change'));
+
+        const listed = service.list();
+        expect(listed.map((entry) => entry.id)).toEqual([feature.id, sketch.id, topology.id, imported.id, assembly.id, drawing.id]);
+        expect(listed.map((entry) => entry.scope)).toEqual(['features', 'sketch', 'topology', 'import', 'assembly', 'drawing']);
+        expect(listed.map((entry) => isDrawingProposal(entry))).toEqual([false, false, false, false, false, true]);
+
+        const narrowed = listed[5];
+        if (!isDrawingProposal(narrowed)) {
+            throw new Error('Expected a drawing proposal');
+        }
+        expect(narrowed.drawing.sheet.id).toBe('sheet-1');
+        expect(narrowed.applyCapability).toBe('nuke.cad.applyDrawingChange');
+        expect(isSketchProposal(narrowed)).toBe(false);
+        expect(isTopologyProposal(narrowed)).toBe(false);
+        expect(isImportProposal(narrowed)).toBe(false);
+        expect(isAssemblyProposal(narrowed)).toBe(false);
+        expect(drawing.scope).toBe('drawing');
     });
 });

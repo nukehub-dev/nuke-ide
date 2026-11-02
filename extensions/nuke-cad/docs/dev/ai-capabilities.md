@@ -7,14 +7,15 @@ read the same `NukeCapability` objects without importing CAD widgets.
 The implementation lives in
 `src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and
 `src/browser/capabilities/nuke-cad-authoring-capabilities.ts` (the gated
-feature, sketch, topology, import, and assembly-placement authoring slices):
+feature, sketch, topology, import, assembly-placement, and drawing-settings authoring slices):
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
   the read/export capabilities below.
 - `NukeCadAuthoringCapabilities` registers the feature preview/apply pair, the
   sketch dimension list/preview/apply trio, the topology preview/apply pair,
-  the import inspect/preview/apply trio, and the assembly
-  summary/preview/apply trio. All authoring capabilities are default-off behind
+  the import inspect/preview/apply trio, the assembly
+  summary/preview/apply trio, and the drawing summary/preview/apply trio. All
+  authoring capabilities are default-off behind
   `nukeCad.aiAuthoringEnabled`.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
@@ -30,7 +31,9 @@ topology, and assembly previews build a transient candidate document through the
 same `buildDocument` path; import inspection delegates to the read-only
 `inspectImportSource` RPC and import apply commits through
 `CadDocumentStore.addImportBodies`; assembly apply commits one
-`applyAssemblyChanges` batch through `CadDocumentStore`.
+`applyAssemblyChanges` batch through `CadDocumentStore`. Drawing preview runs
+only the pure planner, and drawing apply commits one `applyDrawingChanges`
+batch, opens and refreshes the sheet, and never rebuilds geometry.
 
 ## Capabilities
 
@@ -52,6 +55,9 @@ same `buildDocument` path; import inspection delegates to the read-only
 | `nuke.cad.summarizeAssembly`     | `read`    | Document only          | Instances, parts, placements, grounding, selector ids, BOM, policy    |
 | `nuke.cad.previewAssemblyChange` | `read`    | Yes, grounded assembly | Preview add, remove, or placement actions with a real candidate build |
 | `nuke.cad.applyAssemblyChange`   | `execute` | Yes, saved             | Re-run the planner, commit one assembly batch, rebuild, and undo      |
+| `nuke.cad.summarizeDrawing`      | `read`    | Document only          | Sheets, views, dimensions, visibility, and fixed title-block fields   |
+| `nuke.cad.previewDrawingChange`  | `read`    | Yes, saved             | Plan sheet size, view display, or dimension visibility; no build      |
+| `nuke.cad.applyDrawingChange`    | `execute` | Yes, saved             | Commit one drawing batch, refresh the sheet, and register undo        |
 | `nuke.cad.exportDagmc`           | `execute` | No                     | Build a source file and export DAGMC + region manifest                |
 
 ### `nuke.cad.summarizeDocument`
@@ -209,7 +215,8 @@ The full design and its remaining security gates are documented in
 [Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Script,
 free-form sketch creation, new sketch entities/constraints/dimensions, topology changes beyond the two topology actions
 below, assembly structure beyond placement (mates, connectors, grounding, mated placements, file-backed removal, scale,
-part replacement, rename, new external sources, or single-part conversion), and editing or replacing an existing import
+part replacement, rename, new external sources, or single-part conversion), drawing creation/deletion, view placement
+or structure, title-block editing, and editing or replacing an existing import
 source remain out of scope.
 
 ## Sketch authoring (gated)
@@ -422,6 +429,59 @@ commit. None of the three assembly ids is on the external MCP read-only allowlis
 replacement, rename, scale change on an existing instance, grounded-instance removal, or single-part conversion is
 accepted.
 
+## Drawing-sheet settings authoring (gated)
+
+Drawing authoring uses the same switch and saved-document requirement. It changes presentation settings on an
+**existing** drawing sheet only; the read-only summary is available whenever a document is open. The three ids are:
+
+- `nuke.cad.summarizeDrawing` is read-only. It returns `documentPath`, `hasDrawings`, `drawingVersion`, sheets (`id`,
+  `name`, `size`, `orientation`, `sheetSizeMm`, and `scaleLabel`), flat view rows (`sheetId`, `id`, `kind`,
+  `orientation`, `scale`, `scaleLabel`, `position`, `parentId`, and `showHidden`), flat dimension rows (`sheetId`, `id`,
+  `kind`, `viewId`, `visible`, optional `value`, `stale`, `targetFeatureIds`, and `targetKinds`), a `titleBlock`
+  (`editable: false` with fixed document/sheet/brand/product fields), and `warnings`. It never builds or mutates.
+- `nuke.cad.previewDrawingChange` accepts one to sixteen actions on one existing sheet and validates them with the pure
+  `prepareDrawingEdit` planner.
+- `nuke.cad.applyDrawingChange` accepts only `{ "proposalId" }` and commits one `applyDrawingChanges` batch.
+
+Actions:
+
+```json
+{ "action": "setSheetSize", "sheetId": "sheet-1", "size": "A3" }
+```
+
+```json
+{ "action": "setViewDisplay", "sheetId": "sheet-1", "viewId": "view-1", "scale": 0.5, "showHidden": true }
+```
+
+```json
+{ "action": "setDimensionVisibility", "sheetId": "sheet-1", "dimensionId": "dimension-1", "visible": false }
+```
+
+- `setSheetSize` switches an existing landscape sheet between `A4` and `A3`. A3 to A4 is rejected when any view lies
+  outside the A4 bounds; views are never moved. A4 to A3 is allowed.
+- `setViewDisplay` changes an existing view's `scale` (finite, `0.001` to `1000`; `1` is 1:1) and/or `showHidden`.
+  A non-standard ratio is accepted with a warning. View kind, orientation, parent, section, detail, and position are
+  preserved.
+- `setDimensionVisibility` writes the dimension's additive `hidden` field through `visible`. Hiding is
+  presentation-only: the dimension stays in the document and in the returned dimension list, keeps resolving its value,
+  and is omitted from SVG and DXF output. It is never deleted.
+- Every action targets the same existing sheet. Duplicate, unknown, unchanged, or cross-sheet targets, an unparsable
+  action, and more than sixteen actions reject the whole request. The view and dimension counts must stay unchanged.
+
+The preview is **plan-only**: it validates the whole request against a document clone, stores a drawing proposal, clears
+the ghost, and opens the **CAD Edit Review** panel. It creates no transient document or build output, runs no geometry
+build, publishes no ghost, and writes no document. The returned `drawing` payload carries the sheet before/after rows,
+view rows, dimension rows, and warnings; the `changeSet` names the sheet, view, or dimension path.
+
+Apply re-runs `prepareDrawingEdit` against the live document and compares the sheet, view, dimension, and change rows,
+rejecting a stale proposal, revision, or row change. It writes the hidden `.nuke-ai-backup-<document>` snapshot, applies
+`CadDocumentStore.applyDrawingChanges({ actions })` once with `markDrawing` so `drawingVersion` increments once, opens
+the Drawing Sheet (`nuke.cad.openDrawingSheet`), and refreshes the affected sheet (`nuke.cad.refreshDrawingSheet`). It
+never schedules `nuke.cad.rebuild`; the result reports `drawingRefreshScheduled: true` and
+`geometryRebuildScheduled: false`. Undo restores the previous drawings, bumps `drawingVersion` again, and refreshes the
+sheet. The title block is a fixed read-only template and is never edited. None of the three drawing ids is on the
+external MCP read-only allowlist, and the slice accepts no path.
+
 ## Review panel and ghost preview
 
 A successful feature, sketch, topology, or assembly preview also publishes the candidate
@@ -431,15 +491,20 @@ unchanged solids use a cool ghost material, changed solids use a warmer accent.
 The group is scene-level, so a real model rebuild never disposes it, and it is
 hidden in sketch mode. The ghost is display-only and never participates in
 picking, selection, explode, fit, or the document store. An import preview opens
-the same panel without a ghost because it builds no candidate geometry. An
+the same panel without a ghost because it builds no candidate geometry. A
+drawing preview also opens the panel without a ghost or build, because drawings
+are derived linework rather than candidate geometry. An
 assembly preview with repeated body ids labels the ghost approximate.
 
 The panel (`CadReviewPanelWidget`, command `nuke.cad.openReviewPanel`) lists the
-stored feature, sketch, topology, import, and assembly proposals with the same `changeSet`
+stored feature, sketch, topology, import, assembly, and drawing proposals with the same `changeSet`
 rows, the solid/face/triangle impact, and the build counts. An import proposal
 shows the source path, format, hash, size, units, selected solids, strategy,
 body/feature count, label/material plan, and self-contained warning instead of a
-geometry impact. An assembly proposal adds placement rows (instance, action,
+geometry impact. A drawing proposal shows the sheet size before/after, view
+scale and hidden-line rows, dimension shown/hidden rows, and the note that no
+geometry rebuild or ghost runs and that dimensions are hidden rather than
+deleted; it offers no title-block editor. An assembly proposal adds placement rows (instance, action,
 before/after position, orientation, and matrix), the instance/BOM count delta,
 exact overlap warnings, the `overlapCheck: false` disclosure, and an approximate
 ghost label for repeated body ids. A sketch proposal also
@@ -455,8 +520,8 @@ solid and region impact**. Assembly proposals show the same section only when a
 removal loses the last instance of a labeled embedded body. **Apply** confirms,
 resolves the proposal's apply capability
 (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
-`nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`, or
-`nuke.cad.applyAssemblyChange`) from the
+`nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`,
+`nuke.cad.applyAssemblyChange`, or `nuke.cad.applyDrawingChange`) from the
 capability registry, and keeps the
 returned undo token for **Undo**. **Dismiss** removes the proposal; the ghost
 service clears the overlay when the backing proposal disappears. The panel
@@ -481,6 +546,9 @@ never downloads or copies the source.
 Assembly authoring accepts no new path at all. Instance actions may reference an existing embedded `body:<id>` or
 duplicate an existing instance part; removal accepts only an existing embedded-body instance. A file-backed part, a new
 external source, a replacement part, or a rename is rejected.
+
+Drawing authoring accepts no new path at all. Actions target an existing sheet, view, or dimension in the active
+document, and apply writes only the hidden `.nuke-ai-backup-<document>` snapshot beside the source.
 
 Paths are normalized with `path.resolve` after the scope check, so the backend
 and the manifest probe see the same canonical path. Manifest candidates are

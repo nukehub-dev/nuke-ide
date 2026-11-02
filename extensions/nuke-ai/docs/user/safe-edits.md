@@ -2,8 +2,9 @@
 
 NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, existing sketch
 dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
-STEP/IGES/BREP bodies, and placement-only edits on an existing grounded assembly without writing directly from the chat
-model. Every edit goes through a preview or plan, an explicit apply step with confirmation, and an in-session undo.
+STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, and existing drawing-sheet presentation
+settings without writing directly from the chat model. Every edit goes through a preview or plan, an explicit apply step
+with confirmation, and an in-session undo.
 
 ## Supported settings
 
@@ -124,7 +125,7 @@ schedules the normal rebuild, and exposes **Undo** in the card. Undo re-checks t
 the before parameters in one batch, and schedules the rebuild again.
 
 New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
-sketch, scripts, booleans, body/feature add/delete/reorder, lattices, and drawings are outside this surface. Imports use
+sketch, scripts, booleans, body/feature add/delete/reorder, and lattices are outside this surface. Imports use
 the separate import-body flow below and assemblies use the placement-only flow below. External MCP never exposes the CAD
 preview or apply tools.
 
@@ -267,6 +268,35 @@ external source, replace a part, change an existing instance's scale, or rename 
 Mates, connectors, grounding changes, mated placements, file-backed removal, scale changes on an existing instance,
 part replacement, rename, new external sources, and single-part conversion stay in the Assembly card and Feature Tree.
 No assembly tool is exposed through MCP.
+
+## CAD drawing sheet settings
+
+Drawing settings use the same opt-in switch and saved-document requirement. They change only existing sheets, views, and
+dimensions; NukeAI cannot add or delete any of them, move a view, change a view's kind/orientation/parent/section/detail,
+edit the title block, or touch geometry.
+
+1. NukeAI calls `nuke_cad_summarizeDrawing`. It returns the document path, drawing version, every sheet with its id, name,
+   size (A4 or A3), orientation, sheet size in millimetres, and scale label; every view with its sheet, id, kind,
+   orientation, scale, position, parent, and hidden-line setting; every dimension with its sheet, id, kind, owning view,
+   visibility, value, and stale state; and the fixed title-block fields. The title block is read-only.
+2. NukeAI previews one sheet and one to sixteen actions with `nuke_cad_previewDrawingChange`:
+   - `{ "action": "setSheetSize", "sheetId": "<sheet>", "size": "A4" | "A3" }` resizes the landscape sheet. Shrinking
+     A3 to A4 is rejected when any view lies outside A4; views are never moved to fit. A4 to A3 is allowed.
+   - `{ "action": "setViewDisplay", "sheetId": "<sheet>", "viewId": "<view>", "scale"?, "showHidden"? }` changes an
+     existing view's scale (positive, `0.001` to `1000`; `1` is 1:1) and/or hidden-line display.
+   - `{ "action": "setDimensionVisibility", "sheetId": "<sheet>", "dimensionId": "<dimension>", "visible": false }`
+     hides or shows an existing dimension.
+
+   The preview is plan-only: it stores a proposal and opens the **CAD Edit Review** panel with sheet, view, and dimension
+   rows. It builds no geometry, shows no ghost, writes nothing, and schedules no rebuild. Duplicate, unchanged, unknown,
+   or cross-sheet targets reject the whole request.
+
+3. Hiding a dimension never deletes it. The dimension stays in the list, keeps resolving its value, and is omitted from
+   SVG and DXF output. The title block is a fixed template and cannot be edited.
+4. Apply accepts only the proposal id after explicit confirmation. It re-runs the planner, rejects a stale proposal or
+   changed rows, writes a hidden `.nuke-ai-backup-<document>` snapshot, commits one `applyDrawingChanges` batch, opens the
+   Drawing Sheet, refreshes only that sheet's linework, and exposes **Undo**. It never schedules a geometry rebuild.
+5. Undo restores the previous drawings and refreshes the sheet in one commit.
 
 ## Related
 

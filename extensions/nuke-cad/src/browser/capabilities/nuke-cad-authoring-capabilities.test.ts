@@ -43,6 +43,7 @@ import type {
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { NukeCadDocument, SketchDef } from '../../common/cad-document';
+import type { TopologyRef } from '../../common/topology-refs';
 import type {
     GeometryBuildResult,
     ImportSolidInfo,
@@ -56,6 +57,7 @@ import type { NukeCadPreferences } from '../nuke-cad-preferences';
 import type { CadModel, NukeCadStateManager, SolidSummary } from '../state/nuke-cad-state-manager';
 import {
     APPLY_ASSEMBLY_CHANGE_ID,
+    APPLY_DRAWING_CHANGE_ID,
     APPLY_FEATURE_CHANGE_ID,
     APPLY_IMPORT_BODIES_ID,
     APPLY_SKETCH_CHANGE_ID,
@@ -64,12 +66,15 @@ import {
     LIST_SKETCH_DIMENSIONS_ID,
     NukeCadAuthoringCapabilities,
     PREVIEW_ASSEMBLY_CHANGE_ID,
+    PREVIEW_DRAWING_CHANGE_ID,
     PREVIEW_FEATURE_CHANGE_ID,
     PREVIEW_IMPORT_BODIES_ID,
     PREVIEW_SKETCH_CHANGE_ID,
     PREVIEW_TOPOLOGY_CHANGE_ID,
     SUMMARIZE_ASSEMBLY_ID,
+    SUMMARIZE_DRAWING_ID,
     readAssemblyActions,
+    readDrawingChangeActions,
     readFeatureParamChanges,
     readImportPreviewInput,
     readInspectImportSourceInput,
@@ -79,6 +84,7 @@ import {
 } from './nuke-cad-authoring-capabilities';
 import {
     isAssemblyProposal,
+    isDrawingProposal,
     isImportProposal,
     isSketchProposal,
     isTopologyProposal,
@@ -86,6 +92,7 @@ import {
     NukeCadProposalService
 } from './nuke-cad-proposal-service';
 import type { AssemblyChangeInput } from '../../common/cad-assembly-edit';
+import type { DrawingChangeAction } from '../../common/cad-drawing-edit';
 import type { AssemblySection } from '../document/cad-document-store';
 import type { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 import type { NukeCadSketchEditService } from '../sketch/sketch-edit-service';
@@ -333,6 +340,24 @@ const SKETCH: SketchDef = {
     dimensions: [{ id: 'dim-1', constraintId: 'constraint-1', kind: 'radius', targetIds: ['circle-1'], driving: true, value: 0.4 }]
 };
 
+const DRAWING_EDGE_REF: TopologyRef = {
+    featureId: 'hole-1',
+    kind: 'edge',
+    fingerprint: { curveType: 'line', length: 10, start: [0, 0, 0], end: [10, 0, 0] }
+};
+
+const DRAWING_EDGE_REF_2: TopologyRef = {
+    featureId: 'pattern-1',
+    kind: 'edge',
+    fingerprint: { curveType: 'line', length: 5, start: [0, 0, 0], end: [5, 0, 0] }
+};
+
+const DRAWING_ACTIONS: readonly DrawingChangeAction[] = [
+    { action: 'setSheetSize', sheetId: 'sheet-1', size: 'A3' },
+    { action: 'setViewDisplay', sheetId: 'sheet-1', viewId: 'view-front', scale: 0.5, showHidden: true },
+    { action: 'setDimensionVisibility', sheetId: 'sheet-1', dimensionId: 'dim-1', visible: false }
+];
+
 function createDocument(): NukeCadDocument {
     return {
         version: 3,
@@ -366,6 +391,31 @@ function createDocument(): NukeCadDocument {
         parameters: { fuelRadius: 0.4 },
         drawings: undefined
     } as unknown as NukeCadDocument;
+}
+
+function createDrawingDocument(): NukeCadDocument {
+    return {
+        ...createTopologyDocument(),
+        name: 'pincell',
+        drawings: [
+            {
+                id: 'sheet-1',
+                name: 'Sheet 1',
+                size: 'A4',
+                orientation: 'landscape',
+                views: [{ id: 'view-front', kind: 'base', orientation: 'front', scale: 1, position: [120, 120] }],
+                dimensions: [
+                    {
+                        id: 'dim-1',
+                        kind: 'distance',
+                        viewId: 'view-front',
+                        targets: [DRAWING_EDGE_REF, DRAWING_EDGE_REF_2],
+                        value: 10
+                    }
+                ]
+            }
+        ]
+    };
 }
 
 function createTopologyDocument(): NukeCadDocument {
@@ -539,11 +589,13 @@ interface Harness {
     sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[];
     imports: { bodies: readonly ImportBodyDraft[]; bodyIds: string[]; featureIds: string[] }[];
     assemblyChanges: { actions: readonly AssemblyChangeInput[] }[];
+    drawingChanges: { actions: readonly DrawingChangeAction[] }[];
     selections: (string | undefined)[];
     selectionClears: number;
     stateSelections: number;
     undoCalls: number;
     commands: string[];
+    commandCalls: { id: string; args: readonly unknown[] }[];
     undoEntries: NukeUndoEntry[];
     fileService: {
         create: ReturnType<typeof vi.fn>;
@@ -567,6 +619,7 @@ interface Harness {
     bumpRevision: () => void;
     bumpEpoch: () => void;
     currentDocument: () => NukeCadDocument;
+    drawingVersion: () => number;
 }
 
 interface HarnessOptions {
@@ -583,6 +636,7 @@ interface HarnessOptions {
     pickImport?: string | (() => Promise<URI | undefined>);
     importAddSucceeds?: boolean;
     assemblyApplySucceeds?: boolean;
+    drawingApplySucceeds?: boolean;
     prepare?: (document: NukeCadDocument, requests: readonly SketchEditRequest[]) => Promise<SketchEditPrepareResult>;
 }
 
@@ -595,10 +649,13 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     const sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[] = [];
     const imports: { bodies: readonly ImportBodyDraft[]; bodyIds: string[]; featureIds: string[] }[] = [];
     const assemblyChanges: { actions: readonly AssemblyChangeInput[] }[] = [];
+    const drawingChanges: { actions: readonly DrawingChangeAction[] }[] = [];
     const selections: (string | undefined)[] = [];
     let selectionClears = 0;
     let stateSelections = 0;
     let assemblyUndoDocument: NukeCadDocument | undefined;
+    let drawingUndoDocument: NukeCadDocument | undefined;
+    let drawingVersion = 1;
     let undoCalls = 0;
     const undoEntries: NukeUndoEntry[] = [];
     const files = new Map<string, string>();
@@ -629,6 +686,9 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         },
         get revision(): number {
             return revision;
+        },
+        get drawingVersion(): number {
+            return drawingVersion;
         },
         toJson(): string {
             return JSON.stringify(document);
@@ -768,8 +828,65 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
                 value: { instanceIds: addedInstanceIds, removedInstanceIds, groundedInstanceId: assembly.groundedInstanceId }
             };
         },
+        applyDrawingChanges(request: { actions: readonly DrawingChangeAction[] }): {
+            success: boolean;
+            value?: { sheetId: string; viewCount: number; dimensionCount: number; drawingVersion: number };
+            error?: string;
+        } {
+            if (overrides.drawingApplySucceeds === false) {
+                return { success: false, error: 'The CAD document rejected the drawing change.' };
+            }
+            const actions = JSON.parse(JSON.stringify(request.actions)) as DrawingChangeAction[];
+            drawingChanges.push({ actions });
+            const sheetId = actions[0]?.sheetId;
+            const draft = JSON.parse(JSON.stringify(document)) as NukeCadDocument;
+            const sheet = (draft.drawings ?? []).find((candidate) => candidate.id === sheetId);
+            if (sheet === undefined) {
+                return { success: false, error: `Drawing sheet '${String(sheetId)}' not found` };
+            }
+            for (const action of actions) {
+                if (action.action === 'setSheetSize') {
+                    sheet.size = action.size;
+                } else if (action.action === 'setViewDisplay') {
+                    const view = sheet.views.find((candidate) => candidate.id === action.viewId);
+                    if (view !== undefined) {
+                        if (action.scale !== undefined) {
+                            view.scale = action.scale;
+                        }
+                        if (action.showHidden !== undefined) {
+                            view.showHidden = action.showHidden;
+                        }
+                    }
+                } else {
+                    const dimension = sheet.dimensions.find((candidate) => candidate.id === action.dimensionId);
+                    if (dimension !== undefined) {
+                        dimension.hidden = !action.visible;
+                    }
+                }
+            }
+            drawingUndoDocument = document;
+            document = draft;
+            revision += 1;
+            drawingVersion += 1;
+            return {
+                success: true,
+                value: {
+                    sheetId: sheet.id,
+                    viewCount: sheet.views.length,
+                    dimensionCount: sheet.dimensions.length,
+                    drawingVersion
+                }
+            };
+        },
         undo(): { success: boolean; error?: string } {
             undoCalls += 1;
+            if (drawingUndoDocument !== undefined) {
+                document = drawingUndoDocument;
+                drawingUndoDocument = undefined;
+                drawingVersion += 1;
+                revision += 1;
+                return { success: true };
+            }
             if (assemblyUndoDocument !== undefined) {
                 document = assemblyUndoDocument;
                 assemblyUndoDocument = undefined;
@@ -859,9 +976,11 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     };
     const preferences = { get: vi.fn(() => overrides.enabled ?? true) };
     const commands: string[] = [];
+    const commandCalls: { id: string; args: readonly unknown[] }[] = [];
     const commandService = {
-        executeCommand: vi.fn(async (id: string) => {
+        executeCommand: vi.fn(async (id: string, ...args: unknown[]) => {
             commands.push(id);
+            commandCalls.push({ id, args });
         })
     } as unknown as Pick<CommandService, 'executeCommand'>;
     const undoService = {
@@ -910,6 +1029,7 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         sketchEdits,
         imports,
         assemblyChanges,
+        drawingChanges,
         selections,
         get selectionClears(): number {
             return selectionClears;
@@ -921,6 +1041,7 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             return undoCalls;
         },
         commands,
+        commandCalls,
         undoEntries,
         fileService,
         fileDialog,
@@ -937,7 +1058,8 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         bumpEpoch: () => {
             epoch += 1;
         },
-        currentDocument: () => document
+        currentDocument: () => document,
+        drawingVersion: () => drawingVersion
     };
 }
 
@@ -1058,6 +1180,36 @@ function stubAssemblyTessellation(harness: Harness): void {
         harness.capabilities as unknown as { readCandidateTessellation: () => Promise<typeof ASSEMBLY_PARSED_TESS> },
         'readCandidateTessellation'
     ).mockResolvedValue(ASSEMBLY_PARSED_TESS);
+}
+
+function drawingHarness(overrides: HarnessOptions = {}): Harness {
+    return createHarness({ document: createDrawingDocument(), ...overrides });
+}
+
+function summarizeDrawing(harness: Harness): Promise<NukeCapabilityResult> {
+    return harness.registered.get(SUMMARIZE_DRAWING_ID)!.invoke({}, CONTEXT);
+}
+
+function previewDrawing(
+    harness: Harness,
+    input: unknown = { changes: DRAWING_ACTIONS },
+    context: NukeCapabilityContext = CONTEXT
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(PREVIEW_DRAWING_CHANGE_ID)!.invoke(input, context);
+}
+
+function applyDrawing(harness: Harness, proposalId: string, context: NukeCapabilityContext = CONTEXT): Promise<NukeCapabilityResult> {
+    return harness.registered.get(APPLY_DRAWING_CHANGE_ID)!.invoke({ proposalId }, context);
+}
+
+async function previewedDrawingProposal(
+    harness: Harness,
+    input: unknown = { changes: DRAWING_ACTIONS },
+    context: NukeCapabilityContext = CONTEXT
+): Promise<string> {
+    const result = await previewDrawing(harness, input, context);
+    expect(result.ok).toBe(true);
+    return (result.data as { proposalId: string }).proposalId;
 }
 
 function importHarness(overrides: HarnessOptions = {}): Harness {
@@ -1333,6 +1485,62 @@ describe('readAssemblyActions', () => {
         ).toMatchObject({ ok: false, message: expect.stringContaining('scale') });
         expect(
             readAssemblyActions({ changes: [{ action: 'removeInstance', instanceId: 'arm', placement: { position: [0, 0, 0] } }] })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('unknown field') });
+    });
+});
+
+describe('readDrawingChangeActions', () => {
+    it('accepts sheet size, view display, and dimension visibility actions', () => {
+        const result = readDrawingChangeActions({ changes: DRAWING_ACTIONS });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.actions).toEqual(DRAWING_ACTIONS);
+        }
+    });
+
+    it('rejects empty, too many, unknown, and malformed drawing actions', () => {
+        expect(readDrawingChangeActions(null)).toMatchObject({ ok: false });
+        expect(readDrawingChangeActions({ changes: [] })).toMatchObject({ ok: false, message: expect.stringContaining('1 to 16') });
+        const tooMany = Array.from({ length: 17 }, () => ({ action: 'setSheetSize', sheetId: 'sheet-1', size: 'A3' }));
+        expect(readDrawingChangeActions({ changes: tooMany })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('at most 16')
+        });
+        expect(readDrawingChangeActions({ changes: [{ action: 'explode', sheetId: 'sheet-1' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('unknown action')
+        });
+        expect(readDrawingChangeActions({ changes: [{ action: 'setSheetSize', sheetId: '', size: 'A3' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('sheetId')
+        });
+        expect(readDrawingChangeActions({ changes: [{ action: 'setSheetSize', sheetId: 'sheet-1', size: 'A2' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("sheet size must be 'A4' or 'A3'")
+        });
+        expect(
+            readDrawingChangeActions({ changes: [{ action: 'setSheetSize', sheetId: 'sheet-1', size: 'A3', viewId: 'view-front' }] })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('unknown field') });
+        expect(
+            readDrawingChangeActions({ changes: [{ action: 'setViewDisplay', sheetId: 'sheet-1', viewId: 'view-front' }] })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('scale or showHidden') });
+        expect(
+            readDrawingChangeActions({ changes: [{ action: 'setViewDisplay', sheetId: 'sheet-1', viewId: 'view-front', scale: 0 }] })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('positive finite') });
+        expect(
+            readDrawingChangeActions({
+                changes: [{ action: 'setViewDisplay', sheetId: 'sheet-1', viewId: 'view-front', showHidden: 'yes' }]
+            })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('showHidden must be a boolean') });
+        expect(
+            readDrawingChangeActions({
+                changes: [{ action: 'setDimensionVisibility', sheetId: 'sheet-1', dimensionId: 'dim-1', visible: 'no' }]
+            })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('visible must be a boolean') });
+        expect(
+            readDrawingChangeActions({
+                changes: [{ action: 'setDimensionVisibility', sheetId: 'sheet-1', dimensionId: 'dim-1', visible: false, scale: 1 }]
+            })
         ).toMatchObject({ ok: false, message: expect.stringContaining('unknown field') });
     });
 });
@@ -3066,5 +3274,320 @@ describe('NukeCadAuthoringCapabilities', () => {
             ok: false,
             message: expect.stringContaining('feature change')
         });
+    });
+
+    it('summarizes drawing sheets, views, dimensions, and title block with authoring off', async () => {
+        const harness = drawingHarness({ enabled: false });
+        const result = await summarizeDrawing(harness);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({
+            documentPath: DOCUMENT_PATH,
+            hasDrawings: true,
+            drawingVersion: 1,
+            sheets: [
+                {
+                    id: 'sheet-1',
+                    name: 'Sheet 1',
+                    size: 'A4',
+                    orientation: 'landscape',
+                    sheetSizeMm: { width: 297, height: 210 },
+                    scaleLabel: '1:1'
+                }
+            ],
+            views: [
+                {
+                    sheetId: 'sheet-1',
+                    id: 'view-front',
+                    kind: 'base',
+                    orientation: 'front',
+                    scale: 1,
+                    scaleLabel: '1:1',
+                    position: [120, 120],
+                    showHidden: false
+                }
+            ],
+            dimensions: [
+                {
+                    sheetId: 'sheet-1',
+                    id: 'dim-1',
+                    kind: 'distance',
+                    viewId: 'view-front',
+                    visible: true,
+                    value: 10,
+                    stale: false,
+                    targetFeatureIds: ['hole-1', 'pattern-1'],
+                    targetKinds: ['edge']
+                }
+            ],
+            titleBlock: {
+                editable: false,
+                fields: {
+                    documentName: 'pincell',
+                    sheetName: 'Sheet 1',
+                    size: 'A4',
+                    orientation: 'landscape',
+                    scaleLabel: '1:1',
+                    brand: 'NUKE CAD',
+                    product: 'NukeIDE'
+                }
+            },
+            warnings: []
+        });
+    });
+
+    it('summarizes an empty document and reports failed-build and drawing warnings', async () => {
+        const empty = createHarness({ enabled: false, modelResult: { ...BUILD_RESULT, success: false } });
+        const emptyResult = await summarizeDrawing(empty);
+        expect(emptyResult.ok).toBe(true);
+        expect(emptyResult.data).toMatchObject({
+            hasDrawings: false,
+            sheets: [],
+            views: [],
+            dimensions: [],
+            warnings: expect.arrayContaining([
+                expect.stringContaining('no drawing sheets'),
+                expect.stringContaining('active CAD build failed')
+            ])
+        });
+        expect(emptyResult.data).toMatchObject({
+            titleBlock: {
+                editable: false,
+                fields: { documentName: 'pincell', sheetName: '', size: 'A4', orientation: 'landscape' }
+            }
+        });
+
+        const harness = drawingHarness({ enabled: false });
+        const sheet = harness.currentDocument().drawings![0];
+        sheet.views[0].position = [500, 500];
+        sheet.dimensions[0].stale = true;
+        const result = await summarizeDrawing(harness);
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({
+            views: [expect.objectContaining({ position: [500, 500] })],
+            dimensions: [expect.objectContaining({ stale: true })],
+            warnings: expect.arrayContaining([
+                expect.stringContaining("View 'view-front' lies outside"),
+                expect.stringContaining('Stale drawing dimension(s): dim-1')
+            ])
+        });
+
+        const emptySheetHarness = drawingHarness({ enabled: false });
+        emptySheetHarness.currentDocument().drawings![0].views = [];
+        emptySheetHarness.currentDocument().drawings![0].dimensions = [];
+        const emptySheetResult = await summarizeDrawing(emptySheetHarness);
+        expect(emptySheetResult.data).toMatchObject({
+            sheets: [expect.objectContaining({ scaleLabel: '—' })],
+            warnings: expect.arrayContaining([expect.stringContaining("sheet 'Sheet 1' has no views")])
+        });
+    });
+
+    it('gates drawing previews on authoring, a saved active document, and a valid plan', async () => {
+        expect(await previewDrawing(drawingHarness({ enabled: false }))).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('CAD AI authoring is disabled')
+        });
+        expect(await previewDrawing(drawingHarness({ saved: false }))).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('Open a saved .nuke-cad document')
+        });
+        expect(await previewDrawing(drawingHarness({ hasModel: false }))).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('Open a saved .nuke-cad document')
+        });
+        expect(await previewDrawing(drawingHarness(), { changes: [] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('1 to 16')
+        });
+        expect(
+            await previewDrawing(drawingHarness(), { changes: [{ action: 'setSheetSize', sheetId: 'sheet-1', size: 'A4' }] })
+        ).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('already A4')
+        });
+    });
+
+    it('previews a drawing change without building, ghosting, or writing', async () => {
+        const harness = drawingHarness();
+        const result = await previewDrawing(harness);
+
+        expect(result.ok).toBe(true);
+        const data = result.data as { proposalId: string; summary: string; drawing: unknown };
+        expect(data.summary).toBe(
+            "Sheet 'Sheet 1' A4 → A3; base front view: scale 1:1 → 1:2, hidden lines on; Hide distance dimension 'dim-1'"
+        );
+        expect(result.changeSet).toMatchObject({
+            title: 'CAD drawing change',
+            applyCapability: 'nuke.cad.applyDrawingChange'
+        });
+        expect(data.drawing).toMatchObject({
+            sheet: { id: 'sheet-1', name: 'Sheet 1', sizeBefore: 'A4', sizeAfter: 'A3' },
+            viewChanges: [
+                {
+                    id: 'view-front',
+                    kind: 'base',
+                    orientation: 'front',
+                    scaleBefore: 1,
+                    scaleAfter: 0.5,
+                    showHiddenBefore: false,
+                    showHiddenAfter: true
+                }
+            ],
+            dimensionChanges: [{ id: 'dim-1', kind: 'distance', viewId: 'view-front', visibleBefore: true, visibleAfter: false }],
+            titleBlockEditable: false,
+            requiresDrawingRefresh: true,
+            warnings: []
+        });
+        expect(result).not.toHaveProperty('preview');
+
+        const proposal = harness.proposals.get(data.proposalId);
+        expect(proposal?.scope).toBe('drawing');
+        expect(isDrawingProposal(proposal!)).toBe(true);
+        expect(proposal).not.toHaveProperty('impact');
+        expect(proposal).not.toHaveProperty('build');
+
+        expect(harness.commands).toEqual(['nuke.cad.openReviewPanel']);
+        expect(harness.ghostPreview.clear).toHaveBeenCalledTimes(1);
+        expect(harness.ghostPreview.show).not.toHaveBeenCalled();
+        expect(harness.service.buildDocument).not.toHaveBeenCalled();
+        expect(harness.fileService.create).not.toHaveBeenCalled();
+        expect(harness.fileService.delete).not.toHaveBeenCalled();
+    });
+
+    it('applies a drawing change once, backs up, opens and refreshes the sheet, and never rebuilds', async () => {
+        const harness = drawingHarness();
+        const proposalId = await previewedDrawingProposal(harness);
+        const result = await applyDrawing(harness, proposalId);
+
+        const backupPath = `${WORKSPACE}/.nuke-ai-backup-pincell.nuke-cad`;
+        expect(result.ok).toBe(true);
+        expect(result.message).toContain('drawing refresh scheduled');
+        expect(result.data).toMatchObject({
+            proposalId,
+            sheetId: 'sheet-1',
+            revision: 4,
+            backupPath,
+            drawingRefreshScheduled: true,
+            geometryRebuildScheduled: false,
+            changes: expect.any(Array)
+        });
+        expect(result.changeSet).toMatchObject({ title: 'CAD drawing change' });
+        expect(result.changeSet).not.toHaveProperty('applyCapability');
+        expect(result.undoToken).toBe('undo-token-1');
+
+        expect(harness.drawingChanges).toHaveLength(1);
+        expect(harness.drawingChanges[0].actions).toEqual(DRAWING_ACTIONS);
+        expect(harness.proposals.get(proposalId)).toBeUndefined();
+        expect(harness.drawingVersion()).toBe(2);
+
+        const backup = JSON.parse(harness.files.get(backupPath)!) as NukeCadDocument;
+        expect(backup.drawings?.[0].size).toBe('A4');
+        expect(backup.drawings?.[0].views[0].scale).toBe(1);
+
+        expect(harness.commands).toEqual(['nuke.cad.openReviewPanel', 'nuke.cad.openDrawingSheet', 'nuke.cad.refreshDrawingSheet']);
+        expect(harness.commandCalls[2].args).toEqual(['sheet-1']);
+        expect(harness.commands).not.toContain('nuke.cad.rebuild');
+        expect(harness.service.buildDocument).not.toHaveBeenCalled();
+
+        const sheet = harness.currentDocument().drawings![0];
+        expect(sheet.size).toBe('A3');
+        expect(sheet.views[0]).toMatchObject({ scale: 0.5, showHidden: true });
+        expect(sheet.dimensions[0].hidden).toBe(true);
+        expect(harness.undoEntries[0].title).toBe('CAD drawing change');
+    });
+
+    it('rejects drawing applies after a revision or epoch change', async () => {
+        const revisionHarness = drawingHarness();
+        const revisionProposal = await previewedDrawingProposal(revisionHarness);
+        revisionHarness.bumpRevision();
+        expect(await applyDrawing(revisionHarness, revisionProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this preview')
+        });
+        expect(revisionHarness.drawingChanges).toHaveLength(0);
+
+        const epochHarness = drawingHarness();
+        const epochProposal = await previewedDrawingProposal(epochHarness);
+        epochHarness.bumpEpoch();
+        expect(await applyDrawing(epochHarness, epochProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('active document changed')
+        });
+        expect(epochHarness.drawingChanges).toHaveLength(0);
+    });
+
+    it('rejects a drawing apply when the re-planned sheet rows drift', async () => {
+        const harness = drawingHarness();
+        const proposalId = await previewedDrawingProposal(harness);
+        harness.currentDocument().drawings![0].name = 'Renamed sheet';
+
+        expect(await applyDrawing(harness, proposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('drawing changed after this preview')
+        });
+        expect(harness.drawingChanges).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
+    });
+
+    it('rejects a drawing proposal from every other apply capability and rejects other scopes here', async () => {
+        const harness = drawingHarness();
+        const proposalId = await previewedDrawingProposal(harness);
+
+        for (const result of [
+            await apply(harness, proposalId),
+            await applySketch(harness, proposalId),
+            await applyTopology(harness, proposalId),
+            await applyImport(harness, proposalId),
+            await applyAssembly(harness, proposalId)
+        ]) {
+            expect(result).toMatchObject({ ok: false, message: expect.stringContaining('drawing change') });
+        }
+        expect(harness.drawingChanges).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
+
+        const featureHarness = createHarness();
+        const featurePreview = await preview(featureHarness);
+        const featureProposalId = (featurePreview.data as { proposalId: string }).proposalId;
+        expect(await applyDrawing(featureHarness, featureProposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('feature change')
+        });
+    });
+
+    it('undoes a drawing change through the store and refreshes the sheet without rebuilding', async () => {
+        const harness = drawingHarness();
+        const proposalId = await previewedDrawingProposal(harness);
+        await applyDrawing(harness, proposalId);
+
+        const result = await harness.undoEntries[0].undo();
+        expect(result).toMatchObject({ ok: true, message: 'CAD drawing change undone.' });
+        expect(harness.undoCalls).toBe(1);
+        expect(harness.drawingVersion()).toBe(3);
+        expect(harness.currentDocument().drawings![0]).toMatchObject({ size: 'A4' });
+        expect(harness.currentDocument().drawings![0].views[0]).toMatchObject({ scale: 1 });
+        expect(harness.currentDocument().drawings![0].dimensions[0].hidden).toBeUndefined();
+
+        expect(harness.commands).toEqual([
+            'nuke.cad.openReviewPanel',
+            'nuke.cad.openDrawingSheet',
+            'nuke.cad.refreshDrawingSheet',
+            'nuke.cad.openDrawingSheet',
+            'nuke.cad.refreshDrawingSheet'
+        ]);
+        expect(harness.commandCalls[4].args).toEqual(['sheet-1']);
+        expect(harness.commands).not.toContain('nuke.cad.rebuild');
+    });
+
+    it('rejects drawing undo after the applied revision changes', async () => {
+        const harness = drawingHarness();
+        const proposalId = await previewedDrawingProposal(harness);
+        await applyDrawing(harness, proposalId);
+        harness.bumpRevision();
+
+        expect(await harness.undoEntries[0].undo()).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this edit')
+        });
+        expect(harness.undoCalls).toBe(0);
     });
 });

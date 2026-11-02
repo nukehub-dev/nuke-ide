@@ -46,6 +46,9 @@ const CAPABILITY_IDS = [
     'nuke.cad.summarizeAssembly',
     'nuke.cad.previewAssemblyChange',
     'nuke.cad.applyAssemblyChange',
+    'nuke.cad.summarizeDrawing',
+    'nuke.cad.previewDrawingChange',
+    'nuke.cad.applyDrawingChange',
     'nuke.cad.exportDagmc',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
@@ -83,12 +86,12 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all thirty-four capability tool names', () => {
+    it('exposes the nukeContext variable and all thirty-seven capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(34);
+        expect(agent.functions).toHaveLength(37);
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -138,7 +141,7 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('sourceRejectionFraction');
         expect(prompt).toMatch(/filters,\s+triggers, and derivatives are preserved/);
         expect(prompt).toMatch(
-            /Applying a\s+previewed settings, material, tally, CAD feature, sketch, topology, import, or assembly\s+change also requires explicit confirmation/i
+            /Applying a\s+previewed settings, material, tally, CAD feature, sketch, topology, import, assembly, or drawing\s+change also requires explicit confirmation/i
         );
     });
 
@@ -225,6 +228,32 @@ describe('NukeChatAgent', () => {
         expect(prompt).toMatch(/never rewrites the OpenMC project/);
         expect(prompt).toMatch(/Mates, connectors, grounding changes, new external sources/);
         expect(prompt).not.toMatch(/assemblies, scripts/);
+    });
+
+    it('covers drawing discovery, plan-only preview, sheet/view/dimension actions, refresh, and no rebuild', () => {
+        const prompt = promptTemplate();
+
+        expect(prompt).toContain('nuke_cad_summarizeDrawing');
+        expect(prompt).toContain('nuke_cad_previewDrawingChange');
+        expect(prompt).toContain('nuke_cad_applyDrawingChange');
+        expect(prompt).toContain('## Drawing sheet settings');
+        expect(prompt).toMatch(/Only existing sheets, views, and dimensions in a saved drawing are editable/i);
+        expect(prompt).toMatch(/one to sixteen actions/i);
+        expect(prompt).toContain('"action": "setSheetSize"');
+        expect(prompt).toContain('"action": "setViewDisplay"');
+        expect(prompt).toContain('"action": "setDimensionVisibility"');
+        expect(prompt).toMatch(/Preview is plan-only: no geometry build, ghost, or write/i);
+        expect(prompt).toMatch(/A3 to A4 is rejected when a view lies outside A4/);
+        expect(prompt).toMatch(/views are\s+never moved/);
+        expect(prompt).toContain('applyDrawingChanges');
+        expect(prompt).toMatch(/never schedules `nuke\.cad\.rebuild`/);
+        expect(prompt).toMatch(/Hidden dimensions leave SVG and DXF but stay listed; nothing is deleted/);
+        expect(prompt).toMatch(/title block is fixed and read-only/i);
+        expect(prompt).toMatch(/Adding or deleting sheets, views, or dimensions, moving a view/);
+        expect(prompt).toMatch(/returns an undo token/);
+        expect(prompt).toMatch(/Requires explicit confirmation/);
+        expect(prompt).not.toMatch(/drawings, scripts/);
+        expect(prompt).not.toMatch(/scripts, and drawings/);
     });
 
     it('stays within a bounded prompt budget', () => {

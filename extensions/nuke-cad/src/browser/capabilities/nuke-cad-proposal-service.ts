@@ -30,7 +30,8 @@
  *
  * In-memory store for previewed `.nuke-cad` edits: feature-parameter changes,
  * sketch-dimension changes, topology changes with their region and OpenMC
- * impact, imported bodies, and assembly-instance placement changes. A proposal
+ * impact, imported bodies, assembly-instance placement changes, and drawing
+ * sheet/view/dimension settings. A proposal
  * pins the document path, epoch, and base revision the
  * preview was resolved against and stores detached before/after snapshots, so
  * an apply capability can reject stale or cross-document proposals. Proposals
@@ -51,6 +52,8 @@ import { NukeChange } from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { AssemblyChangeInput, AssemblyPlacementPlan, AssemblyRemovedRegion } from '../../common/cad-assembly-edit';
 import type { AssemblyBomDelta, AssemblyBomQuantityRow } from '../../common/assembly-bom';
 import type { AssemblyInstance } from '../../common/assembly-document';
+import type { DrawingDimensionKind, DrawingSheetSize, DrawingViewKind, DrawingViewOrientation } from '../../common/cad-drawing';
+import type { DrawingChangeAction } from '../../common/cad-drawing-edit';
 import type { ResolvedFeatureEdit } from '../../common/cad-feature-edit';
 import { FeatureParams, SketchDef } from '../../common/cad-document';
 import type { FeatureTopologyAction } from '../../common/cad-topology-edit';
@@ -77,6 +80,9 @@ const DEFAULT_IMPORT_APPLY_CAPABILITY_ID = 'nuke.cad.applyImportBodies';
 
 /** Apply capability used when an assembly preview does not name one. */
 const DEFAULT_ASSEMBLY_APPLY_CAPABILITY_ID = 'nuke.cad.applyAssemblyChange';
+
+/** Apply capability used when a drawing preview does not name one. */
+const DEFAULT_DRAWING_APPLY_CAPABILITY_ID = 'nuke.cad.applyDrawingChange';
 
 /** Topology and size delta measured while previewing a CAD edit proposal. */
 export interface NukeCadProposalImpact {
@@ -292,9 +298,60 @@ export interface NukeCadAssemblyProposalInput extends NukeCadProposalCommonInput
     readonly assembly: NukeCadAssemblyProposalDetails;
 }
 
+/** Drawing-sheet, view-display, and dimension-visibility snapshots captured by a drawing preview. */
+export interface NukeCadDrawingProposalDetails {
+    readonly actions: readonly DrawingChangeAction[];
+    readonly sheet: {
+        readonly id: string;
+        readonly name: string;
+        readonly sizeBefore: DrawingSheetSize;
+        readonly sizeAfter: DrawingSheetSize;
+    };
+    readonly viewChanges: readonly {
+        readonly id: string;
+        readonly kind: DrawingViewKind;
+        readonly orientation: DrawingViewOrientation;
+        readonly scaleBefore: number;
+        readonly scaleAfter: number;
+        readonly showHiddenBefore: boolean;
+        readonly showHiddenAfter: boolean;
+    }[];
+    readonly dimensionChanges: readonly {
+        readonly id: string;
+        readonly kind: DrawingDimensionKind;
+        readonly viewId: string;
+        readonly visibleBefore: boolean;
+        readonly visibleAfter: boolean;
+    }[];
+    readonly titleBlockEditable: false;
+    readonly requiresDrawingRefresh: true;
+    readonly warnings: readonly string[];
+}
+
+/** A previewed drawing-sheet settings change awaiting apply. */
+export interface NukeCadDrawingProposal extends NukeCadProposalCommon {
+    readonly scope: 'drawing';
+    /** Capability that applies the stored proposal. */
+    readonly applyCapability: string;
+    readonly drawing: NukeCadDrawingProposalDetails;
+}
+
+/** The payload stored when a drawing preview creates a proposal. */
+export interface NukeCadDrawingProposalInput extends NukeCadProposalCommonInput {
+    readonly scope: 'drawing';
+    /** Capability that applies the stored proposal; defaults to `nuke.cad.applyDrawingChange`. */
+    readonly applyCapability?: string;
+    readonly drawing: NukeCadDrawingProposalDetails;
+}
+
 /** Any previewed CAD edit awaiting apply. */
 export type NukeCadProposal =
-    NukeCadFeatureProposal | NukeCadSketchProposal | NukeCadTopologyProposal | NukeCadImportProposal | NukeCadAssemblyProposal;
+    | NukeCadFeatureProposal
+    | NukeCadSketchProposal
+    | NukeCadTopologyProposal
+    | NukeCadImportProposal
+    | NukeCadAssemblyProposal
+    | NukeCadDrawingProposal;
 
 /**
  * Deep-clone a JSON-compatible value so stored snapshots stay detached.
@@ -324,6 +381,11 @@ export function isImportProposal(proposal: NukeCadProposal): proposal is NukeCad
 /** Whether a proposal changes assembly instances rather than feature or sketch data. */
 export function isAssemblyProposal(proposal: NukeCadProposal): proposal is NukeCadAssemblyProposal {
     return proposal.scope === 'assembly';
+}
+
+/** Whether a proposal changes drawing-sheet settings rather than model geometry. */
+export function isDrawingProposal(proposal: NukeCadProposal): proposal is NukeCadDrawingProposal {
+    return proposal.scope === 'drawing';
 }
 
 /** In-memory CAD proposal store with a fixed capacity and TTL. */
@@ -359,6 +421,7 @@ export class NukeCadProposalService implements Disposable {
     create(input: NukeCadTopologyProposalInput): NukeCadTopologyProposal;
     create(input: NukeCadImportProposalInput): NukeCadImportProposal;
     create(input: NukeCadAssemblyProposalInput): NukeCadAssemblyProposal;
+    create(input: NukeCadDrawingProposalInput): NukeCadDrawingProposal;
     create(
         input:
             | NukeCadFeatureProposalInput
@@ -366,6 +429,7 @@ export class NukeCadProposalService implements Disposable {
             | NukeCadTopologyProposalInput
             | NukeCadImportProposalInput
             | NukeCadAssemblyProposalInput
+            | NukeCadDrawingProposalInput
     ): NukeCadProposal;
     create(
         input:
@@ -374,6 +438,7 @@ export class NukeCadProposalService implements Disposable {
             | NukeCadTopologyProposalInput
             | NukeCadImportProposalInput
             | NukeCadAssemblyProposalInput
+            | NukeCadDrawingProposalInput
     ): NukeCadProposal {
         this.pruneExpired();
         while (this.proposals.size >= NUKE_CAD_FEATURE_PROPOSAL_LIMIT) {
@@ -414,7 +479,14 @@ export class NukeCadProposalService implements Disposable {
                             applyCapability: cloned.applyCapability ?? DEFAULT_ASSEMBLY_APPLY_CAPABILITY_ID,
                             createdAt
                         }
-                      : { ...cloned, id: this.createId(), createdAt };
+                      : cloned.scope === 'drawing'
+                        ? {
+                              ...cloned,
+                              id: this.createId(),
+                              applyCapability: cloned.applyCapability ?? DEFAULT_DRAWING_APPLY_CAPABILITY_ID,
+                              createdAt
+                          }
+                        : { ...cloned, id: this.createId(), createdAt };
         this.proposals.set(proposal.id, proposal);
         this.onDidChangeEmitter.fire();
         return cloneValue(proposal);

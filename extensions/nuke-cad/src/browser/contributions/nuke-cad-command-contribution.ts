@@ -265,6 +265,15 @@ export class NukeCadCommandContribution implements CommandContribution {
             }
         });
 
+        commands.registerCommand(NukeCadCommands.REFRESH_DRAWING_SHEET, {
+            execute: async (sheetId?: string) => {
+                const widget = await this.widgetManager.getOrCreateWidget<DrawingSheetWidget>(DrawingSheetWidget.ID);
+                await this.shell.addWidget(widget, { area: 'main' });
+                await this.shell.activateWidget(widget.id);
+                await widget.refreshSheet(typeof sheetId === 'string' ? sheetId : undefined);
+            }
+        });
+
         commands.registerCommand(NukeCadCommands.SAVE_NAMED_VIEW, {
             execute: async () => {
                 const viewport = await this.widgetManager.getWidget<CadViewportWidget>(CadViewportWidget.ID);

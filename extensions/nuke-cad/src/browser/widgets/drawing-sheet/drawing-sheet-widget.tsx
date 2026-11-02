@@ -292,6 +292,33 @@ export class DrawingSheetWidget extends ReactWidget {
     }
 
     /**
+     * Public command entry point: focus one sheet (or the current one) and
+     * rebuild only its drawing linework. Geometry is never rebuilt.
+     */
+    async refreshSheet(sheetId?: string): Promise<void> {
+        const drawings = this.documentStore.document?.drawings ?? [];
+        if (sheetId !== undefined) {
+            if (!drawings.some((entry) => entry.id === sheetId)) {
+                this.messageService.warn(`Drawing sheet '${sheetId}' was not found.`);
+                return;
+            }
+            this.activeSheetId = sheetId;
+        }
+        this.selectedViewId = undefined;
+        this.buildResult = undefined;
+        this.pendingTargets = [];
+        this.pendingViewId = undefined;
+        this.pendingAutoFitViewId = undefined;
+        this.livePositions.clear();
+        this.dragViewId = undefined;
+        this.viewDragStart = undefined;
+        cancelDrawingDimensionPick();
+        this.buildGeneration++;
+        this.update();
+        await this.refreshDrawing();
+    }
+
+    /**
      * Filesystem path of the saved document. The store holds a file URI (for
      * save/restore); the Python service and its working directory need a real
      * path, never `file://...`.
@@ -902,6 +929,38 @@ export class DrawingSheetWidget extends ReactWidget {
         const result = this.documentStore.updateView(sheet.id, view.id, patch);
         if (!result.success) {
             this.messageService.error(`Cannot update view: ${result.error ?? 'unknown error'}`);
+        }
+        this.update();
+    }
+
+    /**
+     * Apply one atomic drawing edit through the document store. The store
+     * rejects invalid size shrinks and unknown targets without touching state.
+     */
+    private setSheetSize(size: DrawingSheetSize): void {
+        const sheet = this.activeSheet();
+        if (sheet === undefined || sheet.size === size) {
+            return;
+        }
+        const result = this.documentStore.applyDrawingChanges({
+            actions: [{ action: 'setSheetSize', sheetId: sheet.id, size }]
+        });
+        if (!result.success) {
+            this.messageService.error(`Cannot change sheet size: ${result.error ?? 'unknown error'}`);
+        }
+        this.update();
+    }
+
+    private setDimensionVisibility(dimensionId: string, visible: boolean): void {
+        const sheet = this.activeSheet();
+        if (sheet === undefined) {
+            return;
+        }
+        const result = this.documentStore.applyDrawingChanges({
+            actions: [{ action: 'setDimensionVisibility', sheetId: sheet.id, dimensionId, visible }]
+        });
+        if (!result.success) {
+            this.messageService.error(`Cannot ${visible ? 'show' : 'hide'} dimension: ${result.error ?? 'unknown error'}`);
         }
         this.update();
     }
@@ -1826,7 +1885,18 @@ export class DrawingSheetWidget extends ReactWidget {
                         <span>Name</span>
                         <strong>{sheet.name}</strong>
                         <span>Size</span>
-                        <strong>{sheet.size} landscape</strong>
+                        <NukeSelect
+                            ariaLabel="Sheet size"
+                            value={sheet.size}
+                            options={[
+                                { value: 'A4', label: 'A4' },
+                                { value: 'A3', label: 'A3' }
+                            ]}
+                            onChange={(value) => this.setSheetSize(value as DrawingSheetSize)}
+                            style={{ width: '100%' }}
+                        />
+                        <span>Orientation</span>
+                        <strong>landscape</strong>
                         <span>Scale</span>
                         <strong>{this.sheetScaleLabel(sheet)}</strong>
                         <span>Views</span>
@@ -1958,6 +2028,7 @@ export class DrawingSheetWidget extends ReactWidget {
                     const output = this.buildResult?.dimensions?.find((entry) => entry.id === dimension.id);
                     const value = output?.text ?? (dimension.value !== undefined ? dimension.value.toFixed(2) : 'not built');
                     const stale = output?.stale ?? dimension.stale ?? false;
+                    const hidden = dimension.hidden === true;
                     return (
                         <div key={dimension.id} className={`nuke-cad-drawing-dimension-row${stale ? ' stale' : ''}`}>
                             <button
@@ -1972,8 +2043,29 @@ export class DrawingSheetWidget extends ReactWidget {
                                     <span className="nuke-cad-drawing-dimension-row-label">{dimension.kind}</span>
                                     <span className="nuke-cad-drawing-dimension-row-value">{value}</span>
                                 </span>
+                                {hidden && (
+                                    <span
+                                        className="nuke-cad-drawing-badge"
+                                        style={{
+                                            background: 'var(--theia-descriptionForeground)',
+                                            color: 'var(--theia-editor-background)'
+                                        }}
+                                    >
+                                        hidden
+                                    </span>
+                                )}
                                 {stale && <span className="nuke-cad-drawing-badge">stale</span>}
                             </button>
+                            <Tooltip content={hidden ? 'Show dimension' : 'Hide dimension'} position="left">
+                                <button
+                                    className="nuke-cad-drawing-row-delete"
+                                    aria-label={`${hidden ? 'Show' : 'Hide'} dimension ${dimension.id}`}
+                                    aria-pressed={hidden}
+                                    onClick={() => this.setDimensionVisibility(dimension.id, hidden)}
+                                >
+                                    <span className={`codicon codicon-${hidden ? 'eye-closed' : 'eye'}`} />
+                                </button>
+                            </Tooltip>
                             <Tooltip content="Delete dimension" position="left">
                                 <button
                                     className="nuke-cad-drawing-row-delete"
@@ -2358,6 +2450,9 @@ export class DrawingSheetWidget extends ReactWidget {
         const auto: { id: string; x: number; y: number; width: number; height: number }[] = [];
         const bases = new Map<string, [number, number]>();
         for (const dimension of sheet.dimensions) {
+            if (dimension.hidden === true) {
+                continue;
+            }
             const output = this.buildResult?.dimensions?.find((d) => d.id === dimension.id);
             const anchors = output?.anchors ?? [];
             let base: [number, number] | undefined;
@@ -2383,7 +2478,7 @@ export class DrawingSheetWidget extends ReactWidget {
             <g className="nuke-cad-drawing-dimensions">
                 {sheet.dimensions.map((dimension) => {
                     const base = bases.get(dimension.id);
-                    if (base === undefined) {
+                    if (base === undefined || dimension.hidden === true) {
                         return null;
                     }
                     const autoPos = laidOut.get(dimension.id);

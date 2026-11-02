@@ -36,7 +36,7 @@ RPC shape (``build_drawing``)::
         'dimensions': [{
             'id': str, 'kind': str, 'viewId': str,
             'value': float | None, 'stale': bool, 'text': str,
-            'anchors': [[[x, y], ...]],
+            'anchors': [[[x, y], ...]], 'hidden': bool,
         }],
         'svg': str, 'dxf': str | None, 'dxfError': str | None,
         'warnings': [str],
@@ -54,7 +54,9 @@ sheet-mm from the sheet bottom-left corner (y-up); SVG flips y internally.
 Associativity: dimension ``TopologyRef`` targets are re-resolved against the
 rebuilt shape via ``reference_resolver`` and values are recomputed from the
 3D measurement. ``unmatched``/``ambiguous`` refs keep the last-good text and
-set ``stale: True``.
+set ``stale: True``. Hidden dimensions (``hidden: true``) stay in the
+computed ``dimensions`` result so the widget can list them, but SVG and DXF
+omit them; a dimension without ``hidden`` is visible.
 
 This module stays importable in the minimal pytest profile (pytest + numpy
 only): OCP, ``ezdxf``, and ``reference_resolver`` imports are guarded behind
@@ -726,6 +728,9 @@ def compute_dimensions(
             "stale": False,
             "text": last_text if isinstance(last_text, str) else "?",
             "anchors": [],
+            # Visibility is presentation-only: hidden dims keep resolving so
+            # the widget still shows their value/stale state in its list.
+            "hidden": bool(dim.get("hidden", False)),
         }
         if dim.get("labelOffset") is not None:
             entry["labelOffset"] = dim.get("labelOffset")
@@ -887,6 +892,8 @@ def emit_svg(
         )
         parts.append("</g>")
     for dim in dimensions:
+        if bool(dim.get("hidden", False)):
+            continue
         anchors = dim.get("anchors", [])
         label = dim.get("text", "?")
         if len(anchors) >= 2:
@@ -972,6 +979,8 @@ def emit_dxf(
         msp.add_line((cx - 3.0, cy), (cx + 3.0, cy), dxfattribs={"layer": "CENTER"})
         msp.add_line((cx, cy - 3.0), (cx, cy + 3.0), dxfattribs={"layer": "CENTER"})
     for dim in dimensions:
+        if bool(dim.get("hidden", False)):
+            continue
         anchors = dim.get("anchors", [])
         label = dim.get("text", "?")
         if len(anchors) >= 2:

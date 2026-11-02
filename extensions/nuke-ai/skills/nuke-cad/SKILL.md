@@ -7,10 +7,10 @@ description: Inspect, summarize, and export the active NukeCAD document to DAGMC
 
 Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
 CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, topology-impact, import,
-or assembly-placement change. Read/export is always available. Feature, sketch, topology, import, and assembly-placement
-edits are available only when the user enabled **Nuke CAD: AI Authoring**; new sketch entities, scripts, document
-parameters not referenced by a sketch, booleans, body/feature add/delete/reorder, lattices, assembly structure, and
-drawings stay in the CAD viewport and Feature Tree.
+assembly-placement, or drawing-sheet settings change. Read/export is always available. Feature, sketch, topology, import,
+assembly-placement, and drawing settings edits are available only when the user enabled **Nuke CAD: AI Authoring**; new
+sketch entities, scripts, document parameters not referenced by a sketch, booleans, body/feature add/delete/reorder,
+lattices, and assembly structure stay in the CAD viewport and Feature Tree.
 
 ## Tool names
 
@@ -219,7 +219,7 @@ Call `nuke_cad_previewAssemblyChange` with one to sixteen actions. Each action i
 - `setPlacement` sets only `placement` (position plus unit quaternion) on a grounded or unmated instance. Existing
   mates, connectors, grounding, scale, part source, and names stay read-only.
 - Mates, connectors, grounding changes, mated placements, new external sources, part replacement, rename, scale
-  changes on an existing instance, single-part conversion, drawings, and MCP are out of scope.
+  changes on an existing instance, single-part conversion, and MCP are out of scope.
 
 The preview runs a real candidate build and returns placement rows (instance, action, before/after position,
 orientation, and matrix), the BOM count delta, exact overlap warnings, and whether the document has `overlapCheck:
@@ -235,6 +235,39 @@ Call `nuke_cad_applyAssemblyChange` with `{ "proposalId", "acknowledgeRegionChan
 requested acknowledgement, and only after explicit confirmation. It re-runs the planner, rejects a stale proposal,
 writes a hidden backup, commits one store batch, schedules the rebuild, and returns an `undoToken`. Undo restores the
 previous instances in one commit. If the document changed after the preview, preview again instead of reusing the id.
+
+## Adjust drawing sheet settings
+
+Use this flow for an existing drawing sheet: resize the sheet, change a view's scale or hidden-line display, or hide a
+dimension. The summary is read-only; preview and apply need `nuke_cad_previewDrawingChange` and **Nuke CAD: AI Authoring**,
+and the document must be saved.
+
+Start with `nuke_cad_summarizeDrawing` and pass no arguments. It returns the document path, drawing version, every sheet
+with its size and views (id, kind, orientation, scale, hidden-line setting, position), and every dimension with its id,
+kind, owning view, value, stale state, and visibility. The title block is fixed and read-only; never offer to edit it.
+
+Call `nuke_cad_previewDrawingChange` with one sheet and one to sixteen actions:
+
+```json
+{ "action": "setSheetSize", "sheetId": "sheet-1", "size": "A3" }
+{ "action": "setViewDisplay", "sheetId": "sheet-1", "viewId": "view-1", "scale": 0.5, "showHidden": true }
+{ "action": "setDimensionVisibility", "sheetId": "sheet-1", "dimensionId": "dimension-1", "visible": false }
+```
+
+- A3 to A4 is rejected when any view lies outside A4; views are never moved. A4 to A3 is allowed.
+- Scale is a positive finite multiplier (`1` is 1:1, `0.5` is 1:2); hidden lines are per view.
+- Hiding is presentation-only: the dimension stays listed, keeps resolving, and leaves SVG/DXF output. Never delete a
+  dimension to hide it.
+- No-op or duplicate targets reject the preview. Adding or deleting sheets, views, or dimensions, moving a view, changing
+  view kind/orientation/parent/section/detail, and editing geometry are out of scope.
+
+The preview is plan-only: it stores a proposal and opens the **CAD Edit Review** panel with sheet, view, and dimension
+rows, but builds no geometry, shows no ghost, writes nothing, and schedules no rebuild.
+
+Call `nuke_cad_applyDrawingChange` with only `{ "proposalId" }`, and only after explicit confirmation. It re-runs the
+planner, rejects a stale proposal or changed drawing, writes a backup, commits one `applyDrawingChanges` batch, opens or
+refreshes the Drawing Sheet, and returns an `undoToken`; it never schedules a geometry rebuild. Undo restores the previous
+drawings and refreshes the sheet.
 
 ## Inspect before export
 
@@ -293,10 +326,10 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 
 ## Boundaries
 
-- Do not author geometry beyond the scalar feature-edit, sketch-dimension, topology-impact, import, and
-  assembly-placement flows. New sketch entities, scripts, document parameters not referenced by a sketch, booleans,
-  body/feature add/delete/reorder, lattices, assembly structure, and drawings stay in the CAD viewport or Feature Tree.
-- Do not apply a feature, sketch, topology, import, or assembly change without an explicit confirmation, and never send
-  CAD authoring tools through MCP.
+- Do not author geometry beyond the scalar feature-edit, sketch-dimension, topology-impact, import, assembly-placement,
+  and drawing-settings flows. New sketch entities, scripts, document parameters not referenced by a sketch, booleans,
+  body/feature add/delete/reorder, lattices, and assembly structure stay in the CAD viewport or Feature Tree.
+- Do not apply a feature, sketch, topology, import, assembly, or drawing change without an explicit confirmation, and
+  never send CAD authoring tools through MCP.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

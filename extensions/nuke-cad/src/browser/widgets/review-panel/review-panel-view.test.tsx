@@ -41,6 +41,7 @@ import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
 import {
     CadReviewAppliedEntry,
     CadReviewAssemblyContext,
+    CadReviewDrawingContext,
     CadReviewImportContext,
     CadReviewPanelView,
     CadReviewPanelViewProps,
@@ -373,6 +374,61 @@ function assemblyProposal(overrides: Partial<CadReviewProposalView> = {}): CadRe
         impact: undefined,
         build: undefined,
         assembly: assemblyContext(),
+        ...overrides
+    });
+}
+
+function drawingContext(overrides: Partial<CadReviewDrawingContext> = {}): CadReviewDrawingContext {
+    return {
+        sheet: {
+            id: 'sheet-1',
+            name: 'Pincell sheet',
+            sizeBefore: 'A4',
+            sizeAfter: 'A3'
+        },
+        viewChanges: [
+            {
+                id: 'front',
+                kind: 'base',
+                orientation: 'front',
+                scaleBefore: 1,
+                scaleAfter: 0.5,
+                showHiddenBefore: false,
+                showHiddenAfter: true
+            }
+        ],
+        dimensionChanges: [
+            {
+                id: 'dim-1',
+                kind: 'diameter',
+                viewId: 'front',
+                visibleBefore: true,
+                visibleAfter: false
+            }
+        ],
+        warnings: ['The front view still fits the A3 sheet.'],
+        titleBlockEditable: false,
+        requiresDrawingRefresh: true,
+        ...overrides
+    };
+}
+
+function drawingProposal(overrides: Partial<CadReviewProposalView> = {}): CadReviewProposalView {
+    return proposal({
+        summary: 'Set sheet A4 → A3',
+        scope: 'drawing',
+        changes: [
+            {
+                path: 'drawings.sheet-1.size',
+                label: 'Sheet size',
+                kind: 'update',
+                before: 'A4',
+                after: 'A3'
+            }
+        ],
+        impact: undefined,
+        build: undefined,
+        drawing: drawingContext(),
         ...overrides
     });
 }
@@ -802,6 +858,95 @@ describe('CadReviewPanelView', () => {
             expect(html).not.toContain('cad-review-import');
             expect(html).not.toContain('Planned bodies');
             expect(html).not.toContain('source solids');
+        }
+    });
+
+    it('renders drawing sheet, view, and dimension changes without acknowledgement or a generic diff', () => {
+        const onApply = vi.fn();
+        const tree = CadReviewPanelView(props({ proposals: [drawingProposal()], onApply }));
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('cad-review-drawing');
+        expect(html).toContain('Drawing settings');
+        expect(html).toContain('>Drawing<');
+        expect(html).toContain('Pincell sheet');
+        expect(html).toContain('A4');
+        expect(html).toContain('A3');
+        expect(html).toContain('cad-review-drawing-view-row');
+        expect(html).toContain('>front<');
+        expect(html).toContain('>base<');
+        expect(html).toContain('1:1');
+        expect(html).toContain('1:2');
+        expect(html).toContain('Hidden lines');
+        expect(html).toContain('>On<');
+        expect(html).toContain('>Off<');
+        expect(html).toContain('cad-review-drawing-dimension-row');
+        expect(html).toContain('dim-1');
+        expect(html).toContain('>diameter<');
+        expect(html).toContain('view front');
+        expect(html).toContain('Visibility');
+        expect(html).toContain('>Visible<');
+        expect(html).toContain('>Hidden<');
+        expect(html).toContain('Sheet edits do not rebuild 3D geometry and have no viewport ghost; hidden dimensions are not deleted.');
+        expect(html).toContain('Title block is fixed and read-only in this slice.');
+        expect(html).toContain('The front view still fits the A3 sheet.');
+
+        expect(html).not.toContain('cad-review-changes');
+        expect(html).not.toContain('cad-review-topology-ack');
+        expect(html).not.toContain('cad-review-assembly-ack');
+        expect(html).not.toContain('Region impact');
+        expect(html).not.toContain('Bill of materials');
+        expect(html).not.toContain('Collision warnings');
+        expect(collectButtons(tree, 'cad-review-topology-ack')).toHaveLength(0);
+        expect(collectButtons(tree, 'cad-review-assembly-ack')).toHaveLength(0);
+
+        const applyButtons = collectButtons(tree, 'cad-review-apply');
+        const dismissButtons = collectButtons(tree, 'cad-review-dismiss');
+        expect(applyButtons).toHaveLength(1);
+        expect(dismissButtons).toHaveLength(1);
+        expect(applyButtons[0].props.disabled).toBe(false);
+        expect(dismissButtons[0].props.disabled).toBe(false);
+        applyButtons[0].props.onClick?.();
+        dismissButtons[0].props.onClick?.();
+        expect(onApply).toHaveBeenCalledWith('proposal-1');
+
+        const applying = CadReviewPanelView(props({ proposals: [drawingProposal()], applying: true }));
+        expect(collectButtons(applying, 'cad-review-apply')[0].props.disabled).toBe(true);
+    });
+
+    it('labels an applied drawing entry as a drawing change with its sheet detail', () => {
+        const entry: CadReviewAppliedEntry = {
+            proposalId: 'proposal-6',
+            summary: 'Set sheet A4 → A3',
+            detail: 'A4 → A3 · 1 view · 1 dimension',
+            undoToken: 'undo-6',
+            scope: 'drawing'
+        };
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(props({ proposals: [], applied: [entry], undoableProposalIds: ['proposal-6'] }))
+        );
+
+        expect(html).toContain('Drawing change');
+        expect(html).toContain('A4 → A3 · 1 view · 1 dimension');
+        expect(html).not.toContain('Feature parameter');
+        expect(html).not.toContain('Topology change');
+        expect(html).not.toContain('Assembly change');
+    });
+
+    it('falls back to the drawing title and keeps other scopes free of the drawing section', () => {
+        const fallback = renderToStaticMarkup(CadReviewPanelView(props({ proposals: [drawingProposal({ summary: '' })] })));
+        expect(fallback).toContain('Drawing settings');
+        expect(fallback).toContain('>Drawing<');
+
+        for (const proposalView of [
+            proposal({ scope: 'features' }),
+            sketchProposal(),
+            topologyProposal(),
+            importProposal(),
+            assemblyProposal()
+        ]) {
+            const html = renderToStaticMarkup(CadReviewPanelView(props({ proposals: [proposalView] })));
+            expect(html).not.toContain('cad-review-drawing');
         }
     });
 

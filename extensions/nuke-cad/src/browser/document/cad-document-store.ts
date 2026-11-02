@@ -100,6 +100,7 @@ import {
 } from '../../common/assembly-document';
 import { countAssemblyDof } from '../../common/assembly-placement';
 import { prepareAssemblyEdit, type AssemblyChangeInput } from '../../common/cad-assembly-edit';
+import { prepareDrawingEdit, type DrawingChangeAction } from '../../common/cad-drawing-edit';
 
 /** Listener invoked after any mutation that changes the store state. */
 export type DocumentStoreListener = () => void;
@@ -166,6 +167,20 @@ export interface ImportBodiesRequest {
 export interface AssemblyChangeRequest {
     /** Add/remove/placement actions; the pure engine validates 1–16 actions. */
     readonly actions: readonly AssemblyChangeInput[];
+}
+
+/** One atomic drawing-sheet settings edit applied through {@link CadDocumentStore.applyDrawingChanges}. */
+export interface DrawingChangeRequest {
+    /** Sheet-size, view-display, and dimension-visibility actions; the pure planner validates 1–16 actions. */
+    readonly actions: readonly DrawingChangeAction[];
+}
+
+/** Summary returned by {@link CadDocumentStore.applyDrawingChanges} after one drawing commit. */
+export interface DrawingChangeResult {
+    readonly sheetId: string;
+    readonly viewCount: number;
+    readonly dimensionCount: number;
+    readonly drawingVersion: number;
 }
 
 /** One instance appended by {@link CadDocumentStore.addAssemblyInstances}. */
@@ -2525,6 +2540,46 @@ export class CadDocumentStore {
         }
         sheet.views = sheet.views.map((view, i) => (i === index ? next : view));
         return this.commit(doc, { markDrawing: true });
+    }
+
+    /**
+     * Apply an atomic drawing-sheet settings edit.
+     *
+     * `prepareDrawingEdit` validates the complete request against the live
+     * document and produces the candidate with only sheet size, view display,
+     * and dimension visibility changed. Committing once keeps the batch as one
+     * undo entry and one drawing refresh; a rejected plan leaves the document,
+     * history, and `drawingVersion` untouched.
+     */
+    applyDrawingChanges(request: DrawingChangeRequest): DocumentMutationResult<DrawingChangeResult> {
+        if (request === null || typeof request !== 'object' || !Array.isArray(request.actions)) {
+            return { success: false, error: 'Drawing change request must carry an actions array' };
+        }
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const prepared = prepareDrawingEdit(check.value!, request.actions);
+        if (!prepared.ok) {
+            return { success: false, error: prepared.message };
+        }
+        const sheet = (prepared.result.afterDocument.drawings ?? []).find((candidate) => candidate.id === prepared.result.sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${prepared.result.sheetId}' disappeared while applying changes` };
+        }
+        const committed = this.commit(prepared.result.afterDocument, { markDrawing: true });
+        if (!committed.success) {
+            return { success: false, error: committed.error, issues: committed.issues };
+        }
+        return {
+            success: true,
+            value: {
+                sheetId: sheet.id,
+                viewCount: sheet.views.length,
+                dimensionCount: sheet.dimensions.length,
+                drawingVersion: this.state.drawingVersion
+            }
+        };
     }
 
     /**

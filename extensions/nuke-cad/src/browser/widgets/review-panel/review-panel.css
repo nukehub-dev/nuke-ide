@@ -737,6 +737,140 @@
     line-height: 1.35;
 }
 
+/* Drawing settings: sheet size, per-view scale/hidden lines, dimension visibility, warnings. */
+.cad-review-drawing {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-sideBarSectionHeader-border, var(--theia-panel-border));
+    border-radius: 4px;
+    background: var(--theia-sideBarSectionHeader-background, var(--theia-editorWidget-background));
+}
+
+.cad-review-drawing-badge {
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 10px;
+    vertical-align: middle;
+}
+
+.cad-review-drawing-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-drawing-sheet {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+}
+
+.cad-review-drawing-sheet-name {
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cad-review-drawing-sheet-size {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-review-drawing-views,
+.cad-review-drawing-dimensions {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cad-review-drawing-row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 3px 6px;
+    border-left: 2px solid var(--theia-focusBorder);
+    border-radius: 3px;
+    background: var(--theia-editorWidget-background);
+    font-size: 11px;
+}
+
+.cad-review-drawing-row-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+}
+
+.cad-review-drawing-id {
+    overflow-wrap: anywhere;
+    font-weight: 600;
+}
+
+.cad-review-drawing-kind,
+.cad-review-drawing-orientation,
+.cad-review-drawing-view {
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-drawing-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-review-drawing-meta-label {
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-drawing-before {
+    color: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorForeground));
+    text-decoration: line-through;
+}
+
+.cad-review-drawing-arrow {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-drawing-after {
+    color: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successForeground));
+    font-weight: 600;
+}
+
+.cad-review-drawing-note,
+.cad-review-drawing-title-block {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-drawing-warnings {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-review-drawing-warnings li {
+    overflow-wrap: anywhere;
+}
+
 .cad-review-bbox,
 .cad-review-build {
     overflow-wrap: anywhere;
