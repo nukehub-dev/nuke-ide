@@ -43,6 +43,7 @@ import {
     normalizeScriptSandboxStatus,
     normalizeSandboxedScriptResult,
     sanitizeSandboxText,
+    scriptSandboxPlatformReason,
     NukeCadBackendServiceImpl,
     ServiceResultCapture
 } from './nuke-cad-backend-service';
@@ -811,6 +812,17 @@ describe('sandbox result normalization', () => {
         expect(sanitized).not.toContain(output);
         expect(sanitized).not.toContain('/home/user');
         expect(sanitized).toContain('<path>');
+    });
+});
+
+describe('sandbox platform support', () => {
+    it('fails closed on macOS and Windows without probing Python or libseccomp', () => {
+        for (const platform of ['darwin', 'win32']) {
+            const reason = scriptSandboxPlatformReason(platform);
+            expect(reason).toContain('Linux');
+            expect(reason).toContain('macOS and Windows');
+        }
+        expect(scriptSandboxPlatformReason('linux')).toBeUndefined();
     });
 });
 

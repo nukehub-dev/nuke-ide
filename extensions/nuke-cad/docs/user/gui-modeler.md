@@ -1053,7 +1053,8 @@ sidebar.
 ### AI script authoring
 
 AI script authoring edits the active **saved `.py` model** and is default-off. Open the script in the editor and run
-**Open Active Python Model in CAD** to load it into the viewport. It needs both **Nuke CAD: AI Authoring**
+**Open Active Python Model in CAD** to load it into the viewport. NukeAI chat and the non-script CAD tools remain
+cross-platform; this sandboxed script flow is Linux-only. It needs both **Nuke CAD: AI Authoring**
 and the workspace setting **Nuke CAD: Script Authoring**, and it runs only on Linux with bubblewrap and libseccomp; macOS,
 Windows, and environments without a working user namespace or libseccomp show the tools as unavailable. There is no
 unsandboxed fallback.

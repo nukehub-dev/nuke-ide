@@ -876,6 +876,18 @@ export function normalizeInspectImportResult(raw: unknown, fallbackSourcePath: s
     };
 }
 
+/**
+ * Why sandboxed script authoring is unavailable on this host, or ``undefined``
+ * on Linux. The browser capability and the Python service both fail closed;
+ * this guard avoids spawning Python or loading libseccomp on macOS/Windows.
+ */
+export function scriptSandboxPlatformReason(platform: string = process.platform): string | undefined {
+    if (platform === 'linux') {
+        return undefined;
+    }
+    return 'Sandboxed builds require Linux with bubblewrap and libseccomp; macOS and Windows are unsupported.';
+}
+
 @injectable()
 export class NukeCadBackendServiceImpl implements NukeCadBackendService {
     /** Default backend process timeout: one hour (ccx/gmsh runs can be long). */
@@ -966,6 +978,10 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
      * ``available: false`` with a reason. It never selects an unsandboxed path.
      */
     async getScriptSandboxStatus(): Promise<ScriptSandboxStatus> {
+        const platformReason = scriptSandboxPlatformReason();
+        if (platformReason !== undefined) {
+            return { available: false, engine: 'bubblewrap', reason: platformReason };
+        }
         const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'sandbox_service.py' });
         if (!scriptPath) {
             return { available: false, engine: 'bubblewrap', reason: 'Sandbox service script not found.' };
@@ -1010,6 +1026,10 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
      * the validated private output directory.
      */
     async buildSandboxedScript(request: SandboxedScriptBuildRequest): Promise<SandboxedScriptBuildResult> {
+        const platformReason = scriptSandboxPlatformReason();
+        if (platformReason !== undefined) {
+            return { success: false, error: platformReason };
+        }
         const paths = validateSandboxedScriptPaths(request);
         if ('error' in paths) {
             return { success: false, error: paths.error };

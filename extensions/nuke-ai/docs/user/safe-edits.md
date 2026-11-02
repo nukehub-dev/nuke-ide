@@ -301,9 +301,10 @@ edit the title block, or touch geometry.
 ## Python model scripts (Linux only)
 
 AI script authoring replaces the active saved `.py` build123d/CadQuery model as a whole file. It is default-off and
-Linux-only: turn on both **Nuke CAD: AI Authoring** and the workspace-scoped **Nuke CAD: Script Authoring** in
-**Settings → Nuke CAD**. It needs a working bubblewrap user namespace and libseccomp; macOS, Windows, and environments
-without them show no preview or apply tools. There is no unsandboxed fallback.
+Linux-only; NukeAI chat, model setup, and the other capability tools are not Linux-specific. Turn on both **Nuke CAD:
+AI Authoring** and the workspace-scoped **Nuke CAD: Script Authoring** in **Settings → Nuke CAD**. It needs a working
+bubblewrap user namespace and libseccomp; macOS, Windows, and environments without them show no preview or apply tools.
+There is no unsandboxed fallback.
 
 1. Open the `.py` in the editor and run **Open Active Python Model in CAD** so it is the active model. NukeAI inspects the script with `nuke_cad_inspectScriptSource`. The result carries the path, bounded text, SHA-256
    hash, imports, and whether a top-level `model` is assigned. **The script text is sent to the configured model

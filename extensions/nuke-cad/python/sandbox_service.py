@@ -478,7 +478,7 @@ def _probe_status(available: bool, reason: str | None = None) -> ProbeResult:
         userns=False,
         disable_userns=False,
         reason=reason,
-        prlimit_path=shutil.which("prlimit"),
+        prlimit_path=shutil.which("prlimit") if sys.platform.startswith("linux") else None,
     )
 
 
@@ -521,7 +521,10 @@ def probe_bwrap(*, force: bool = False) -> ProbeResult:
         return _PROBE_CACHE
 
     if not sys.platform.startswith("linux"):
-        _PROBE_CACHE = _probe_status(False, "Sandboxed builds require Linux.")
+        _PROBE_CACHE = _probe_status(
+            False,
+            "Sandboxed builds require Linux with bubblewrap and libseccomp; macOS and Windows are unsupported.",
+        )
         return _PROBE_CACHE
 
     bwrap_path = shutil.which("bwrap")

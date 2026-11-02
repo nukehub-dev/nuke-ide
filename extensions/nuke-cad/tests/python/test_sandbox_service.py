@@ -346,13 +346,20 @@ def test_seccomp_denylist_covers_privileged_syscalls() -> None:
     assert "execve" not in denied
 
 
-def test_probe_rejects_non_linux(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sandbox.sys, "platform", "darwin")
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_probe_rejects_non_linux(monkeypatch: pytest.MonkeyPatch, platform: str) -> None:
+    monkeypatch.setattr(sandbox.sys, "platform", platform)
+
+    def fail_if_loaded() -> None:
+        raise AssertionError("libseccomp must not be loaded on non-Linux hosts")
+
+    monkeypatch.setattr(sandbox, "_load_libseccomp", fail_if_loaded)
 
     result = sandbox.probe_bwrap(force=True)
 
     assert result.available is False
     assert "Linux" in (result.reason or "")
+    assert "macOS and Windows" in (result.reason or "")
 
 
 def test_validation_creates_the_output_directory(workspace: Path) -> None:

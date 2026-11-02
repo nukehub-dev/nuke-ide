@@ -112,8 +112,9 @@ leaves SVG and DXF output. The title block is fixed and read-only. The preview i
 ghost — and apply commits one drawing batch, opens and refreshes the Drawing Sheet, and offers **Undo** without
 rebuilding geometry.
 
-Python model scripts are the seventh flow, available only on Linux with bubblewrap. Enable both **Nuke CAD: AI
-Authoring** and the workspace **Nuke CAD: Script Authoring** setting, then open a saved `.py` model. NukeAI can inspect
+Python model scripts are the seventh flow, available only on Linux with bubblewrap and libseccomp; NukeAI chat, model
+setup, and the other capability tools are cross-platform. Enable both **Nuke CAD: AI Authoring** and the workspace
+**Nuke CAD: Script Authoring** setting, then open a saved `.py` model. NukeAI can inspect
 the script, but its text is sent to the configured model provider. A preview runs the complete replacement in a sandbox
 with no network and no workspace access, then shows a plain-text unified diff, imports, sandbox limits, build counts, and
 an audit id in the **CAD Edit Review** panel; it writes nothing and shows no ghost. The chat card has no Apply action.
