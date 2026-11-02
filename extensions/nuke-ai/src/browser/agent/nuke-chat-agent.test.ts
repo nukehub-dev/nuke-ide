@@ -38,6 +38,8 @@ const CAPABILITY_IDS = [
     'nuke.cad.listSketchDimensions',
     'nuke.cad.previewSketchChange',
     'nuke.cad.applySketchChange',
+    'nuke.cad.previewTopologyChange',
+    'nuke.cad.applyTopologyChange',
     'nuke.cad.exportDagmc',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
@@ -75,12 +77,12 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all twenty-six capability tool names', () => {
+    it('exposes the nukeContext variable and all twenty-eight capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(26);
+        expect(agent.functions).toHaveLength(28);
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -130,7 +132,7 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('sourceRejectionFraction');
         expect(prompt).toMatch(/filters,\s+triggers, and derivatives are preserved/);
         expect(prompt).toMatch(
-            /Applying a\s+previewed settings, material, tally, CAD feature, or CAD sketch change also requires explicit confirmation/i
+            /Applying a\s+previewed settings, material, tally, CAD feature, sketch, or topology change also requires explicit confirmation/i
         );
     });
 
@@ -147,6 +149,24 @@ describe('NukeChatAgent', () => {
         expect(prompt).toMatch(/show that diff and impact before asking to apply/i);
         expect(prompt).toMatch(/New sketch entities, constraints, or dimensions/);
         expect(prompt).toMatch(/document parameters not referenced by a\s+sketch/i);
+    });
+
+    it('covers topology-impact preview, region acknowledgement, apply, and blocked OpenMC references', () => {
+        const prompt = promptTemplate();
+
+        expect(prompt).toContain('nuke_cad_previewTopologyChange');
+        expect(prompt).toContain('nuke_cad_applyTopologyChange');
+        expect(prompt).toMatch(/review panel also requires the region\s+acknowledgement/i);
+        expect(prompt).toContain('acknowledgeRegionChanges');
+        expect(prompt).toMatch(/Topology edits change solid identity or region coverage/i);
+        expect(prompt).toMatch(/never claim the edit is safe/i);
+        expect(prompt).toMatch(/saved active OpenMC project/i);
+        expect(prompt).toMatch(/blocks Apply/i);
+        expect(prompt).toMatch(/not checked/i);
+        expect(prompt).toMatch(/Apply never rewrites the OpenMC project/i);
+        expect(prompt).toMatch(/patternCount.*including the original/i);
+        expect(prompt).toMatch(/overlapping pattern may change only faces or volume/i);
+        expect(prompt).toMatch(/Booleans, add, delete,\s+reorder, imports, assemblies/);
     });
 
     it('stays within a bounded prompt budget', () => {

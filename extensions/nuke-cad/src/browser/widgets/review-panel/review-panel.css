@@ -192,6 +192,156 @@
     padding: 0 5px;
 }
 
+.cad-review-topology {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--theia-panel-border);
+}
+
+.cad-review-topology-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-topology-badge {
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 10px;
+    vertical-align: middle;
+}
+
+.cad-review-topology-deltas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.cad-review-region-section {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cad-review-region-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+}
+
+/* One region per row; the accent border keeps added/removed/changed scannable. */
+.cad-review-region-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    padding: 3px 6px;
+    border-left: 2px solid transparent;
+    border-radius: 3px;
+    background: var(--theia-editorWidget-background);
+    font-size: 11px;
+}
+
+.cad-review-region-added {
+    border-left-color: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successForeground));
+}
+
+.cad-review-region-added .cad-review-region-selector {
+    color: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successForeground));
+}
+
+.cad-review-region-removed {
+    border-left-color: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorForeground));
+}
+
+.cad-review-region-removed .cad-review-region-selector {
+    color: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorForeground));
+}
+
+.cad-review-region-changed {
+    border-left-color: var(--theia-gitDecoration-modifiedResourceForeground, var(--theia-editorWarning-foreground));
+}
+
+.cad-review-region-selector {
+    overflow-wrap: anywhere;
+    font-weight: 600;
+}
+
+.cad-review-region-group {
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-region-group-change {
+    font-size: 10px;
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-review-region-solids {
+    font-variant-numeric: tabular-nums;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-region-blocked {
+    padding: 0 5px;
+    font-size: 10px;
+    background: var(--theia-inputValidation-errorBackground, var(--theia-badge-background));
+    color: var(--theia-errorForeground);
+}
+
+.cad-review-region-blocker {
+    flex-basis: 100%;
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--theia-errorForeground);
+}
+
+.cad-review-topology-none {
+    margin: 0;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-topology-openmc {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.cad-review-topology-openmc.is-error {
+    color: var(--theia-errorForeground);
+}
+
+.cad-review-topology-openmc.is-warning {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-review-topology-openmc.is-muted {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-topology-ack {
+    align-items: flex-start;
+    margin-top: 1px;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.cad-review-topology-ack-label {
+    font-size: 11px;
+    line-height: 1.35;
+}
+
 .cad-review-bbox,
 .cad-review-build {
     overflow-wrap: anywhere;

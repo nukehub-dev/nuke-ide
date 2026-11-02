@@ -28,12 +28,12 @@
 /**
  * Presentational CAD edit review panel.
  *
- * Renders NukeAI CAD edit proposals (feature-parameter and sketch-dimension
- * changes) with their document binding, parameter diff, build impact, and
- * Apply/Dismiss actions, plus the applied entries that can still be undone in
- * this session. The widget in `review-panel-widget.tsx` owns all service
- * interaction; this module stays a pure, hook-free function of its props so it
- * can be rendered in tests with `renderToStaticMarkup`.
+ * Renders NukeAI CAD edit proposals (feature-parameter, sketch-dimension, and
+ * topology changes) with their document binding, parameter diff, build and
+ * region impact, and Apply/Dismiss actions, plus the applied entries that can
+ * still be undone in this session. The widget in `review-panel-widget.tsx` owns
+ * all service interaction; this module stays a pure, hook-free function of its
+ * props so it can be rendered in tests with `renderToStaticMarkup`.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -41,9 +41,12 @@
 import * as React from '@theia/core/shared/react';
 import { NukeChange } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { NukeBadge } from 'nuke-essentials/lib/theme/browser/components/nuke-badge';
+import { NukeCheckbox } from 'nuke-essentials/lib/theme/browser/components/nuke-checkbox';
 import { NukeEmptyState } from 'nuke-essentials/lib/theme/browser/components/nuke-empty-state';
 import { NukeFormRow, NukeSection } from 'nuke-essentials/lib/theme/browser/components/nuke-form';
 import { NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components/nuke-loading-overlay';
+import type { OpenmcReferenceSnapshot, OpenmcRegionBlocker } from '../../../common/openmc-region-references';
+import type { TopologyChangedRegion, TopologyImpact, TopologyRegionRef } from '../../../common/topology-impact';
 import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
 
 /** Before/after count for one build-impact metric. */
@@ -85,15 +88,25 @@ export interface CadReviewSketchContext {
     readonly solver: SketchSolveSummary;
 }
 
+/** Region and OpenMC impact attached to a topology proposal. */
+export interface CadReviewTopologyContext {
+    readonly impact: TopologyImpact;
+    readonly blockedRegions: readonly OpenmcRegionBlocker[];
+    readonly openmcStatus: OpenmcReferenceSnapshot['status'];
+    readonly openmcProjectPath?: string;
+    readonly openmcWarnings: readonly string[];
+}
+
 /** One proposal as rendered by the panel. */
 export interface CadReviewProposalView {
     readonly id: string;
     readonly summary: string;
     readonly documentPath: string;
     readonly changes: readonly NukeChange[];
-    readonly scope?: 'features' | 'sketch';
+    readonly scope?: 'features' | 'sketch' | 'topology';
     readonly applyCapability?: string;
     readonly sketch?: CadReviewSketchContext;
+    readonly topology?: CadReviewTopologyContext;
     readonly impact?: CadReviewImpact;
     readonly build?: CadReviewBuild;
 }
@@ -106,7 +119,7 @@ export interface CadReviewAppliedEntry {
     readonly detail?: string;
     /** Opaque `NukeUndoService` token; empty when the apply returned none. */
     readonly undoToken: string;
-    readonly scope?: 'features' | 'sketch';
+    readonly scope?: 'features' | 'sketch' | 'topology';
 }
 
 /** Props for the pure review panel view. */
@@ -123,6 +136,9 @@ export interface CadReviewPanelViewProps {
     readonly onDismiss: (proposalId: string) => void;
     readonly onUndo: (proposalId: string) => void;
     readonly onOpenSettings?: () => void;
+    /** Topology proposal ids whose region impact the user acknowledged. */
+    readonly acknowledgedProposalIds?: readonly string[];
+    readonly onAcknowledge?: (proposalId: string, acknowledged: boolean) => void;
 }
 
 const CHANGE_VALUE_LIMIT = 120;
@@ -176,12 +192,18 @@ const IMPACT_ROWS: ReadonlyArray<{ readonly key: keyof CadReviewImpact; readonly
     { key: 'triangles', label: 'Triangles' }
 ];
 
-function ImpactSummary(props: { readonly impact?: CadReviewImpact; readonly build?: CadReviewBuild }): React.ReactElement | null {
+function ImpactSummary(props: {
+    readonly impact?: CadReviewImpact;
+    readonly build?: CadReviewBuild;
+    readonly hideCounts?: boolean;
+}): React.ReactElement | null {
     const impact = props.impact;
     const build = props.build;
-    const rows = IMPACT_ROWS.map((row) => ({ ...row, pair: impact?.[row.key] as CadReviewImpactPair | undefined })).filter(
-        (row): row is { key: keyof CadReviewImpact; label: string; pair: CadReviewImpactPair } => row.pair !== undefined
-    );
+    const rows = props.hideCounts
+        ? []
+        : IMPACT_ROWS.map((row) => ({ ...row, pair: impact?.[row.key] as CadReviewImpactPair | undefined })).filter(
+              (row): row is { key: keyof CadReviewImpact; label: string; pair: CadReviewImpactPair } => row.pair !== undefined
+          );
     const beforeBox = impact?.boundingBox?.before;
     const afterBox = impact?.boundingBox?.after;
     const box = afterBox ?? beforeBox;
@@ -221,6 +243,177 @@ function ImpactSummary(props: { readonly impact?: CadReviewImpact; readonly buil
 
 function pluralize(count: number, singular: string): string {
     return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+/** Compact solid-id list for a changed region; an empty list reads as `none`. */
+function formatSolidIds(ids: readonly number[]): string {
+    return ids.length === 0 ? 'none' : ids.map((id) => `#${id}`).join(', ');
+}
+
+function findRegionBlocker(region: TopologyRegionRef, blockers: readonly OpenmcRegionBlocker[]): OpenmcRegionBlocker | undefined {
+    return blockers.find((blocker) => blocker.region.kind === region.kind && blocker.region.selector === region.selector);
+}
+
+function RegionRowGroup(props: { readonly title: string; readonly children: React.ReactNode }): React.ReactElement {
+    return (
+        <div className="cad-review-region-section">
+            <span className="cad-review-region-section-title">{props.title}</span>
+            {props.children}
+        </div>
+    );
+}
+
+function AddedRegionRow(props: { readonly region: TopologyRegionRef }): React.ReactElement {
+    const region = props.region;
+    return (
+        <div className="cad-review-region-row cad-review-region-added">
+            <span className="cad-review-region-selector">{region.selector}</span>
+            <span className="cad-review-region-group">{region.group}</span>
+            <span className="cad-review-region-solids">{pluralize(region.solidIds.length, 'solid')}</span>
+        </div>
+    );
+}
+
+function RemovedRegionRow(props: { readonly region: TopologyRegionRef; readonly blocker?: OpenmcRegionBlocker }): React.ReactElement {
+    const region = props.region;
+    return (
+        <div className="cad-review-region-row cad-review-region-removed">
+            <span className="cad-review-region-selector">{region.selector}</span>
+            <span className="cad-review-region-group">{region.group}</span>
+            {props.blocker !== undefined && <NukeBadge className="cad-review-region-blocked">Blocked by OpenMC</NukeBadge>}
+            {props.blocker !== undefined && <span className="cad-review-region-blocker">{props.blocker.message}</span>}
+        </div>
+    );
+}
+
+function ChangedRegionRow(props: { readonly region: TopologyChangedRegion }): React.ReactElement {
+    const region = props.region;
+    return (
+        <div className="cad-review-region-row cad-review-region-changed">
+            <span className="cad-review-region-selector">{region.selector}</span>
+            {region.beforeGroup !== region.afterGroup ? (
+                <span className="cad-review-region-group-change">{`${region.beforeGroup} \u2192 ${region.afterGroup}`}</span>
+            ) : (
+                <span className="cad-review-region-group">{region.group}</span>
+            )}
+            <span className="cad-review-region-solids">{`${formatSolidIds(region.beforeSolidIds)} \u2192 ${formatSolidIds(
+                region.afterSolidIds
+            )}`}</span>
+        </div>
+    );
+}
+
+function OpenmcImpactLine(props: { readonly topology: CadReviewTopologyContext }): React.ReactElement {
+    const topology = props.topology;
+    const firstBlocker = topology.blockedRegions[0];
+    if (firstBlocker !== undefined) {
+        return (
+            <p className="cad-review-topology-openmc is-error" role="alert">
+                {`${firstBlocker.message} Update the OpenMC project first; apply stays blocked until reference '${firstBlocker.reference}' is removed.`}
+            </p>
+        );
+    }
+    if (topology.openmcStatus === 'no-saved-project') {
+        return (
+            <p className="cad-review-topology-openmc is-warning">
+                OpenMC references were not checked because no saved OpenMC project is active.
+            </p>
+        );
+    }
+    if (topology.openmcStatus === 'saved-project') {
+        const project =
+            topology.openmcProjectPath !== undefined ? documentBasename(topology.openmcProjectPath) : 'the saved OpenMC project';
+        return <p className="cad-review-topology-openmc is-muted">{`OpenMC: ${project} \u00b7 checked against the saved project file`}</p>;
+    }
+    return (
+        <p className="cad-review-topology-openmc is-warning">
+            {topology.openmcWarnings[0] ?? 'OpenMC references could not be checked for this change.'}
+        </p>
+    );
+}
+
+function RegionImpact(props: {
+    readonly proposalId: string;
+    readonly topology: CadReviewTopologyContext;
+    readonly acknowledged: boolean;
+    readonly onAcknowledge?: (proposalId: string, acknowledged: boolean) => void;
+}): React.ReactElement {
+    const impact = props.topology.impact;
+    const solidDeltas = [
+        { key: 'added', count: impact.addedSolidIds.length, label: 'added solid' },
+        { key: 'removed', count: impact.removedSolidIds.length, label: 'removed solid' },
+        { key: 'changed', count: impact.changedSolidIds.length, label: 'changed solid' }
+    ].filter((delta) => delta.count > 0);
+    const hasRegionChanges = impact.addedRegions.length > 0 || impact.removedRegions.length > 0 || impact.changedRegions.length > 0;
+    const topologyCountsChanged =
+        impact.solids.before !== impact.solids.after ||
+        impact.faces.before !== impact.faces.after ||
+        impact.triangles.before !== impact.triangles.after ||
+        impact.addedSolidIds.length > 0 ||
+        impact.removedSolidIds.length > 0 ||
+        impact.changedSolidIds.length > 0;
+    return (
+        <div className="cad-review-topology" role="group" aria-label="Region impact">
+            <span className="cad-review-topology-title">Region impact</span>
+            <div className="cad-review-impact-counts">
+                <NukeBadge className="cad-review-impact-badge">
+                    {`Solids ${formatNumber(impact.solids.before)} \u2192 ${formatNumber(impact.solids.after)}`}
+                </NukeBadge>
+                <NukeBadge className="cad-review-impact-badge">
+                    {`Faces ${formatNumber(impact.faces.before)} \u2192 ${formatNumber(impact.faces.after)}`}
+                </NukeBadge>
+                <NukeBadge className="cad-review-impact-badge">
+                    {`Triangles ${formatNumber(impact.triangles.before)} \u2192 ${formatNumber(impact.triangles.after)}`}
+                </NukeBadge>
+            </div>
+            {solidDeltas.length > 0 && (
+                <div className="cad-review-topology-deltas">
+                    {solidDeltas.map((delta) => (
+                        <NukeBadge key={delta.key} className="cad-review-impact-badge">
+                            {pluralize(delta.count, delta.label)}
+                        </NukeBadge>
+                    ))}
+                </div>
+            )}
+            {impact.addedRegions.length > 0 && (
+                <RegionRowGroup title="Added regions">
+                    {impact.addedRegions.map((region) => (
+                        <AddedRegionRow key={`${region.kind}:${region.selector}`} region={region} />
+                    ))}
+                </RegionRowGroup>
+            )}
+            {impact.removedRegions.length > 0 && (
+                <RegionRowGroup title="Removed regions">
+                    {impact.removedRegions.map((region) => (
+                        <RemovedRegionRow
+                            key={`${region.kind}:${region.selector}`}
+                            region={region}
+                            blocker={findRegionBlocker(region, props.topology.blockedRegions)}
+                        />
+                    ))}
+                </RegionRowGroup>
+            )}
+            {impact.changedRegions.length > 0 && (
+                <RegionRowGroup title="Changed regions">
+                    {impact.changedRegions.map((region) => (
+                        <ChangedRegionRow key={region.selector} region={region} />
+                    ))}
+                </RegionRowGroup>
+            )}
+            {!hasRegionChanges && topologyCountsChanged && (
+                <p className="cad-review-topology-none">No named region changes, but the solid or face topology changed.</p>
+            )}
+            <OpenmcImpactLine topology={props.topology} />
+            <NukeCheckbox
+                className="cad-review-topology-ack"
+                checked={props.acknowledged}
+                onChange={(checked) => props.onAcknowledge?.(props.proposalId, checked)}
+                ariaLabel="Acknowledge solid and region impact"
+            >
+                <span className="cad-review-topology-ack-label">I understand the solid and region impact</span>
+            </NukeCheckbox>
+        </div>
+    );
 }
 
 interface SketchIssue {
@@ -271,16 +464,27 @@ function SketchContext(props: { readonly sketch: CadReviewSketchContext }): Reac
 function ProposalCard(props: {
     readonly proposal: CadReviewProposalView;
     readonly applying: boolean;
+    readonly acknowledged: boolean;
     readonly onApply: (proposalId: string) => void;
     readonly onDismiss: (proposalId: string) => void;
+    readonly onAcknowledge?: (proposalId: string, acknowledged: boolean) => void;
 }): React.ReactElement {
     const proposal = props.proposal;
-    const fallbackTitle = proposal.scope === 'sketch' ? 'Sketch change' : 'Feature change';
+    const fallbackTitle =
+        proposal.scope === 'sketch' ? 'Sketch change' : proposal.scope === 'topology' ? 'Topology change' : 'Feature change';
+    const blocked = proposal.topology !== undefined && proposal.topology.blockedRegions.length > 0;
+    const requiresAcknowledgement = proposal.scope === 'topology' || proposal.topology?.impact.requiresAcknowledgement === true;
+    const applyDisabled = props.applying || blocked || (requiresAcknowledgement && !props.acknowledged);
     return (
         <NukeSection
             className="cad-review-proposal"
             icon="git-compare"
-            title={<span className="cad-review-proposal-title">{proposal.summary.length > 0 ? proposal.summary : fallbackTitle}</span>}
+            title={
+                <span className="cad-review-proposal-title">
+                    {proposal.summary.length > 0 ? proposal.summary : fallbackTitle}
+                    {proposal.scope === 'topology' && <NukeBadge className="cad-review-topology-badge">Topology</NukeBadge>}
+                </span>
+            }
         >
             <div className="cad-review-document">
                 <span className="cad-review-document-name">{documentBasename(proposal.documentPath)}</span>
@@ -300,13 +504,21 @@ function ProposalCard(props: {
                     </NukeFormRow>
                 ))}
             </div>
-            <ImpactSummary impact={proposal.impact} build={proposal.build} />
+            {proposal.topology !== undefined && (
+                <RegionImpact
+                    proposalId={proposal.id}
+                    topology={proposal.topology}
+                    acknowledged={props.acknowledged}
+                    onAcknowledge={props.onAcknowledge}
+                />
+            )}
+            <ImpactSummary impact={proposal.impact} build={proposal.build} hideCounts={proposal.scope === 'topology'} />
             <div className="cad-review-actions">
                 <button
                     type="button"
                     className="theia-button cad-review-apply"
                     onClick={() => props.onApply(proposal.id)}
-                    disabled={props.applying}
+                    disabled={applyDisabled}
                 >
                     Apply
                 </button>
@@ -338,7 +550,11 @@ function AppliedSection(props: {
                         <div className="cad-review-applied-body">
                             <span className="cad-review-applied-summary">
                                 <span className="cad-review-applied-kind">
-                                    {entry.scope === 'sketch' ? 'Sketch dimension' : 'Feature parameter'}
+                                    {entry.scope === 'sketch'
+                                        ? 'Sketch dimension'
+                                        : entry.scope === 'topology'
+                                          ? 'Topology change'
+                                          : 'Feature parameter'}
                                 </span>
                                 <span className="cad-review-applied-detail">
                                     {entry.detail ?? (entry.summary.length > 0 ? entry.summary : 'CAD edit')}
@@ -424,8 +640,10 @@ export function CadReviewPanelView(props: CadReviewPanelViewProps): React.ReactE
                             key={proposal.id}
                             proposal={proposal}
                             applying={props.applying}
+                            acknowledged={props.acknowledgedProposalIds?.includes(proposal.id) === true}
                             onApply={props.onApply}
                             onDismiss={props.onDismiss}
+                            onAcknowledge={props.onAcknowledge}
                         />
                     ))}
 

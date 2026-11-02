@@ -68,13 +68,21 @@ parameters first, then previews one to eight edits to existing driving dimension
 sketch or parametric curve references. A literal dimension changes only its sketch; a parameter-bound dimension
 cascades to every sketch and curve that references the parameter, and the diff names the parameter and all affected
 dimensions. Reference dimensions, missing sketches or parameters, unchanged values, and conflicting solves are
-rejected. New sketch entities, free-form sketch creation, unreferenced document parameters, scripts, topology,
-booleans, imports, assemblies, and drawings are not editable in this mode.
+rejected. New sketch entities, free-form sketch creation, unreferenced document parameters, scripts, booleans,
+add/delete/reorder, lattices, imports, assemblies, and drawings are not editable in this mode.
+
+Topology-impact edits are the third flow. NukeAI can switch an existing hole between blind and through, or change the
+count of an existing linear or circular pattern. The preview builds the change and reports solid/face/triangle deltas,
+added/removed/changed solids, named regions, and whether the saved active OpenMC project still references a changed or
+removed DAGMC group or material. The **CAD Edit Review** panel shows a **Region impact** section and requires an
+acknowledgement before **Apply** is enabled; a removed region still referenced by OpenMC blocks Apply. An unsaved project
+is reported as not checked and still requires the acknowledgement. Apply never rewrites the OpenMC project.
 
 A successful preview also opens the **CAD Edit Review** panel and shows the candidate geometry as a translucent ghost
 in the viewport; changed solids use a warmer accent. Apply, Dismiss, and Undo are available there as well as in the
-chat card. Apply commits the parameter and all affected sketches atomically. The preview rejects any edit that changes
-the solid count, selector map, or region-manifest coverage.
+chat card. Apply commits the parameter and all affected sketches atomically. The scalar and sketch previews reject any
+edit that changes the solid count, selector map, or region-manifest coverage; the topology flow reports those changes
+instead of claiming they are safe.
 
 ## Preview gallery
 
@@ -87,7 +95,7 @@ delete `.nuke-ide/ai/previews` in the file explorer. See [Previews and the Galle
 
 NukeAI ships five skills that load only when a task needs them:
 
-- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC.
+- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, and preview/apply feature, sketch, or topology edits.
 - `/openmc-studio` — summarize, validate, import CAD, run, and poll an OpenMC project.
 - `/nuke-visualizer` — summarize or open a statepoint and capture a DAGMC viewport.
 - `/nuke-workflow` — the end-to-end CAD → DAGMC → OpenMC → statepoint → capture handoff.

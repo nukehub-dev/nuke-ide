@@ -7,13 +7,14 @@ read the same `NukeCapability` objects without importing CAD widgets.
 The implementation lives in
 `src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and
 `src/browser/capabilities/nuke-cad-authoring-capabilities.ts` (the gated
-feature and sketch authoring slices):
+feature, sketch, and topology authoring slices):
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
   the read/export capabilities below.
-- `NukeCadAuthoringCapabilities` registers the feature preview/apply pair and
-  the sketch dimension list/preview/apply trio. All authoring capabilities are
-  default-off behind `nukeCad.aiAuthoringEnabled`.
+- `NukeCadAuthoringCapabilities` registers the feature preview/apply pair, the
+  sketch dimension list/preview/apply trio, and the topology preview/apply pair.
+  All authoring capabilities are default-off behind
+  `nukeCad.aiAuthoringEnabled`.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
   `NukeCadAuthoringContextContribution` additionally refreshes the tool set when
@@ -28,17 +29,19 @@ transient candidate document through the same `buildDocument` path.
 
 ## Capabilities
 
-| ID                              | Risk      | Active model required | Purpose                                                          |
-| ------------------------------- | --------- | --------------------- | ---------------------------------------------------------------- |
-| `nuke.cad.summarizeDocument`    | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries           |
-| `nuke.cad.inspectSelection`     | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids             |
-| `nuke.cad.diagnoseModel`        | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings      |
-| `nuke.cad.listSketchDimensions` | `read`    | Document only         | Document parameters and per-sketch dimensions, datums, consumers |
-| `nuke.cad.previewFeatureChange` | `read`    | Yes, saved            | Validate scalar feature edits with a real build and diff them    |
-| `nuke.cad.applyFeatureChange`   | `execute` | Yes, saved            | Apply a previewed proposal, rebuild, and register undo           |
-| `nuke.cad.previewSketchChange`  | `read`    | Yes, saved            | Validate sketch-dimension or parameter edits with a real build   |
-| `nuke.cad.applySketchChange`    | `execute` | Yes, saved            | Apply a sketch proposal atomically, rebuild, and register undo   |
-| `nuke.cad.exportDagmc`          | `execute` | No                    | Build a source file and export DAGMC + region manifest           |
+| ID                               | Risk      | Active model required | Purpose                                                           |
+| -------------------------------- | --------- | --------------------- | ----------------------------------------------------------------- |
+| `nuke.cad.summarizeDocument`     | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries            |
+| `nuke.cad.inspectSelection`      | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids              |
+| `nuke.cad.diagnoseModel`         | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings       |
+| `nuke.cad.listSketchDimensions`  | `read`    | Document only         | Document parameters and per-sketch dimensions, datums, consumers  |
+| `nuke.cad.previewFeatureChange`  | `read`    | Yes, saved            | Validate scalar feature edits with a real build and diff them     |
+| `nuke.cad.applyFeatureChange`    | `execute` | Yes, saved            | Apply a previewed proposal, rebuild, and register undo            |
+| `nuke.cad.previewSketchChange`   | `read`    | Yes, saved            | Validate sketch-dimension or parameter edits with a real build    |
+| `nuke.cad.applySketchChange`     | `execute` | Yes, saved            | Apply a sketch proposal atomically, rebuild, and register undo    |
+| `nuke.cad.previewTopologyChange` | `read`    | Yes, saved            | Preview hole depth-mode or pattern-count edits with region impact |
+| `nuke.cad.applyTopologyChange`   | `execute` | Yes, saved            | Apply a topology proposal exactly, rebuild, and register undo     |
+| `nuke.cad.exportDagmc`           | `execute` | No                    | Build a source file and export DAGMC + region manifest            |
 
 ### `nuke.cad.summarizeDocument`
 
@@ -193,8 +196,8 @@ params, restores the before params in one batch, and schedules the rebuild.
 
 The full design and its remaining security gates are documented in
 [Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Script,
-free-form sketch creation, new sketch entities/constraints/dimensions, topology, and import authoring remain out of
-scope.
+free-form sketch creation, new sketch entities/constraints/dimensions, topology changes beyond the two topology actions
+below, and import authoring remain out of scope.
 
 ## Sketch authoring (gated)
 
@@ -242,6 +245,50 @@ in one document-store transaction before scheduling `nuke.cad.rebuild`, so a mul
 Undo re-checks the epoch, revision, and applied values and restores the parameter and all affected sketches together. None of the sketch
 authoring ids is on the external MCP read-only allowlist; MCP stays read-only.
 
+## Topology-impact authoring (gated)
+
+Topology authoring uses the same switch and saved-document requirement. It
+accepts one to eight actions on existing features:
+
+```json
+{ "changes": [{ "featureId": "hole-1", "action": "holeDepthMode", "mode": "through" }] }
+```
+
+```json
+{
+  "changes": [
+    { "featureId": "hole-1", "action": "holeDepthMode", "mode": "blind", "depth": 4 },
+    { "featureId": "pattern-1", "action": "patternCount", "count": 4 }
+  ]
+}
+```
+
+- `holeDepthMode` applies to an existing `hole`. Blind means `params.depth` is a positive number; through means the
+  `depth` key is absent. Switching to through deletes the key rather than storing a sentinel value. A modeled thread
+  cannot become through.
+- `patternCount` applies to an existing `linearPattern` or `circularPattern`, includes the original instance, and must
+  be a safe integer of at least 1. A partial circular sweep keeps a count of at least 2. Only a disjoint additive
+  pattern adds solids; an overlapping pattern may change only faces or volume.
+- Duplicate feature ids, unknown features, wrong feature types, unchanged values, no-op modes, and more than eight
+  actions reject the whole request before a build.
+
+The preview runs the same real display build as the other slices and reports solid, face, and triangle deltas,
+added/removed/changed solids, and named regions. Region impact is keyed by DAGMC group and material identity, not only
+by selector keys: a successful build does not prove that an OpenMC region still maps to the same physical body.
+
+The impact check reads the **saved** active OpenMC project file and compares its DAGMC group and material references
+with the candidate regions. An unsaved project is reported as **not checked**, never as safe, and still requires
+acknowledgement; a missing, unreadable, or invalid project reports its own warning. The check is read-only: preview and
+apply never rewrite the OpenMC project and never run an OpenMC solver.
+
+A valid preview stores the proposal and publishes the candidate tessellation to the ghost service. Apply accepts only
+`{ "proposalId", "acknowledgeRegionChanges": true }`. It re-checks the proposal, document epoch, revision, and stored
+feature snapshots, then calls `CadDocumentStore.replaceFeatureParamsBatch` with the exact previous/next parameter
+objects. Exact replacement is required because a through-hole transition deletes the `depth` key, which a shallow merge
+cannot express. The store commits once, the existing rebuild is scheduled, a backup is written, and undo restores the
+previous parameter objects (including a removed key) in one commit. Apply does not re-run the geometry solver, but it
+re-reads the saved OpenMC project and re-checks blockers before commit. It never writes the OpenMC file.
+
 ## Review panel and ghost preview
 
 A successful preview also publishes the candidate tessellation to
@@ -253,16 +300,22 @@ sketch mode. The ghost is display-only and never participates in picking,
 selection, explode, fit, or the document store.
 
 The panel (`CadReviewPanelWidget`, command `nuke.cad.openReviewPanel`) lists the
-stored feature and sketch proposals with the same `changeSet` rows, the
-solid/face/triangle impact, and the build counts. A sketch proposal also shows
-its target sketch, affected-sketch count, parameter/dimension rows, and
+stored feature, sketch, and topology proposals with the same `changeSet` rows,
+the solid/face/triangle impact, and the build counts. A sketch proposal also
+shows its target sketch, affected-sketch count, parameter/dimension rows, and
 per-sketch solver status (converged/failed, DOF, conflicting and redundant
-counts). **Apply** confirms, resolves the proposal's apply capability
-(`nuke.cad.applyFeatureChange` or `nuke.cad.applySketchChange`) from the
-capability registry, and keeps the returned undo token for **Undo**.
-**Dismiss** removes the proposal; the ghost service clears the overlay when the
-backing proposal disappears. The panel never writes the document directly; the
-capability remains the only writer.
+counts). A topology proposal shows a **Region impact** section with added,
+removed, and changed solids, named regions, and the OpenMC reference status. It
+requires the region acknowledgement checkbox before **Apply** is enabled; a
+removed region still referenced by the saved active OpenMC project disables
+Apply with **Blocked by OpenMC** and the blocking reference named, and an
+unsaved project is labelled not checked. The checkbox reads **I understand the
+solid and region impact**. **Apply** confirms, resolves the proposal's apply capability
+(`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`, or
+`nuke.cad.applyTopologyChange`) from the capability registry, and keeps the
+returned undo token for **Undo**. **Dismiss** removes the proposal; the ghost
+service clears the overlay when the backing proposal disappears. The panel
+never writes the document directly; the capability remains the only writer.
 
 ## Path scoping
 

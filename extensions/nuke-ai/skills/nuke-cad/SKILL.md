@@ -6,10 +6,10 @@ description: Inspect, summarize, and export the active NukeCAD document to DAGMC
 # NukeCAD
 
 Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
-CAD document is ready for simulation, or asks for a small feature-parameter or sketch-dimension change. Read/export is
-always available. Feature and sketch edits are available only when the user enabled **Nuke CAD: AI Authoring**; new
-sketch entities, scripts, document parameters not referenced by a sketch, topology, booleans, imports, assemblies, and
-drawings stay in the CAD viewport and Feature Tree.
+CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, or topology-impact
+change. Read/export is always available. Feature, sketch, and topology edits are available only when the user enabled
+**Nuke CAD: AI Authoring**; new sketch entities, scripts, document parameters not referenced by a sketch, booleans,
+add/delete/reorder, lattices, imports, assemblies, and drawings stay in the CAD viewport and Feature Tree.
 
 ## Tool names
 
@@ -99,6 +99,53 @@ document revision and proposal freshness, writes the parameter and every affecte
 rebuilds, and returns an `undoToken`. If the preview expired or the document changed, preview again instead of reusing
 the old id. Undo from the card or the review panel restores the parameter and sketches together.
 
+## Change topology-impacting features
+
+Only use this flow when the user asks to change a hole's blind/through mode or a linear/circular pattern count, and the
+preview tool is present. If `nuke_cad_previewTopologyChange` is unavailable, CAD AI authoring is off; point the user to
+**Settings → Nuke CAD → AI Authoring** and stop. The document must be saved.
+
+Start with `nuke_cad_summarizeDocument` and `nuke_cad_inspectSelection` to confirm the active document and body, then
+ask the user for the feature id shown in the Feature Tree. Never guess a feature id, and never use a body or solid id as
+a feature id.
+
+Two actions are accepted on existing features, one to eight per preview:
+
+```json
+{ "changes": [{ "featureId": "hole-1", "action": "holeDepthMode", "mode": "through" }] }
+```
+
+```json
+{
+  "changes": [
+    { "featureId": "hole-1", "action": "holeDepthMode", "mode": "blind", "depth": 4 },
+    { "featureId": "pattern-1", "action": "patternCount", "count": 4 }
+  ]
+}
+```
+
+- A blind hole stores a positive `depth`; a through hole has no `depth` key. Apply removes the key when switching to
+  through.
+- `patternCount` includes the original instance. Only a disjoint additive pattern adds solids; an overlapping pattern
+  may change only faces or volume.
+- Only existing `hole`, `linearPattern`, and `circularPattern` features are editable. A modeled thread cannot become
+  through, and a partial circular sweep keeps a count of at least two.
+
+The preview runs a real build and reports solid, face, and triangle deltas, added, removed, and changed solids, and
+named regions. It also checks the **saved** active OpenMC project for DAGMC group and material references to changed or
+removed regions. Region impact is about DAGMC group/material identity, not only selector keys. Do not call an edit safe
+because the geometry builds: show the region impact.
+
+A successful preview opens the **CAD Edit Review** panel with a Region impact section. The user must tick the region
+acknowledgement checkbox before **Apply** is enabled; if a removed region is still referenced by OpenMC, **Apply** stays
+disabled. An unsaved project is reported as **not checked** and still requires the acknowledgement. Apply never rewrites
+the OpenMC project.
+
+Call `nuke_cad_applyTopologyChange` with only `{ "proposalId", "acknowledgeRegionChanges": true }`, and only after
+explicit confirmation of the shown region impact. It writes one exact-replace document commit, rebuilds, and returns an
+`undoToken`. Undo restores the previous feature parameters, including a removed `depth` key, in one commit. If the
+preview expired or the document changed, preview again instead of reusing the old id.
+
 ## Inspect before export
 
 Always summarize the active document before calling `nuke_cad_exportDagmc`. The summary confirms that the model
@@ -156,10 +203,10 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 
 ## Boundaries
 
-- Do not author geometry beyond the scalar feature-edit and sketch-dimension flows. New sketch entities, scripts,
-  document parameters not referenced by a sketch, topology, booleans, imports, assemblies, and drawings stay in the
-  CAD viewport or Feature Tree.
-- Do not apply a feature or sketch change without an explicit confirmation, and never send CAD authoring tools
-  through MCP.
+- Do not author geometry beyond the scalar feature-edit, sketch-dimension, and topology-impact flows. New sketch
+  entities, scripts, document parameters not referenced by a sketch, booleans, add/delete/reorder, lattices, imports,
+  assemblies, and drawings stay in the CAD viewport or Feature Tree.
+- Do not apply a feature, sketch, or topology change without an explicit confirmation, and never send CAD authoring
+  tools through MCP.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

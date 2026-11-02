@@ -1,8 +1,9 @@
 # Safe Edits
 
-NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, and existing sketch
-dimensions or referenced document parameters without writing directly from the chat model. Every edit goes through a
-preview, an explicit apply step with confirmation, and an in-session undo.
+NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, existing sketch
+dimensions or referenced document parameters, and a small set of topology-impacting CAD feature settings without
+writing directly from the chat model. Every edit goes through a preview, an explicit apply step with confirmation, and
+an in-session undo.
 
 ## Supported settings
 
@@ -124,8 +125,8 @@ schedules the normal rebuild, and exposes **Undo** in the card. Undo re-checks t
 the before parameters in one batch, and schedules the rebuild again.
 
 New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
-sketch, scripts, topology, booleans, imports, assemblies, and drawings are outside this surface. External MCP never
-exposes the CAD preview or apply tools.
+sketch, scripts, booleans, add/delete/reorder, lattices, imports, assemblies, and drawings are outside this surface.
+External MCP never exposes the CAD preview or apply tools.
 
 ## CAD sketch dimensions
 
@@ -159,6 +160,48 @@ Apply accepts only the proposal id after explicit confirmation. It re-checks the
 freshness, then writes the parameter and every affected sketch in one atomic document-store commit and rebuilds. If the
 document changed after the preview, preview again instead of reusing the id. Undo from the chat card or the review
 panel restores the parameter and all affected sketches together and schedules the rebuild again.
+
+## CAD topology-impact edits
+
+Topology-impact edits use the same opt-in switch and saved-document requirement. They change only two things on an
+existing feature:
+
+- a hole's blind/through mode (`holeDepthMode`). A blind hole stores a positive `depth`; a through hole has no `depth`
+  key, so switching to through removes the key.
+- the count of an existing linear or circular pattern (`patternCount`). The count includes the original instance. Only a
+  disjoint additive pattern adds solids; an overlapping pattern may change only faces or volume.
+
+```json
+{ "changes": [{ "featureId": "hole-1", "action": "holeDepthMode", "mode": "through" }] }
+```
+
+```json
+{
+  "changes": [
+    { "featureId": "hole-1", "action": "holeDepthMode", "mode": "blind", "depth": 4 },
+    { "featureId": "pattern-1", "action": "patternCount", "count": 4 }
+  ]
+}
+```
+
+NukeAI confirms the active document and body first and asks for the feature id shown in the Feature Tree; it never
+guesses an id. Only existing hole and pattern features are accepted, one to eight actions per preview. A modeled thread
+cannot become a through hole, and a partial circular sweep keeps at least two instances.
+
+The preview runs a real build and reports solid, face, and triangle deltas, added, removed, and changed solids, and
+named regions. It also checks the **saved** active OpenMC project for DAGMC group and material references to changed or
+removed regions. Region impact is about DAGMC group/material identity, not only selector keys: a geometry build that
+succeeds does not prove the region mapping is still correct.
+
+A successful preview opens the **CAD Edit Review** panel with a **Region impact** section. Tick **I understand the solid
+and region impact** before **Apply** is enabled. If a removed region is still referenced by the saved OpenMC project,
+Apply stays disabled and the panel names the reference. An unsaved project is reported as **not checked** and still
+requires the acknowledgement. Apply never rewrites the OpenMC project.
+
+Apply accepts only the proposal id and the acknowledgement, writes a hidden backup, installs the exact feature
+parameters in one commit (including removing a hole's `depth` key), rebuilds, and exposes **Undo**. Undo restores the
+previous parameters, including a removed key, in one commit. If the document changed after the preview, preview again
+instead of reusing the id.
 
 ## Related
 

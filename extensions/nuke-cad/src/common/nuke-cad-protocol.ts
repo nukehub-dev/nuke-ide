@@ -438,6 +438,12 @@ export interface RegionManifestVolume {
     readonly tags?: string[];
     /** Optional per-region target element size for meshing. */
     readonly meshSize?: number;
+    /** Stable physical-model material UUID; never used for DAGMC naming. */
+    readonly materialId?: string;
+    /** Parent selector/UUID when this entry was copied from another region. */
+    readonly parentId?: string;
+    /** Per-body default entry inherited by selectors without an explicit entry. */
+    readonly default?: boolean;
 }
 
 /** Single surface entry in the region manifest. */

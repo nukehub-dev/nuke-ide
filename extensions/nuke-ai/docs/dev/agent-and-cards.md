@@ -9,7 +9,7 @@ for finished Nuke capability calls.
 
 - extends `AbstractStreamParsingChatAgent` and is bound as both `Agent` and `ChatAgent`;
 - uses the `chat` language-model purpose and the `nuke-system` prompt;
-- declares `nuke.context` and the twenty-six capability tool names in its `functions` list;
+- declares `nuke.context` and the twenty-eight capability tool names in its `functions` list;
 - references every capability tool through `~{toolName}` in the prompt, where `toolName` is the sanitized name
   registered by the bridge (for example `nuke_cad_summarizeDocument`), not the capability id, so the model receives
   the typed tools without a separate registration step.
@@ -19,17 +19,23 @@ the model to ask before a write, execute, or destructive tool. Export, import, r
 Theia confirmation requirement. Never add a write or execute tool to the prompt without a matching confirmation path.
 
 The safe-edit section requires NukeAI to preview with `nuke_openmc_previewSettings`, `nuke_openmc_previewMaterialChange`,
-`nuke_openmc_previewTallyChange`, `nuke_cad_previewFeatureChange`, or `nuke_cad_previewSketchChange`, show the diff,
-apply with the matching apply tool (`nuke_cad_applyFeatureChange` or `nuke_cad_applySketchChange`) only after explicit
+`nuke_openmc_previewTallyChange`, `nuke_cad_previewFeatureChange`, `nuke_cad_previewSketchChange`, or
+`nuke_cad_previewTopologyChange`, show the diff, apply with the matching apply tool (including
+`nuke_cad_applyFeatureChange`, `nuke_cad_applySketchChange`, or `nuke_cad_applyTopologyChange`) only after explicit
 confirmation, and report undo availability from the apply result.
 Sketch edits start with the read-only `nuke_cad_listSketchDimensions`, accept one to eight driving-dimension or
 referenced-document-parameter changes on one sketch, and reject topology, selector-map, or region-coverage changes. CAD
 previews are exposed only while `nukeCad.aiAuthoringEnabled` is on and require a saved document; a parameter-bound
-dimension cascades to every affected sketch and curve, and the diff lists the parameter and its consumers. The **CAD
-Edit Review** panel renders the same pending proposal (feature or sketch), invokes the same apply capability after
-confirmation, and keeps the returned undo token; it never writes the document directly. The read-only Diagnostics
-agent never receives a preview or apply tool; see
-[Safe Edits](../user/safe-edits.md) and [CAD Feature and Sketch Authoring](../user/safe-edits.md#cad-feature-edits).
+dimension cascades to every affected sketch and curve, and the diff lists the parameter and its consumers.
+Topology edits change existing hole blind/through mode or linear/circular pattern count. They run a real build and show
+solid/face/triangle deltas, added/removed/changed solids, named regions, and whether the saved active OpenMC project
+still references a changed or removed DAGMC group or material. Apply accepts only `{ "proposalId",
+"acknowledgeRegionChanges": true }` and is blocked while a removed region is referenced; an unsaved OpenMC project is
+reported as not checked and still requires the acknowledgement. The **CAD Edit Review** panel renders the same pending
+proposal (feature, sketch, or topology), invokes the same apply capability after confirmation, and keeps the returned
+undo token; it never writes the document directly. The read-only Diagnostics agent never receives a preview or apply
+tool; see [Safe Edits](../user/safe-edits.md) and
+[CAD Feature, Sketch, and Topology Authoring](../user/safe-edits.md#cad-feature-edits).
 
 The agent receives the same active-workspace summary as `#nukeContext`. Missing documents, projects, or datasets are
 reported as `none`; the agent must not invent model state.

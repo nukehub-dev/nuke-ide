@@ -127,6 +127,8 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
     nuke_cad_listSketchDimensions: 'CAD sketch dimensions',
     nuke_cad_previewSketchChange: 'CAD sketch preview',
     nuke_cad_applySketchChange: 'CAD sketch applied',
+    nuke_cad_previewTopologyChange: 'CAD topology preview',
+    nuke_cad_applyTopologyChange: 'CAD topology applied',
     nuke_cad_exportDagmc: 'DAGMC export',
     nuke_openmc_summarizeProject: 'OpenMC project',
     nuke_openmc_validateProject: 'OpenMC validation',

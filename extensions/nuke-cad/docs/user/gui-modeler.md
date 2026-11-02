@@ -1004,16 +1004,25 @@ the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
 
 ### AI edit review
 
-When NukeAI proposes a feature-parameter change or a sketch-dimension change and **Nuke CAD: AI Authoring** is
-enabled, the **CAD Edit Review** panel opens beside the viewport. It shows the target document, the before/after
-values, and the solid/face/triangle/bounding-box impact. A sketch proposal also names the target sketch, the
-affected-sketch count, every parameter/dimension row, and the solver status (DOF, conflicting and redundant
-constraints). A dimension bound to a document parameter cascades, so one row updates the parameter and the panel
-lists every affected dimension; a literal dimension edits only its sketch. The viewport overlays the candidate as a
-translucent ghost; changed solids use a warmer accent, and the real model is untouched. **Apply** confirms and writes
-the change, **Dismiss** discards it, and **Undo** restores the previous parameters or the parameter plus all affected
-sketches for the current session. Open the panel manually with **Open CAD Edit Review** in the Command Palette, the
-CAD Studio menu, or the Nuke Tools sidebar.
+When NukeAI proposes a feature-parameter change, a sketch-dimension change, or a topology-impact change and **Nuke CAD:
+AI Authoring** is enabled, the **CAD Edit Review** panel opens beside the viewport. It shows the target document, the
+before/after values, and the solid/face/triangle/bounding-box impact. A sketch proposal also names the target sketch,
+the affected-sketch count, every parameter/dimension row, and the solver status (DOF, conflicting and redundant
+constraints). A dimension bound to a document parameter cascades, so one row updates the parameter and the panel lists
+every affected dimension; a literal dimension edits only its sketch.
+
+A topology proposal adds a **Region impact** section with added, removed, and changed solids, named regions, and the
+status of references from the saved active OpenMC project. Region impact follows DAGMC group and material identity, so
+review it even when the build succeeds. Tick **I understand the solid and region impact** to enable **Apply**; a
+removed region still referenced by OpenMC shows **Blocked by OpenMC** and keeps Apply disabled, and an unsaved project
+is shown as not checked and still requires the acknowledgement. Apply changes only the CAD document and never rewrites
+the OpenMC project.
+
+The viewport overlays the candidate as a translucent ghost; changed solids use a warmer accent, and the real model is
+untouched. **Apply** confirms and writes the change, **Dismiss** discards it, and **Undo** restores the previous
+parameters, the parameter plus all affected sketches, or the exact previous feature parameters for the current session.
+Open the panel manually with **Open CAD Edit Review** in the Command Palette, the CAD Studio menu, or the Nuke Tools
+sidebar.
 
 ### Reference repair
 

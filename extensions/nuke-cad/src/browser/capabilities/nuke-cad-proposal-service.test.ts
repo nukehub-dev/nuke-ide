@@ -31,7 +31,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SketchDef } from '../../common/cad-document';
+import type { OpenmcRegionBlocker } from '../../common/openmc-region-references';
 import type { SketchSolveSummary } from '../sketch/sketch-edit-types';
+import type { TopologyImpact, TopologyRegionRef } from '../../common/topology-impact';
 import {
     NUKE_CAD_FEATURE_PROPOSAL_LIMIT,
     NUKE_CAD_FEATURE_PROPOSAL_TTL_MS,
@@ -40,7 +42,10 @@ import {
     NukeCadProposal,
     NukeCadProposalService,
     NukeCadSketchProposalInput,
-    isSketchProposal
+    NukeCadTopologyProposal,
+    NukeCadTopologyProposalInput,
+    isSketchProposal,
+    isTopologyProposal
 } from './nuke-cad-proposal-service';
 
 const START = Date.parse('2026-01-01T00:00:00.000Z');
@@ -141,9 +146,88 @@ function buildSketchInput(summary = 'Set the fuel pellet radius'): NukeCadSketch
     };
 }
 
+function region(selector: string, solidIds: readonly number[] = [1]): TopologyRegionRef {
+    return {
+        kind: 'volume',
+        selector,
+        group: `${selector}_region`,
+        name: `${selector}_region`,
+        material: 'steel',
+        materialId: `material-${selector}`,
+        solidIds
+    };
+}
+
+function topologyImpact(overrides: Partial<TopologyImpact> = {}): TopologyImpact {
+    return {
+        solids: { before: 2, after: 3 },
+        faces: { before: 20, after: 28 },
+        triangles: { before: 800, after: 1000 },
+        addedSolidIds: [3],
+        removedSolidIds: [],
+        changedSolidIds: [1, 2],
+        addedRegions: [region('insert')],
+        removedRegions: [],
+        changedRegions: [],
+        addedGroups: ['insert_region'],
+        removedGroups: [],
+        selectorMapChanged: true,
+        regionCoverageChanged: true,
+        requiresAcknowledgement: true,
+        ...overrides
+    };
+}
+
+function buildTopologyInput(summary = 'Open the coolant hole through the wall'): NukeCadTopologyProposalInput {
+    return {
+        scope: 'topology',
+        summary,
+        documentPath: DOCUMENT_PATH,
+        documentEpoch: 12,
+        baseRevision: BASE_REVISION,
+        changes: [
+            {
+                path: 'features.coolant.params.depth',
+                label: 'Feature coolant hole depth',
+                kind: 'remove',
+                before: 2,
+                after: undefined
+            }
+        ],
+        topology: {
+            actions: [{ featureId: 'coolant', action: 'holeDepthMode', mode: 'through' }],
+            before: { coolant: { diameter: 1, depth: 2 } },
+            after: { coolant: { diameter: 1 } },
+            topology: topologyImpact(),
+            afterRegions: [region('fuel'), region('insert')],
+            blockedRegions: [],
+            openmcStatus: 'saved-project',
+            openmcProjectPath: '/workspace/project/pincell.nuke-openmc',
+            openmcWarnings: []
+        }
+    };
+}
+
+function blocker(): OpenmcRegionBlocker {
+    const blocked = region('fuel', [1]);
+    return {
+        region: blocked,
+        reference: 'steel',
+        kind: 'material',
+        message: "OpenMC material 'steel' still references region 'fuel'."
+    };
+}
+
 function featureProposal(proposal: NukeCadProposal | undefined): NukeCadFeatureProposal {
     if (proposal === undefined || proposal.scope !== 'features') {
         throw new Error('Expected a feature proposal');
+    }
+    return proposal;
+}
+
+function topologyProposal(proposal: NukeCadProposal | undefined): NukeCadTopologyProposal {
+    if (proposal === undefined || proposal.scope !== 'topology') {
+        throw new Error('Expected a topology proposal');
     }
     return proposal;
 }
@@ -501,15 +585,119 @@ describe('NukeCadProposalService', () => {
         expect(narrowed.applyCapability).toBe('nuke.cad.applySketchChange');
     });
 
-    it('preserves an explicit apply capability for both proposal scopes', () => {
+    it('preserves an explicit apply capability for every proposal scope', () => {
         const service = new NukeCadProposalService();
         const feature = service.create({ ...buildInput('Feature change'), applyCapability: 'nuke.test.applyFeature' });
         const sketch = service.create({ ...buildSketchInput('Sketch change'), applyCapability: 'nuke.test.applySketch' });
+        const topology = service.create({ ...buildTopologyInput('Topology change'), applyCapability: 'nuke.test.applyTopology' });
 
         expect(feature.applyCapability).toBe('nuke.test.applyFeature');
         expect(sketch.applyCapability).toBe('nuke.test.applySketch');
+        expect(topology.applyCapability).toBe('nuke.test.applyTopology');
         expect(service.get(feature.id)?.applyCapability).toBe('nuke.test.applyFeature');
         expect(service.get(sketch.id)?.applyCapability).toBe('nuke.test.applySketch');
+        expect(service.get(topology.id)?.applyCapability).toBe('nuke.test.applyTopology');
         expect(service.create(buildInput('Default feature')).applyCapability).toBeUndefined();
+    });
+
+    it('creates a topology proposal with detached actions, snapshots, regions, and OpenMC state', () => {
+        const service = new NukeCadProposalService();
+        const input = buildTopologyInput();
+        const blocked = blocker();
+        (input.topology as { blockedRegions: readonly OpenmcRegionBlocker[] }).blockedRegions = [blocked];
+        (input.topology as { openmcWarnings: readonly string[] }).openmcWarnings = ['Project was saved by an older IDE build.'];
+        const created = service.create(input);
+
+        expect(created.scope).toBe('topology');
+        expect(created.applyCapability).toBe('nuke.cad.applyTopologyChange');
+        expect(created.createdAt).toBe(START);
+        expect(created.topology.actions).toEqual([{ featureId: 'coolant', action: 'holeDepthMode', mode: 'through' }]);
+        expect(created.topology.before).toEqual({ coolant: { diameter: 1, depth: 2 } });
+        expect(created.topology.topology.solids).toEqual({ before: 2, after: 3 });
+        expect(created.topology.afterRegions.map((entry) => entry.selector)).toEqual(['fuel', 'insert']);
+        expect(created.topology.blockedRegions[0].reference).toBe('steel');
+        expect(created.topology.openmcStatus).toBe('saved-project');
+        expect(created.topology.openmcProjectPath).toBe('/workspace/project/pincell.nuke-openmc');
+
+        (input.topology.actions[0] as { featureId: string }).featureId = 'mutated-input';
+        (input.topology.before.coolant as { depth?: number }).depth = 99;
+        (input.topology.after.coolant as { diameter?: number }).diameter = 99;
+        (input.topology.topology.addedRegions[0] as { selector: string }).selector = 'mutated-input';
+        (input.topology.topology.solids as { after: number }).after = 99;
+        (input.topology.afterRegions[0] as { selector: string }).selector = 'mutated-input';
+        (input.topology.blockedRegions[0] as { message: string }).message = 'Mutated input blocker';
+        (input.topology.openmcWarnings as string[]).push('Mutated input warning');
+
+        (created.topology.actions[0] as { featureId: string }).featureId = 'mutated-return';
+        (created.topology.before.coolant as { depth?: number }).depth = 42;
+        (created.topology.after.coolant as { diameter?: number }).diameter = 42;
+        (created.topology.topology.addedRegions[0] as { selector: string }).selector = 'mutated-return';
+        (created.topology.topology.solids as { after: number }).after = 42;
+        (created.topology.afterRegions[0] as { selector: string }).selector = 'mutated-return';
+        (created.topology.blockedRegions[0] as { message: string }).message = 'Mutated return blocker';
+        (created.topology.openmcWarnings as string[]).push('Mutated return warning');
+
+        const stored = topologyProposal(service.get(created.id));
+        expect(stored.topology.actions[0].featureId).toBe('coolant');
+        expect(stored.topology.before).toEqual({ coolant: { diameter: 1, depth: 2 } });
+        expect(stored.topology.after).toEqual({ coolant: { diameter: 1 } });
+        expect(stored.topology.topology.addedRegions[0].selector).toBe('insert');
+        expect(stored.topology.topology.solids).toEqual({ before: 2, after: 3 });
+        expect(stored.topology.afterRegions.map((entry) => entry.selector)).toEqual(['fuel', 'insert']);
+        expect(stored.topology.blockedRegions[0].reference).toBe('steel');
+        expect(stored.topology.blockedRegions[0].kind).toBe('material');
+        expect(stored.topology.blockedRegions[0].message).toBe("OpenMC material 'steel' still references region 'fuel'.");
+        expect(stored.topology.openmcWarnings).toEqual(['Project was saved by an older IDE build.']);
+        expect(stored.topology).not.toBe(created.topology);
+        expect(stored.topology.actions).not.toBe(created.topology.actions);
+        expect(stored.topology.afterRegions).not.toBe(created.topology.afterRegions);
+        expect(stored.topology.blockedRegions).not.toBe(created.topology.blockedRegions);
+        expect(service.get(created.id)).not.toBe(service.get(created.id));
+
+        const listed = topologyProposal(service.list()[0]);
+        expect(listed).not.toBe(stored);
+        (listed.topology.actions[0] as { featureId: string }).featureId = 'mutated-list';
+        (listed.topology.afterRegions[0] as { selector: string }).selector = 'mutated-list';
+        expect(topologyProposal(service.get(created.id)).topology.actions[0].featureId).toBe('coolant');
+        expect(topologyProposal(service.get(created.id)).topology.afterRegions[0].selector).toBe('fuel');
+    });
+
+    it('keeps feature, sketch, and topology proposals in one store and narrows topology by scope', () => {
+        const service = new NukeCadProposalService();
+        const feature = service.create(buildInput('Feature change'));
+        const sketch = service.create(buildSketchInput('Sketch change'));
+        const topology = service.create(buildTopologyInput('Topology change'));
+
+        const listed = service.list();
+        expect(listed.map((entry) => entry.id)).toEqual([feature.id, sketch.id, topology.id]);
+        expect(listed.map((entry) => entry.scope)).toEqual(['features', 'sketch', 'topology']);
+        expect(listed.map((entry) => isTopologyProposal(entry))).toEqual([false, false, true]);
+
+        const narrowed = listed[2];
+        if (!isTopologyProposal(narrowed)) {
+            throw new Error('Expected a topology proposal');
+        }
+        expect(narrowed.topology.actions[0].action).toBe('holeDepthMode');
+        expect(narrowed.topology.topology.requiresAcknowledgement).toBe(true);
+        expect(isSketchProposal(narrowed)).toBe(false);
+        expect(topology.scope).toBe('topology');
+    });
+
+    it('applies the TTL and FIFO policy to topology proposals', () => {
+        const service = new InspectableProposalService();
+        const ids: string[] = [];
+        for (let index = 0; index < NUKE_CAD_FEATURE_PROPOSAL_LIMIT + 1; index++) {
+            ids.push(service.create(buildTopologyInput(`Topology change ${index + 1}`)).id);
+        }
+
+        expect(service.size).toBe(NUKE_CAD_FEATURE_PROPOSAL_LIMIT);
+        expect(service.has(ids[0])).toBe(false);
+        expect(service.get(ids[1])?.summary).toBe('Topology change 2');
+
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS - 1);
+        expect(service.has(ids[1])).toBe(true);
+        advance(1);
+        expect(service.list()).toEqual([]);
+        expect(service.size).toBe(0);
     });
 });

@@ -30,10 +30,13 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings,
   materials, tallies, and CAD feature/sketch edits, a shown diff, confirmation, and undo reporting; see
   `docs/user/safe-edits.md`.
-- CAD authoring ships two gated slices (scalar feature params; existing sketch dimensions or referenced parameters) on
-  saved `.nuke-cad` documents while `nukeCad.aiAuthoringEnabled` is on: real-build preview, CAD Edit Review panel +
-  ghost, atomic commit, backup, rebuild, undo; parameter-bound edits cascade. New sketch entities/constraints/dimensions,
-  scripts, unreferenced parameters, topology, imports, and MCP stay excluded. See `docs/dev/cad-authoring-design.md`.
+- CAD authoring ships three gated slices on saved `.nuke-cad` documents while `nukeCad.aiAuthoringEnabled` is on:
+  scalar feature params; existing sketch dimensions or referenced parameters; and topology-impacting hole
+  blind/through mode or linear/circular pattern count. Each runs a real-build preview, CAD Edit Review panel + ghost,
+  atomic commit, backup, rebuild, and undo; parameter-bound edits cascade. The topology slice reports added/removed
+  solids and named regions, checks the saved active OpenMC project's DAGMC references, and requires acknowledgement;
+  apply never rewrites OpenMC. Booleans, add/delete/reorder, lattices, scripts, unreferenced parameters, imports, and MCP
+  stay excluded. See `docs/dev/cad-authoring-design.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
   and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.

@@ -63,6 +63,7 @@ import {
     type CurveDef,
     type DocumentUnits,
     type FeatureDef,
+    type FeatureParams,
     type ImportParams,
     type SketchDef,
     type W7xCoilStudy,
@@ -630,6 +631,181 @@ describe('CadDocumentStore', () => {
             store.setParameter('height', 5);
             expect(calls).toHaveLength(2);
         });
+    });
+});
+
+describe('exact feature parameter replacement', () => {
+    function exactParamsDocument(): NukeCadDocument {
+        return minimalDoc({
+            features: [
+                { ...feature('pad1', 'pad'), params: { length: 5 } },
+                {
+                    id: 'hole1',
+                    name: 'Blind hole',
+                    type: 'hole',
+                    body: 'body-1',
+                    params: { face: faceRef('pad1'), center: [0, 0], diameter: 1, depth: 3 },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                },
+                {
+                    id: 'lin1',
+                    name: 'Bolt pattern',
+                    type: 'linearPattern',
+                    body: 'body-1',
+                    params: { source: 'pad1', count: 3, spacing: 2, axis: 'x' },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                }
+            ]
+        });
+    }
+
+    function paramsById(store: CadDocumentStore, id: string): Record<string, unknown> {
+        const feature = store.document!.features.find((candidate) => candidate.id === id);
+        if (feature === undefined) {
+            throw new Error(`Feature '${id}' missing from document`);
+        }
+        return feature.params as Record<string, unknown>;
+    }
+
+    it('replaces a count and removes a depth in one commit, revision, and undo entry', () => {
+        const store = new CadDocumentStore();
+        expect(store.loadDocument(exactParamsDocument()).success).toBe(true);
+        const beforeRevision = store.revision;
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const result = store.replaceFeatureParamsBatch([
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'lin1', params: { source: 'pad1', count: 4, spacing: 2, axis: 'x' } }
+        ]);
+
+        expect(result.success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.revision).toBe(beforeRevision + 1);
+        expect(store.dirty).toBe(true);
+        expect(store.canUndo).toBe(true);
+        expect('depth' in paramsById(store, 'hole1')).toBe(false);
+        expect(paramsById(store, 'lin1').count).toBe(4);
+
+        expect(store.undo().success).toBe(true);
+        expect(store.revision).toBe(beforeRevision + 2);
+        expect(paramsById(store, 'hole1').depth).toBe(3);
+        expect(paramsById(store, 'lin1').count).toBe(3);
+        expect(store.canUndo).toBe(false);
+    });
+
+    it('undo restores both a removed and an added depth exactly', () => {
+        const document = minimalDoc({
+            features: [
+                { ...feature('pad1', 'pad'), params: { length: 5 } },
+                {
+                    id: 'blind-hole',
+                    name: 'Blind hole',
+                    type: 'hole',
+                    body: 'body-1',
+                    params: { face: faceRef('pad1'), center: [0, 0], diameter: 1, depth: 3 },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                },
+                {
+                    id: 'through-hole',
+                    name: 'Through hole',
+                    type: 'hole',
+                    body: 'body-1',
+                    params: { face: faceRef('pad1'), center: [1, 1], diameter: 1 },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                }
+            ]
+        });
+        const store = new CadDocumentStore();
+        expect(store.loadDocument(document).success).toBe(true);
+
+        const result = store.replaceFeatureParamsBatch([
+            { id: 'blind-hole', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'through-hole', params: { face: faceRef('pad1'), center: [1, 1], diameter: 1, depth: 6 } }
+        ]);
+
+        expect(result.success).toBe(true);
+        expect('depth' in paramsById(store, 'blind-hole')).toBe(false);
+        expect(paramsById(store, 'through-hole').depth).toBe(6);
+
+        expect(store.undo().success).toBe(true);
+        expect(paramsById(store, 'blind-hole').depth).toBe(3);
+        expect('depth' in paramsById(store, 'through-hole')).toBe(false);
+    });
+
+    it('drops omitted keys instead of merging them', () => {
+        const store = new CadDocumentStore();
+        expect(
+            store.loadDocument(
+                minimalDoc({
+                    features: [{ ...feature('pad1', 'pad'), params: { length: 1, symmetric: true } }]
+                })
+            ).success
+        ).toBe(true);
+
+        expect(store.replaceFeatureParamsBatch([{ id: 'pad1', params: { length: 7 } }]).success).toBe(true);
+        expect(paramsById(store, 'pad1')).toEqual({ length: 7 });
+    });
+
+    it('rejects empty, duplicate, unknown, and non-object requests without mutation or history', () => {
+        const store = new CadDocumentStore();
+        expect(store.loadDocument(exactParamsDocument()).success).toBe(true);
+        store.markSaved();
+        const beforeRevision = store.revision;
+        const before = JSON.stringify(store.document);
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const empty = store.replaceFeatureParamsBatch([]);
+        expect(empty.success).toBe(false);
+        expect(empty.error).toContain('at least one');
+
+        const missing = store.replaceFeatureParamsBatch([
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'missing', params: { length: 2 } }
+        ]);
+        expect(missing.success).toBe(false);
+        expect(missing.error).toBe("Feature 'missing' not found");
+
+        const duplicate = store.replaceFeatureParamsBatch([
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1, depth: 4 } }
+        ]);
+        expect(duplicate.success).toBe(false);
+        expect(duplicate.error).toContain("Duplicate feature id 'hole1'");
+
+        const invalidParams: unknown[] = [null, [], 'nope', 42];
+        for (const params of invalidParams) {
+            const invalid = store.replaceFeatureParamsBatch([{ id: 'hole1', params: params as FeatureParams }]);
+            expect(invalid.success).toBe(false);
+            expect(invalid.error).toBe("Feature 'hole1' params must be an object");
+        }
+
+        expect(JSON.stringify(store.document)).toBe(before);
+        expect(store.revision).toBe(beforeRevision);
+        expect(store.canUndo).toBe(false);
+        expect(store.dirty).toBe(false);
+        expect(changes).toBe(0);
+    });
+
+    it('keeps updateFeatureParamsBatch shallow-merging as before', () => {
+        const store = new CadDocumentStore();
+        expect(
+            store.loadDocument(
+                minimalDoc({
+                    features: [{ ...feature('pad1', 'pad'), params: { length: 1, symmetric: true } }]
+                })
+            ).success
+        ).toBe(true);
+
+        const result = store.updateFeatureParamsBatch([{ id: 'pad1', params: { length: 5 } }]);
+
+        expect(result.success).toBe(true);
+        expect(paramsById(store, 'pad1')).toEqual({ length: 5, symmetric: true });
     });
 });
 

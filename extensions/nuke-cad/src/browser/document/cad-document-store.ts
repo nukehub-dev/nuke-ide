@@ -135,6 +135,12 @@ export interface SketchAuthoringEdit {
     readonly parameters?: Readonly<Record<string, number>>;
 }
 
+/** One exact feature-parameter replacement for {@link CadDocumentStore.replaceFeatureParamsBatch}. */
+export interface FeatureParamsReplacement {
+    readonly id: string;
+    readonly params: FeatureParams;
+}
+
 /** One body + import feature pair created by {@link CadDocumentStore.addImportBodies}. */
 export interface ImportBodyDraft {
     /** Body name shown in the feature tree. */
@@ -456,6 +462,10 @@ function cloneTopologyRef(ref: TopologyRef): TopologyRef {
 
 function formatIssues(issues: ValidationIssue[]): string {
     return issues.map((i) => `${i.path || 'document'}: ${i.message}`).join('; ');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function fingerprintsEqual(
@@ -1513,6 +1523,54 @@ export class CadDocumentStore {
         for (const edit of edits) {
             const feature = features.get(edit.id)!;
             feature.params = { ...feature.params, ...(edit.params as Record<string, unknown>) };
+        }
+        return this.commit(doc);
+    }
+
+    /**
+     * Replace feature parameters exactly in one atomic commit.
+     *
+     * A shallow merge cannot express a blind-to-through hole change: going
+     * through requires the `depth` key to be deleted, and merging can only add
+     * or overwrite keys. This method exists separately from
+     * {@link updateFeatureParamsBatch} so the strict sketch/scalar paths keep
+     * their merge semantics while topology edits can install an exact params
+     * object (including dropping optional keys).
+     *
+     * The batch validates exactly like {@link updateFeatureParamsBatch} —
+     * non-empty array, unique ids, existing features, object params — and
+     * commits once, producing one undo entry, one revision bump, and one
+     * change event. Every supplied params object is copied; the caller's
+     * object is never retained.
+     */
+    replaceFeatureParamsBatch(replacements: readonly FeatureParamsReplacement[]): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (!Array.isArray(replacements) || replacements.length === 0) {
+            return { success: false, error: 'Select at least one feature replacement' };
+        }
+        const seen = new Set<string>();
+        for (const replacement of replacements) {
+            if (seen.has(replacement.id)) {
+                return { success: false, error: `Duplicate feature id '${replacement.id}' in batch` };
+            }
+            seen.add(replacement.id);
+            if (!isRecord(replacement.params)) {
+                return { success: false, error: `Feature '${replacement.id}' params must be an object` };
+            }
+        }
+        const doc = cloneDocument(check.value!);
+        const features = new Map(doc.features.map((f) => [f.id, f] as const));
+        for (const replacement of replacements) {
+            if (!features.has(replacement.id)) {
+                return { success: false, error: `Feature '${replacement.id}' not found` };
+            }
+        }
+        for (const replacement of replacements) {
+            const feature = features.get(replacement.id)!;
+            feature.params = { ...replacement.params };
         }
         return this.commit(doc);
     }

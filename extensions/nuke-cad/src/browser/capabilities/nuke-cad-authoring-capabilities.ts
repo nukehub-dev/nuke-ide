@@ -28,14 +28,17 @@
 /**
  * NukeCAD Authoring Capabilities
  *
- * The narrow AI authoring slice: scalar feature-parameter edits and sketch
- * driving-dimension edits on a saved `.nuke-cad` document. Every preview runs a
- * real build in a private temporary directory, keeps the solid count, selector
- * map, and region coverage unchanged, and stores a short-lived proposal. Apply
- * writes the changes through the document store, schedules the existing
- * rebuild, and registers a session-scoped undo. The whole authoring surface is
- * default-off behind `nukeCad.aiAuthoringEnabled`; listing sketch dimensions is
- * read-only metadata and stays available.
+ * The narrow AI authoring slice: scalar feature-parameter edits, sketch
+ * driving-dimension edits, and topology-impacting hole-depth/pattern-count
+ * edits on a saved `.nuke-cad` document. Every preview runs a real build in a
+ * private temporary directory and stores a short-lived proposal. Scalar and
+ * sketch previews keep the solid count, selector map, and region coverage
+ * unchanged; topology previews report the solid and region impact and check
+ * saved OpenMC DAGMC references before apply. Apply writes the changes through
+ * the document store, schedules the existing rebuild, and registers a
+ * session-scoped undo. The whole authoring surface is default-off behind
+ * `nukeCad.aiAuthoringEnabled`; listing sketch dimensions is read-only metadata
+ * and stays available.
  *
  * @module nuke-cad/browser/capabilities
  */
@@ -63,7 +66,16 @@ import {
     prepareFeatureEdit,
     ResolvedFeatureEdit
 } from '../../common/cad-feature-edit';
-import { FeatureParams, NukeCadDocument, SketchDef } from '../../common/cad-document';
+import {
+    CAD_TOPOLOGY_EDIT_LIMIT,
+    CAD_TOPOLOGY_PATTERN_COUNT_LIMIT,
+    FeatureTopologyAction,
+    prepareTopologyEdit,
+    ResolvedTopologyEdit
+} from '../../common/cad-topology-edit';
+import { findOpenmcRegionBlockers } from '../../common/openmc-region-references';
+import { buildTopologyRegions, diffTopology, TopologyBuildSnapshot } from '../../common/topology-impact';
+import { FeatureParams, NukeCadDocument, SketchDef, validateNukeCadDocument } from '../../common/cad-document';
 import { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import { NukeCadPreferences } from '../nuke-cad-preferences';
 import { CadDocumentStore, featuresConsumingSketch } from '../document/cad-document-store';
@@ -71,11 +83,13 @@ import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../commands';
 import {
     isSketchProposal,
+    isTopologyProposal,
     NukeCadFeatureProposal,
     NukeCadProposalBuild,
     NukeCadProposalImpact,
     NukeCadProposalService,
-    NukeCadSketchProposal
+    NukeCadSketchProposal,
+    NukeCadTopologyProposal
 } from './nuke-cad-proposal-service';
 import { compareCandidateSolids } from '../preview/ghost-preview-diff';
 import { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
@@ -83,6 +97,7 @@ import { parseTessellationAsync } from '../widgets/cad-viewport/tess-parse-clien
 import { AI_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
 import { NukeCadSketchEditService, sketchDefinitionsEqual } from '../sketch/sketch-edit-service';
 import { CAD_SKETCH_EDIT_LIMIT, PreparedSketchEdit, SketchEditRequest } from '../sketch/sketch-edit-types';
+import { readOpenmcRegionReferences } from './openmc-region-reference-reader';
 
 /** Stable capability ids for the feature- and sketch-authoring slice. */
 export const PREVIEW_FEATURE_CHANGE_ID = 'nuke.cad.previewFeatureChange';
@@ -90,6 +105,8 @@ export const APPLY_FEATURE_CHANGE_ID = 'nuke.cad.applyFeatureChange';
 export const LIST_SKETCH_DIMENSIONS_ID = 'nuke.cad.listSketchDimensions';
 export const PREVIEW_SKETCH_CHANGE_ID = 'nuke.cad.previewSketchChange';
 export const APPLY_SKETCH_CHANGE_ID = 'nuke.cad.applySketchChange';
+export const PREVIEW_TOPOLOGY_CHANGE_ID = 'nuke.cad.previewTopologyChange';
+export const APPLY_TOPOLOGY_CHANGE_ID = 'nuke.cad.applyTopologyChange';
 
 /** Preview builds must not inherit the backend's one-hour document timeout. */
 const PREVIEW_TIMEOUT_SECONDS = 120;
@@ -141,6 +158,57 @@ const APPLY_SKETCH_INPUT_SCHEMA: NukeJsonSchema = {
         proposalId: { type: 'string', description: 'Proposal id returned by nuke.cad.previewSketchChange.' }
     },
     required: ['proposalId'],
+    additionalProperties: false
+};
+
+const PREVIEW_TOPOLOGY_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        changes: {
+            type: 'array',
+            minItems: 1,
+            maxItems: CAD_TOPOLOGY_EDIT_LIMIT,
+            items: {
+                type: 'object',
+                properties: {
+                    featureId: { type: 'string', description: 'Feature id from the active document.' },
+                    action: {
+                        type: 'string',
+                        enum: ['holeDepthMode', 'patternCount'],
+                        description: 'Topology-changing action for that feature.'
+                    },
+                    mode: {
+                        type: 'string',
+                        enum: ['blind', 'through'],
+                        description: 'Hole depth mode; only for holeDepthMode.'
+                    },
+                    depth: { type: 'number', description: 'Positive blind-hole depth; only for holeDepthMode blind.' },
+                    count: {
+                        type: 'integer',
+                        minimum: 1,
+                        maximum: CAD_TOPOLOGY_PATTERN_COUNT_LIMIT,
+                        description: 'Pattern instance count; only for patternCount.'
+                    }
+                },
+                required: ['featureId', 'action'],
+                additionalProperties: false
+            }
+        }
+    },
+    required: ['changes'],
+    additionalProperties: false
+};
+
+const APPLY_TOPOLOGY_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string', description: 'Proposal id returned by nuke.cad.previewTopologyChange.' },
+        acknowledgeRegionChanges: {
+            type: 'boolean',
+            description: 'Must be true to confirm the reported solid and region impact.'
+        }
+    },
+    required: ['proposalId', 'acknowledgeRegionChanges'],
     additionalProperties: false
 };
 
@@ -253,6 +321,8 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         registry.register(this.applyCapability());
         registry.register(this.previewSketchCapability());
         registry.register(this.applySketchCapability());
+        registry.register(this.previewTopologyCapability());
+        registry.register(this.applyTopologyCapability());
     }
 
     protected previewCapability(): NukeCapability {
@@ -344,6 +414,44 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             tags: ['cad', 'authoring', 'apply'],
             when: () => this.enabled() && this.hasActiveDocument(),
             invoke: (input, context) => this.applyFeatureChange(input, context)
+        };
+    }
+
+    protected previewTopologyCapability(): NukeCapability {
+        return {
+            id: PREVIEW_TOPOLOGY_CHANGE_ID,
+            title: 'Preview CAD topology change',
+            description:
+                'Propose hole blind/through or pattern-count edits for the active saved .nuke-cad document, validate the ' +
+                'candidate with a real build, and report the solid and region impact plus any saved OpenMC references ' +
+                'the change would break. The preview is read-only.',
+            category: CATEGORY,
+            inputSchema: PREVIEW_TOPOLOGY_INPUT_SCHEMA,
+            outputSchema: PREVIEW_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'preview', 'topology'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.previewTopologyChange(input, context)
+        };
+    }
+
+    protected applyTopologyCapability(): NukeCapability {
+        return {
+            id: APPLY_TOPOLOGY_CHANGE_ID,
+            title: 'Apply CAD topology change',
+            description:
+                'Apply a previewed topology change after the region impact is acknowledged, schedule the rebuild, and ' +
+                'return an undo token. Rejects proposals that would break saved OpenMC DAGMC references.',
+            category: CATEGORY,
+            inputSchema: APPLY_TOPOLOGY_INPUT_SCHEMA,
+            risk: 'execute',
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            requiresConfirmation: true,
+            undoable: true,
+            tags: ['cad', 'authoring', 'apply', 'topology'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.applyTopologyChange(input, context)
         };
     }
 
@@ -468,8 +576,10 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
 
     /**
      * Write the detached candidate beside the source document, run one private
-     * build, and delegate the review step. The transient document, its region
-     * sidecar, and the preview directory are always deleted.
+     * build, and delegate the review step. The document's region manifest is
+     * copied beside the candidate so the build sees the same region identity as
+     * the real document. The transient document, its region sidecar, and the
+     * preview directory are always deleted.
      */
     protected async runCandidateBuild(
         candidate: NukeCadDocument,
@@ -489,12 +599,36 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         // build artifacts go to the private preview directory.
         const candidateStem = `.nuke-ai-preview-${previewId}`;
         const candidatePath = path.join(path.dirname(documentPath), `${candidateStem}.nuke-cad`);
+        const candidateSidecarPath = `${candidatePath.slice(0, -'.nuke-cad'.length)}.regions.json`;
+        const sourceSidecarPath = regionSidecarPath(documentPath);
         const jobId = `cad-ai-preview-${previewId}`;
         const abort = (): void => {
             void this.service.cancelJob(jobId);
         };
         context.signal?.addEventListener('abort', abort);
         try {
+            if (sourceSidecarPath !== undefined) {
+                let sourceExists: boolean;
+                try {
+                    sourceExists = await this.fileService.exists(new URI(sourceSidecarPath));
+                } catch (error) {
+                    return {
+                        ok: false,
+                        message: `The CAD region manifest '${sourceSidecarPath}' could not be inspected: ${errorMessage(error)}`
+                    };
+                }
+                if (sourceExists) {
+                    try {
+                        const source = await this.fileService.readFile(new URI(sourceSidecarPath));
+                        await this.fileService.create(new URI(candidateSidecarPath), source.value.toString());
+                    } catch (error) {
+                        return {
+                            ok: false,
+                            message: `The CAD region manifest '${sourceSidecarPath}' could not be copied for the preview: ${errorMessage(error)}`
+                        };
+                    }
+                }
+            }
             await this.fileService.create(new URI(candidatePath), JSON.stringify(candidate, null, 2));
             if (context.signal?.aborted) {
                 return { ok: false, message: 'The CAD preview was cancelled.' };
@@ -521,7 +655,7 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             await Promise.all([
                 this.fileService.delete(new URI(candidatePath), { recursive: false, useTrash: false }).catch(() => undefined),
                 this.fileService
-                    .delete(new URI(`${candidatePath.slice(0, -'.nuke-cad'.length)}.regions.json`), {
+                    .delete(new URI(candidateSidecarPath), {
                         recursive: false,
                         useTrash: false
                     })
@@ -658,6 +792,130 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         });
     }
 
+    protected async previewTopologyChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        const model = this.stateManager.model;
+        const document = this.store.document;
+        const uri = this.store.uri;
+        if (!model || !document || !uri) {
+            return this.inactiveResult();
+        }
+        if (!model.result.success) {
+            return { ok: false, message: 'Rebuild the active document successfully before previewing a change.' };
+        }
+        const documentPath = new URI(uri).path.toString();
+        const pathError = this.scopeError(documentPath, context.workspaceRoots);
+        if (pathError) {
+            return { ok: false, message: pathError };
+        }
+        const actions = readTopologyActions(input);
+        if (!actions.ok) {
+            return { ok: false, message: actions.message };
+        }
+        const prepared = prepareTopologyEdit(document, actions.actions);
+        if (!prepared.ok) {
+            return { ok: false, message: prepared.message };
+        }
+        const candidateValidation = validateNukeCadDocument(prepared.result.afterDocument);
+        if (!candidateValidation.valid) {
+            const details = candidateValidation.issues
+                .slice(0, 3)
+                .map((issue) => `${issue.path || 'document'}: ${issue.message}`)
+                .join('; ');
+            return { ok: false, message: `The topology edit produced an invalid CAD document: ${details}` };
+        }
+        const baseEpoch = this.store.documentEpoch;
+        const baseRevision = this.store.revision;
+        this.ghostPreview.clear();
+        return this.runCandidateBuild(prepared.result.afterDocument, documentPath, context, async (build) => {
+            const validationError = validateTopologyCandidateBuild(build);
+            if (validationError) {
+                return { ok: false, message: validationError, warnings: build.warnings };
+            }
+            if (this.store.documentEpoch !== baseEpoch || this.store.revision !== baseRevision) {
+                return { ok: false, message: 'The document changed while the preview was building. Preview the change again.' };
+            }
+            const parsedCandidate = await this.readCandidateTessellation(build.tessPath);
+            const solidDiff = parsedCandidate
+                ? compareCandidateSolids(this.stateManager.solidSummaries, parsedCandidate)
+                : { addedSolidIds: [], removedSolidIds: [], changedSolidIds: [], changedBodyIds: [] };
+            const beforeSnapshot: TopologyBuildSnapshot = {
+                solidCount: model.result.solidCount ?? 0,
+                faceCount: model.result.faceCount ?? 0,
+                triangleCount: model.result.triangleCount ?? 0,
+                selectorMap: model.result.selectorMap,
+                regionManifest: model.result.regionManifest
+            };
+            const afterSnapshot: TopologyBuildSnapshot = {
+                solidCount: build.solidCount ?? 0,
+                faceCount: build.faceCount ?? 0,
+                triangleCount: build.triangleCount ?? 0,
+                selectorMap: build.selectorMap,
+                regionManifest: build.regionManifest
+            };
+            const topologyImpact = diffTopology(beforeSnapshot, afterSnapshot, solidDiff);
+            const afterRegions = buildTopologyRegions(afterSnapshot);
+            const openmc = await readOpenmcRegionReferences(this.fileService, context.activeOpenmcProject);
+            const blockedRegions = findOpenmcRegionBlockers(topologyImpact, afterRegions, openmc);
+            const summary = summarizeTopologyEdit(document, prepared.result.edits);
+            const sizeImpact = buildImpact(model.result, build);
+            const proposal = this.proposals.create({
+                scope: 'topology',
+                applyCapability: APPLY_TOPOLOGY_CHANGE_ID,
+                summary,
+                documentPath,
+                documentEpoch: baseEpoch,
+                baseRevision,
+                changes: prepared.result.changes,
+                impact: sizeImpact,
+                build: buildSummary(build),
+                topology: {
+                    actions: actions.actions,
+                    before: Object.fromEntries(prepared.result.edits.map((edit) => [edit.featureId, edit.before])),
+                    after: Object.fromEntries(prepared.result.edits.map((edit) => [edit.featureId, edit.after])),
+                    topology: topologyImpact,
+                    afterRegions,
+                    blockedRegions,
+                    openmcStatus: openmc.status,
+                    ...(openmc.projectPath ? { openmcProjectPath: openmc.projectPath } : {}),
+                    openmcWarnings: openmc.warnings
+                }
+            });
+            if (parsedCandidate) {
+                this.ghostPreview.show({
+                    proposalId: proposal.id,
+                    tessData: parsedCandidate,
+                    ...solidDiff
+                });
+            }
+            void this.commands.executeCommand(NukeCadCommands.OPEN_REVIEW_PANEL.id).catch(() => undefined);
+            return {
+                ok: true,
+                data: {
+                    proposalId: proposal.id,
+                    summary,
+                    changes: proposal.changes,
+                    impact: sizeImpact,
+                    regionImpact: topologyImpact,
+                    blockedRegions,
+                    openmcStatus: openmc.status,
+                    openmcWarnings: openmc.warnings,
+                    build: buildSummary(build)
+                },
+                changeSet: {
+                    id: proposal.id,
+                    title: 'CAD topology change',
+                    summary,
+                    changes: proposal.changes,
+                    ...(blockedRegions.length === 0 ? { applyCapability: APPLY_TOPOLOGY_CHANGE_ID } : {})
+                },
+                warnings: [...(build.warnings ?? []), ...openmc.warnings]
+            };
+        });
+    }
+
     /** Read and parse the candidate tessellation before the temp directory is deleted. */
     protected async readCandidateTessellation(
         tessPath: string | undefined
@@ -691,6 +949,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         }
         if (isSketchProposal(proposal)) {
             return { ok: false, message: 'This proposal is a sketch change; apply it with nuke.cad.applySketchChange.' };
+        }
+        if (isTopologyProposal(proposal)) {
+            return { ok: false, message: 'This proposal is a topology change; apply it with nuke.cad.applyTopologyChange.' };
         }
         const stale = this.staleReason(proposal);
         if (stale) {
@@ -802,6 +1063,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (!proposal) {
             return { ok: false, message: 'This CAD preview is missing or expired. Preview the change again.' };
         }
+        if (isTopologyProposal(proposal)) {
+            return { ok: false, message: 'This proposal is a topology change; apply it with nuke.cad.applyTopologyChange.' };
+        }
         if (!isSketchProposal(proposal)) {
             return { ok: false, message: 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.' };
         }
@@ -892,6 +1156,156 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         return { ok: true, message: 'CAD sketch change undone.' };
     }
 
+    protected async applyTopologyChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        if (!this.hasActiveDocument()) {
+            return this.inactiveResult();
+        }
+        const proposalId = readProposalId(input);
+        if (!proposalId) {
+            return { ok: false, message: 'proposalId is required.' };
+        }
+        if (!acknowledgesRegionChanges(input)) {
+            return { ok: false, message: 'Acknowledge the region impact before applying this topology change.' };
+        }
+        const proposal = this.proposals.get(proposalId);
+        if (!proposal) {
+            return { ok: false, message: 'This CAD preview is missing or expired. Preview the change again.' };
+        }
+        if (!isTopologyProposal(proposal)) {
+            return {
+                ok: false,
+                message: isSketchProposal(proposal)
+                    ? 'This proposal is a sketch change; apply it with nuke.cad.applySketchChange.'
+                    : 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.'
+            };
+        }
+        const firstBlocker = proposal.topology.blockedRegions[0];
+        if (firstBlocker) {
+            return {
+                ok: false,
+                message: `This topology change would break a saved OpenMC reference: ${firstBlocker.message}`
+            };
+        }
+        if (context.activeOpenmcProject !== proposal.topology.openmcProjectPath) {
+            return { ok: false, message: 'The active OpenMC project changed after this preview. Preview the change again.' };
+        }
+        const openmc = await readOpenmcRegionReferences(this.fileService, context.activeOpenmcProject);
+        if (proposal.topology.openmcProjectPath !== undefined && openmc.status !== 'saved-project') {
+            return {
+                ok: false,
+                message: 'The saved OpenMC project can no longer be re-checked. Restore the project file and preview the change again.'
+            };
+        }
+        const blockers = findOpenmcRegionBlockers(proposal.topology.topology, proposal.topology.afterRegions, openmc);
+        if (blockers.length > 0) {
+            return {
+                ok: false,
+                message: `This topology change would break saved OpenMC references: ${blockers.map((blocker) => blocker.message).join(' ')}`
+            };
+        }
+        const stale = this.topologyStaleReason(proposal);
+        if (stale) {
+            return { ok: false, message: stale };
+        }
+        const backupPath = path.join(path.dirname(proposal.documentPath), `.nuke-ai-backup-${path.basename(proposal.documentPath)}`);
+        try {
+            const snapshot = this.store.toJson();
+            if (!snapshot) {
+                return { ok: false, message: 'The active CAD document could not be read for a backup.' };
+            }
+            await this.fileService.create(new URI(backupPath), snapshot, { overwrite: true });
+        } catch (error) {
+            return { ok: false, message: `Could not write the pre-apply CAD backup: ${errorMessage(error)}` };
+        }
+        const result = this.store.replaceFeatureParamsBatch(
+            Object.entries(proposal.topology.after).map(([id, params]) => ({ id, params }))
+        );
+        if (!result.success) {
+            return { ok: false, message: result.error || 'The CAD document rejected the change.', warnings: formatIssues(result.issues) };
+        }
+        const appliedRevision = this.store.revision;
+        this.proposals.remove(proposal.id);
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        const undoToken = this.undoService.register({
+            title: 'CAD topology change',
+            undo: () => this.undoTopologyChange(proposal, appliedRevision)
+        });
+        return {
+            ok: true,
+            message: 'CAD topology change applied; rebuild scheduled.',
+            data: {
+                proposalId: proposal.id,
+                documentPath: proposal.documentPath,
+                revision: appliedRevision,
+                backupPath,
+                changes: proposal.changes,
+                rebuildScheduled: true,
+                regionImpact: proposal.topology.topology
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD topology change',
+                summary: proposal.summary,
+                changes: proposal.changes,
+                applyCapability: APPLY_TOPOLOGY_CHANGE_ID
+            },
+            undoToken
+        };
+    }
+
+    protected async undoTopologyChange(proposal: NukeCadTopologyProposal, appliedRevision: number): Promise<NukeCapabilityResult> {
+        if (!this.hasActiveDocument()) {
+            return { ok: false, message: 'Open the document again before undoing this change.' };
+        }
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return { ok: false, message: 'This change belongs to a different document and can no longer be undone.' };
+        }
+        if (this.store.revision !== appliedRevision) {
+            return { ok: false, message: 'The document changed after this edit. Preview the change again.' };
+        }
+        const current = this.store.document;
+        if (!current) {
+            return { ok: false, message: 'No CAD document is active.' };
+        }
+        for (const [id, after] of Object.entries(proposal.topology.after)) {
+            const feature = current.features.find((candidate) => candidate.id === id);
+            if (!feature || stableStringify(feature.params) !== stableStringify(after)) {
+                return { ok: false, message: `Feature '${id}' changed after apply. Preview the change again.` };
+            }
+        }
+        const result = this.store.replaceFeatureParamsBatch(
+            Object.entries(proposal.topology.before).map(([id, params]) => ({ id, params }))
+        );
+        if (!result.success) {
+            return { ok: false, message: result.error || 'The CAD document rejected the undo.', warnings: formatIssues(result.issues) };
+        }
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        return { ok: true, message: 'CAD topology change undone.' };
+    }
+
+    protected topologyStaleReason(proposal: NukeCadTopologyProposal): string | undefined {
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return 'The active document changed after this preview. Preview the change again.';
+        }
+        if (this.store.revision !== proposal.baseRevision) {
+            return 'The document changed after this preview. Preview the change again.';
+        }
+        const document = this.store.document;
+        if (!document) {
+            return 'No CAD document is active.';
+        }
+        for (const [id, before] of Object.entries(proposal.topology.before)) {
+            const feature = document.features.find((candidate) => candidate.id === id);
+            if (!feature || stableStringify(feature.params) !== stableStringify(before)) {
+                return `Feature '${id}' changed after this preview. Preview the change again.`;
+            }
+        }
+        return undefined;
+    }
+
     protected sketchStaleReason(proposal: NukeCadSketchProposal): string | undefined {
         if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
             return 'The active document changed after this preview. Preview the change again.';
@@ -979,6 +1393,13 @@ function readProposalId(input: unknown): string | undefined {
     return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function acknowledgesRegionChanges(input: unknown): boolean {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return false;
+    }
+    return (input as Record<string, unknown>).acknowledgeRegionChanges === true;
+}
+
 function summarize(edits: readonly ResolvedFeatureEdit[]): string {
     return edits.map((edit) => `${edit.featureId} ${edit.param}: ${formatNumber(edit.before)} → ${formatNumber(edit.after)}`).join('; ');
 }
@@ -1030,6 +1451,75 @@ export function readSketchEditRequests(
     return { ok: true, changes };
 }
 
+/** Strictly shape-check one topology preview request list. */
+export function readTopologyActions(
+    input: unknown
+): { ok: true; actions: readonly FeatureTopologyAction[] } | { ok: false; message: string } {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'changes is required.' };
+    }
+    const raw = (input as { changes?: unknown }).changes;
+    if (!Array.isArray(raw) || raw.length === 0) {
+        return { ok: false, message: `changes must contain 1 to ${CAD_TOPOLOGY_EDIT_LIMIT} topology edits.` };
+    }
+    if (raw.length > CAD_TOPOLOGY_EDIT_LIMIT) {
+        return { ok: false, message: `changes must contain at most ${CAD_TOPOLOGY_EDIT_LIMIT} topology edits.` };
+    }
+    const actions: FeatureTopologyAction[] = [];
+    const seen = new Set<string>();
+    for (const [index, entry] of raw.entries()) {
+        const label = `Edit ${index + 1}`;
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            return { ok: false, message: `${label} must be an object.` };
+        }
+        const record = entry as Record<string, unknown>;
+        if (typeof record.featureId !== 'string' || record.featureId.length === 0) {
+            return { ok: false, message: `${label} needs a non-empty featureId.` };
+        }
+        if (seen.has(record.featureId)) {
+            return { ok: false, message: `Duplicate topology edit for feature '${record.featureId}'.` };
+        }
+        seen.add(record.featureId);
+        if (record.action === 'holeDepthMode') {
+            const mode = record.mode;
+            if (mode !== 'blind' && mode !== 'through') {
+                return { ok: false, message: `${label} needs mode 'blind' or 'through'.` };
+            }
+            if ('count' in record) {
+                return { ok: false, message: `${label} cannot set count for a hole depth change.` };
+            }
+            if (mode === 'through') {
+                if ('depth' in record) {
+                    return { ok: false, message: `${label} cannot set depth for a through hole.` };
+                }
+                actions.push({ featureId: record.featureId, action: 'holeDepthMode', mode: 'through' });
+                continue;
+            }
+            if (typeof record.depth !== 'number' || !Number.isFinite(record.depth) || record.depth <= 0) {
+                return { ok: false, message: `${label} needs a positive finite depth for a blind hole.` };
+            }
+            actions.push({ featureId: record.featureId, action: 'holeDepthMode', mode: 'blind', depth: record.depth });
+            continue;
+        }
+        if (record.action === 'patternCount') {
+            const count = record.count;
+            if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) {
+                return { ok: false, message: `${label} needs a safe integer count of at least 1.` };
+            }
+            if (count > CAD_TOPOLOGY_PATTERN_COUNT_LIMIT) {
+                return { ok: false, message: `${label} count must be at most ${CAD_TOPOLOGY_PATTERN_COUNT_LIMIT}.` };
+            }
+            if ('mode' in record || 'depth' in record) {
+                return { ok: false, message: `${label} cannot set mode or depth for a pattern count change.` };
+            }
+            actions.push({ featureId: record.featureId, action: 'patternCount', count });
+            continue;
+        }
+        return { ok: false, message: `${label} has an unknown action '${String(record.action)}'.` };
+    }
+    return { ok: true, actions };
+}
+
 /** One short human summary for the review panel and capability response. */
 function summarizeSketchEdit(prepared: PreparedSketchEdit): string {
     const edits = prepared.edits;
@@ -1049,6 +1539,32 @@ function summarizeSketchEdit(prepared: PreparedSketchEdit): string {
         return `${describeSketchEdit(edit)} (${affectedDimensions} dimensions in ${prepared.affectedSketchIds.length} sketches)`;
     }
     return describeSketchEdit(edit);
+}
+
+/** One short human summary for a prepared topology edit. */
+function summarizeTopologyEdit(document: NukeCadDocument, edits: readonly ResolvedTopologyEdit[]): string {
+    const names = new Map(document.features.map((feature) => [feature.id, feature.name] as const));
+    return edits
+        .map((edit) => {
+            const name = names.get(edit.featureId) ?? edit.featureId;
+            if (edit.action === 'holeDepthMode') {
+                const depth = featureParamNumber(edit.after, 'depth');
+                return depth === undefined ? `Open hole ${name} through` : `Change hole ${name} blind depth ${formatNumber(depth)}`;
+            }
+            const before = featureParamNumber(edit.before, 'count');
+            const after = featureParamNumber(edit.after, 'count');
+            return `Change pattern ${name} count ${formatCount(before)} → ${formatCount(after)}`;
+        })
+        .join('; ');
+}
+
+function featureParamNumber(params: FeatureParams, key: string): number | undefined {
+    const value = (params as Record<string, unknown>)[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function formatCount(value: number | undefined): string {
+    return value === undefined ? '?' : formatNumber(value);
 }
 
 function describeSketchEdit(edit: PreparedSketchEdit['edits'][number]): string {
@@ -1081,6 +1597,32 @@ function buildImpact(before: GeometryBuildResult, after: GeometryBuildResult): N
         triangles: { before: before.triangleCount ?? 0, after: after.triangleCount ?? 0 },
         boundingBox: { before: before.boundingBox, after: after.boundingBox }
     };
+}
+
+/** Validate a topology candidate build without requiring unchanged topology. */
+export function validateTopologyCandidateBuild(build: GeometryBuildResult): string | undefined {
+    if (!build.success) {
+        return build.error || 'The preview build failed.';
+    }
+    const failed = (build.featureResults ?? []).filter((feature: FeatureResult) => feature.status === 'failed');
+    if (failed.length > 0) {
+        return `The preview build failed for feature(s): ${failed.map((feature) => feature.featureId).join(', ')}.`;
+    }
+    if ((build.solidCount ?? 0) <= 0) {
+        return 'The preview build produced no solids; the topology change is not a usable geometry change.';
+    }
+    if ((build.triangleCount ?? 0) <= 0) {
+        return 'The preview build produced no tessellation; the topology change is not a usable geometry change.';
+    }
+    if (!validBoundingBox(build.boundingBox)) {
+        return 'The preview build produced an invalid bounding box; the topology change is not a usable geometry change.';
+    }
+    return undefined;
+}
+
+/** Region-manifest sidecar path for a `.nuke-cad` document; non-document paths have none. */
+function regionSidecarPath(documentPath: string): string | undefined {
+    return documentPath.endsWith('.nuke-cad') ? `${documentPath.slice(0, -'.nuke-cad'.length)}.regions.json` : undefined;
 }
 
 /** Reject any preview that changes topology or region coverage. */

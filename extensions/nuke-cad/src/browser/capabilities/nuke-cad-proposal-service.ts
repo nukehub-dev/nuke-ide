@@ -28,12 +28,13 @@
 /**
  * CAD edit proposal service
  *
- * In-memory store for previewed `.nuke-cad` edits: feature-parameter changes
- * and sketch-dimension changes. A proposal pins the document path, epoch, and
- * base revision the preview was resolved against and stores detached
- * before/after snapshots, so an apply capability can reject stale or
- * cross-document proposals. Proposals expire after ten minutes and the store
- * keeps at most twenty, mirroring the OpenMC change proposal store.
+ * In-memory store for previewed `.nuke-cad` edits: feature-parameter changes,
+ * sketch-dimension changes, and topology changes with their region and OpenMC
+ * impact. A proposal pins the document path, epoch, and base revision the
+ * preview was resolved against and stores detached before/after snapshots, so
+ * an apply capability can reject stale or cross-document proposals. Proposals
+ * expire after ten minutes and the store keeps at most twenty, mirroring the
+ * OpenMC change proposal store.
  *
  * Store changes are announced through `onDidChange` for review surfaces.
  * Reads (`get`/`has`/`list`) drop expired proposals silently so polling a
@@ -48,6 +49,9 @@ import { injectable } from '@theia/core/shared/inversify';
 import { NukeChange } from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { ResolvedFeatureEdit } from '../../common/cad-feature-edit';
 import { FeatureParams, SketchDef } from '../../common/cad-document';
+import type { FeatureTopologyAction } from '../../common/cad-topology-edit';
+import type { TopologyImpact, TopologyRegionRef } from '../../common/topology-impact';
+import type { OpenmcReferenceSnapshot, OpenmcRegionBlocker } from '../../common/openmc-region-references';
 import type { ResolvedSketchEdit, SketchSolveSummary } from '../sketch/sketch-edit-types';
 import { CadBoundingBox } from '../../common/nuke-cad-protocol';
 
@@ -59,6 +63,9 @@ export const NUKE_CAD_FEATURE_PROPOSAL_TTL_MS = 10 * 60 * 1000;
 
 /** Apply capability used when a sketch preview does not name one. */
 const DEFAULT_SKETCH_APPLY_CAPABILITY_ID = 'nuke.cad.applySketchChange';
+
+/** Apply capability used when a topology preview does not name one. */
+const DEFAULT_TOPOLOGY_APPLY_CAPABILITY_ID = 'nuke.cad.applyTopologyChange';
 
 /** Topology and size delta measured while previewing a CAD edit proposal. */
 export interface NukeCadProposalImpact {
@@ -160,8 +167,38 @@ export interface NukeCadSketchProposalInput extends NukeCadProposalCommonInput {
     readonly sketch: NukeCadSketchProposalDetails;
 }
 
+/** Topology actions, snapshots, region impact, and OpenMC references captured by a topology preview. */
+export interface NukeCadTopologyProposalDetails {
+    readonly actions: readonly FeatureTopologyAction[];
+    readonly before: Readonly<Record<string, FeatureParams>>;
+    readonly after: Readonly<Record<string, FeatureParams>>;
+    readonly topology: TopologyImpact;
+    /** Region references of the candidate build, used to re-check OpenMC blockers on apply. */
+    readonly afterRegions: readonly TopologyRegionRef[];
+    readonly blockedRegions: readonly OpenmcRegionBlocker[];
+    readonly openmcStatus: OpenmcReferenceSnapshot['status'];
+    readonly openmcProjectPath?: string;
+    readonly openmcWarnings: readonly string[];
+}
+
+/** A previewed topology change awaiting apply. */
+export interface NukeCadTopologyProposal extends NukeCadProposalCommon {
+    readonly scope: 'topology';
+    /** Capability that applies the stored proposal. */
+    readonly applyCapability: string;
+    readonly topology: NukeCadTopologyProposalDetails;
+}
+
+/** The payload stored when a topology preview creates a proposal. */
+export interface NukeCadTopologyProposalInput extends NukeCadProposalCommonInput {
+    readonly scope: 'topology';
+    /** Capability that applies the stored proposal; defaults to `nuke.cad.applyTopologyChange`. */
+    readonly applyCapability?: string;
+    readonly topology: NukeCadTopologyProposalDetails;
+}
+
 /** Any previewed CAD edit awaiting apply. */
-export type NukeCadProposal = NukeCadFeatureProposal | NukeCadSketchProposal;
+export type NukeCadProposal = NukeCadFeatureProposal | NukeCadSketchProposal | NukeCadTopologyProposal;
 
 /**
  * Deep-clone a JSON-compatible value so stored snapshots stay detached.
@@ -176,6 +213,11 @@ function cloneValue<T>(value: T): T {
 /** Whether a proposal edits sketch dimensions rather than feature parameters. */
 export function isSketchProposal(proposal: NukeCadProposal): proposal is NukeCadSketchProposal {
     return proposal.scope === 'sketch';
+}
+
+/** Whether a proposal changes feature topology rather than scalar parameters. */
+export function isTopologyProposal(proposal: NukeCadProposal): proposal is NukeCadTopologyProposal {
+    return proposal.scope === 'topology';
 }
 
 /** In-memory CAD proposal store with a fixed capacity and TTL. */
@@ -208,8 +250,9 @@ export class NukeCadProposalService implements Disposable {
      */
     create(input: NukeCadFeatureProposalInput): NukeCadFeatureProposal;
     create(input: NukeCadSketchProposalInput): NukeCadSketchProposal;
-    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput): NukeCadProposal;
-    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput): NukeCadProposal {
+    create(input: NukeCadTopologyProposalInput): NukeCadTopologyProposal;
+    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput | NukeCadTopologyProposalInput): NukeCadProposal;
+    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput | NukeCadTopologyProposalInput): NukeCadProposal {
         this.pruneExpired();
         while (this.proposals.size >= NUKE_CAD_FEATURE_PROPOSAL_LIMIT) {
             const oldest = this.proposals.keys().next().value as string | undefined;
@@ -228,7 +271,14 @@ export class NukeCadProposalService implements Disposable {
                       applyCapability: cloned.applyCapability ?? DEFAULT_SKETCH_APPLY_CAPABILITY_ID,
                       createdAt
                   }
-                : { ...cloned, id: this.createId(), createdAt };
+                : cloned.scope === 'topology'
+                  ? {
+                        ...cloned,
+                        id: this.createId(),
+                        applyCapability: cloned.applyCapability ?? DEFAULT_TOPOLOGY_APPLY_CAPABILITY_ID,
+                        createdAt
+                    }
+                  : { ...cloned, id: this.createId(), createdAt };
         this.proposals.set(proposal.id, proposal);
         this.onDidChangeEmitter.fire();
         return cloneValue(proposal);

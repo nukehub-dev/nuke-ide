@@ -32,8 +32,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as React from '@theia/core/shared/react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { OpenmcRegionBlocker } from '../../../common/openmc-region-references';
+import type { TopologyImpact, TopologyRegionRef } from '../../../common/topology-impact';
 import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
-import { CadReviewAppliedEntry, CadReviewPanelView, CadReviewPanelViewProps, CadReviewProposalView } from './review-panel-view';
+import {
+    CadReviewAppliedEntry,
+    CadReviewPanelView,
+    CadReviewPanelViewProps,
+    CadReviewProposalView,
+    CadReviewTopologyContext
+} from './review-panel-view';
 
 // The shared loading overlay pulls Theia's widget helper, which touches the
 // DOM at module load; this suite renders markup in a plain Node environment.
@@ -47,6 +55,8 @@ interface ButtonProps {
     children?: React.ReactNode;
     disabled?: boolean;
     onClick?: () => void;
+    checked?: boolean;
+    onChange?: (checked: boolean) => void;
 }
 
 function collectButtons(
@@ -155,6 +165,89 @@ function sketchProposal(overrides: Partial<CadReviewProposalView> = {}): CadRevi
         },
         ...overrides
     });
+}
+
+function region(selector: string, solidIds: readonly number[] = [1]): TopologyRegionRef {
+    return {
+        kind: 'volume',
+        selector,
+        group: `${selector}_region`,
+        name: `${selector}_region`,
+        material: 'steel',
+        materialId: `material-${selector}`,
+        solidIds
+    };
+}
+
+function topologyImpact(overrides: Partial<TopologyImpact> = {}): TopologyImpact {
+    return {
+        solids: { before: 3, after: 4 },
+        faces: { before: 24, after: 30 },
+        triangles: { before: 4800, after: 6000 },
+        addedSolidIds: [4],
+        removedSolidIds: [],
+        changedSolidIds: [1, 2],
+        addedRegions: [region('insert', [4])],
+        removedRegions: [region('shield', [3])],
+        changedRegions: [
+            {
+                selector: 'fuel',
+                group: 'fuel_region',
+                beforeGroup: 'fuel_region',
+                afterGroup: 'fuel_core_region',
+                beforeSolidIds: [1],
+                afterSolidIds: [1, 2],
+                beforeMaterial: 'steel',
+                afterMaterial: 'steel'
+            }
+        ],
+        addedGroups: ['insert_region'],
+        removedGroups: ['shield_region'],
+        selectorMapChanged: true,
+        regionCoverageChanged: true,
+        requiresAcknowledgement: true,
+        ...overrides
+    };
+}
+
+function topologyContext(overrides: Partial<CadReviewTopologyContext> = {}): CadReviewTopologyContext {
+    return {
+        impact: topologyImpact(),
+        blockedRegions: [],
+        openmcStatus: 'saved-project',
+        openmcProjectPath: '/workspace/project/pincell.nuke-openmc',
+        openmcWarnings: [],
+        ...overrides
+    };
+}
+
+function topologyProposal(overrides: Partial<CadReviewProposalView> = {}): CadReviewProposalView {
+    return proposal({
+        scope: 'topology',
+        changes: [
+            {
+                path: 'features.coolant.params.depth',
+                label: 'Feature coolant hole depth',
+                kind: 'remove',
+                before: 2,
+                after: undefined
+            }
+        ],
+        impact: undefined,
+        build: undefined,
+        topology: topologyContext(),
+        ...overrides
+    });
+}
+
+function regionBlocker(): OpenmcRegionBlocker {
+    const blocked = region('shield', [3]);
+    return {
+        region: blocked,
+        reference: 'steel',
+        kind: 'material',
+        message: "OpenMC material 'steel' still references region 'shield'."
+    };
 }
 
 describe('CadReviewPanelView', () => {
@@ -286,6 +379,8 @@ describe('CadReviewPanelView', () => {
         expect(html).toContain('2 affected sketches');
         expect(html).toContain('pellet diameter');
         expect(html).toContain('cad-review-diff-before');
+        expect(html).not.toContain('cad-review-topology');
+        expect(html).not.toContain('Region impact');
     });
 
     it('renders DOF, conflicting constraints, and warnings for an under-constrained sketch', () => {
@@ -323,7 +418,154 @@ describe('CadReviewPanelView', () => {
         const html = renderToStaticMarkup(tree);
 
         expect(html).not.toContain('cad-review-sketch-context');
+        expect(html).not.toContain('cad-review-topology');
+        expect(html).not.toContain('Region impact');
         expect(html).toContain('fuel length');
         expect(html).toContain('Solids 2 → 2');
+    });
+
+    it('renders topology counts, added/removed/changed regions, OpenMC context, and acknowledgement', () => {
+        const onAcknowledge = vi.fn();
+        const tree = CadReviewPanelView(props({ proposals: [topologyProposal()], onAcknowledge }));
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('cad-review-topology');
+        expect(html).toContain('Region impact');
+        expect(html).toContain('>Topology<');
+        expect(html).toContain('Solids 3 → 4');
+        expect(html).toContain('Faces 24 → 30');
+        expect(html).toContain('Triangles 4800 → 6000');
+        expect(html).toContain('1 added solid');
+        expect(html).toContain('2 changed solids');
+        expect(html).toContain('Added regions');
+        expect(html).toContain('insert');
+        expect(html).toContain('insert_region');
+        expect(html).toContain('1 solid');
+        expect(html).toContain('Removed regions');
+        expect(html).toContain('shield');
+        expect(html).toContain('shield_region');
+        expect(html).toContain('Changed regions');
+        expect(html).toContain('fuel');
+        expect(html).toContain('fuel_region → fuel_core_region');
+        expect(html).toContain('#1 → #1, #2');
+        expect(html).toContain('pincell.nuke-openmc · checked against the saved project file');
+        expect(html).toContain('I understand the solid and region impact');
+
+        const checkboxes = collectButtons(tree, 'cad-review-topology-ack');
+        expect(checkboxes[0].props.checked).toBe(false);
+        checkboxes[0].props.onChange?.(true);
+        expect(onAcknowledge).toHaveBeenCalledWith('proposal-1', true);
+    });
+
+    it('disables Apply until a topology impact is acknowledged', () => {
+        const unacknowledged = CadReviewPanelView(props({ proposals: [topologyProposal()] }));
+        expect(collectButtons(unacknowledged, 'cad-review-apply')[0].props.disabled).toBe(true);
+
+        const acknowledged = CadReviewPanelView(props({ proposals: [topologyProposal()], acknowledgedProposalIds: ['proposal-1'] }));
+        expect(collectButtons(acknowledged, 'cad-review-apply')[0].props.disabled).toBe(false);
+    });
+
+    it('keeps Apply disabled for an OpenMC-blocked region even when acknowledged', () => {
+        const tree = CadReviewPanelView(
+            props({
+                proposals: [
+                    topologyProposal({
+                        topology: topologyContext({ blockedRegions: [regionBlocker()] })
+                    })
+                ],
+                acknowledgedProposalIds: ['proposal-1']
+            })
+        );
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('Blocked by OpenMC');
+        expect(html).toContain('still references region');
+        expect(html).toContain('Update the OpenMC project first; apply stays blocked until reference');
+        expect(collectButtons(tree, 'cad-review-apply')[0].props.disabled).toBe(true);
+        expect(collectButtons(tree, 'cad-review-topology-ack')[0].props.checked).toBe(true);
+    });
+
+    it('warns that OpenMC references were not checked without a saved project', () => {
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        topologyProposal({
+                            topology: topologyContext({
+                                openmcStatus: 'no-saved-project',
+                                openmcProjectPath: undefined
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('OpenMC references were not checked because no saved OpenMC project is active.');
+        expect(html).not.toContain('checked against the saved project file');
+    });
+
+    it('warns with the first OpenMC warning for other project states', () => {
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        topologyProposal({
+                            topology: topologyContext({
+                                openmcStatus: 'unreadable-project',
+                                openmcProjectPath: '/workspace/project/broken.nuke-openmc',
+                                openmcWarnings: ['OpenMC project could not be read.']
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('OpenMC project could not be read.');
+        expect(html).toContain('cad-review-topology-openmc is-warning');
+    });
+
+    it('explains a topology change with no named region changes', () => {
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        topologyProposal({
+                            topology: topologyContext({
+                                impact: topologyImpact({
+                                    addedRegions: [],
+                                    removedRegions: [],
+                                    changedRegions: [],
+                                    addedGroups: [],
+                                    removedGroups: []
+                                })
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('No named region changes, but the solid or face topology changed.');
+        expect(html).not.toContain('Added regions');
+        expect(html).not.toContain('Removed regions');
+        expect(html).not.toContain('Changed regions');
+    });
+
+    it('labels an applied topology entry as a topology change', () => {
+        const entry: CadReviewAppliedEntry = {
+            proposalId: 'proposal-3',
+            summary: 'Open the coolant hole through the wall',
+            undoToken: 'undo-3',
+            scope: 'topology'
+        };
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(props({ proposals: [], applied: [entry], undoableProposalIds: ['proposal-3'] }))
+        );
+
+        expect(html).toContain('Applied this session');
+        expect(html).toContain('Topology change');
+        expect(html).not.toContain('Feature parameter');
     });
 });

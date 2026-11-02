@@ -44,18 +44,21 @@ import type { GeometryBuildResult, RegionManifestData } from '../../common/nuke-
 import type { CadDocumentStore } from '../document/cad-document-store';
 import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import type { NukeCadPreferences } from '../nuke-cad-preferences';
-import type { CadModel, NukeCadStateManager } from '../state/nuke-cad-state-manager';
+import type { CadModel, NukeCadStateManager, SolidSummary } from '../state/nuke-cad-state-manager';
 import {
     APPLY_FEATURE_CHANGE_ID,
     APPLY_SKETCH_CHANGE_ID,
+    APPLY_TOPOLOGY_CHANGE_ID,
     LIST_SKETCH_DIMENSIONS_ID,
     NukeCadAuthoringCapabilities,
     PREVIEW_FEATURE_CHANGE_ID,
     PREVIEW_SKETCH_CHANGE_ID,
+    PREVIEW_TOPOLOGY_CHANGE_ID,
     readFeatureParamChanges,
-    readSketchEditRequests
+    readSketchEditRequests,
+    readTopologyActions
 } from './nuke-cad-authoring-capabilities';
-import { isSketchProposal, NukeCadProposalService } from './nuke-cad-proposal-service';
+import { isSketchProposal, isTopologyProposal, NukeCadProposalService } from './nuke-cad-proposal-service';
 import type { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 import type { NukeCadSketchEditService } from '../sketch/sketch-edit-service';
 import type { PreparedSketchEdit, SketchEditPrepareResult, SketchEditRequest } from '../sketch/sketch-edit-types';
@@ -94,6 +97,89 @@ const PARSED_TESS = {
     edges: [],
     curves: []
 };
+
+const OPENMC_PROJECT_PATH = `${WORKSPACE}/pincell.nuke-openmc`;
+const OPENMC_CONTEXT: NukeCapabilityContext = { ...CONTEXT, activeOpenmcProject: OPENMC_PROJECT_PATH };
+const OPENMC_PROJECT_JSON = JSON.stringify({
+    version: 1,
+    state: {
+        settings: {
+            dagmcFile: 'pincell.h5m',
+            dagmcInfo: { materials: { plate_region: { id: 1 } } }
+        },
+        materials: []
+    }
+});
+
+const SIDECAR_CONTENT = JSON.stringify({
+    version: 1,
+    volumes: [{ selector: 'plate', name: 'plate_region' }],
+    surfaces: []
+});
+
+const TOPOLOGY_MANIFEST: RegionManifestData = {
+    version: 1,
+    volumes: [{ selector: 'plate', name: 'plate_region' }],
+    surfaces: []
+};
+
+const TOPOLOGY_BUILD_BEFORE: GeometryBuildResult = {
+    success: true,
+    solidCount: 3,
+    faceCount: 18,
+    triangleCount: 36,
+    boundingBox: { min: [0, 0, 0], max: [10, 10, 10] },
+    selectorMap: { plate: [1, 2, 3] },
+    regionManifest: TOPOLOGY_MANIFEST,
+    featureResults: [
+        { featureId: 'hole-1', status: 'built' },
+        { featureId: 'pattern-1', status: 'built' }
+    ]
+};
+
+const TOPOLOGY_BUILD_AFTER: GeometryBuildResult = {
+    success: true,
+    solidCount: 4,
+    faceCount: 24,
+    triangleCount: 48,
+    boundingBox: { min: [0, 0, 0], max: [10, 10, 10] },
+    selectorMap: { plate: [1, 2, 3, 4] },
+    regionManifest: TOPOLOGY_MANIFEST,
+    featureResults: [
+        { featureId: 'hole-1', status: 'built' },
+        { featureId: 'pattern-1', status: 'built' }
+    ]
+};
+
+const TOPOLOGY_BUILD_CHANGED_GROUP: GeometryBuildResult = {
+    ...TOPOLOGY_BUILD_AFTER,
+    regionManifest: {
+        version: 1,
+        volumes: [{ selector: 'plate', name: 'plate_region_next' }],
+        surfaces: []
+    }
+};
+
+const TOPOLOGY_SOLIDS_BEFORE: readonly SolidSummary[] = [1, 2, 3].map((solidId) => ({
+    solidId,
+    bodyId: 'body-1',
+    faceCount: 6,
+    edgeCount: 12,
+    triangleCount: 12
+}));
+
+const TOPOLOGY_PARSED_TESS = {
+    ...PARSED_TESS,
+    solids: [1, 2, 3, 4].map((solidId) => ({
+        solidId,
+        bodyId: 'body-1',
+        faceCount: 6,
+        edgeCount: 12,
+        triangleCount: 12
+    }))
+};
+
+const PATTERN_COUNT_CHANGE = { featureId: 'pattern-1', action: 'patternCount', count: 4 } as const;
 
 const SKETCH: SketchDef = {
     id: 'sketch-1',
@@ -135,6 +221,49 @@ function createDocument(): NukeCadDocument {
         curves: [],
         datums: [],
         parameters: { fuelRadius: 0.4 },
+        drawings: undefined
+    } as unknown as NukeCadDocument;
+}
+
+function createTopologyDocument(): NukeCadDocument {
+    return {
+        version: 3,
+        name: 'plate',
+        units: 'mm',
+        bodies: [{ id: 'body-1', name: 'Plate', label: 'plate' }],
+        features: [
+            {
+                id: 'hole-1',
+                name: 'Hole 1',
+                type: 'hole',
+                body: 'body-1',
+                params: {
+                    face: {
+                        featureId: 'hole-1',
+                        kind: 'face',
+                        fingerprint: { surfaceType: 'plane', area: 100, center: [0, 0, 0], normal: [0, 0, 1] }
+                    },
+                    center: [0, 0],
+                    diameter: 2,
+                    depth: 4
+                },
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'pattern-1',
+                name: 'Pattern 1',
+                type: 'linearPattern',
+                body: 'body-1',
+                params: { source: 'hole-1', count: 3, spacing: 5, axis: 'x' },
+                suppressed: false,
+                dependsOn: ['hole-1']
+            }
+        ],
+        sketches: [],
+        curves: [],
+        datums: [],
+        parameters: {},
         drawings: undefined
     } as unknown as NukeCadDocument;
 }
@@ -209,16 +338,24 @@ interface Harness {
     registered: Map<string, NukeCapability>;
     proposals: NukeCadProposalService;
     edits: { id: string; params: Record<string, unknown> }[][];
+    replacements: { id: string; params: Record<string, unknown> }[][];
     sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[];
     commands: string[];
     undoEntries: NukeUndoEntry[];
-    fileService: { create: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+    fileService: {
+        create: ReturnType<typeof vi.fn>;
+        delete: ReturnType<typeof vi.fn>;
+        exists: ReturnType<typeof vi.fn>;
+        readFile: ReturnType<typeof vi.fn>;
+    };
+    files: Map<string, string>;
     service: { buildDocument: ReturnType<typeof vi.fn>; cancelJob: ReturnType<typeof vi.fn> };
     store: CadDocumentStore;
     preferences: { get: ReturnType<typeof vi.fn> };
     ghostPreview: { show: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> };
     sketchPrepare: ReturnType<typeof vi.fn>;
     bumpRevision: () => void;
+    bumpEpoch: () => void;
     currentDocument: () => NukeCadDocument;
 }
 
@@ -227,15 +364,25 @@ interface HarnessOptions {
     build?: GeometryBuildResult;
     hasModel?: boolean;
     saved?: boolean;
+    document?: NukeCadDocument;
+    modelResult?: GeometryBuildResult;
+    solidSummaries?: readonly SolidSummary[];
+    files?: Readonly<Record<string, string>>;
     prepare?: (document: NukeCadDocument, requests: readonly SketchEditRequest[]) => Promise<SketchEditPrepareResult>;
 }
 
 function createHarness(overrides: HarnessOptions = {}): Harness {
-    let document = createDocument();
+    let document = overrides.document ?? createDocument();
     let revision = 3;
+    let epoch = 7;
     const edits: { id: string; params: Record<string, unknown> }[][] = [];
+    const replacements: { id: string; params: Record<string, unknown> }[][] = [];
     const sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[] = [];
     const undoEntries: NukeUndoEntry[] = [];
+    const files = new Map<string, string>();
+    for (const [filePath, content] of Object.entries(overrides.files ?? {})) {
+        files.set(new URI(filePath).path.toString(), content);
+    }
     const store = {
         get document(): NukeCadDocument {
             return document;
@@ -244,7 +391,7 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             return overrides.saved === false ? undefined : new URI(DOCUMENT_PATH).toString();
         },
         get documentEpoch(): number {
-            return 7;
+            return epoch;
         },
         get revision(): number {
             return revision;
@@ -259,6 +406,20 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
                 features: document.features.map((feature) => {
                     const edit = batch.find((entry) => entry.id === feature.id);
                     return edit ? { ...feature, params: { ...feature.params, ...edit.params } } : feature;
+                })
+            };
+            revision += 1;
+            return { success: true };
+        },
+        replaceFeatureParamsBatch(batch: readonly { id: string; params: Record<string, unknown> }[]): { success: boolean } {
+            replacements.push(
+                batch.map((entry) => ({ id: entry.id, params: JSON.parse(JSON.stringify(entry.params)) as Record<string, unknown> }))
+            );
+            document = {
+                ...document,
+                features: document.features.map((feature) => {
+                    const replacement = batch.find((entry) => entry.id === feature.id);
+                    return replacement ? { ...feature, params: { ...replacement.params } } : feature;
                 })
             };
             revision += 1;
@@ -290,17 +451,33 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             ? undefined
             : ({
                   scriptPath: DOCUMENT_PATH,
-                  result: BUILD_RESULT,
-                  manifest: MANIFEST
+                  result: overrides.modelResult ?? BUILD_RESULT,
+                  manifest: (overrides.modelResult ?? BUILD_RESULT).regionManifest
               } as CadModel);
-    const stateManager = { model, scriptPath: DOCUMENT_PATH, solidSummaries: [] } as unknown as NukeCadStateManager;
+    const stateManager = {
+        model,
+        scriptPath: DOCUMENT_PATH,
+        solidSummaries: overrides.solidSummaries ?? []
+    } as unknown as NukeCadStateManager;
     const service = {
         buildDocument: vi.fn(async () => overrides.build ?? BUILD_RESULT),
         cancelJob: vi.fn(async () => true)
     };
     const fileService = {
-        create: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined)
+        create: vi.fn(async (uri: URI, content: string) => {
+            files.set(uri.path.toString(), content);
+        }),
+        delete: vi.fn(async (uri: URI) => {
+            files.delete(uri.path.toString());
+        }),
+        exists: vi.fn(async (uri: URI) => files.has(uri.path.toString())),
+        readFile: vi.fn(async (uri: URI) => {
+            const content = files.get(uri.path.toString());
+            if (content === undefined) {
+                throw new Error(`File not found: ${uri.path.toString()}`);
+            }
+            return { value: { toString: () => content } };
+        })
     };
     const preferences = { get: vi.fn(() => overrides.enabled ?? true) };
     const commands: string[] = [];
@@ -350,10 +527,12 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         registered,
         proposals,
         edits,
+        replacements,
         sketchEdits,
         commands,
         undoEntries,
         fileService,
+        files,
         service,
         store,
         preferences,
@@ -361,6 +540,9 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         sketchPrepare,
         bumpRevision: () => {
             revision += 1;
+        },
+        bumpEpoch: () => {
+            epoch += 1;
         },
         currentDocument: () => document
     };
@@ -390,6 +572,46 @@ async function previewedSketchProposal(harness: Harness): Promise<string> {
     const result = await previewSketch(harness);
     expect(result.ok).toBe(true);
     return (result.data as { proposalId: string }).proposalId;
+}
+
+function topologyHarness(overrides: HarnessOptions = {}): Harness {
+    return createHarness({
+        document: createTopologyDocument(),
+        modelResult: TOPOLOGY_BUILD_BEFORE,
+        build: TOPOLOGY_BUILD_AFTER,
+        solidSummaries: TOPOLOGY_SOLIDS_BEFORE,
+        ...overrides
+    });
+}
+
+function previewTopology(
+    harness: Harness,
+    input: unknown = { changes: [PATTERN_COUNT_CHANGE] },
+    context: NukeCapabilityContext = CONTEXT
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(PREVIEW_TOPOLOGY_CHANGE_ID)!.invoke(input, context);
+}
+
+function applyTopology(
+    harness: Harness,
+    proposalId: string,
+    context: NukeCapabilityContext = CONTEXT,
+    acknowledgeRegionChanges = true
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(APPLY_TOPOLOGY_CHANGE_ID)!.invoke({ proposalId, acknowledgeRegionChanges }, context);
+}
+
+async function previewedTopologyProposal(harness: Harness, context: NukeCapabilityContext = CONTEXT): Promise<string> {
+    const result = await previewTopology(harness, { changes: [PATTERN_COUNT_CHANGE] }, context);
+    expect(result.ok).toBe(true);
+    return (result.data as { proposalId: string }).proposalId;
+}
+
+function stubCandidateTessellation(harness: Harness): void {
+    vi.spyOn(
+        harness.capabilities as unknown as { readCandidateTessellation: () => Promise<typeof TOPOLOGY_PARSED_TESS> },
+        'readCandidateTessellation'
+    ).mockResolvedValue(TOPOLOGY_PARSED_TESS);
 }
 
 describe('readFeatureParamChanges', () => {
@@ -455,6 +677,83 @@ describe('readSketchEditRequests', () => {
         expect(readSketchEditRequests({ changes: tooMany })).toMatchObject({
             ok: false,
             message: expect.stringContaining('at most 8')
+        });
+    });
+});
+
+describe('readTopologyActions', () => {
+    it('accepts hole depth modes and pattern counts', () => {
+        const result = readTopologyActions({
+            changes: [
+                { featureId: 'hole-1', action: 'holeDepthMode', mode: 'through' },
+                { featureId: 'hole-2', action: 'holeDepthMode', mode: 'blind', depth: 4 },
+                { featureId: 'pattern-1', action: 'patternCount', count: 4 }
+            ]
+        });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.actions).toEqual([
+                { featureId: 'hole-1', action: 'holeDepthMode', mode: 'through' },
+                { featureId: 'hole-2', action: 'holeDepthMode', mode: 'blind', depth: 4 },
+                { featureId: 'pattern-1', action: 'patternCount', count: 4 }
+            ]);
+        }
+    });
+
+    it('rejects missing, contradictory, and non-numeric fields', () => {
+        expect(readTopologyActions({ changes: [{ featureId: 'hole-1', action: 'holeDepthMode' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('mode')
+        });
+        expect(readTopologyActions({ changes: [{ featureId: 'hole-1', action: 'holeDepthMode', mode: 'blind' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('depth')
+        });
+        expect(
+            readTopologyActions({ changes: [{ featureId: 'hole-1', action: 'holeDepthMode', mode: 'through', depth: 4 }] })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('cannot set depth') });
+        expect(
+            readTopologyActions({
+                changes: [{ featureId: 'hole-1', action: 'holeDepthMode', mode: 'blind', depth: 4, count: 3 }]
+            })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('cannot set count') });
+        expect(readTopologyActions({ changes: [{ featureId: 'pattern-1', action: 'patternCount', count: 4, depth: 4 }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('mode or depth')
+        });
+        expect(readTopologyActions({ changes: [{ featureId: '', action: 'patternCount', count: 4 }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('featureId')
+        });
+    });
+
+    it('rejects duplicates, too many edits, bad counts, and unknown actions', () => {
+        expect(
+            readTopologyActions({
+                changes: [
+                    { featureId: 'pattern-1', action: 'patternCount', count: 4 },
+                    { featureId: 'pattern-1', action: 'patternCount', count: 5 }
+                ]
+            })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('Duplicate') });
+        const tooMany = Array.from({ length: 9 }, (_, index) => ({
+            featureId: `pattern-${index}`,
+            action: 'patternCount',
+            count: 2
+        }));
+        expect(readTopologyActions({ changes: tooMany })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('at most 8')
+        });
+        for (const count of [0, 1.5, 1001]) {
+            expect(readTopologyActions({ changes: [{ featureId: 'pattern-1', action: 'patternCount', count }] })).toMatchObject({
+                ok: false,
+                message: expect.stringMatching(/at least 1|at most 1000/)
+            });
+        }
+        expect(readTopologyActions({ changes: [{ featureId: 'pad-1', action: 'suppress' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('unknown action')
         });
     });
 });
@@ -602,6 +901,367 @@ describe('NukeCadAuthoringCapabilities', () => {
         const harness = createHarness();
         expect(await apply(harness, 'missing')).toMatchObject({ ok: false, message: expect.stringContaining('expired') });
         expect(harness.edits).toHaveLength(0);
+    });
+
+    it('hides topology preview and apply while the kill switch is off', async () => {
+        const harness = topologyHarness({ enabled: false });
+
+        expect(harness.registered.get(PREVIEW_TOPOLOGY_CHANGE_ID)!.when!(CONTEXT)).toBe(false);
+        expect(harness.registered.get(APPLY_TOPOLOGY_CHANGE_ID)!.when!(CONTEXT)).toBe(false);
+        expect(await previewTopology(harness)).toMatchObject({ ok: false, message: expect.stringContaining('disabled') });
+        expect(harness.service.buildDocument).not.toHaveBeenCalled();
+    });
+
+    it('previews a topology change with solid, selector, and region impact', async () => {
+        const harness = topologyHarness();
+        stubCandidateTessellation(harness);
+
+        const result = await previewTopology(harness);
+
+        expect(result.ok).toBe(true);
+        expect(result.changeSet).toMatchObject({
+            title: 'CAD topology change',
+            applyCapability: APPLY_TOPOLOGY_CHANGE_ID
+        });
+        expect(result.data).toMatchObject({
+            summary: 'Change pattern Pattern 1 count 3 → 4',
+            impact: { solids: { before: 3, after: 4 }, faces: { before: 18, after: 24 } },
+            regionImpact: {
+                solids: { before: 3, after: 4 },
+                selectorMapChanged: true,
+                regionCoverageChanged: false,
+                addedSolidIds: [4],
+                changedRegions: [{ selector: 'plate', group: 'plate_region', beforeSolidIds: [1, 2, 3], afterSolidIds: [1, 2, 3, 4] }]
+            },
+            openmcStatus: 'no-saved-project',
+            build: { success: true, solidCount: 4, faceCount: 24, triangleCount: 48 }
+        });
+        expect(result.warnings).toEqual(['No saved OpenMC project is open; DAGMC references cannot be checked.']);
+        expect(harness.ghostPreview.show).toHaveBeenCalledWith(
+            expect.objectContaining({
+                tessData: TOPOLOGY_PARSED_TESS,
+                changedSolidIds: [],
+                addedSolidIds: [4],
+                removedSolidIds: []
+            })
+        );
+        expect(harness.commands).toContain('nuke.cad.openReviewPanel');
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isTopologyProposal(proposal)) {
+            throw new Error('expected a topology proposal');
+        }
+        expect(proposal.applyCapability).toBe(APPLY_TOPOLOGY_CHANGE_ID);
+        expect(proposal.topology.actions).toEqual([PATTERN_COUNT_CHANGE]);
+        expect(proposal.topology.before['pattern-1']).toEqual({ source: 'hole-1', count: 3, spacing: 5, axis: 'x' });
+        expect(proposal.topology.after['pattern-1']).toEqual({ source: 'hole-1', count: 4, spacing: 5, axis: 'x' });
+        expect(proposal.topology.afterRegions).toEqual([
+            { kind: 'volume', selector: 'plate', group: 'plate_region', name: 'plate_region', solidIds: [1, 2, 3, 4] }
+        ]);
+        expect(harness.replacements).toHaveLength(0);
+    });
+
+    it('explains a blocked region impact and omits the chat apply action', async () => {
+        const harness = topologyHarness({
+            build: TOPOLOGY_BUILD_CHANGED_GROUP,
+            files: { [OPENMC_PROJECT_PATH]: OPENMC_PROJECT_JSON }
+        });
+        stubCandidateTessellation(harness);
+
+        const result = await previewTopology(harness, { changes: [PATTERN_COUNT_CHANGE] }, OPENMC_CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect(result.changeSet?.applyCapability).toBeUndefined();
+        expect(result.data).toMatchObject({
+            openmcStatus: 'saved-project',
+            blockedRegions: [{ reference: 'plate_region', kind: 'dagmc-group' }]
+        });
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isTopologyProposal(proposal)) {
+            throw new Error('expected a topology proposal');
+        }
+        expect(proposal.applyCapability).toBe(APPLY_TOPOLOGY_CHANGE_ID);
+        expect(proposal.topology.blockedRegions).toHaveLength(1);
+        expect(proposal.topology.blockedRegions[0].message).toContain('plate_region');
+        expect(harness.ghostPreview.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects failed, empty, and stale topology candidates', async () => {
+        const failed = topologyHarness({ build: { ...TOPOLOGY_BUILD_AFTER, success: false, error: 'topology build failed' } });
+        expect(await previewTopology(failed)).toMatchObject({ ok: false, message: 'topology build failed' });
+        expect(failed.proposals.list()).toHaveLength(0);
+
+        const featureFailure = topologyHarness({
+            build: { ...TOPOLOGY_BUILD_AFTER, featureResults: [{ featureId: 'hole-1', status: 'failed' }] }
+        });
+        expect(await previewTopology(featureFailure)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('hole-1')
+        });
+
+        const noSolids = topologyHarness({ build: { ...TOPOLOGY_BUILD_AFTER, solidCount: 0 } });
+        expect(await previewTopology(noSolids)).toMatchObject({ ok: false, message: expect.stringContaining('no solids') });
+
+        const noTessellation = topologyHarness({ build: { ...TOPOLOGY_BUILD_AFTER, triangleCount: 0 } });
+        expect(await previewTopology(noTessellation)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('no tessellation')
+        });
+
+        const badBox = topologyHarness({ build: { ...TOPOLOGY_BUILD_AFTER, boundingBox: { min: [1, 1, 1], max: [1, 1, 1] } } });
+        expect(await previewTopology(badBox)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('bounding box')
+        });
+
+        const revision = topologyHarness();
+        revision.service.buildDocument.mockImplementation(async () => {
+            revision.bumpRevision();
+            return TOPOLOGY_BUILD_AFTER;
+        });
+        expect(await previewTopology(revision)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed while')
+        });
+        expect(revision.proposals.list()).toHaveLength(0);
+
+        const epoch = topologyHarness();
+        epoch.service.buildDocument.mockImplementation(async () => {
+            epoch.bumpEpoch();
+            return TOPOLOGY_BUILD_AFTER;
+        });
+        expect(await previewTopology(epoch)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed while')
+        });
+        expect(epoch.proposals.list()).toHaveLength(0);
+    });
+
+    it('copies the region manifest beside the candidate and removes the copy', async () => {
+        const sidecarPath = `${WORKSPACE}/pincell.regions.json`;
+        const harness = createHarness({ files: { [sidecarPath]: SIDECAR_CONTENT } });
+
+        const result = await preview(harness);
+
+        expect(result.ok).toBe(true);
+        const candidatePath = harness.service.buildDocument.mock.calls[0][0].scriptPath as string;
+        const candidateSidecar = `${candidatePath.slice(0, -'.nuke-cad'.length)}.regions.json`;
+        expect(harness.fileService.exists).toHaveBeenCalledWith(expect.any(URI));
+        const readUri = harness.fileService.readFile.mock.calls[0][0] as URI;
+        expect(readUri.path.toString()).toBe(sidecarPath);
+        expect(harness.fileService.create).toHaveBeenCalledWith(expect.any(URI), SIDECAR_CONTENT);
+        const candidateSidecarCreated = harness.fileService.create.mock.calls.some(
+            ([uri]) => (uri as URI).path.toString() === candidateSidecar
+        );
+        expect(candidateSidecarCreated).toBe(true);
+        expect(harness.files.has(candidateSidecar)).toBe(false);
+        expect(harness.files.get(sidecarPath)).toBe(SIDECAR_CONTENT);
+        const deleted = harness.fileService.delete.mock.calls.map(([uri]) => (uri as URI).path.toString());
+        expect(deleted).toContain(candidateSidecar);
+    });
+
+    it('fails the preview when the region manifest cannot be read', async () => {
+        const sidecarPath = `${WORKSPACE}/pincell.regions.json`;
+        const harness = createHarness({ files: { [sidecarPath]: SIDECAR_CONTENT } });
+        harness.fileService.readFile.mockRejectedValueOnce(new Error('permission denied'));
+
+        const result = await preview(harness);
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('could not be copied') });
+        expect(result.message).toContain('permission denied');
+        expect(harness.service.buildDocument).not.toHaveBeenCalled();
+        expect(harness.proposals.list()).toHaveLength(0);
+        expect(harness.fileService.delete).toHaveBeenCalledTimes(3);
+    });
+
+    it('applies a topology preview after acknowledgement, schedules the rebuild, and registers undo', async () => {
+        const harness = topologyHarness();
+        const proposalId = await previewedTopologyProposal(harness);
+
+        const result = await applyTopology(harness, proposalId);
+
+        expect(result.ok).toBe(true);
+        expect(result.changeSet).toMatchObject({
+            id: proposalId,
+            title: 'CAD topology change',
+            applyCapability: APPLY_TOPOLOGY_CHANGE_ID
+        });
+        expect(result.undoToken).toBe('undo-token-1');
+        expect(result.data).toMatchObject({
+            proposalId,
+            documentPath: DOCUMENT_PATH,
+            rebuildScheduled: true,
+            backupPath: expect.stringContaining('.nuke-ai-backup-'),
+            regionImpact: { solids: { before: 3, after: 4 }, selectorMapChanged: true }
+        });
+        expect(harness.replacements).toEqual([[{ id: 'pattern-1', params: { source: 'hole-1', count: 4, spacing: 5, axis: 'x' } }]]);
+        expect(harness.commands).toContain('nuke.cad.rebuild');
+        expect(harness.undoEntries).toHaveLength(1);
+        expect(harness.proposals.get(proposalId)).toBeUndefined();
+    });
+
+    it('applies a through-hole replacement without the blind depth key', async () => {
+        const harness = topologyHarness();
+        const previewResult = await previewTopology(harness, {
+            changes: [{ featureId: 'hole-1', action: 'holeDepthMode', mode: 'through' }]
+        });
+        expect(previewResult.ok).toBe(true);
+        expect(previewResult.data).toMatchObject({ summary: 'Open hole Hole 1 through' });
+        const proposalId = (previewResult.data as { proposalId: string }).proposalId;
+
+        const result = await applyTopology(harness, proposalId);
+
+        expect(result.ok).toBe(true);
+        expect(harness.replacements).toHaveLength(1);
+        expect(harness.replacements[0][0]).toMatchObject({ id: 'hole-1', params: { center: [0, 0], diameter: 2 } });
+        expect(harness.replacements[0][0].params).not.toHaveProperty('depth');
+        expect(harness.currentDocument().features.find((feature) => feature.id === 'hole-1')!.params).toMatchObject({
+            diameter: 2
+        });
+        expect(harness.currentDocument().features.find((feature) => feature.id === 'hole-1')!.params).not.toHaveProperty('depth');
+
+        await harness.undoEntries[0].undo();
+
+        expect(harness.replacements[1]).toMatchObject([{ id: 'hole-1', params: { diameter: 2, depth: 4 } }]);
+    });
+
+    it('requires an explicit region-impact acknowledgement', async () => {
+        const harness = topologyHarness();
+        const proposalId = await previewedTopologyProposal(harness);
+
+        expect(await applyTopology(harness, proposalId, CONTEXT, false)).toMatchObject({
+            ok: false,
+            message: 'Acknowledge the region impact before applying this topology change.'
+        });
+        expect(harness.replacements).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
+    });
+
+    it('rejects a blocked topology proposal naming the saved reference', async () => {
+        const harness = topologyHarness({
+            build: TOPOLOGY_BUILD_CHANGED_GROUP,
+            files: { [OPENMC_PROJECT_PATH]: OPENMC_PROJECT_JSON }
+        });
+        const proposalId = await previewedTopologyProposal(harness, OPENMC_CONTEXT);
+
+        const result = await applyTopology(harness, proposalId, OPENMC_CONTEXT);
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('plate_region') });
+        expect(result.message).toContain('saved OpenMC reference');
+        expect(harness.replacements).toHaveLength(0);
+    });
+
+    it('rejects apply when the active OpenMC project changed', async () => {
+        const harness = topologyHarness({ files: { [OPENMC_PROJECT_PATH]: OPENMC_PROJECT_JSON } });
+        const proposalId = await previewedTopologyProposal(harness, OPENMC_CONTEXT);
+
+        expect(await applyTopology(harness, proposalId, CONTEXT)).toMatchObject({
+            ok: false,
+            message: 'The active OpenMC project changed after this preview. Preview the change again.'
+        });
+        expect(harness.replacements).toHaveLength(0);
+    });
+
+    it('re-checks saved OpenMC references when applying', async () => {
+        const harness = topologyHarness({ build: TOPOLOGY_BUILD_CHANGED_GROUP });
+        const proposalId = await previewedTopologyProposal(harness, OPENMC_CONTEXT);
+        const proposal = harness.proposals.get(proposalId)!;
+        if (!isTopologyProposal(proposal)) {
+            throw new Error('expected a topology proposal');
+        }
+        expect(proposal.topology.blockedRegions).toHaveLength(0);
+
+        harness.files.set(new URI(OPENMC_PROJECT_PATH).path.toString(), OPENMC_PROJECT_JSON);
+        const result = await applyTopology(harness, proposalId, OPENMC_CONTEXT);
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('plate_region') });
+        expect(harness.replacements).toHaveLength(0);
+    });
+
+    it('rejects a stale topology proposal after the revision or feature params change', async () => {
+        const revision = topologyHarness();
+        const revisionProposal = await previewedTopologyProposal(revision);
+        revision.bumpRevision();
+        expect(await applyTopology(revision, revisionProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this preview')
+        });
+        expect(revision.replacements).toHaveLength(0);
+
+        const params = topologyHarness();
+        const paramsProposal = await previewedTopologyProposal(params);
+        const pattern = params.currentDocument().features.find((feature) => feature.id === 'pattern-1')!;
+        pattern.params = { count: 5, spacing: 5 };
+        expect(await applyTopology(params, paramsProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("Feature 'pattern-1' changed after this preview")
+        });
+        expect(params.replacements).toHaveLength(0);
+    });
+
+    it('undoes a topology change by replacing the before snapshots exactly', async () => {
+        const harness = topologyHarness();
+        const proposalId = await previewedTopologyProposal(harness);
+        await applyTopology(harness, proposalId);
+
+        const result = await harness.undoEntries[0].undo();
+
+        expect(result).toMatchObject({ ok: true, message: 'CAD topology change undone.' });
+        expect(harness.replacements).toHaveLength(2);
+        expect(harness.replacements[1]).toEqual([{ id: 'pattern-1', params: { source: 'hole-1', count: 3, spacing: 5, axis: 'x' } }]);
+        expect(harness.commands.filter((command) => command === 'nuke.cad.rebuild')).toHaveLength(2);
+    });
+
+    it('rejects undo after the revision or applied params change', async () => {
+        const revision = topologyHarness();
+        const revisionProposal = await previewedTopologyProposal(revision);
+        await applyTopology(revision, revisionProposal);
+        revision.bumpRevision();
+        expect(await revision.undoEntries[0].undo()).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this edit')
+        });
+        expect(revision.replacements).toHaveLength(1);
+
+        const params = topologyHarness();
+        const paramsProposal = await previewedTopologyProposal(params);
+        await applyTopology(params, paramsProposal);
+        const pattern = params.currentDocument().features.find((feature) => feature.id === 'pattern-1')!;
+        pattern.params = { count: 5, spacing: 5 };
+        expect(await params.undoEntries[0].undo()).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("Feature 'pattern-1' changed after apply")
+        });
+        expect(params.replacements).toHaveLength(1);
+    });
+
+    it('keeps feature, sketch, and topology applies separate', async () => {
+        const harness = topologyHarness();
+        const proposalId = await previewedTopologyProposal(harness);
+        expect(await apply(harness, proposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('topology change')
+        });
+        expect(await applySketch(harness, proposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('topology change')
+        });
+        expect(harness.replacements).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
+
+        const featureHarness = createHarness();
+        const featurePreview = await preview(featureHarness);
+        const featureProposalId = (featurePreview.data as { proposalId: string }).proposalId;
+        expect(await applyTopology(featureHarness, featureProposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('feature change')
+        });
+
+        const sketchHarness = createHarness();
+        const sketchProposalId = await previewedSketchProposal(sketchHarness);
+        expect(await applyTopology(sketchHarness, sketchProposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('sketch change')
+        });
     });
 
     it('lists sketch dimensions without the authoring preference', async () => {

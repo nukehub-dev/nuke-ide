@@ -29,11 +29,13 @@
  * CAD edit review panel widget.
  *
  * Hosts {@link CadReviewPanelView} and owns the proposal lifecycle: it lists
- * previewed feature and sketch edits, confirms and invokes the proposal's
- * apply capability (`nuke.cad.applyFeatureChange` or `nuke.cad.applySketchChange`),
- * keeps applied entries for session undo through `NukeUndoService`, and
- * dismisses proposals. Opened through `nuke.cad.openReviewPanel` in the right
- * area, the CAD Studio menu, and the Nuke Tools sidebar.
+ * previewed feature, sketch, and topology edits, tracks region-impact
+ * acknowledgement, confirms and invokes the proposal's apply capability
+ * (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`, or
+ * `nuke.cad.applyTopologyChange`), keeps applied entries for session undo
+ * through `NukeUndoService`, and dismisses proposals. Opened through
+ * `nuke.cad.openReviewPanel` in the right area, the CAD Studio menu, and the
+ * Nuke Tools sidebar.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -88,6 +90,9 @@ export class CadReviewPanelWidget extends ReactWidget {
     /** Applied proposals kept for session undo, newest first. */
     protected applied: CadReviewAppliedEntry[] = [];
 
+    /** Topology proposal ids whose region impact the user acknowledged. */
+    protected acknowledgedProposalIds = new Set<string>();
+
     /** True from the confirmed apply until the capability settles. */
     protected applying = false;
 
@@ -126,10 +131,22 @@ export class CadReviewPanelWidget extends ReactWidget {
 
     /** Live proposals from the store, mapped to the presentational view model. */
     protected currentProposals(): readonly CadReviewProposalView[] {
-        return this.proposalService.list().map((proposal) => this.toView(proposal));
+        const proposals = this.proposalService.list().map((proposal) => this.toView(proposal));
+        this.dropMissingAcknowledgements(proposals);
+        return proposals;
     }
 
-    /** Map a stored proposal to the panel view, including sketch solver context. */
+    /** Forget acknowledgements for topology proposals that left the store. */
+    protected dropMissingAcknowledgements(proposals: readonly CadReviewProposalView[]): void {
+        const liveTopologyIds = new Set(proposals.filter((proposal) => proposal.scope === 'topology').map((proposal) => proposal.id));
+        for (const id of this.acknowledgedProposalIds) {
+            if (!liveTopologyIds.has(id)) {
+                this.acknowledgedProposalIds.delete(id);
+            }
+        }
+    }
+
+    /** Map a stored proposal to the panel view, including sketch and topology context. */
     protected toView(proposal: NukeCadProposal): CadReviewProposalView {
         const common: CadReviewProposalView = {
             id: proposal.id,
@@ -141,18 +158,30 @@ export class CadReviewPanelWidget extends ReactWidget {
             impact: proposal.impact,
             build: proposal.build
         };
-        if (proposal.scope !== 'sketch') {
-            return common;
+        if (proposal.scope === 'sketch') {
+            return {
+                ...common,
+                sketch: {
+                    targetSketchId: proposal.sketch.targetSketchId,
+                    targetSketchName: proposal.sketch.targetSketchName,
+                    affectedSketchIds: proposal.sketch.affectedSketchIds,
+                    solver: proposal.sketch.solver
+                }
+            };
         }
-        return {
-            ...common,
-            sketch: {
-                targetSketchId: proposal.sketch.targetSketchId,
-                targetSketchName: proposal.sketch.targetSketchName,
-                affectedSketchIds: proposal.sketch.affectedSketchIds,
-                solver: proposal.sketch.solver
-            }
-        };
+        if (proposal.scope === 'topology') {
+            return {
+                ...common,
+                topology: {
+                    impact: proposal.topology.topology,
+                    blockedRegions: proposal.topology.blockedRegions,
+                    openmcStatus: proposal.topology.openmcStatus,
+                    openmcProjectPath: proposal.topology.openmcProjectPath,
+                    openmcWarnings: proposal.topology.openmcWarnings
+                }
+            };
+        }
+        return common;
     }
 
     /** Applied proposal ids whose tokens are still redeemable. */
@@ -170,18 +199,37 @@ export class CadReviewPanelWidget extends ReactWidget {
                 authoringEnabled={this.isAuthoringEnabled()}
                 applying={this.applying}
                 undoableProposalIds={this.undoableProposalIds()}
+                acknowledgedProposalIds={Array.from(this.acknowledgedProposalIds)}
                 onApply={(proposalId) => void this.handleApply(proposalId)}
                 onDismiss={(proposalId) => this.handleDismiss(proposalId)}
                 onUndo={(proposalId) => void this.handleUndo(proposalId)}
+                onAcknowledge={(proposalId, acknowledged) => this.handleAcknowledge(proposalId, acknowledged)}
                 onOpenSettings={() => void this.commandService.executeCommand(CommonCommands.OPEN_PREFERENCES.id, AI_AUTHORING_PREFERENCE)}
             />
         );
     }
 
+    /** Track the region-impact acknowledgement shown on a topology proposal. */
+    protected handleAcknowledge(proposalId: string, acknowledged: boolean): void {
+        if (acknowledged && !this.proposalService.has(proposalId)) {
+            return;
+        }
+        const next = new Set(this.acknowledgedProposalIds);
+        if (acknowledged) {
+            next.add(proposalId);
+        } else {
+            next.delete(proposalId);
+        }
+        this.acknowledgedProposalIds = next;
+        this.update();
+    }
+
     /**
      * Confirm, then invoke the canonical apply capability with the same
-     * validation and capability context the AI tool bridge uses. The proposal
-     * is removed by the capability after a successful document commit.
+     * validation and capability context the AI tool bridge uses. Topology
+     * proposals also carry the explicit region-impact acknowledgement the
+     * apply capability requires. The proposal is removed by the capability
+     * after a successful document commit.
      */
     protected async handleApply(proposalId: string): Promise<void> {
         const proposal = this.currentProposals().find((candidate) => candidate.id === proposalId);
@@ -189,7 +237,12 @@ export class CadReviewPanelWidget extends ReactWidget {
             this.messageService.warn('This CAD proposal is no longer available. Preview the change again.');
             return;
         }
-        const confirmPrompt = proposal.scope === 'sketch' ? 'Apply this CAD sketch edit?' : 'Apply this CAD feature change?';
+        const confirmPrompt =
+            proposal.scope === 'sketch'
+                ? 'Apply this CAD sketch edit?'
+                : proposal.scope === 'topology'
+                  ? 'Apply this CAD topology change?'
+                  : 'Apply this CAD feature change?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${proposal.summary}`, 'Apply');
         if (confirmation !== 'Apply') {
             return;
@@ -214,7 +267,7 @@ export class CadReviewPanelWidget extends ReactWidget {
             );
             return;
         }
-        const input = { proposalId };
+        const input = proposal.scope === 'topology' ? { proposalId, acknowledgeRegionChanges: true } : { proposalId };
         const inputErrors = validateCapabilityInput(capability, input);
         if (inputErrors.length > 0) {
             this.messageService.error(`Invalid CAD apply request: ${inputErrors.join('; ')}`);
@@ -230,6 +283,7 @@ export class CadReviewPanelWidget extends ReactWidget {
                 return;
             }
             this.proposalService.remove(proposalId);
+            this.acknowledgedProposalIds.delete(proposalId);
             this.applied = [
                 {
                     proposalId,
@@ -250,9 +304,10 @@ export class CadReviewPanelWidget extends ReactWidget {
         }
     }
 
-    /** Dismiss a proposal; the store event refreshes the panel. */
+    /** Dismiss a proposal and forget its acknowledgement; the store event refreshes the panel. */
     protected handleDismiss(proposalId: string): void {
         this.proposalService.remove(proposalId);
+        this.acknowledgedProposalIds.delete(proposalId);
         this.update();
     }
 
@@ -266,7 +321,9 @@ export class CadReviewPanelWidget extends ReactWidget {
         const confirmPrompt =
             entry.scope === 'sketch'
                 ? 'Undo this CAD sketch edit and restore the previous sketch dimensions?'
-                : 'Undo this CAD edit and restore the previous feature parameters?';
+                : entry.scope === 'topology'
+                  ? 'Undo this CAD topology change and restore the previous feature parameters?'
+                  : 'Undo this CAD edit and restore the previous feature parameters?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${entry.summary}`, 'Undo');
         if (confirmation !== 'Undo') {
             return;
