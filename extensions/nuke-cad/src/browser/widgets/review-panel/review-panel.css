@@ -134,6 +134,147 @@
     color: var(--theia-editorWarning-foreground);
 }
 
+/* Import plan: source identity, units, solid selection, planned bodies, warnings. */
+.cad-review-import {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-sideBarSectionHeader-border, var(--theia-panel-border));
+    border-radius: 4px;
+    background: var(--theia-sideBarSectionHeader-background, var(--theia-editorWidget-background));
+}
+
+.cad-review-import-source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    min-width: 0;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cad-review-import-source .codicon {
+    flex: 0 0 auto;
+}
+
+.cad-review-import-source-name {
+    overflow-wrap: anywhere;
+}
+
+.cad-review-import-chip,
+.cad-review-import-badge {
+    padding: 0 5px;
+    font-size: 10px;
+}
+
+.cad-review-import-badge {
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.cad-review-import-source-path {
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    line-height: 1.3;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-import-units,
+.cad-review-import-solids {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+}
+
+.cad-review-import-line {
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-review-import-message {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-import-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cad-review-import-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-import-body-row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 3px 6px;
+    border-left: 2px solid var(--theia-focusBorder);
+    border-radius: 3px;
+    background: var(--theia-editorWidget-background);
+    font-size: 11px;
+}
+
+.cad-review-import-body-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+}
+
+.cad-review-import-body-name {
+    overflow-wrap: anywhere;
+    font-weight: 600;
+}
+
+.cad-review-import-body-label {
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-import-body-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-import-material.is-placeholder {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-review-import-feature {
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-review-import-warnings {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-review-import-warnings li {
+    overflow-wrap: anywhere;
+}
+
 .cad-review-changes {
     display: flex;
     flex-direction: column;

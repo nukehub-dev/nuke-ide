@@ -2,27 +2,31 @@
 
 ## Status and gate
 
-**Three gated slices implemented behind a default-off switch.** The shipped authoring surface covers scalar
+**Four gated slices implemented behind a default-off switch.** The shipped authoring surface covers scalar
 feature-parameter edits (`nuke.cad.previewFeatureChange` / `nuke.cad.applyFeatureChange`), sketch-dimension or
 referenced-document-parameter edits (`nuke.cad.listSketchDimensions` / `nuke.cad.previewSketchChange` /
-`nuke.cad.applySketchChange`), and topology-impacting feature edits (`nuke.cad.previewTopologyChange` /
-`nuke.cad.applyTopologyChange`), all disabled unless `nukeCad.aiAuthoringEnabled` is on. All three slices ship the
-**CAD Edit Review** panel and a display-only viewport ghost for the candidate geometry. Sketches are editable only
-through existing driving dimensions and document parameters they reference; new sketch entities, constraints, and
-dimensions, free-form sketch creation, scripts, and imports remain design-only. This page is the contract for the full
-implementation and its remaining security gate.
+`nuke.cad.applySketchChange`), topology-impacting feature edits (`nuke.cad.previewTopologyChange` /
+`nuke.cad.applyTopologyChange`), and imported STEP/IGES/BREP bodies (`nuke.cad.inspectImportSource` /
+`nuke.cad.previewImportBodies` / `nuke.cad.applyImportBodies`), all disabled unless `nukeCad.aiAuthoringEnabled` is on.
+The feature, sketch, and topology slices ship the **CAD Edit Review** panel and a display-only viewport ghost for the
+candidate geometry. The import slice uses the same panel with a plan-only proposal: it builds no geometry and shows no
+ghost. Sketches are editable only through existing driving dimensions and document parameters they reference; new
+sketch entities, constraints, and dimensions, free-form sketch creation, and scripts remain design-only. This page is
+the contract for the full implementation and its remaining security gate.
 
-All three slices follow the security model below: real-build preview, stale-proposal rejection, a pre-apply backup, one
-atomic document-store commit, a scheduled rebuild, session-scoped undo, and no MCP exposure. The scalar and sketch
-slices additionally require topology/selector/region invariance. The topology slice reports solid and region changes
-explicitly and requires acknowledgement instead of claiming invariance. The full
+All four slices follow the security model below: stale-proposal rejection, a pre-apply backup, one atomic
+document-store commit, a scheduled rebuild, session-scoped undo, and no MCP exposure. The feature, sketch, and topology
+slices add a real-build preview; the scalar and sketch slices also require topology/selector/region invariance, while
+the topology slice reports solid and region changes explicitly and requires acknowledgement instead of claiming
+invariance. The import slice is plan-only, re-inspects a user-chosen source at apply time, and rejects a stale hash,
+size, selection, or plan instead of building candidate geometry. The full
 [security gate checklist](#security-gate-checklist) remains the gate for broader authoring.
 
 This page is the contract for the remaining implementation:
 
 - It is not a commitment to ship.
 - It does not authorize `.py`/build123d script editing, raw Python execution, free-form sketch creation, new sketch
-  entities/constraints/dimensions, booleans, add/delete/reorder, or free-form JSON patches.
+  entities/constraints/dimensions, booleans, add/delete/reorder, assemblies, drawings, or free-form JSON patches.
 - Any implementation starts behind a default-off kill switch and must not be enabled for users until the roll-out gates
   are met.
 - The security review is a hard gate, not a code-review formality.
@@ -42,7 +46,7 @@ a second geometry kernel, a second build path, or a model-facing file API.
 | Prompt injection via names/text | Body names, feature names, parameter names, material tags, build warnings, and import product names come from documents and external CAD files. They are untrusted data that the model reads and that UIs render. A malicious document can carry instructions, Markdown/HTML, control characters, or misleading labels.                       |
 | Simulation impact               | `label`, `material`, selector maps, and body identity feed the region manifest and DAGMC export. A geometry edit that changes solid identity or region coverage can invalidate a coupled OpenMC model even when the shape still builds.                                                                                                       |
 
-The shipped CAD AI surface is read/export plus the three gated authoring slices:
+The shipped CAD AI surface is read/export plus the four gated authoring slices:
 
 | Capability                       | Risk      | Effect                                                                          |
 | -------------------------------- | --------- | ------------------------------------------------------------------------------- |
@@ -56,20 +60,24 @@ The shipped CAD AI surface is read/export plus the three gated authoring slices:
 | `nuke.cad.applySketchChange`     | `execute` | Applies a previewed sketch proposal atomically, rebuilds, and registers undo    |
 | `nuke.cad.previewTopologyChange` | `read`    | Real-build preview of hole depth-mode or pattern-count edits with region impact |
 | `nuke.cad.applyTopologyChange`   | `execute` | Applies exact feature parameters, rebuilds, and registers undo                  |
+| `nuke.cad.inspectImportSource`   | `read`    | Inspects a user-chosen STEP/IGES/BREP source without building                   |
+| `nuke.cad.previewImportBodies`   | `read`    | Plans imported bodies and opens review without a build, ghost, or write         |
+| `nuke.cad.applyImportBodies`     | `execute` | Re-inspects the source, adds import bodies, rebuilds, and registers undo        |
 | `nuke.cad.exportDagmc`           | `execute` | Builds a source and writes STEP, DAGMC, manifest, and cache artifacts           |
 
-`nuke.cad.diagnoseModel` and `nuke.cad.listSketchDimensions` give the model bounded ways to inspect a model. Preview
-never mutates `CadDocumentStore`; only the three apply capabilities commit, and external MCP never exposes
-write/execute CAD tools.
+`nuke.cad.diagnoseModel` and `nuke.cad.listSketchDimensions` give the model bounded ways to inspect a model.
+`nuke.cad.inspectImportSource` extends that read-only inspection to a user-chosen exchange file. Preview never mutates
+`CadDocumentStore`; only the four apply capabilities commit, and external MCP never exposes write/execute CAD tools.
 
 ## Current surface and what must change
 
 | Layer                                                                                             | Today                                                                                                                                                                                                                                                 | Required for authoring                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Capability registration (`extensions/nuke-cad/src/browser/capabilities/nuke-cad-capabilities.ts`) | Four read/export capabilities; the authoring contributions add the gated feature preview/apply pair, the sketch list/preview/apply trio, and the topology preview/apply pair behind the switch                                                        | Keep the switch, region-impact acknowledgement, saved-project reference check, and undo boundary; scripts, imports, booleans/add/delete/reorder, assemblies, and drawings stay out                                                                                                  |
+| Capability registration (`extensions/nuke-cad/src/browser/capabilities/nuke-cad-capabilities.ts`) | Four read/export capabilities; the authoring contributions add the gated feature preview/apply pair, the sketch list/preview/apply trio, the topology preview/apply pair, and the import inspect/preview/apply trio behind the switch                 | Keep the switch, region-impact acknowledgement, saved-project reference check, source-picker policy, and undo boundary; scripts, booleans/add/delete/reorder, assemblies, and drawings stay out                                                                                     |
+| Import source policy                                                                              | The UI import copies a user-chosen source into `<stem>.parts/`; no AI import capability exists                                                                                                                                                        | Add a user-granted source reference: the file comes from the native picker, must be a workspace-root regular file with a supported extension and at most 256 MiB, may skip the picker only inside the active document's own `<stem>.parts/`, and is re-inspected at apply           |
+| Proposal/undo pattern                                                                             | CAD has a scoped in-memory proposal store (20 entries, 10-minute TTL, deep-cloned snapshots) for feature, sketch, topology, and import proposals, plus session-scoped `NukeUndoService` tokens                                                        | Keep the scope, TTL, capacity, and revision binding for all four slices; register reverse handlers with `NukeUndoService`                                                                                                                                                           |
 | Document state (`CadDocumentStore`)                                                               | Framework-free in-memory authority; immutable snapshots; depth-100 snapshot undo/redo; one history entry per committed mutation; `documentEpoch` on install; `loadDocument` resets history                                                            | Add a revision/identity accessor, a single-transaction patch API (one history entry for a multi-operation patch), an exact feature-parameter replacement API (key removal included), a guarded restore-by-transaction API, and the revision that the active build was produced from |
 | Build orchestration (`NukeCadFrontendService` → `NukeCadBackendService`)                          | `buildDocument` → `geometry_service.py --from-document`; display builds skip DAGMC/mesh; the backend defaults to a one-hour process timeout and has `cancelJob` for tracked jobs, but `buildDocument` does not expose a timeout or cancellation input | Add a bounded preview build seam: explicit job id, timeout, abort/cancel, private output directory, cleanup guarantee; record the built document revision on the installed model                                                                                                    |
-| Proposal/undo pattern                                                                             | CAD has a scoped in-memory proposal store (20 entries, 10-minute TTL, deep-cloned snapshots) for feature, sketch, and topology proposals, plus session-scoped `NukeUndoService` tokens                                                                | Keep the scope, TTL, capacity, and revision binding for all three slices; register reverse handlers with `NukeUndoService`                                                                                                                                                          |
 | NukeAI bridge                                                                                     | Generic `NukeCapability` → tool conversion; `changeSet` cards; apply requires `write`/`execute`; undo redeems the service token                                                                                                                       | No new tool-conversion code required; the capability IDs, `changeSet`, and `undoToken` follow the existing contract. A kill-switch context signal may be added so the catalog refreshes                                                                                             |
 | MCP                                                                                               | Explicit read-only allowlist                                                                                                                                                                                                                          | CAD authoring IDs must never be added; add a regression test                                                                                                                                                                                                                        |
 
@@ -79,7 +87,7 @@ validation.
 
 ## Editable surfaces
 
-The shipped surface is three static slices. None can be widened by the model.
+The shipped surface is four static slices. None can be widened by the model.
 
 ### Slice 1: scalar feature parameters
 
@@ -113,7 +121,7 @@ Starter allowlist:
 Deliberately outside the feature allowlist: mirror and lattice **counts** (cell-count changes), hole
 counterbore/countersink/counterdrill modes and placement, chamfer **two-distance** mode and chamfer angle, draft pull
 direction, primitive `dimensions` arrays (index-addressed), `translate` vectors (array paths), booleans and consumed
-bodies, imports, new sketch entities, datums, assemblies, drawings, suppression, reorder, add, and delete. Linear and
+bodies, new sketch entities, datums, assemblies, drawings, suppression, reorder, add, and delete. Linear and
 circular pattern counts are handled only by the topology slice, not by this scalar merge.
 
 The allowlist is a static table in the capability module, not something the model can extend. A feature type or key
@@ -192,11 +200,51 @@ previous/next parameter objects. That exact replacement is what removes a blind 
 once, the normal rebuild is scheduled, and undo restores the previous parameter objects, including a removed key, in one
 commit. The review panel keeps Apply disabled while a removed region is still referenced by OpenMC.
 
-Deliberately outside all three slices: new sketch entities, constraints, or dimensions, free-form sketch creation,
+### Slice 4: imported bodies
+
+The fourth slice adds editable bodies from a user-chosen STEP/STP, IGES/IGS, or BREP source. It accepts one plan at a
+time with `{ sourcePath, strategy, label, solidIndexes, sourceUnit?, material? }`:
+
+```json
+{
+  "sourcePath": "/workspace/models/pump/pump.parts/impeller.step",
+  "strategy": "perSolid",
+  "label": "impeller",
+  "solidIndexes": [1, 2],
+  "sourceUnit": "mm",
+  "material": "steel"
+}
+```
+
+- **Source grant.** The user chooses the file in the native picker. A model-supplied path is only a hint: an arbitrary
+  workspace path opens the picker unless it is inside the active document's own `<stem>.parts/` folder, which is the
+  self-contained location the UI import uses. The picker result is the grant; the model never widens it.
+- **Path and source checks.** The source must be a regular file (symlinks rejected), inside a workspace root, with a
+  `.step`/`.stp`/`.iges`/`.igs`/`.brep` extension, at most 256 MiB, and readable. `inspectImportSource` runs the
+  backend inspection without a build and returns the format, byte size, SHA-256 hash, declared/effective units, and
+  per-solid index, product name, face count, volume, bounding box, and center. It writes no STEP, mesh, DAGMC, or cache
+  artifact; no source bytes are copied or downloaded.
+- **Plan-only preview.** `previewImportBodies` re-inspects the authorized source and validates the strategy (`single`
+  for one body from the selected solids, `perSolid` for one body per solid), label, solid indexes, optional source unit,
+  and optional material. It stores an import proposal and opens the **CAD Edit Review** panel, but it never builds
+  geometry, shows a ghost, or mutates `CadDocumentStore`. Review shows the source details, selected solids,
+  body/feature count, units, warnings, and the label/material plan.
+- **Apply and undo.** `applyImportBodies` accepts only `{ proposalId }`. It re-inspects the same source and rejects a
+  stale hash, size, selection, or plan, writes a backup, and calls `CadDocumentStore.addImportBodies` once to create
+  the bodies and their import features. The normal rebuild is scheduled and a session undo token restores the previous
+  document in one commit.
+- **Self-contained check.** A source outside the document folder is referenced in place; the preview and apply results
+  warn that the document is not self-contained. A missing or changed source is reported as stale, never silently
+  re-imported. Imported bodies are B-rep snapshots; their surfaces are not editable, so replace or refresh the source
+  instead.
+
+Deliberately outside all four slices: new sketch entities, constraints, or dimensions, free-form sketch creation,
 document parameters not referenced by a sketch, scripts, topology references/pushes/pulls, topology changes beyond hole
 depth mode and linear/circular pattern count (booleans and consumed bodies, feature/body add, delete, or reorder,
-lattices), imports, datums, assemblies, drawings, and suppression. Scalar and sketch edits still require topology,
-selector-map, and region coverage to stay unchanged; any change rejects their preview.
+lattices), datums, assemblies, drawings, and suppression. Scalar and sketch edits still require topology,
+selector-map, and region coverage to stay unchanged; any change rejects their preview. Import authoring covers only
+the static source/selection/unit/material plan above; it cannot edit or replace an existing import source, and it does
+not accept assembly or drawing authoring.
 
 ## Candidate document-patch surface (not shipped)
 
@@ -510,35 +558,38 @@ references before commit, and it never writes the OpenMC project.
 
 ### Path scoping and backups
 
-| Target        | First-slice rule                                                                                                                                                                                                                                                                                                                              |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document      | Active `.nuke-cad` only; no model-supplied path; must be workspace-contained, a regular file (no symlink escape), and match the previewed revision. Backup the previous bytes under `<workspace>/.nuke-ide/ai/backups/cad/`, then replace via a same-directory temp file + rename. Retain at most 10 backups / 50 MiB / 30 days per document. |
-| Script        | No write path. `.py`/build123d editing is out of scope; a future script surface needs its own code-execution review, backup, atomic write, and explicit confirmation.                                                                                                                                                                         |
-| Import source | Never patched. Existing `sourceHash`/`sourceSize` verification keeps stale STEP/IGES/BREP sources from building silently.                                                                                                                                                                                                                     |
-| Internal temp | Harness-named hidden sibling for the candidate document (relative imports must resolve against the document directory), private output directory under `.nuke-ide/ai/cad-builds/`, exclusive create, `finally` cleanup, startup sweep.                                                                                                        |
+| Target        | First-slice rule                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document      | Active `.nuke-cad` only; no model-supplied path; must be workspace-contained, a regular file (no symlink escape), and match the previewed revision. Backup the previous bytes under `<workspace>/.nuke-ide/ai/backups/cad/`, then replace via a same-directory temp file + rename. Retain at most 10 backups / 50 MiB / 30 days per document.                                                        |
+| Script        | No write path. `.py`/build123d editing is out of scope; a future script surface needs its own code-execution review, backup, atomic write, and explicit confirmation.                                                                                                                                                                                                                                |
+| Import source | A user-chosen STEP/IGES/BREP file may be inspected and imported as editable bodies through the import slice. It must be a workspace-root regular file with a supported extension and at most 256 MiB; a path inside `<stem>.parts/` skips the picker. The source is never patched or copied, and apply re-inspects `sourceHash`/`sourceSize`/selection/plan so a stale source cannot build silently. |
+| Internal temp | Harness-named hidden sibling for the candidate document (relative imports must resolve against the document directory), private output directory under `.nuke-ide/ai/cad-builds/`, exclusive create, `finally` cleanup, startup sweep.                                                                                                                                                               |
 
 The backup is a recovery aid, not an undo source: undo redeems the in-memory token and restores the recorded backup only
 after verifying its hash. A user can also recover manually from the reported `backupPath` if the session ends.
 
 ## Confirmation and undo UX
 
-The NukeAI tool card and the **CAD Edit Review** panel are the confirmation surfaces for all three slices. The panel
-renders the same proposal (feature, sketch, or topology), shows the candidate geometry as the same display-only viewport
-ghost, and invokes the same apply capability; it never writes the document directly. The panel reuses the
-proposed-vs-current tessellation split: unchanged solids use the cool ghost material and changed solids use the warmer
-accent. A sketch cascade highlights every affected sketch's solids because the candidate build already contains the
-re-solved geometry. A topology proposal adds a **Region impact** section with added, removed, and changed solids, named
-regions, and saved-OpenMC reference status; its Apply stays disabled until the region acknowledgement checkbox is ticked
-and stays disabled while a removed region is referenced by OpenMC. An unsaved project is labelled **not checked** and
-still requires the acknowledgement.
+The NukeAI tool card and the **CAD Edit Review** panel are the confirmation surfaces for all four slices. The panel
+renders the same proposal (feature, sketch, topology, or import) and invokes the same apply capability; it never writes
+the document directly. Feature, sketch, and topology proposals show the candidate geometry as the same display-only
+viewport ghost. The panel reuses the proposed-vs-current tessellation split: unchanged solids use the cool ghost
+material and changed solids use the warmer accent. A sketch cascade highlights every affected sketch's solids because
+the candidate build already contains the re-solved geometry. A topology proposal adds a **Region impact** section with
+added, removed, and changed solids, named regions, and saved-OpenMC reference status; its Apply stays disabled until the
+region acknowledgement checkbox is ticked and stays disabled while a removed region is referenced by OpenMC. An unsaved
+project is labelled **not checked** and still requires the acknowledgement. An import proposal shows the source details,
+selected solids, body/feature count, units, warnings, and label/material plan, and deliberately shows no ghost because
+no candidate geometry was built.
 
 Preview card:
 
-- Title and summary: "CAD feature change — increase the fuel pellet height", "CAD sketch change — fuel radius", or
-  "CAD topology change — hole becomes through".
+- Title and summary: "CAD feature change — increase the fuel pellet height", "CAD sketch change — fuel radius",
+  "CAD topology change — hole becomes through", or "CAD import — add two impeller bodies".
 - Diff rows: `features.fuel.params.length  1 → 1.2`, or
   `parameters.fuelRadius 0.4 → 0.44 (fuel-sketch, dimension-5, dimension-8)`, using the existing `changeSet` renderer.
-  Through-hole rows use the remove kind and show the disappeared `depth` value.
+  Through-hole rows use the remove kind and show the disappeared `depth` value. Import rows name the source path, each
+  selected solid index, the target body, strategy, units, and label/material, and state that no geometry was built.
 - Validation badge: valid/invalid, solid/face/triangle counts, volume and bounding-box delta, overlap and reference
   warnings, and a short "Not produced: DAGMC/FEM mesh" limitation line.
 - A topology preview also lists added/removed/changed solids, named regions, and the OpenMC reference status, and never
@@ -553,6 +604,8 @@ Apply confirmation:
   that a rebuild will be scheduled.
 - A topology apply also states that the geometry and region mapping will change, and requires
   `acknowledgeRegionChanges: true`.
+- An import apply names the source path, the selected solids, the created bodies/features, units, and whether the
+  document is self-contained, and states that the source is referenced rather than copied.
 - The user must confirm the write/execute tool call. An always-allow confirmation cannot widen the change because apply
   accepts only a proposal id (and, for topology, the acknowledgement flag).
 - The result card shows the applied revision, the backup path, and an **Undo** action. If the rebuild was scheduled but has
@@ -562,7 +615,7 @@ Undo:
 
 - The card asks for explicit confirmation before redeeming the token (the existing warning dialog).
 - A topology undo restores the exact previous feature parameter objects, including a `depth` key that apply removed, in
-  one commit.
+  one commit. An import undo removes the added bodies and import features in one commit.
 - The undo entry restores the file and the store as one unit and marks the document clean; it must not emit a store change
   that lets the rebuild read the still-applied file. Validate the restore first, write the backup to the file atomically,
   then restore the store transaction and emit.
@@ -576,7 +629,8 @@ Undo:
 Stale and reload behavior:
 
 - Preview records `documentEpoch`, `baseRevision`, the on-disk canonical hash, and the proposal creation time. Apply
-  re-checks all of them and re-materializes the candidate. A mismatch discards the proposal.
+  re-checks all of them and re-materializes the candidate. A mismatch discards the proposal. An import proposal also
+  records the source hash and size; apply re-inspects the source and rejects a changed hash, size, selection, or plan.
 - Switching documents bumps the epoch; the old proposal cannot be applied. Reloading resets store history and invalidates
   every in-memory undo token.
 - Applying writes the file, so a reload after apply loads the applied document; the change persists, but the undo token
@@ -600,28 +654,29 @@ Kill switch:
 
 ### Threat table
 
-| #   | Threat                                 | Attack or failure path                                                                                                                                   | Impact                                                       | Required mitigation                                                                                                                                                                                                                                                                               |
-| --- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Arbitrary code execution               | Model-authored `.py`, Python expression, `eval`, shell, dynamic import, or a script path passed through a patch                                          | Full user-level code execution in the backend                | No script capability in this design; the only future expression path would use `expression.ts` with a fixed identifier/function set; no `eval`/`Function`/dynamic import; no model-supplied interpreter args or paths                                                                             |
-| 2   | Path escape / symlink                  | A patch or proposal makes the capability write, read, back up, or build outside the workspace                                                            | Write/read outside the project, credential exposure          | First slice accepts no paths at all; target is the active store document; internal temp/backup/output paths are harness-generated, absolute, canonicalized, checked with `isWithinWorkspace`, and `lstat`-checked to reject symlinks; write via same-directory temp + rename                      |
-| 3   | Destructive overwrite                  | Apply rewrites a saved `.nuke-cad`; the file changed on disk or the backup is missing                                                                    | Loss of user work                                            | Apply requires a clean buffer, a matching base revision, and an atomic backup before the rename; the confirmation names the file; undo restores the backup; the operation is one transaction; no retry                                                                                            |
-| 4   | Stale preview / TOCTOU                 | User edits, undoes, reloads, switches documents, or changes the file between preview and apply                                                           | Applying a change that was never previewed                   | Proposal scope + 10-minute TTL + `documentEpoch` + `baseRevision` + on-disk hash + candidate re-materialization; any mismatch rejects and discards; undo checks the applied revision/transaction id                                                                                               |
-| 5   | Untrusted names/text                   | Feature/body names, labels, material tags, warnings, or import product names contain instructions, Markdown/HTML, control characters, or misleading text | Prompt injection, UI/log injection, misleading confirmations | Treat as data; cap and strip control characters; render as text; never build ids/paths/prompts from them; static capability descriptions; the NukeAI prompt must state that CAD document content is untrusted                                                                                     |
-| 6   | Prompt injection via document content  | A malicious document tells the model to apply, export, or ignore confirmation                                                                            | Unauthorized edits or exports                                | Confirmation is a UI/tool-layer control, not a prompt instruction; apply accepts only a fresh proposal id; the model cannot skip preview; the system prompt and tool descriptions are static and reviewed                                                                                         |
-| 7   | DoS via expensive builds               | Repeated previews, a huge document, pathological geometry, or many operations                                                                            | IDE and machine exhaustion                                   | 120 s build deadline + process-tree kill; one concurrent preview; 6/min rate; patch/document/size caps; proposal cap/TTL; no auto-retry; no background previews                                                                                                                                   |
-| 8   | Prototype pollution / schema confusion | `__proto__`/`constructor` keys, duplicate keys, deep nesting, unknown fields, array where a scalar is expected                                           | Validator bypass or state corruption                         | Strict `additionalProperties: false`, own-property checks, null-prototype maps, reject reserved keys, depth/size caps, semantic validation in the handler                                                                                                                                         |
-| 9   | Cross-scope or replay                  | An OpenMC proposal id is passed to CAD apply, or a proposal/token is replayed                                                                            | Wrong-domain mutation or double apply                        | Proposal scope `cad-document`; apply/undo accept only ids/tokens from their own store; tokens are one-shot; proposals are removed after apply or on staleness                                                                                                                                     |
-| 10  | Concurrent apply/race                  | Two applies, apply while a rebuild is in flight, or apply during a document switch                                                                       | Interleaved writes or a build against the wrong file         | One in-flight apply per document; revision/epoch re-check immediately before write; store transaction is synchronous; a document switch invalidates the proposal                                                                                                                                  |
-| 11  | Privacy/log leakage                    | Parameter values, feature names, document paths, or before/after values land in metrics/journals                                                         | Sensitive model data in local logs                           | Reuse the existing journal rules: capability id, outcome, counts, durations, hashed tokens; no names, values, paths, or before/after payloads                                                                                                                                                     |
-| 12  | Simulation-invalid geometry            | The build succeeds but solid identity, labels, or selector coverage changed                                                                              | Wrong region/material mapping downstream                     | Scalar/sketch slices block solid-count/body/selector changes; the topology slice reports added/removed/changed solids and named regions, checks saved OpenMC group/material references, and requires acknowledgement; surface overlap and manifest warnings; keep DAGMC/FEM export out of preview |
+| #   | Threat                                 | Attack or failure path                                                                                                                                   | Impact                                                       | Required mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Arbitrary code execution               | Model-authored `.py`, Python expression, `eval`, shell, dynamic import, or a script path passed through a patch                                          | Full user-level code execution in the backend                | No script capability in this design; the only future expression path would use `expression.ts` with a fixed identifier/function set; no `eval`/`Function`/dynamic import; no model-supplied interpreter args or paths                                                                                                                                                                                                                                       |
+| 2   | Path escape / symlink                  | A patch or proposal makes the capability write, read, back up, or build outside the workspace                                                            | Write/read outside the project, credential exposure          | Feature and sketch slices accept no paths at all; the import slice accepts only a user-granted source from the native picker (or the document's own `<stem>.parts/`), checked as a workspace-root regular file, supported extension, at most 256 MiB, and symlink-rejected; internal temp/backup/output paths are harness-generated, absolute, canonicalized, checked with `isWithinWorkspace`, and `lstat`-checked; write via same-directory temp + rename |
+| 3   | Destructive overwrite                  | Apply rewrites a saved `.nuke-cad`; the file changed on disk or the backup is missing                                                                    | Loss of user work                                            | Apply requires a clean buffer, a matching base revision, and an atomic backup before the rename; the confirmation names the file; undo restores the backup; the operation is one transaction; no retry. Import apply never modifies the source file                                                                                                                                                                                                         |
+| 4   | Stale preview / TOCTOU                 | User edits, undoes, reloads, switches documents, changes the file, or replaces/edits the import source between preview and apply                         | Applying a change that was never previewed                   | Proposal scope + 10-minute TTL + `documentEpoch` + `baseRevision` + on-disk hash + candidate re-materialization; import apply re-inspects the source and rejects a stale hash, size, selection, or plan; any mismatch rejects and discards; undo checks the applied revision/transaction id                                                                                                                                                                 |
+| 5   | Untrusted names/text                   | Feature/body names, labels, material tags, warnings, or import product names contain instructions, Markdown/HTML, control characters, or misleading text | Prompt injection, UI/log injection, misleading confirmations | Treat as data; cap and strip control characters; render as text; never build ids/paths/prompts from them; static capability descriptions; the NukeAI prompt must state that CAD document content is untrusted                                                                                                                                                                                                                                               |
+| 6   | Prompt injection via document content  | A malicious document tells the model to apply, export, or ignore confirmation                                                                            | Unauthorized edits or exports                                | Confirmation is a UI/tool-layer control, not a prompt instruction; apply accepts only a fresh proposal id; the model cannot skip preview; the system prompt and tool descriptions are static and reviewed                                                                                                                                                                                                                                                   |
+| 7   | DoS via expensive builds               | Repeated previews, a huge document, pathological geometry, or many operations                                                                            | IDE and machine exhaustion                                   | 120 s build deadline + process-tree kill; one concurrent preview; 6/min rate; patch/document/size caps; proposal cap/TTL; no auto-retry; no background previews                                                                                                                                                                                                                                                                                             |
+| 8   | Prototype pollution / schema confusion | `__proto__`/`constructor` keys, duplicate keys, deep nesting, unknown fields, array where a scalar is expected                                           | Validator bypass or state corruption                         | Strict `additionalProperties: false`, own-property checks, null-prototype maps, reject reserved keys, depth/size caps, semantic validation in the handler                                                                                                                                                                                                                                                                                                   |
+| 9   | Cross-scope or replay                  | An OpenMC proposal id is passed to CAD apply, or a proposal/token is replayed                                                                            | Wrong-domain mutation or double apply                        | Proposal scope `cad-document`; apply/undo accept only ids/tokens from their own store; tokens are one-shot; proposals are removed after apply or on staleness                                                                                                                                                                                                                                                                                               |
+| 10  | Concurrent apply/race                  | Two applies, apply while a rebuild is in flight, or apply during a document switch                                                                       | Interleaved writes or a build against the wrong file         | One in-flight apply per document; revision/epoch re-check immediately before write; store transaction is synchronous; a document switch invalidates the proposal                                                                                                                                                                                                                                                                                            |
+| 11  | Privacy/log leakage                    | Parameter values, feature names, document paths, or before/after values land in metrics/journals                                                         | Sensitive model data in local logs                           | Reuse the existing journal rules: capability id, outcome, counts, durations, hashed tokens; no names, values, paths, or before/after payloads                                                                                                                                                                                                                                                                                                               |
+| 12  | Simulation-invalid geometry            | The build succeeds but solid identity, labels, or selector coverage changed, or an imported source adds or replaces bodies unexpectedly                  | Wrong region/material mapping downstream                     | Scalar/sketch slices block solid-count/body/selector changes; the topology slice reports added/removed/changed solids and named regions, checks saved OpenMC group/material references, and requires acknowledgement; the import plan shows every added body and selected solid before apply; surface overlap and manifest warnings; keep DAGMC/FEM export out of preview                                                                                   |
 
 ### Required mitigations before implementation
 
 - A bounded, cancellable preview build seam in the CAD backend (timeout, job id, process-tree kill) and an abort path from
   the capability context.
 - A pure patch validator/applier with no `eval`, no dynamic property assignment, and a static allowlist.
-- Active-document-only targeting with no model-supplied paths; harness-generated temp/backup paths with realpath and
-  symlink checks.
+- Active-document-only targeting with no model-supplied document or output paths; a user-granted import source with
+  workspace-root, extension, size, and symlink checks; harness-generated temp/backup paths with realpath and symlink
+  checks.
 - Atomic write + backup + restore helpers; a store transaction API that commits and restores exactly one history entry
   without exposing an intermediate state to the rebuild scheduler.
 - A CAD proposal store with scope, TTL, capacity, deep clones, and revision binding.
@@ -650,6 +705,7 @@ The model never receives the full document, geometry, or script. Context is buil
 | Document summary      | ≤ 4 KiB                           | Name, units, `documentEpoch`, revision, dirty flag, body/sketch/feature/curve/parameter counts, build success/counts, at most 10 warnings |
 | Sketch dimension list | ≤ 50 parameters, ≤ 100 dimensions | `nuke.cad.listSketchDimensions`: per-sketch id/name/datum/consumers and dimension id/kind/driving/parameter/value; truncation marker      |
 | Topology impact       | ≤ 8 actions, ≤ 100 regions        | Per-action feature id and params, solid/face/triangle deltas, added/removed/changed solid ids, named regions, and OpenMC reference status |
+| Import source plan    | ≤ 500 solids, 10 warnings         | Source format/size/hash/units, per-solid index/name/faces/volume/bbox, selected indexes, strategy, label, material, self-contained flag   |
 | Feature projection    | ≤ 50 features                     | Id, name, type, body id, suppression, and allowlisted scalar params only; no topology refs, arrays, or nested objects                     |
 | Selection projection  | Current selection only            | `nuke.cad.inspectSelection` output plus per-solid volume/area/bbox for the selected solid(s)                                              |
 | Preview diff          | ≤ 32 changes                      | `path`, display label, before/after scalar, issue list, metrics summary                                                                   |
@@ -660,7 +716,8 @@ Never sent to the model:
 - The serialized `NukeCadDocument`, unbounded parameter or dimension tables, sketch primitives/constraints, curve
   samples, raw selector map, or raw region manifest. The topology slice sends only the bounded region-impact projection
   described above.
-- Tessellation data, STEP/DAGMC/FEM bytes, file contents, backup contents, or absolute internal temp paths.
+- Tessellation data, STEP/DAGMC/FEM bytes, import-source bytes, file contents, backup contents, or absolute internal
+  temp paths. The import slice sends only the bounded source plan above.
 - `.py` script text, Python tracebacks beyond a short sanitized message, or environment details.
 - Raw tool output beyond the existing 8 KiB per string and 32 KiB per JSON payload caps in `nuke-tool-result.ts`.
 
@@ -669,25 +726,27 @@ Projection rules:
 - Prefer ids over names for matching; names are display-only untrusted text.
 - Cap every array before JSON serialization, not after, so the tool result never constructs a huge payload.
 - Summarize scalar/sketch geometry as scalar counts and deltas. The topology slice names changed regions and reference
-  status as bounded ids/labels, never as a free-form topology description.
+  status as bounded ids/labels, never as a free-form topology description. The import slice sends source metadata and
+  per-solid rows, not source geometry or file bytes.
 - `#nukeContext` continues to carry only the active document path. It must not gain document content.
 - The NukeAI prompt must say that document names, labels, warnings, and preview text are data, never instructions, and that
   the model must not ask the user to bypass confirmation.
 
 ## Test strategy
 
-| Layer                                                          | Tests                                                                                                                                                                                                                                                                                                                                                                                            |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pure patch validation (`src/common`, vitest, no Theia/backend) | Allowed ops/keys; unknown op/feature/key/mode; duplicate targets; no-op; non-finite values; bounds; patch/document size caps; reserved prototype keys; strict `additionalProperties`; path format; canonical revision stability                                                                                                                                                                  |
-| Pure topology validation (`src/common`, vitest)                | Hole blind/through depth presence; modeled-thread rejection; linear/circular counts including the original; partial-sweep minimum; duplicate/unknown/wrong-type features; unchanged values; one-to-eight limit; exact `before`/`after` snapshots and remove-kind diff                                                                                                                            |
-| Proposal store                                                 | TTL expiry, 20-entry eviction, deep-clone isolation, scope rejection, revision/epoch binding, removal after apply, replay rejection                                                                                                                                                                                                                                                              |
-| Capability wiring (fake registry/store/service/undo)           | IDs, risk, `requiresConfirmation`, `undoable`, `when` kill switch, `changeSet.applyCapability`, result shapes, no apply action for invalid previews, no mutation on preview, topology acknowledgement required                                                                                                                                                                                   |
-| Store transaction (in-memory)                                  | One undo entry for a multi-op patch; dirty/clean transitions; revision changes; exact parameter replacement removes `depth`; transaction-id restore; stale restore rejection; load/create resets history; reload invalidates tokens                                                                                                                                                              |
-| Preview pipeline (fake build + fake file service)              | Temp sibling naming, private output directory, `exportDagmc/exportMesh/useCache` flags, timeout/abort, cleanup in `finally` and on throw, no proposal on failure, metrics mapping, size-cap fallbacks                                                                                                                                                                                            |
-| Real build end-to-end (env-gated)                              | Committed small fixture (pincell or a dedicated primitive/pad fixture) → preview → apply → undo with the real `geometry_service.py`; assert volume changes, solid count/selector coverage unchanged, the file is written atomically, the backup restores byte-for-byte, and a reload sees the persisted change. Skip cleanly without `NUKE_TEST_PYTHON`; keep the e2e marker/profile conventions |
-| Failure paths                                                  | Build failure, timeout, missing Python, zero solids, failed feature, unmatched reference, scalar/sketch solid-count or body/selector change, non-positive volume, stale proposal, expired proposal, wrong scope, kill switch off, concurrent apply, missing/corrupt backup, topology acknowledgement missing, removed region still referenced by OpenMC, unsaved OpenMC project                  |
-| Security                                                       | Path/symlink probes, prototype pollution, deeply nested/oversized JSON, expression bombs (`2^100000`), control/injection characters in names and summary, proposal/token replay, MCP allowlist absence, saved-project reference check is read-only                                                                                                                                               |
-| UI/card                                                        | Existing renderer tests for diff rows, valid/invalid badges, Apply only when valid, Undo confirmation and stale-undo message; topology review panel covers the Region impact rows, acknowledgement checkbox, unsaved-project state, and blocked Apply                                                                                                                                            |
+| Layer                                                          | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure patch validation (`src/common`, vitest, no Theia/backend) | Allowed ops/keys; unknown op/feature/key/mode; duplicate targets; no-op; non-finite values; bounds; patch/document size caps; reserved prototype keys; strict `additionalProperties`; path format; canonical revision stability                                                                                                                                                                                                                                       |
+| Pure topology validation (`src/common`, vitest)                | Hole blind/through depth presence; modeled-thread rejection; linear/circular counts including the original; partial-sweep minimum; duplicate/unknown/wrong-type features; unchanged values; one-to-eight limit; exact `before`/`after` snapshots and remove-kind diff                                                                                                                                                                                                 |
+| Pure import planning (`src/common`, vitest)                    | Supported extensions; source-path grant inside `<stem>.parts/`; outside-root/symlink/oversize rejection; one-body vs per-solid selection; label/material/unit normalization; empty or duplicate solid indexes; stale hash/size/plan rejection                                                                                                                                                                                                                         |
+| Proposal store                                                 | TTL expiry, 20-entry eviction, deep-clone isolation, scope rejection, revision/epoch binding, removal after apply, replay rejection                                                                                                                                                                                                                                                                                                                                   |
+| Capability wiring (fake registry/store/service/undo)           | IDs, risk, `requiresConfirmation`, `undoable`, `when` kill switch, `changeSet.applyCapability`, result shapes, no apply action for invalid previews, no mutation on preview, topology acknowledgement required                                                                                                                                                                                                                                                        |
+| Store transaction (in-memory)                                  | One undo entry for a multi-op patch; dirty/clean transitions; revision changes; exact parameter replacement removes `depth`; transaction-id restore; stale restore rejection; load/create resets history; reload invalidates tokens                                                                                                                                                                                                                                   |
+| Preview pipeline (fake build + fake file service)              | Temp sibling naming, private output directory, `exportDagmc/exportMesh/useCache` flags, timeout/abort, cleanup in `finally` and on throw, no proposal on failure, metrics mapping, size-cap fallbacks                                                                                                                                                                                                                                                                 |
+| Real build end-to-end (env-gated)                              | Committed small fixture (pincell or a dedicated primitive/pad fixture) → preview → apply → undo with the real `geometry_service.py`; assert volume changes, solid count/selector coverage unchanged, the file is written atomically, the backup restores byte-for-byte, and a reload sees the persisted change. Skip cleanly without `NUKE_TEST_PYTHON`; keep the e2e marker/profile conventions                                                                      |
+| Failure paths                                                  | Build failure, timeout, missing Python, zero solids, failed feature, unmatched reference, scalar/sketch solid-count or body/selector change, non-positive volume, stale proposal, expired proposal, wrong scope, kill switch off, concurrent apply, missing/corrupt backup, topology acknowledgement missing, removed region still referenced by OpenMC, unsaved OpenMC project, unsupported/symlinked/oversized import source, stale import hash/size/selection/plan |
+| Security                                                       | Path/symlink probes, prototype pollution, deeply nested/oversized JSON, expression bombs (`2^100000`), control/injection characters in names and summary, proposal/token replay, MCP allowlist absence, saved-project reference check is read-only                                                                                                                                                                                                                    |
+| UI/card                                                        | Existing renderer tests for diff rows, valid/invalid badges, Apply only when valid, Undo confirmation and stale-undo message; topology review panel covers the Region impact rows, acknowledgement checkbox, unsaved-project state, and blocked Apply                                                                                                                                                                                                                 |
 
 Tests must not boot Theia or call an LLM. The real-build test uses the existing CAD e2e fixtures and environment gates; the
 minimal profile skips it cleanly. Pure logic is covered by vitest and should keep the measured logic-layer ratchet honest.
@@ -699,7 +758,7 @@ minimal profile skips it cleanly. Pure logic is covered by vitest and should kee
 | Design     | This page reviewed; threat table and checklist accepted          | Explicit approval to implement                                                                           |
 | Internal   | Flag off by default; unit/fake/e2e tests green; no user exposure | Maintainer dogfood with a small set of documents; no security findings                                   |
 | Opt-in     | Documented as experimental; kill switch visible; metrics on      | Two weeks without high/medium findings; undo success > 95%; p95 preview < 30 s on the reference fixtures |
-| Default on | Only the three shipped allowlists; backups and undo proven       | Security review sign-off; rollback drill passes                                                          |
+| Default on | Only the four shipped allowlists; backups and undo proven        | Security review sign-off; rollback drill passes                                                          |
 
 Rollback and kill switch:
 
@@ -712,15 +771,16 @@ Rollback and kill switch:
 
 ## Non-goals
 
-- A fourth authoring surface beyond the three shipped slices.
+- A fifth authoring surface beyond the four shipped slices.
 - Editing or executing `.py`/build123d/CadQuery scripts, Python snippets, shell commands, or arbitrary expressions.
 - New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
   sketch, datums, topology references/pushes/pulls, topology changes beyond hole depth mode and linear/circular pattern
-  count, booleans, consumed bodies, imports, assemblies, drawings, appearance, materials, labels, units, suppression,
-  reorder, add, or delete.
+  count, booleans, consumed bodies, assemblies, drawings, existing-import source replacement, appearance, materials,
+  labels, units, suppression, reorder, add, or delete.
 - Raw JSON Patch, arbitrary document pointers, array-index paths, or model-supplied file paths.
 - A new geometry kernel, a new feature builder, or a second execution path.
-- New CAD widgets, menus, or a second ghost implementation; the review panel and ghost are shared by all three slices.
+- New CAD widgets, menus, or a second ghost implementation; the review panel is shared by all four slices, and the ghost
+  serves the three build-preview slices while import shows a plan-only review.
 - Automatic, background, batch, multi-document, or cross-workspace apply.
 - Persisting proposals or undo tokens across reload/restart.
 - MCP write exposure, external-agent authoring, or a generic "run this CAD change" endpoint.
@@ -728,7 +788,7 @@ Rollback and kill switch:
 
 ## Related documentation
 
-- [CAD AI capabilities](../../../nuke-cad/docs/dev/ai-capabilities.md) — the shipped read/export and gated feature, sketch, and topology authoring surface.
+- [CAD AI capabilities](../../../nuke-cad/docs/dev/ai-capabilities.md) — the shipped read/export and gated feature, sketch, topology, and import authoring surface.
 - [CAD document schema](../../../nuke-cad/docs/dev/document-schema.md) — store history, parameters, features, and imports.
 - [CAD backend pipeline](../../../nuke-cad/docs/dev/backend-pipeline.md) — document builds, timeouts, tessellation, and artifacts.
 - [CAD features and patterns](../../../nuke-cad/docs/dev/features-patterns.md) — feature parameters and build behavior.
@@ -747,36 +807,43 @@ Implementation must not start, and the capability must not be enabled, until eve
 
 - [ ] The capability surface (ids, risks, confirmation, undo, no script capability) is approved.
 - [ ] The editable surfaces are the static feature-property allowlist, existing sketch driving dimensions or referenced
-      document parameters, and existing hole blind/through mode or linear/circular pattern count. New sketch
-      entities/constraints/dimensions, scripts, booleans, add/delete/reorder, and other topology changes are out of scope.
+      document parameters, existing hole blind/through mode or linear/circular pattern count, and a single imported-body
+      plan for a user-chosen STEP/IGES/BREP source. New sketch entities/constraints/dimensions, scripts, booleans,
+      add/delete/reorder, assemblies, drawings, and other topology changes are out of scope.
 - [ ] The patch schema is frozen with `schemaVersion`, strict `additionalProperties`, operation/feature/key allowlists,
       finite-number bounds, no strings/arrays/nested values, and no duplicate targets. Topology actions use the same
       strict shape with one to eight actions and exact before/after parameter snapshots.
 - [ ] The validator/applier is pure, has no `eval`/`Function`/dynamic import, rejects reserved prototype keys, and has
       adversarial tests for oversized/deep/duplicate input.
-- [ ] There is no model-supplied document, output, backup, script, or import path. The target is the active document only.
+- [ ] There is no model-supplied document, output, backup, or script path. The document target is always active; the only
+      accepted import source is a user-granted picker result or a file in the document's own `<stem>.parts/`.
+- [ ] An import source is a workspace-root regular file with a supported extension and at most 256 MiB; symlinks,
+      outside-root paths, and unsupported extensions are rejected before inspection, and the source is never copied or
+      downloaded by the AI flow.
 - [ ] Internal temp/backup/output paths are harness-generated, absolute, workspace-contained, realpath-checked, and
       symlink-rejected.
-- [ ] Preview cannot inherit the one-hour backend timeout: an explicit timeout + process-tree kill + abort path exists and
-      is tested (including a real hung build).
-- [ ] Preview uses `exportDagmc: false`, `exportMesh: false`, `useCache: false`, a private output directory, one concurrent
-      build, a preview rate limit, and cleanup in `finally` plus a stale-file sweep.
+- [ ] Feature, sketch, and topology previews cannot inherit the one-hour backend timeout: an explicit timeout +
+      process-tree kill + abort path exists and is tested (including a real hung build). Import preview builds nothing.
+- [ ] Feature, sketch, and topology previews use `exportDagmc: false`, `exportMesh: false`, `useCache: false`, a private
+      output directory, one concurrent build, a preview rate limit, and cleanup in `finally` plus a stale-file sweep.
 - [ ] The size/time limits in this design are constants, not user preferences, and are enforced before parsing/building.
-- [ ] Preview requires an active build produced from `baseRevision`, records that revision, and rejects a stale or missing
-      build instead of comparing against an old model.
-- [ ] Apply requires a clean buffer, matching epoch/revision/on-disk hash, a valid unexpired proposal, and re-materializes
-      the candidate; any mismatch rejects without writing.
+- [ ] Feature, sketch, and topology previews require an active build produced from `baseRevision`, record that revision,
+      and reject a stale or missing build instead of comparing against an old model.
+- [ ] Apply requires a clean buffer, matching epoch/revision/on-disk hash, and a valid unexpired proposal; build slices
+      re-materialize the candidate and the import slice re-inspects the source hash/size/selection/plan; any mismatch
+      rejects without writing.
 - [ ] Apply writes atomically with a backup, commits exactly one store transaction, and restores the backup if the store
-      commit fails. No partial file/store state is observable.
+      commit fails. No partial file/store state is observable; import apply never rewrites the source file.
 - [ ] Undo restores file and store as one unit, validates the transaction id/revision, is one-shot, is session-scoped, and
       fails safely when the document changed or the backup is missing. Topology undo restores exact previous parameter
-      objects, including a `depth` key removed by apply.
+      objects, including a `depth` key removed by apply; import undo removes the added bodies and features in one commit.
 - [ ] The kill switch is default-off, is checked in `when` and `invoke`, refreshes the tool catalog on change, cancels
       in-flight previews, and leaves undo available.
 - [ ] Solid-count, body, and selector-coverage changes are blocked in the scalar and sketch slices. The topology slice
       reports them, checks the saved active OpenMC project's DAGMC group/material references read-only, requires
       `acknowledgeRegionChanges`, and disables Apply while a removed region is referenced; it never rewrites OpenMC.
-      Zero-volume/non-finite geometry is blocked; overlaps and reference ambiguity are surfaced as warnings.
+      The import plan lists every added body and selected solid before apply and never claims a build validation it did
+      not run. Zero-volume/non-finite geometry is blocked; overlaps and reference ambiguity are surfaced as warnings.
 - [ ] Untrusted names/labels/warnings/summary are bounded, sanitized, rendered as text, and documented as data; the NukeAI
       prompt/tool descriptions are updated and reviewed.
 - [ ] The local metrics/journal record no names, values, paths, before/after payloads, or raw tokens; tokens are hashed.

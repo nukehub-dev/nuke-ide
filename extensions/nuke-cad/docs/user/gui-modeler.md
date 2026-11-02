@@ -549,6 +549,18 @@ updates every feature sharing one source in one commit per source. Export
 Python emits a runnable source reader that verifies the hash/size, selects the
 same solids, and applies the import placement.
 
+NukeAI can run the same import when **Nuke CAD: AI Authoring** is on. You still
+choose the STEP/STP, IGES/IGS, or BREP file in the native picker: a path in the
+chat is only a hint, and only a file already inside `<document-stem>.parts/`
+can be inspected directly. The AI preview is a plan, not a ghost: it lists the
+source format, size, hash, units, selected solids, one-body or per-solid choice,
+label, and material in the **CAD Edit Review** panel, then apply re-inspects the
+source, writes a backup, adds the bodies in one commit, rebuilds, and offers
+**Undo**. The AI flow never downloads or copies the source; a file outside the
+document folder makes the document non-self-contained, and NukeAI warns about
+that. The interactive import above still has no ghost preview and no
+parameter-edit dialog for imported features.
+
 ### Appearance
 
 Right-click a solid and choose **Appearance…** to override that body's display
@@ -1004,12 +1016,12 @@ the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
 
 ### AI edit review
 
-When NukeAI proposes a feature-parameter change, a sketch-dimension change, or a topology-impact change and **Nuke CAD:
-AI Authoring** is enabled, the **CAD Edit Review** panel opens beside the viewport. It shows the target document, the
-before/after values, and the solid/face/triangle/bounding-box impact. A sketch proposal also names the target sketch,
-the affected-sketch count, every parameter/dimension row, and the solver status (DOF, conflicting and redundant
-constraints). A dimension bound to a document parameter cascades, so one row updates the parameter and the panel lists
-every affected dimension; a literal dimension edits only its sketch.
+When NukeAI proposes a feature-parameter change, a sketch-dimension change, a topology-impact change, or an import and
+**Nuke CAD: AI Authoring** is enabled, the **CAD Edit Review** panel opens beside the viewport. It shows the target
+document, the before/after values, and the solid/face/triangle/bounding-box impact. A sketch proposal also names the
+target sketch, the affected-sketch count, every parameter/dimension row, and the solver status (DOF, conflicting and
+redundant constraints). A dimension bound to a document parameter cascades, so one row updates the parameter and the
+panel lists every affected dimension; a literal dimension edits only its sketch.
 
 A topology proposal adds a **Region impact** section with added, removed, and changed solids, named regions, and the
 status of references from the saved active OpenMC project. Region impact follows DAGMC group and material identity, so
@@ -1018,9 +1030,15 @@ removed region still referenced by OpenMC shows **Blocked by OpenMC** and keeps 
 is shown as not checked and still requires the acknowledgement. Apply changes only the CAD document and never rewrites
 the OpenMC project.
 
-The viewport overlays the candidate as a translucent ghost; changed solids use a warmer accent, and the real model is
-untouched. **Apply** confirms and writes the change, **Dismiss** discards it, and **Undo** restores the previous
-parameters, the parameter plus all affected sketches, or the exact previous feature parameters for the current session.
+An import proposal shows the source path, format, hash, size, units, selected solids, one-body or per-solid strategy,
+label, material, and self-contained warning. It builds no candidate geometry, so there is no ghost for an import; the
+plan is the review. Apply re-inspects the source, rejects a stale hash, size, selection, or plan, and adds the bodies in
+one commit.
+
+The viewport overlays a feature, sketch, or topology candidate as a translucent ghost; changed solids use a warmer
+accent, and the real model is untouched. **Apply** confirms and writes the change, **Dismiss** discards it, and
+**Undo** restores the previous parameters, the parameter plus all affected sketches, the exact previous feature
+parameters, or (for an import) removes the added bodies and import features for the current session.
 Open the panel manually with **Open CAD Edit Review** in the Command Palette, the CAD Studio menu, or the Nuke Tools
 sidebar.
 

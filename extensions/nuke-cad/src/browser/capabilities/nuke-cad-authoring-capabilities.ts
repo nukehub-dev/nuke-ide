@@ -29,16 +29,18 @@
  * NukeCAD Authoring Capabilities
  *
  * The narrow AI authoring slice: scalar feature-parameter edits, sketch
- * driving-dimension edits, and topology-impacting hole-depth/pattern-count
- * edits on a saved `.nuke-cad` document. Every preview runs a real build in a
- * private temporary directory and stores a short-lived proposal. Scalar and
- * sketch previews keep the solid count, selector map, and region coverage
- * unchanged; topology previews report the solid and region impact and check
- * saved OpenMC DAGMC references before apply. Apply writes the changes through
- * the document store, schedules the existing rebuild, and registers a
- * session-scoped undo. The whole authoring surface is default-off behind
- * `nukeCad.aiAuthoringEnabled`; listing sketch dimensions is read-only metadata
- * and stays available.
+ * driving-dimension edits, topology-impacting hole-depth/pattern-count edits,
+ * and imported STEP/IGES/BREP bodies on a saved `.nuke-cad` document. Feature,
+ * sketch, and topology previews run a real build in a private temporary
+ * directory and store a short-lived proposal. Scalar and sketch previews keep
+ * the solid count, selector map, and region coverage unchanged; topology
+ * previews report the solid and region impact and check saved OpenMC DAGMC
+ * references before apply. Import inspection is read-only, previews re-inspect
+ * the authorized source and plan bodies without building, and apply commits one
+ * `addImportBodies` batch. Every apply writes through the document store,
+ * schedules the existing rebuild, and registers a session-scoped undo. The
+ * whole authoring surface is default-off behind `nukeCad.aiAuthoringEnabled`;
+ * listing sketch dimensions is read-only metadata and stays available.
  *
  * @module nuke-cad/browser/capabilities
  */
@@ -47,6 +49,7 @@ import { inject, injectable } from '@theia/core/shared/inversify';
 import { CommandService } from '@theia/core/lib/common/command';
 import { URI } from '@theia/core/lib/common/uri';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
 import { NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import {
     NukeCapability,
@@ -58,7 +61,16 @@ import {
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import * as path from 'path';
-import { FeatureResult, GeometryBuildResult, RegionManifestData } from '../../common/nuke-cad-protocol';
+import {
+    FeatureResult,
+    GeometryBuildResult,
+    ImportSolidInfo,
+    ImportSourceFormat,
+    ImportSourceUnit,
+    InspectImportSourceRequest,
+    InspectImportSourceResult,
+    RegionManifestData
+} from '../../common/nuke-cad-protocol';
 import {
     CAD_FEATURE_EDIT_LIMIT,
     EditableFeatureParam,
@@ -75,16 +87,27 @@ import {
 } from '../../common/cad-topology-edit';
 import { findOpenmcRegionBlockers } from '../../common/openmc-region-references';
 import { buildTopologyRegions, diffTopology, TopologyBuildSnapshot } from '../../common/topology-impact';
-import { FeatureParams, NukeCadDocument, SketchDef, validateNukeCadDocument } from '../../common/cad-document';
+import {
+    FeatureParams,
+    NukeCadDocument,
+    SketchDef,
+    validateNukeCadDocument,
+    validateBodyMaterialTag,
+    IMPORT_SOURCE_UNITS
+} from '../../common/cad-document';
 import { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import { NukeCadPreferences } from '../nuke-cad-preferences';
-import { CadDocumentStore, featuresConsumingSketch } from '../document/cad-document-store';
+import { CadDocumentStore, featuresConsumingSketch, ImportBodyDraft } from '../document/cad-document-store';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../commands';
 import {
+    isImportProposal,
     isSketchProposal,
     isTopologyProposal,
     NukeCadFeatureProposal,
+    NukeCadImportProposal,
+    NukeCadImportProposalDetails,
+    NukeCadProposal,
     NukeCadProposalBuild,
     NukeCadProposalImpact,
     NukeCadProposalService,
@@ -98,6 +121,9 @@ import { AI_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
 import { NukeCadSketchEditService, sketchDefinitionsEqual } from '../sketch/sketch-edit-service';
 import { CAD_SKETCH_EDIT_LIMIT, PreparedSketchEdit, SketchEditRequest } from '../sketch/sketch-edit-types';
 import { readOpenmcRegionReferences } from './openmc-region-reference-reader';
+import { inferImportSourceFormat, normalizeImportSourceUnit, planImportBodies } from '../widgets/cad-viewport/import-body';
+import { documentRelativeAssemblyPart } from '../widgets/cad-viewport/cad-import-path';
+import { validateImportSourcePath, type ValidatedImportSource } from './import-source-policy';
 
 /** Stable capability ids for the feature- and sketch-authoring slice. */
 export const PREVIEW_FEATURE_CHANGE_ID = 'nuke.cad.previewFeatureChange';
@@ -107,6 +133,15 @@ export const PREVIEW_SKETCH_CHANGE_ID = 'nuke.cad.previewSketchChange';
 export const APPLY_SKETCH_CHANGE_ID = 'nuke.cad.applySketchChange';
 export const PREVIEW_TOPOLOGY_CHANGE_ID = 'nuke.cad.previewTopologyChange';
 export const APPLY_TOPOLOGY_CHANGE_ID = 'nuke.cad.applyTopologyChange';
+export const INSPECT_IMPORT_SOURCE_ID = 'nuke.cad.inspectImportSource';
+export const PREVIEW_IMPORT_BODIES_ID = 'nuke.cad.previewImportBodies';
+export const APPLY_IMPORT_BODIES_ID = 'nuke.cad.applyImportBodies';
+
+/** Upper bound the import planner and backend inspection must share. */
+const IMPORT_MAX_SOLIDS = 500;
+
+/** Lowercase SHA-256 identity reported by import-source inspection. */
+const IMPORT_SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 /** Preview builds must not inherit the backend's one-hour document timeout. */
 const PREVIEW_TIMEOUT_SECONDS = 120;
@@ -212,6 +247,95 @@ const APPLY_TOPOLOGY_INPUT_SCHEMA: NukeJsonSchema = {
     additionalProperties: false
 };
 
+const INSPECT_IMPORT_SOURCE_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        sourcePath: {
+            type: 'string',
+            description: 'Absolute workspace path to a STEP/IGES/BREP source. Omit to choose the file in a picker.'
+        },
+        sourceUnit: {
+            type: 'string',
+            enum: IMPORT_SOURCE_UNITS,
+            description: 'Override the unit declared by the source file.'
+        }
+    },
+    additionalProperties: false
+};
+
+const INSPECT_IMPORT_SOURCE_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        documentPath: { type: 'string', description: 'Canonical path of the active .nuke-cad document.' },
+        documentUnits: { type: 'string', description: 'Length unit of the active document, when defined.' },
+        source: {
+            type: 'object',
+            description: 'Inspected source identity, units, and freshness metadata.'
+        },
+        solids: {
+            type: 'array',
+            items: { type: 'object' }
+        },
+        warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['documentPath', 'source', 'solids', 'warnings']
+};
+
+const PREVIEW_IMPORT_BODIES_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        sourcePath: {
+            type: 'string',
+            description: 'Absolute path of a source already authorized by nuke.cad.inspectImportSource.'
+        },
+        strategy: {
+            type: 'string',
+            enum: ['single', 'perSolid'],
+            description: 'One body holding every selected solid, or one body per selected solid.'
+        },
+        label: { type: 'string', description: 'Body label used for naming imported bodies.' },
+        solidIndexes: {
+            type: 'array',
+            minItems: 1,
+            maxItems: IMPORT_MAX_SOLIDS,
+            items: { type: 'integer', minimum: 1 },
+            description: '1-based source-solid indexes to import.'
+        },
+        sourceUnit: {
+            type: 'string',
+            enum: IMPORT_SOURCE_UNITS,
+            description: 'Override the unit declared by the source file.'
+        },
+        material: {
+            type: 'string',
+            description: 'Optional in-CAD material tag applied to every imported body.'
+        }
+    },
+    required: ['sourcePath', 'strategy', 'label', 'solidIndexes'],
+    additionalProperties: false
+};
+
+const PREVIEW_IMPORT_BODIES_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string' },
+        summary: { type: 'string' },
+        changes: { type: 'array' },
+        import: { type: 'object' },
+        warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['proposalId', 'summary', 'changes', 'import', 'warnings']
+};
+
+const APPLY_IMPORT_BODIES_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string', description: 'Proposal id returned by nuke.cad.previewImportBodies.' }
+    },
+    required: ['proposalId'],
+    additionalProperties: false
+};
+
 const PREVIEW_OUTPUT_SCHEMA: NukeJsonSchema = {
     type: 'object',
     properties: {
@@ -299,15 +423,33 @@ const PREVIEW_SKETCH_INPUT_SCHEMA: NukeJsonSchema = {
     additionalProperties: false
 };
 
+/** Session-scoped authorization and metadata for one inspected import source. */
+interface ImportGrant {
+    readonly path: string;
+    readonly sourceHash: string;
+    readonly sourceSize?: number;
+    readonly sourceFormat?: ImportSourceFormat;
+    readonly fileUnit?: string;
+    readonly effectiveUnit?: string;
+    readonly unitScaleFactor?: number;
+    readonly unitsMessage?: string;
+    readonly solids: readonly ImportSolidInfo[];
+    readonly sourceUnit?: ImportSourceUnit;
+}
+
 /** Preview/apply capabilities for scalar feature and sketch-dimension `.nuke-cad` edits. */
 @injectable()
 export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution {
+    /** Import sources the user authorized during this session, keyed by canonical path. */
+    private readonly importGrants = new Map<string, ImportGrant>();
+
     constructor(
         @inject(NukeCadStateManager) protected readonly stateManager: NukeCadStateManager,
         @inject(NukeCadFrontendService) protected readonly service: NukeCadFrontendService,
         @inject(CadDocumentStore) protected readonly store: CadDocumentStore,
         @inject(NukeCadProposalService) protected readonly proposals: NukeCadProposalService,
         @inject(FileService) protected readonly fileService: FileService,
+        @inject(FileDialogService) protected readonly fileDialogService: FileDialogService,
         @inject(NukeCadPreferences) protected readonly preferences: NukeCadPreferences,
         @inject(CommandService) protected readonly commands: CommandService,
         @inject(NukeUndoService) protected readonly undoService: NukeUndoService,
@@ -323,6 +465,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         registry.register(this.applySketchCapability());
         registry.register(this.previewTopologyCapability());
         registry.register(this.applyTopologyCapability());
+        registry.register(this.inspectImportSourceCapability());
+        registry.register(this.previewImportBodiesCapability());
+        registry.register(this.applyImportBodiesCapability());
     }
 
     protected previewCapability(): NukeCapability {
@@ -455,6 +600,64 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         };
     }
 
+    protected inspectImportSourceCapability(): NukeCapability {
+        return {
+            id: INSPECT_IMPORT_SOURCE_ID,
+            title: 'Inspect CAD import source',
+            description:
+                'Authorize and inspect a workspace STEP/IGES/BREP source for import into the active saved .nuke-cad ' +
+                'document. A direct path is used only when it is inside the document-owned .parts folder or was already ' +
+                'authorized in this session; otherwise the user chooses the file. Read-only: returns the source hash, ' +
+                'size, units, and solids without writing geometry.',
+            category: CATEGORY,
+            inputSchema: INSPECT_IMPORT_SOURCE_INPUT_SCHEMA,
+            outputSchema: INSPECT_IMPORT_SOURCE_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'import', 'read'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.inspectImportSource(input, context)
+        };
+    }
+
+    protected previewImportBodiesCapability(): NukeCapability {
+        return {
+            id: PREVIEW_IMPORT_BODIES_ID,
+            title: 'Preview CAD body import',
+            description:
+                'Plan imported body features from an authorized STEP/IGES/BREP source and open the CAD Edit Review ' +
+                'panel. Re-inspects the source so the proposal carries current solid fingerprints; the preview never ' +
+                'mutates the document, builds geometry, or publishes a ghost.',
+            category: CATEGORY,
+            inputSchema: PREVIEW_IMPORT_BODIES_INPUT_SCHEMA,
+            outputSchema: PREVIEW_IMPORT_BODIES_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'import', 'preview'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.previewImportBodies(input, context)
+        };
+    }
+
+    protected applyImportBodiesCapability(): NukeCapability {
+        return {
+            id: APPLY_IMPORT_BODIES_ID,
+            title: 'Apply CAD body import',
+            description:
+                'Apply a previewed body import to the active .nuke-cad document in one atomic batch, back up the ' +
+                'document, schedule the rebuild, and return an undo token. Rejects a changed source or stale plan.',
+            category: CATEGORY,
+            inputSchema: APPLY_IMPORT_BODIES_INPUT_SCHEMA,
+            risk: 'execute',
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            requiresConfirmation: true,
+            undoable: true,
+            tags: ['cad', 'authoring', 'apply', 'import'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.applyImportBodies(input, context)
+        };
+    }
+
     protected enabled(): boolean {
         return this.preferences.get(AI_AUTHORING_PREFERENCE) === true;
     }
@@ -478,6 +681,523 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
 
     protected inactiveResult(): NukeCapabilityResult {
         return { ok: false, message: 'Open a saved .nuke-cad document before previewing a feature change.' };
+    }
+
+    /**
+     * Authorize and inspect a STEP/IGES/BREP source without writing anything.
+     *
+     * A caller-supplied path is a hint only: the session grant or the
+     * document-owned `.parts` folder skips the picker; every other path opens
+     * the native file dialog. Unsafe supplied paths fail before the picker.
+     */
+    protected async inspectImportSource(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        const document = this.store.document;
+        const documentPath = this.activeDocumentPath();
+        if (!document || !documentPath || this.stateManager.model === undefined) {
+            return this.inactiveResult();
+        }
+        const pathError = this.scopeError(documentPath, context.workspaceRoots);
+        if (pathError) {
+            return { ok: false, message: pathError };
+        }
+        const parsed = readInspectImportSourceInput(input);
+        if (!parsed.ok) {
+            return { ok: false, message: parsed.message };
+        }
+
+        let source: ValidatedImportSource;
+        if (parsed.sourcePath !== undefined) {
+            const validation = await validateImportSourcePath(this.fileService, parsed.sourcePath, context.workspaceRoots, documentPath);
+            if (!validation.ok) {
+                return { ok: false, message: validation.message };
+            }
+            if (this.importGrants.has(validation.value.path) || validation.value.implicitPartsSource) {
+                source = validation.value;
+            } else {
+                const chosen = await this.chooseImportSource(context.workspaceRoots, documentPath);
+                if (!chosen.ok) {
+                    return { ok: false, message: chosen.message };
+                }
+                source = chosen.value;
+            }
+        } else {
+            const chosen = await this.chooseImportSource(context.workspaceRoots, documentPath);
+            if (!chosen.ok) {
+                return { ok: false, message: chosen.message };
+            }
+            source = chosen.value;
+        }
+
+        const inspected = await this.inspectAuthorizedImportSource(source.path, parsed.sourceUnit, document);
+        if (!inspected.ok) {
+            return { ok: false, message: inspected.message };
+        }
+        this.rememberImportGrant(source.path, inspected.inspection, parsed.sourceUnit);
+        const warnings = this.importSourceWarnings(documentPath, source.path, inspected.inspection, {
+            sourceUnit: parsed.sourceUnit
+        });
+        return {
+            ok: true,
+            data: {
+                documentPath,
+                ...(document.units !== undefined ? { documentUnits: document.units } : {}),
+                source: this.importSourceMetadata(source.path, inspected.inspection, parsed.sourceUnit),
+                solids: inspected.inspection.solids,
+                warnings
+            },
+            warnings
+        };
+    }
+
+    /**
+     * Plan an imported-body preview from an authorized source.
+     *
+     * The source is inspected again for current solid fingerprints, then the
+     * pure planner builds exact drafts. Nothing is committed and no build or
+     * ghost preview runs; the review panel applies the same capability.
+     */
+    protected async previewImportBodies(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        const document = this.store.document;
+        const documentPath = this.activeDocumentPath();
+        if (!document || !documentPath || this.stateManager.model === undefined) {
+            return this.inactiveResult();
+        }
+        const pathError = this.scopeError(documentPath, context.workspaceRoots);
+        if (pathError) {
+            return { ok: false, message: pathError };
+        }
+        const parsed = readImportPreviewInput(input);
+        if (!parsed.ok) {
+            return { ok: false, message: parsed.message };
+        }
+        const material = parsed.material?.trim();
+        if (material !== undefined && material.length > 0) {
+            const materialError = validateBodyMaterialTag(material);
+            if (materialError !== undefined) {
+                return { ok: false, message: materialError };
+            }
+        }
+        const validation = await validateImportSourcePath(this.fileService, parsed.sourcePath, context.workspaceRoots, documentPath);
+        if (!validation.ok) {
+            return { ok: false, message: validation.message };
+        }
+        const source = validation.value;
+        if (!this.importGrants.has(source.path)) {
+            return {
+                ok: false,
+                message: 'Inspect and authorize this CAD import source with nuke.cad.inspectImportSource before previewing bodies.'
+            };
+        }
+        const epoch = this.store.documentEpoch;
+        const revision = this.store.revision;
+        const inspected = await this.inspectAuthorizedImportSource(source.path, parsed.sourceUnit, document);
+        if (!inspected.ok) {
+            return { ok: false, message: inspected.message };
+        }
+        if (this.store.documentEpoch !== epoch || this.store.revision !== revision) {
+            return { ok: false, message: 'The document changed while the import source was inspected. Preview the import again.' };
+        }
+        const inspection = inspected.inspection;
+        this.rememberImportGrant(source.path, inspection, parsed.sourceUnit);
+
+        const sourceFormat = inspection.sourceFormat ?? inferImportSourceFormat(source.path);
+        const plan = planImportBodies(
+            {
+                sourcePath: documentRelativeAssemblyPart(documentPath, source.path),
+                sourceHash: inspection.sourceHash!,
+                ...(inspection.sourceSize !== undefined ? { sourceSize: inspection.sourceSize } : {}),
+                ...(sourceFormat !== undefined ? { sourceFormat } : {}),
+                maxSolids: IMPORT_MAX_SOLIDS
+            },
+            {
+                strategy: parsed.strategy,
+                label: parsed.label,
+                solidIndexes: parsed.solidIndexes,
+                ...(parsed.sourceUnit !== undefined ? { sourceUnit: parsed.sourceUnit } : {})
+            },
+            inspection.solids!,
+            document.bodies.map((body) => body.name)
+        );
+        if (!plan.ok) {
+            return { ok: false, message: plan.error };
+        }
+        const drafts: ImportBodyDraft[] =
+            material !== undefined && material.length > 0
+                ? plan.drafts.map((draft) => ({ ...draft, material }))
+                : plan.drafts.map((draft) => ({ ...draft }));
+        const indexes = [...new Set(parsed.solidIndexes)].sort((left, right) => left - right);
+        const byIndex = new Map(inspection.solids!.map((solid) => [solid.index, solid] as const));
+        const selectedSolids = indexes.map((index) => byIndex.get(index)).filter((solid): solid is ImportSolidInfo => solid !== undefined);
+        const bodies = drafts.map((draft) => ({
+            name: draft.name,
+            ...(draft.label !== undefined ? { label: draft.label } : {}),
+            ...(draft.material !== undefined ? { material: draft.material } : {}),
+            featureName: draft.name
+        }));
+        const warnings = this.importSourceWarnings(documentPath, source.path, inspection, {
+            sourceUnit: parsed.sourceUnit,
+            material: material !== undefined && material.length > 0 ? material : undefined,
+            selectedCount: indexes.length
+        });
+        const sourceMetadata = this.importSourceMetadata(source.path, inspection, parsed.sourceUnit);
+        const details: NukeCadImportProposalDetails = {
+            source: sourceMetadata,
+            ...(document.units !== undefined ? { documentUnits: document.units } : {}),
+            strategy: parsed.strategy,
+            label: parsed.label.trim(),
+            solidCount: inspection.solidCount ?? inspection.solids!.length,
+            solidIndexes: indexes,
+            selectedSolids,
+            drafts,
+            bodies,
+            warnings
+        };
+        const summary = importSummary(drafts.length, selectedSolids.length, path.basename(source.path));
+        const changes = drafts.map((draft) => ({
+            path: `bodies.${draft.name}`,
+            label: `Body ${draft.name}`,
+            kind: 'add' as const,
+            after: draft.name
+        }));
+        const proposal = this.proposals.create({
+            scope: 'import',
+            applyCapability: APPLY_IMPORT_BODIES_ID,
+            summary,
+            documentPath,
+            documentEpoch: epoch,
+            baseRevision: revision,
+            changes,
+            import: details
+        });
+        void this.commands.executeCommand(NukeCadCommands.OPEN_REVIEW_PANEL.id).catch(() => undefined);
+        return {
+            ok: true,
+            data: {
+                proposalId: proposal.id,
+                summary,
+                changes,
+                import: details,
+                warnings
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD import bodies',
+                summary,
+                changes,
+                applyCapability: APPLY_IMPORT_BODIES_ID
+            },
+            warnings
+        };
+    }
+
+    /**
+     * Commit a previewed import as one `addImportBodies` batch.
+     *
+     * The source path is re-validated against the current workspace and
+     * filesystem, then its hash/size/format and the exact re-planned drafts
+     * must still match the preview; a backup is written before the single
+     * commit, the rebuild is scheduled, and a session undo token is registered.
+     */
+    protected async applyImportBodies(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        if (!this.hasActiveDocument()) {
+            return this.inactiveResult();
+        }
+        const proposalId = readProposalId(input);
+        if (!proposalId) {
+            return { ok: false, message: 'proposalId is required.' };
+        }
+        const proposal = this.proposals.get(proposalId);
+        if (!proposal) {
+            return { ok: false, message: 'This CAD preview is missing or expired. Preview the change again.' };
+        }
+        if (!isImportProposal(proposal)) {
+            return { ok: false, message: this.wrongScopeApplyMessage(proposal) };
+        }
+        const stale = this.importStaleReason(proposal);
+        if (stale) {
+            return { ok: false, message: stale };
+        }
+        const validation = await validateImportSourcePath(
+            this.fileService,
+            proposal.import.source.path,
+            context.workspaceRoots,
+            proposal.documentPath
+        );
+        if (!validation.ok) {
+            return { ok: false, message: validation.message };
+        }
+        const document = this.store.document;
+        if (!document) {
+            return { ok: false, message: 'No CAD document is active.' };
+        }
+        const sourcePath = validation.value.path;
+        const checkedEpoch = this.store.documentEpoch;
+        const checkedRevision = this.store.revision;
+        const inspected = await this.inspectAuthorizedImportSource(sourcePath, proposal.import.source.sourceUnit, document);
+        if (!inspected.ok) {
+            return { ok: false, message: inspected.message };
+        }
+        if (this.store.documentEpoch !== checkedEpoch || this.store.revision !== checkedRevision) {
+            return { ok: false, message: 'The document changed while the import source was inspected. Preview the import again.' };
+        }
+        const inspection = inspected.inspection;
+        const currentFormat = inspection.sourceFormat ?? inferImportSourceFormat(sourcePath);
+        if (inspection.sourceHash !== proposal.import.source.sourceHash) {
+            return { ok: false, message: 'The CAD import source changed after this preview. Preview the import again.' };
+        }
+        if (proposal.import.source.sourceSize !== undefined && inspection.sourceSize !== proposal.import.source.sourceSize) {
+            return { ok: false, message: 'The CAD import source changed after this preview. Preview the import again.' };
+        }
+        if (proposal.import.source.sourceFormat !== undefined && currentFormat !== proposal.import.source.sourceFormat) {
+            return { ok: false, message: 'The CAD import source format changed after this preview. Preview the import again.' };
+        }
+        this.rememberImportGrant(sourcePath, inspection, proposal.import.source.sourceUnit);
+        const plan = planImportBodies(
+            {
+                sourcePath: documentRelativeAssemblyPart(proposal.documentPath, sourcePath),
+                sourceHash: inspection.sourceHash!,
+                ...(inspection.sourceSize !== undefined ? { sourceSize: inspection.sourceSize } : {}),
+                ...(currentFormat !== undefined ? { sourceFormat: currentFormat } : {}),
+                maxSolids: IMPORT_MAX_SOLIDS
+            },
+            {
+                strategy: proposal.import.strategy,
+                label: proposal.import.label,
+                solidIndexes: proposal.import.solidIndexes,
+                ...(proposal.import.source.sourceUnit !== undefined ? { sourceUnit: proposal.import.source.sourceUnit } : {})
+            },
+            inspection.solids!,
+            document.bodies.map((body) => body.name)
+        );
+        if (!plan.ok) {
+            return { ok: false, message: plan.error };
+        }
+        const replannedDrafts = withProposalMaterials(plan.drafts, proposal.import.drafts);
+        if (stableStringify(replannedDrafts) !== stableStringify(proposal.import.drafts)) {
+            return { ok: false, message: 'The CAD import plan changed after this preview. Preview the import again.' };
+        }
+        const backupPath = path.join(path.dirname(proposal.documentPath), `.nuke-ai-backup-${path.basename(proposal.documentPath)}`);
+        try {
+            const snapshot = this.store.toJson();
+            if (!snapshot) {
+                return { ok: false, message: 'The active CAD document could not be read for a backup.' };
+            }
+            await this.fileService.create(new URI(backupPath), snapshot, { overwrite: true });
+        } catch (error) {
+            return { ok: false, message: `Could not write the pre-apply CAD backup: ${errorMessage(error)}` };
+        }
+        const added = this.store.addImportBodies({ bodies: proposal.import.drafts });
+        if (!added.success) {
+            return { ok: false, message: added.error || 'The CAD document rejected the import.', warnings: formatIssues(added.issues) };
+        }
+        const bodyIds = added.value?.bodyIds ?? [];
+        const featureIds = added.value?.featureIds ?? [];
+        const appliedRevision = this.store.revision;
+        this.proposals.remove(proposal.id);
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        const undoToken = this.undoService.register({
+            title: 'CAD import bodies',
+            undo: () => this.undoImportBodies(proposal, appliedRevision)
+        });
+        return {
+            ok: true,
+            message: 'CAD import applied; rebuild scheduled.',
+            data: {
+                proposalId: proposal.id,
+                bodyIds,
+                featureIds,
+                documentPath: proposal.documentPath,
+                revision: appliedRevision,
+                backupPath,
+                rebuildScheduled: true
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD import bodies',
+                summary: proposal.summary,
+                changes: proposal.changes
+            },
+            undoToken
+        };
+    }
+
+    protected async undoImportBodies(proposal: NukeCadImportProposal, appliedRevision: number): Promise<NukeCapabilityResult> {
+        if (!this.hasActiveDocument()) {
+            return { ok: false, message: 'Open the document again before undoing this change.' };
+        }
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return { ok: false, message: 'This change belongs to a different document and can no longer be undone.' };
+        }
+        if (this.store.revision !== appliedRevision) {
+            return { ok: false, message: 'The document changed after this edit. Preview the change again.' };
+        }
+        const result = this.store.undo();
+        if (!result.success) {
+            return { ok: false, message: result.error || 'The CAD document rejected the undo.', warnings: formatIssues(result.issues) };
+        }
+        this.store.selectBody(undefined);
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        return { ok: true, message: 'CAD import undone.' };
+    }
+
+    protected importStaleReason(proposal: NukeCadImportProposal): string | undefined {
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return 'The active document changed after this preview. Preview the change again.';
+        }
+        if (this.store.revision !== proposal.baseRevision) {
+            return 'The document changed after this preview. Preview the change again.';
+        }
+        return undefined;
+    }
+
+    /** Open the picker and validate the chosen source before any inspection. */
+    protected async chooseImportSource(
+        workspaceRoots: readonly string[],
+        documentPath: string
+    ): Promise<{ ok: true; value: ValidatedImportSource } | { ok: false; message: string }> {
+        let chosen: URI | undefined;
+        try {
+            chosen = await this.fileDialogService.showOpenDialog({
+                title: 'Authorize CAD import source',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'CAD Exchange Files': ['step', 'stp', 'iges', 'igs', 'brep']
+                }
+            });
+        } catch (error) {
+            return { ok: false, message: `Could not open the CAD import source picker: ${errorMessage(error)}` };
+        }
+        if (chosen === undefined) {
+            return { ok: false, message: 'No CAD import source was selected.' };
+        }
+        return validateImportSourcePath(this.fileService, chosen.path.toString(), workspaceRoots, documentPath);
+    }
+
+    /** Inspect an already-authorized source and reject incomplete metadata. */
+    protected async inspectAuthorizedImportSource(
+        sourcePath: string,
+        sourceUnit: ImportSourceUnit | undefined,
+        document: NukeCadDocument
+    ): Promise<{ ok: true; inspection: InspectImportSourceResult } | { ok: false; message: string }> {
+        const request: InspectImportSourceRequest = {
+            sourcePath,
+            maxSolids: IMPORT_MAX_SOLIDS,
+            ...(sourceUnit !== undefined ? { sourceUnit } : {}),
+            ...(document.units !== undefined ? { targetUnits: document.units } : {})
+        };
+        let inspection: InspectImportSourceResult;
+        try {
+            inspection = await this.service.inspectImportSource(request);
+        } catch (error) {
+            return { ok: false, message: `The CAD import source could not be inspected: ${errorMessage(error)}` };
+        }
+        if (inspection.sourcePath !== undefined && path.resolve(inspection.sourcePath) !== sourcePath) {
+            return { ok: false, message: 'The CAD import inspection returned a different source path.' };
+        }
+        if (!inspection.success) {
+            return { ok: false, message: inspection.error || `Failed to inspect '${path.basename(sourcePath)}'.` };
+        }
+        if (inspection.sourceHash === undefined || !IMPORT_SOURCE_HASH_PATTERN.test(inspection.sourceHash)) {
+            return { ok: false, message: 'The CAD import inspection did not return a valid SHA-256 source hash.' };
+        }
+        if (inspection.solids === undefined || inspection.solids.length === 0) {
+            return { ok: false, message: `'${path.basename(sourcePath)}' contains no solids to import.` };
+        }
+        return { ok: true, inspection };
+    }
+
+    /** Cache the session grant so later previews skip the picker. */
+    protected rememberImportGrant(
+        sourcePath: string,
+        inspection: InspectImportSourceResult,
+        sourceUnit: ImportSourceUnit | undefined
+    ): void {
+        const sourceFormat = inspection.sourceFormat ?? inferImportSourceFormat(sourcePath);
+        this.importGrants.set(sourcePath, {
+            path: sourcePath,
+            sourceHash: inspection.sourceHash!,
+            ...(inspection.sourceSize !== undefined ? { sourceSize: inspection.sourceSize } : {}),
+            ...(sourceFormat !== undefined ? { sourceFormat } : {}),
+            ...(inspection.fileUnit !== undefined ? { fileUnit: inspection.fileUnit } : {}),
+            ...(inspection.effectiveUnit !== undefined ? { effectiveUnit: inspection.effectiveUnit } : {}),
+            ...(inspection.unitScaleFactor !== undefined ? { unitScaleFactor: inspection.unitScaleFactor } : {}),
+            ...(inspection.unitsMessage !== undefined ? { unitsMessage: inspection.unitsMessage } : {}),
+            solids: inspection.solids!,
+            ...(sourceUnit !== undefined ? { sourceUnit } : {})
+        });
+    }
+
+    /** Detached source metadata carried by inspection results and import proposals. */
+    protected importSourceMetadata(
+        sourcePath: string,
+        inspection: InspectImportSourceResult,
+        sourceUnit: ImportSourceUnit | undefined
+    ): NukeCadImportProposalDetails['source'] {
+        const sourceFormat = inspection.sourceFormat ?? inferImportSourceFormat(sourcePath);
+        return {
+            path: sourcePath,
+            sourceHash: inspection.sourceHash!,
+            ...(inspection.sourceSize !== undefined ? { sourceSize: inspection.sourceSize } : {}),
+            ...(sourceFormat !== undefined ? { sourceFormat } : {}),
+            ...(inspection.fileUnit !== undefined ? { fileUnit: inspection.fileUnit } : {}),
+            ...(inspection.effectiveUnit !== undefined ? { effectiveUnit: inspection.effectiveUnit } : {}),
+            ...(inspection.unitScaleFactor !== undefined ? { unitScaleFactor: inspection.unitScaleFactor } : {}),
+            ...(inspection.unitsMessage !== undefined ? { unitsMessage: inspection.unitsMessage } : {}),
+            ...(sourceUnit !== undefined ? { sourceUnit } : {})
+        };
+    }
+
+    /** Contextual warnings for an inspected source; material/selection are preview-only. */
+    protected importSourceWarnings(
+        documentPath: string,
+        sourcePath: string,
+        inspection: InspectImportSourceResult,
+        options: { sourceUnit?: ImportSourceUnit; material?: string; selectedCount?: number }
+    ): string[] {
+        const warnings = [...(inspection.warnings ?? [])];
+        if (!isInsideDirectory(path.dirname(documentPath), sourcePath)) {
+            warnings.push(
+                "The import source is outside the document folder; copy it into the document's .parts folder to keep the project portable."
+            );
+        }
+        const detectedUnit = normalizeImportSourceUnit(inspection.fileUnit) ?? normalizeImportSourceUnit(inspection.effectiveUnit);
+        if (options.sourceUnit === undefined && detectedUnit === undefined) {
+            warnings.push('The source file unit is unknown; choose a source unit to avoid a scale mismatch.');
+        }
+        if (options.selectedCount !== undefined && inspection.solids !== undefined && options.selectedCount < inspection.solids.length) {
+            warnings.push(
+                `Importing ${options.selectedCount} of ${inspection.solids.length} source solids; the remaining solids are not included.`
+            );
+        }
+        if (options.selectedCount !== undefined && options.material === undefined) {
+            warnings.push('No material tag was set; OpenMC region placeholders will need a material before export.');
+        }
+        return [...new Set(warnings)];
+    }
+
+    /** Map a proposal from a different import/feature/sketch/topology scope to its apply capability. */
+    protected wrongScopeApplyMessage(proposal: NukeCadProposal): string {
+        if (isSketchProposal(proposal)) {
+            return 'This proposal is a sketch change; apply it with nuke.cad.applySketchChange.';
+        }
+        if (isTopologyProposal(proposal)) {
+            return 'This proposal is a topology change; apply it with nuke.cad.applyTopologyChange.';
+        }
+        if (isImportProposal(proposal)) {
+            return 'This proposal is an import; apply it with nuke.cad.applyImportBodies.';
+        }
+        return 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.';
     }
 
     protected async previewFeatureChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
@@ -953,6 +1673,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (isTopologyProposal(proposal)) {
             return { ok: false, message: 'This proposal is a topology change; apply it with nuke.cad.applyTopologyChange.' };
         }
+        if (isImportProposal(proposal)) {
+            return { ok: false, message: 'This proposal is an import; apply it with nuke.cad.applyImportBodies.' };
+        }
         const stale = this.staleReason(proposal);
         if (stale) {
             return { ok: false, message: stale };
@@ -1065,6 +1788,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         }
         if (isTopologyProposal(proposal)) {
             return { ok: false, message: 'This proposal is a topology change; apply it with nuke.cad.applyTopologyChange.' };
+        }
+        if (isImportProposal(proposal)) {
+            return { ok: false, message: 'This proposal is an import; apply it with nuke.cad.applyImportBodies.' };
         }
         if (!isSketchProposal(proposal)) {
             return { ok: false, message: 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.' };
@@ -1179,7 +1905,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                 ok: false,
                 message: isSketchProposal(proposal)
                     ? 'This proposal is a sketch change; apply it with nuke.cad.applySketchChange.'
-                    : 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.'
+                    : isImportProposal(proposal)
+                      ? 'This proposal is an import; apply it with nuke.cad.applyImportBodies.'
+                      : 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.'
             };
         }
         const firstBlocker = proposal.topology.blockedRegions[0];
@@ -1383,6 +2111,113 @@ export function readFeatureParamChanges(
         changes.push({ featureId: record.featureId, param: record.param as EditableFeatureParam, value: record.value });
     }
     return { ok: true, changes };
+}
+
+/** Shape-checked import-source inspection input. */
+export function readInspectImportSourceInput(
+    input: unknown
+): { ok: true; sourcePath?: string; sourceUnit?: ImportSourceUnit } | { ok: false; message: string } {
+    if (input === undefined) {
+        return { ok: true };
+    }
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'Import inspection input must be an object.' };
+    }
+    const record = input as Record<string, unknown>;
+    const sourcePath = record.sourcePath;
+    if (sourcePath !== undefined && (typeof sourcePath !== 'string' || sourcePath.trim().length === 0)) {
+        return { ok: false, message: 'sourcePath must be a non-empty absolute path when provided.' };
+    }
+    const sourceUnit = record.sourceUnit;
+    if (sourceUnit !== undefined && !isImportSourceUnit(sourceUnit)) {
+        return { ok: false, message: "sourceUnit must be 'mm', 'cm', or 'm' when provided." };
+    }
+    return {
+        ok: true,
+        ...(sourcePath !== undefined ? { sourcePath } : {}),
+        ...(sourceUnit !== undefined ? { sourceUnit } : {})
+    };
+}
+
+/** Shape-checked imported-body preview input. */
+export function readImportPreviewInput(input: unknown):
+    | {
+          ok: true;
+          sourcePath: string;
+          strategy: 'single' | 'perSolid';
+          label: string;
+          solidIndexes: readonly number[];
+          sourceUnit?: ImportSourceUnit;
+          material?: string;
+      }
+    | { ok: false; message: string } {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'Import preview input must be an object.' };
+    }
+    const record = input as Record<string, unknown>;
+    if (typeof record.sourcePath !== 'string' || record.sourcePath.trim().length === 0) {
+        return { ok: false, message: 'sourcePath is required.' };
+    }
+    if (record.strategy !== 'single' && record.strategy !== 'perSolid') {
+        return { ok: false, message: "strategy must be 'single' or 'perSolid'." };
+    }
+    if (typeof record.label !== 'string' || record.label.trim().length === 0) {
+        return { ok: false, message: 'Enter a body label.' };
+    }
+    const solidIndexes = record.solidIndexes;
+    if (!Array.isArray(solidIndexes) || solidIndexes.length === 0) {
+        return { ok: false, message: 'solidIndexes must contain at least one source-solid index.' };
+    }
+    if (solidIndexes.length > IMPORT_MAX_SOLIDS) {
+        return { ok: false, message: `solidIndexes must contain at most ${IMPORT_MAX_SOLIDS} indexes.` };
+    }
+    for (const index of solidIndexes) {
+        if (typeof index !== 'number' || !Number.isInteger(index) || index < 1) {
+            return { ok: false, message: 'Every solid index must be a positive integer.' };
+        }
+    }
+    const sourceUnit = record.sourceUnit;
+    if (sourceUnit !== undefined && !isImportSourceUnit(sourceUnit)) {
+        return { ok: false, message: "sourceUnit must be 'mm', 'cm', or 'm' when provided." };
+    }
+    const material = record.material;
+    if (material !== undefined && typeof material !== 'string') {
+        return { ok: false, message: 'material must be a string when provided.' };
+    }
+    return {
+        ok: true,
+        sourcePath: record.sourcePath,
+        strategy: record.strategy,
+        label: record.label,
+        solidIndexes,
+        ...(sourceUnit !== undefined ? { sourceUnit } : {}),
+        ...(material !== undefined ? { material } : {})
+    };
+}
+
+function isImportSourceUnit(value: unknown): value is ImportSourceUnit {
+    return typeof value === 'string' && (IMPORT_SOURCE_UNITS as readonly string[]).includes(value);
+}
+
+/** Re-apply material tags from the previewed drafts to an equivalent plan. */
+function withProposalMaterials(planned: readonly ImportBodyDraft[], proposalDrafts: readonly ImportBodyDraft[]): ImportBodyDraft[] {
+    return planned.map((draft, index) => {
+        const material = proposalDrafts[index]?.material;
+        return material !== undefined ? { ...draft, material } : { ...draft };
+    });
+}
+
+/** One-line summary for the review panel and capability response. */
+function importSummary(solidCount: number, bodyCount: number, baseName: string): string {
+    const solids = solidCount === 1 ? 'solid' : 'solids';
+    const bodies = bodyCount === 1 ? 'body' : 'bodies';
+    return `Import ${solidCount} ${solids} from ${baseName} as ${bodyCount} ${bodies}`;
+}
+
+/** Whether the candidate is the directory itself or lives below it. */
+function isInsideDirectory(directory: string, candidate: string): boolean {
+    const relative = path.relative(path.resolve(directory), candidate);
+    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
 function readProposalId(input: unknown): string | undefined {

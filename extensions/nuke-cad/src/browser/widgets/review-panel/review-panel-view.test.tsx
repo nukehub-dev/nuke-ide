@@ -37,6 +37,7 @@ import type { TopologyImpact, TopologyRegionRef } from '../../../common/topology
 import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
 import {
     CadReviewAppliedEntry,
+    CadReviewImportContext,
     CadReviewPanelView,
     CadReviewPanelViewProps,
     CadReviewProposalView,
@@ -236,6 +237,48 @@ function topologyProposal(overrides: Partial<CadReviewProposalView> = {}): CadRe
         impact: undefined,
         build: undefined,
         topology: topologyContext(),
+        ...overrides
+    });
+}
+
+function importContext(overrides: Partial<CadReviewImportContext> = {}): CadReviewImportContext {
+    return {
+        sourcePath: 'pincell.parts/gui_pincell.step',
+        sourceHash: 'a'.repeat(64),
+        sourceSize: 1536,
+        sourceFormat: 'step',
+        fileUnit: 'mm',
+        effectiveUnit: 'cm',
+        unitScaleFactor: 0.1,
+        unitsMessage: 'Source numbers are scaled to the document unit (cm).',
+        documentUnits: 'cm',
+        solidCount: 3,
+        selectedSolidCount: 1,
+        strategy: 'perSolid',
+        bodies: [
+            { name: 'Fuel pin', label: 'Fuel pin product', material: 'steel', featureName: 'Import Fuel pin' },
+            { name: 'Clad', featureName: 'Import Clad' }
+        ],
+        warnings: ['The source is outside the document import folder.'],
+        ...overrides
+    };
+}
+
+function importProposal(overrides: Partial<CadReviewProposalView> = {}): CadReviewProposalView {
+    return proposal({
+        summary: 'Import bodies from gui_pincell.step',
+        scope: 'import',
+        changes: [
+            {
+                path: 'features.import-fuel-pin',
+                label: 'Import feature',
+                kind: 'add',
+                after: 'Import Fuel pin'
+            }
+        ],
+        impact: undefined,
+        build: undefined,
+        importContext: importContext(),
         ...overrides
     });
 }
@@ -567,5 +610,104 @@ describe('CadReviewPanelView', () => {
         expect(html).toContain('Applied this session');
         expect(html).toContain('Topology change');
         expect(html).not.toContain('Feature parameter');
+    });
+
+    it('renders an import source, units, solid plan, bodies, warnings, and actions without acknowledgement', () => {
+        const onApply = vi.fn();
+        const onDismiss = vi.fn();
+        const tree = CadReviewPanelView(props({ proposals: [importProposal()], onApply, onDismiss }));
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('cad-review-import');
+        expect(html).toContain('Import plan');
+        expect(html).toContain('gui_pincell.step');
+        expect(html).toContain('pincell.parts/gui_pincell.step');
+        expect(html).toContain('>STEP<');
+        expect(html).toContain('1536 bytes');
+        expect(html).toContain('File mm · effective cm · document cm');
+        expect(html).toContain('Scale ×0.1');
+        expect(html).toContain('Source numbers are scaled to the document unit (cm).');
+        expect(html).toContain('3 source solids · 1 selected');
+        expect(html).toContain('One body per solid');
+        expect(html).toContain('Planned bodies');
+        expect(html).toContain('Fuel pin');
+        expect(html).toContain('Fuel pin product');
+        expect(html).toContain('steel');
+        expect(html).toContain('Feature Import Fuel pin');
+        expect(html).toContain('Clad');
+        expect(html).toContain('No material tag');
+        expect(html).toContain('Feature Import Clad');
+        expect(html).toContain('The source is outside the document import folder.');
+        expect(html).toContain('>Import<');
+        expect(html).toContain('cad-review-apply');
+        expect(html).toContain('cad-review-dismiss');
+        expect(html).not.toContain('cad-review-topology-ack');
+        expect(html).not.toContain('I understand the solid and region impact');
+        expect(html).not.toContain('Region impact');
+
+        expect(collectButtons(tree, 'cad-review-topology-ack')).toHaveLength(0);
+        const applyButtons = collectButtons(tree, 'cad-review-apply');
+        const dismissButtons = collectButtons(tree, 'cad-review-dismiss');
+        expect(applyButtons).toHaveLength(1);
+        expect(dismissButtons).toHaveLength(1);
+        expect(applyButtons[0].props.disabled).toBe(false);
+        expect(dismissButtons[0].props.disabled).toBe(false);
+        applyButtons[0].props.onClick?.();
+        dismissButtons[0].props.onClick?.();
+        expect(onApply).toHaveBeenCalledWith('proposal-1');
+        expect(onDismiss).toHaveBeenCalledWith('proposal-1');
+    });
+
+    it('falls back to the import title and shows a single-body strategy', () => {
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        importProposal({
+                            summary: '',
+                            importContext: importContext({
+                                strategy: 'single',
+                                selectedSolidCount: 2,
+                                unitScaleFactor: 1,
+                                warnings: []
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('Import bodies');
+        expect(html).toContain('Single body');
+        expect(html).not.toContain('Scale ×');
+        expect(html).not.toContain('cad-review-import-warnings');
+    });
+
+    it('labels an applied import entry as a CAD import with its id detail', () => {
+        const entry: CadReviewAppliedEntry = {
+            proposalId: 'proposal-4',
+            summary: 'Import bodies from gui_pincell.step',
+            detail: 'Bodies body-4, body-5, body-6',
+            undoToken: 'undo-4',
+            scope: 'import'
+        };
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(props({ proposals: [], applied: [entry], undoableProposalIds: ['proposal-4'] }))
+        );
+
+        expect(html).toContain('CAD import');
+        expect(html).toContain('Bodies body-4, body-5, body-6');
+        expect(html).not.toContain('Feature parameter');
+        expect(html).not.toContain('Topology change');
+    });
+
+    it('keeps feature, sketch, and topology proposals free of the import plan', () => {
+        for (const proposalView of [proposal({ scope: 'features' }), sketchProposal(), topologyProposal()]) {
+            const html = renderToStaticMarkup(CadReviewPanelView(props({ proposals: [proposalView] })));
+
+            expect(html).not.toContain('cad-review-import');
+            expect(html).not.toContain('Planned bodies');
+            expect(html).not.toContain('source solids');
+        }
     });
 });

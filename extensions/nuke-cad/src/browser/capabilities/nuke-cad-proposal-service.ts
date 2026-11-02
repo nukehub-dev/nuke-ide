@@ -53,7 +53,8 @@ import type { FeatureTopologyAction } from '../../common/cad-topology-edit';
 import type { TopologyImpact, TopologyRegionRef } from '../../common/topology-impact';
 import type { OpenmcReferenceSnapshot, OpenmcRegionBlocker } from '../../common/openmc-region-references';
 import type { ResolvedSketchEdit, SketchSolveSummary } from '../sketch/sketch-edit-types';
-import { CadBoundingBox } from '../../common/nuke-cad-protocol';
+import { CadBoundingBox, ImportSolidInfo, ImportSourceFormat, ImportSourceUnit } from '../../common/nuke-cad-protocol';
+import type { ImportBodyDraft } from '../document/cad-document-store';
 
 /** Maximum number of CAD proposals kept in memory. */
 export const NUKE_CAD_FEATURE_PROPOSAL_LIMIT = 20;
@@ -66,6 +67,9 @@ const DEFAULT_SKETCH_APPLY_CAPABILITY_ID = 'nuke.cad.applySketchChange';
 
 /** Apply capability used when a topology preview does not name one. */
 const DEFAULT_TOPOLOGY_APPLY_CAPABILITY_ID = 'nuke.cad.applyTopologyChange';
+
+/** Apply capability used when an import preview does not name one. */
+const DEFAULT_IMPORT_APPLY_CAPABILITY_ID = 'nuke.cad.applyImportBodies';
 
 /** Topology and size delta measured while previewing a CAD edit proposal. */
 export interface NukeCadProposalImpact {
@@ -197,8 +201,49 @@ export interface NukeCadTopologyProposalInput extends NukeCadProposalCommonInput
     readonly topology: NukeCadTopologyProposalDetails;
 }
 
+/** Source metadata, plan, and exact drafts captured by an import preview. */
+export interface NukeCadImportProposalDetails {
+    readonly source: {
+        readonly path: string;
+        readonly sourceHash: string;
+        readonly sourceSize?: number;
+        readonly sourceFormat?: ImportSourceFormat;
+        readonly fileUnit?: string;
+        readonly effectiveUnit?: string;
+        readonly unitScaleFactor?: number;
+        readonly unitsMessage?: string;
+        readonly sourceUnit?: ImportSourceUnit;
+    };
+    readonly documentUnits?: string;
+    readonly strategy: 'single' | 'perSolid';
+    readonly label: string;
+    /** Total solids reported by the inspection, including solids not selected for import. */
+    readonly solidCount: number;
+    readonly solidIndexes: readonly number[];
+    readonly selectedSolids: readonly ImportSolidInfo[];
+    readonly drafts: readonly ImportBodyDraft[];
+    readonly bodies: readonly { name: string; label?: string; material?: string; featureName: string }[];
+    readonly warnings: readonly string[];
+}
+
+/** A previewed import awaiting apply. */
+export interface NukeCadImportProposal extends NukeCadProposalCommon {
+    readonly scope: 'import';
+    /** Capability that applies the stored proposal. */
+    readonly applyCapability: string;
+    readonly import: NukeCadImportProposalDetails;
+}
+
+/** The payload stored when an import preview creates a proposal. */
+export interface NukeCadImportProposalInput extends NukeCadProposalCommonInput {
+    readonly scope: 'import';
+    /** Capability that applies the stored proposal; defaults to `nuke.cad.applyImportBodies`. */
+    readonly applyCapability?: string;
+    readonly import: NukeCadImportProposalDetails;
+}
+
 /** Any previewed CAD edit awaiting apply. */
-export type NukeCadProposal = NukeCadFeatureProposal | NukeCadSketchProposal | NukeCadTopologyProposal;
+export type NukeCadProposal = NukeCadFeatureProposal | NukeCadSketchProposal | NukeCadTopologyProposal | NukeCadImportProposal;
 
 /**
  * Deep-clone a JSON-compatible value so stored snapshots stay detached.
@@ -218,6 +263,11 @@ export function isSketchProposal(proposal: NukeCadProposal): proposal is NukeCad
 /** Whether a proposal changes feature topology rather than scalar parameters. */
 export function isTopologyProposal(proposal: NukeCadProposal): proposal is NukeCadTopologyProposal {
     return proposal.scope === 'topology';
+}
+
+/** Whether a proposal imports external CAD sources as bodies. */
+export function isImportProposal(proposal: NukeCadProposal): proposal is NukeCadImportProposal {
+    return proposal.scope === 'import';
 }
 
 /** In-memory CAD proposal store with a fixed capacity and TTL. */
@@ -251,8 +301,13 @@ export class NukeCadProposalService implements Disposable {
     create(input: NukeCadFeatureProposalInput): NukeCadFeatureProposal;
     create(input: NukeCadSketchProposalInput): NukeCadSketchProposal;
     create(input: NukeCadTopologyProposalInput): NukeCadTopologyProposal;
-    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput | NukeCadTopologyProposalInput): NukeCadProposal;
-    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput | NukeCadTopologyProposalInput): NukeCadProposal {
+    create(input: NukeCadImportProposalInput): NukeCadImportProposal;
+    create(
+        input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput | NukeCadTopologyProposalInput | NukeCadImportProposalInput
+    ): NukeCadProposal;
+    create(
+        input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput | NukeCadTopologyProposalInput | NukeCadImportProposalInput
+    ): NukeCadProposal {
         this.pruneExpired();
         while (this.proposals.size >= NUKE_CAD_FEATURE_PROPOSAL_LIMIT) {
             const oldest = this.proposals.keys().next().value as string | undefined;
@@ -278,7 +333,14 @@ export class NukeCadProposalService implements Disposable {
                         applyCapability: cloned.applyCapability ?? DEFAULT_TOPOLOGY_APPLY_CAPABILITY_ID,
                         createdAt
                     }
-                  : { ...cloned, id: this.createId(), createdAt };
+                  : cloned.scope === 'import'
+                    ? {
+                          ...cloned,
+                          id: this.createId(),
+                          applyCapability: cloned.applyCapability ?? DEFAULT_IMPORT_APPLY_CAPABILITY_ID,
+                          createdAt
+                      }
+                    : { ...cloned, id: this.createId(), createdAt };
         this.proposals.set(proposal.id, proposal);
         this.onDidChangeEmitter.fire();
         return cloneValue(proposal);

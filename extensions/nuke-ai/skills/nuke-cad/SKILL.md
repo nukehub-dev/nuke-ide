@@ -6,10 +6,10 @@ description: Inspect, summarize, and export the active NukeCAD document to DAGMC
 # NukeCAD
 
 Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
-CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, or topology-impact
-change. Read/export is always available. Feature, sketch, and topology edits are available only when the user enabled
-**Nuke CAD: AI Authoring**; new sketch entities, scripts, document parameters not referenced by a sketch, booleans,
-add/delete/reorder, lattices, imports, assemblies, and drawings stay in the CAD viewport and Feature Tree.
+CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, topology-impact, or
+import change. Read/export is always available. Feature, sketch, topology, and import edits are available only when
+the user enabled **Nuke CAD: AI Authoring**; new sketch entities, scripts, document parameters not referenced by a
+sketch, booleans, add/delete/reorder, lattices, assemblies, and drawings stay in the CAD viewport and Feature Tree.
 
 ## Tool names
 
@@ -146,6 +146,28 @@ explicit confirmation of the shown region impact. It writes one exact-replace do
 `undoToken`. Undo restores the previous feature parameters, including a removed `depth` key, in one commit. If the
 preview expired or the document changed, preview again instead of reusing the old id.
 
+## Import CAD as Body
+
+Use this flow when the user wants an external STEP/STP, IGES/IGS, or BREP file as editable bodies. Inspect with
+`nuke_cad_inspectImportSource`, plan with `nuke_cad_previewImportBodies`, and apply only after explicit confirmation
+with `nuke_cad_applyImportBodies`.
+
+- Let the user choose the file in the native picker. A path from the chat is only a hint; only a file inside the
+  active document's `<stem>.parts/` folder may be inspected directly. Outside-root, symlinked, unsupported-extension,
+  and larger-than-256-MiB sources are rejected.
+- Pass `{ "sourcePath", "strategy": "single" | "perSolid", "label", "solidIndexes", "sourceUnit"?, "material"? }` to
+  the preview. It is plan-only: it opens the **CAD Edit Review** panel, builds no geometry, shows no ghost, and writes
+  no document.
+- Show the source format, size, hash, units, selected solids, warnings, and the label/material plan before asking to
+  apply. A source outside the document folder leaves the document not self-contained; warn that it references the
+  chosen path.
+- The UI import copies the source into `<stem>.parts/`; this AI flow never downloads or copies it and never accepts a
+  path outside the workspace roots.
+- Apply takes only `{ "proposalId" }`. It re-inspects the source, rejects a stale hash, size, selection, or plan,
+  writes a backup, commits one `addImportBodies`, rebuilds, and returns an `undoToken`. If the source or document
+  changed, preview again. Undo restores the previous document in this session.
+- Imported bodies are B-rep snapshots; their source surfaces are not editable. Replace or refresh the source instead.
+
 ## Inspect before export
 
 Always summarize the active document before calling `nuke_cad_exportDagmc`. The summary confirms that the model
@@ -203,10 +225,10 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 
 ## Boundaries
 
-- Do not author geometry beyond the scalar feature-edit, sketch-dimension, and topology-impact flows. New sketch
-  entities, scripts, document parameters not referenced by a sketch, booleans, add/delete/reorder, lattices, imports,
+- Do not author geometry beyond the scalar feature-edit, sketch-dimension, topology-impact, and import flows. New
+  sketch entities, scripts, document parameters not referenced by a sketch, booleans, add/delete/reorder, lattices,
   assemblies, and drawings stay in the CAD viewport or Feature Tree.
-- Do not apply a feature, sketch, or topology change without an explicit confirmation, and never send CAD authoring
-  tools through MCP.
+- Do not apply a feature, sketch, topology, or import change without an explicit confirmation, and never send CAD
+  authoring tools through MCP.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

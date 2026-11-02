@@ -1,9 +1,9 @@
 # Safe Edits
 
 NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, existing sketch
-dimensions or referenced document parameters, and a small set of topology-impacting CAD feature settings without
-writing directly from the chat model. Every edit goes through a preview, an explicit apply step with confirmation, and
-an in-session undo.
+dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, and imported
+STEP/IGES/BREP bodies without writing directly from the chat model. Every edit goes through a preview or plan, an
+explicit apply step with confirmation, and an in-session undo.
 
 ## Supported settings
 
@@ -125,8 +125,8 @@ schedules the normal rebuild, and exposes **Undo** in the card. Undo re-checks t
 the before parameters in one batch, and schedules the rebuild again.
 
 New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
-sketch, scripts, booleans, add/delete/reorder, lattices, imports, assemblies, and drawings are outside this surface.
-External MCP never exposes the CAD preview or apply tools.
+sketch, scripts, booleans, add/delete/reorder, lattices, assemblies, and drawings are outside this surface. Imports use
+the separate import-body flow below. External MCP never exposes the CAD preview or apply tools.
 
 ## CAD sketch dimensions
 
@@ -202,6 +202,34 @@ Apply accepts only the proposal id and the acknowledgement, writes a hidden back
 parameters in one commit (including removing a hole's `depth` key), rebuilds, and exposes **Undo**. Undo restores the
 previous parameters, including a removed key, in one commit. If the document changed after the preview, preview again
 instead of reusing the id.
+
+## CAD import as bodies
+
+Import edits use the same opt-in switch and saved-document requirement. They add editable bodies from a STEP/STP,
+IGES/IGS, or BREP file instead of a frozen assembly reference.
+
+1. NukeAI calls `nuke_cad_inspectImportSource`. The file must be chosen by you in the native picker: a path in the
+   conversation is only a hint, and an arbitrary workspace path still opens the picker. A file already inside the
+   document's own `<stem>.parts/` folder may be inspected directly.
+2. Inspect reports the source format, byte size, SHA-256 hash, declared and effective units, and each source solid's
+   index, name, face count, volume, and bounding box. Outside-root, symlinked, unsupported-extension, and larger-than-
+   256-MiB sources are rejected.
+3. NukeAI plans the import with `nuke_cad_previewImportBodies`:
+   `{ "sourcePath", "strategy": "single" | "perSolid", "label", "solidIndexes", "sourceUnit"?, "material"? }`. The plan
+   chooses all selected solids in one body or one body per solid, and carries an optional unit override, body label, and
+   material tag. The plan is read-only: it builds no geometry, shows no ghost, and opens the **CAD Edit Review** panel.
+4. Review the source details, selected solids, body count, units, warnings, and label/material plan before applying.
+   A source outside the document folder makes the document not self-contained; NukeAI warns that it references the
+   chosen path. The UI **Import CAD as Body** flow copies the source into `<stem>.parts/` instead.
+5. Apply accepts only the proposal id after explicit confirmation. It re-inspects the same source and rejects a stale
+   hash, size, selection, or plan, writes a hidden backup, commits `addImportBodies` in one document-store commit,
+   schedules the rebuild, and exposes **Undo**.
+6. Undo restores the previous document in this session. If the source or document changed after the preview, preview
+   again instead of reusing the id. Imported bodies are B-rep snapshots, so replace or refresh the source rather than
+   editing its surfaces.
+
+This flow never downloads or copies a source, never accepts a path outside the workspace roots, and never exposes an
+import tool through MCP.
 
 ## Related
 

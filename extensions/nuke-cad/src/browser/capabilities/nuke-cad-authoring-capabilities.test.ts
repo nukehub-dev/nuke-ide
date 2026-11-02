@@ -28,10 +28,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: class FileService {} }));
+vi.mock('@theia/filesystem/lib/browser/file-dialog', () => ({ FileDialogService: Symbol('FileDialogService') }));
 
 import { URI } from '@theia/core/lib/common/uri';
 import type { CommandService } from '@theia/core/lib/common/command';
 import type { FileService } from '@theia/filesystem/lib/browser/file-service';
+import type { FileDialogService } from '@theia/filesystem/lib/browser/file-dialog';
+import type { FileStat } from '@theia/filesystem/lib/common/files';
 import type { NukeUndoEntry, NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import type {
     NukeCapability,
@@ -40,32 +43,66 @@ import type {
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { NukeCadDocument, SketchDef } from '../../common/cad-document';
-import type { GeometryBuildResult, RegionManifestData } from '../../common/nuke-cad-protocol';
-import type { CadDocumentStore } from '../document/cad-document-store';
+import type {
+    GeometryBuildResult,
+    ImportSolidInfo,
+    InspectImportSourceRequest,
+    InspectImportSourceResult,
+    RegionManifestData
+} from '../../common/nuke-cad-protocol';
+import type { CadDocumentStore, ImportBodyDraft, ImportBodiesRequest } from '../document/cad-document-store';
 import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import type { NukeCadPreferences } from '../nuke-cad-preferences';
 import type { CadModel, NukeCadStateManager, SolidSummary } from '../state/nuke-cad-state-manager';
 import {
     APPLY_FEATURE_CHANGE_ID,
+    APPLY_IMPORT_BODIES_ID,
     APPLY_SKETCH_CHANGE_ID,
     APPLY_TOPOLOGY_CHANGE_ID,
+    INSPECT_IMPORT_SOURCE_ID,
     LIST_SKETCH_DIMENSIONS_ID,
     NukeCadAuthoringCapabilities,
     PREVIEW_FEATURE_CHANGE_ID,
+    PREVIEW_IMPORT_BODIES_ID,
     PREVIEW_SKETCH_CHANGE_ID,
     PREVIEW_TOPOLOGY_CHANGE_ID,
     readFeatureParamChanges,
+    readImportPreviewInput,
+    readInspectImportSourceInput,
     readSketchEditRequests,
     readTopologyActions
 } from './nuke-cad-authoring-capabilities';
-import { isSketchProposal, isTopologyProposal, NukeCadProposalService } from './nuke-cad-proposal-service';
+import { isImportProposal, isSketchProposal, isTopologyProposal, NukeCadProposalService } from './nuke-cad-proposal-service';
 import type { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 import type { NukeCadSketchEditService } from '../sketch/sketch-edit-service';
 import type { PreparedSketchEdit, SketchEditPrepareResult, SketchEditRequest } from '../sketch/sketch-edit-types';
+import { MAX_IMPORT_SOURCE_BYTES } from './import-source-policy';
 
 const WORKSPACE = '/workspace/project';
 const DOCUMENT_PATH = `${WORKSPACE}/pincell.nuke-cad`;
 const CONTEXT: NukeCapabilityContext = { workspaceRoots: [WORKSPACE], activeCadDocument: DOCUMENT_PATH };
+const IMPORT_PATH = `${WORKSPACE}/gui_pincell.step`;
+const PARTS_IMPORT_PATH = `${WORKSPACE}/pincell.parts/gui_pincell.step`;
+const IMPORT_HASH = 'a'.repeat(64);
+const IMPORT_SIZE = 4096;
+const IMPORT_SOLIDS: readonly ImportSolidInfo[] = [
+    { index: 1, name: 'fuel', faceCount: 6, volume: 10, bboxMin: [0, 0, 0], bboxMax: [1, 1, 1], center: [0.5, 0.5, 0.5] },
+    { index: 2, name: 'clad', faceCount: 8, volume: 20, bboxMin: [0, 0, 0], bboxMax: [2, 1, 1], center: [1, 0.5, 0.5] },
+    { index: 3, name: 'gap', faceCount: 4, volume: 5, bboxMin: [0, 0, 0], bboxMax: [0.5, 0.5, 0.5], center: [0.25, 0.25, 0.25] }
+];
+const IMPORT_INSPECTION: InspectImportSourceResult = {
+    success: true,
+    sourceFormat: 'step',
+    sourceHash: IMPORT_HASH,
+    sourceSize: IMPORT_SIZE,
+    fileUnit: 'mm',
+    effectiveUnit: 'mm',
+    unitScaleFactor: 1,
+    unitsMessage: 'The source declares millimetres.',
+    solidCount: IMPORT_SOLIDS.length,
+    solids: IMPORT_SOLIDS,
+    warnings: []
+};
 
 const MANIFEST: RegionManifestData = {
     version: 1,
@@ -340,6 +377,9 @@ interface Harness {
     edits: { id: string; params: Record<string, unknown> }[][];
     replacements: { id: string; params: Record<string, unknown> }[][];
     sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[];
+    imports: { bodies: readonly ImportBodyDraft[]; bodyIds: string[]; featureIds: string[] }[];
+    selections: (string | undefined)[];
+    undoCalls: number;
     commands: string[];
     undoEntries: NukeUndoEntry[];
     fileService: {
@@ -347,9 +387,16 @@ interface Harness {
         delete: ReturnType<typeof vi.fn>;
         exists: ReturnType<typeof vi.fn>;
         readFile: ReturnType<typeof vi.fn>;
+        resolve: ReturnType<typeof vi.fn>;
     };
+    fileDialog: { showOpenDialog: ReturnType<typeof vi.fn> };
+    filesystem: Map<string, FileStat>;
     files: Map<string, string>;
-    service: { buildDocument: ReturnType<typeof vi.fn>; cancelJob: ReturnType<typeof vi.fn> };
+    service: {
+        buildDocument: ReturnType<typeof vi.fn>;
+        cancelJob: ReturnType<typeof vi.fn>;
+        inspectImportSource: ReturnType<typeof vi.fn>;
+    };
     store: CadDocumentStore;
     preferences: { get: ReturnType<typeof vi.fn> };
     ghostPreview: { show: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> };
@@ -368,6 +415,10 @@ interface HarnessOptions {
     modelResult?: GeometryBuildResult;
     solidSummaries?: readonly SolidSummary[];
     files?: Readonly<Record<string, string>>;
+    filesystem?: Readonly<Record<string, Partial<FileStat>>>;
+    inspection?: Partial<InspectImportSourceResult> | ((request: InspectImportSourceRequest) => Promise<InspectImportSourceResult>);
+    pickImport?: string | (() => Promise<URI | undefined>);
+    importAddSucceeds?: boolean;
     prepare?: (document: NukeCadDocument, requests: readonly SketchEditRequest[]) => Promise<SketchEditPrepareResult>;
 }
 
@@ -378,10 +429,25 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     const edits: { id: string; params: Record<string, unknown> }[][] = [];
     const replacements: { id: string; params: Record<string, unknown> }[][] = [];
     const sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[] = [];
+    const imports: { bodies: readonly ImportBodyDraft[]; bodyIds: string[]; featureIds: string[] }[] = [];
+    const selections: (string | undefined)[] = [];
+    let undoCalls = 0;
     const undoEntries: NukeUndoEntry[] = [];
     const files = new Map<string, string>();
     for (const [filePath, content] of Object.entries(overrides.files ?? {})) {
         files.set(new URI(filePath).path.toString(), content);
+    }
+    const filesystem = new Map<string, FileStat>();
+    for (const [filePath, spec] of Object.entries(overrides.filesystem ?? {})) {
+        filesystem.set(new URI(filePath).path.toString(), {
+            resource: new URI(filePath),
+            name: '',
+            isFile: false,
+            isDirectory: false,
+            isSymbolicLink: false,
+            isReadonly: false,
+            ...spec
+        });
     }
     const store = {
         get document(): NukeCadDocument {
@@ -444,6 +510,62 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             };
             revision += 1;
             return { success: true };
+        },
+        addImportBodies(request: ImportBodiesRequest): {
+            success: boolean;
+            value?: { bodyIds: string[]; featureIds: string[] };
+            error?: string;
+        } {
+            if (overrides.importAddSucceeds === false) {
+                return { success: false, error: 'The CAD document rejected the import.' };
+            }
+            const batch = imports.length + 1;
+            const bodyIds = request.bodies.map((_, index) => `import-body-${batch}-${index + 1}`);
+            const featureIds = request.bodies.map((_, index) => `import-feature-${batch}-${index + 1}`);
+            const bodies = request.bodies.map((draft, index) => ({
+                id: bodyIds[index],
+                name: draft.name,
+                ...(draft.label !== undefined ? { label: draft.label } : {}),
+                ...(draft.material !== undefined ? { material: draft.material } : {})
+            }));
+            const features = request.bodies.map((draft, index) => ({
+                id: featureIds[index],
+                name: draft.name,
+                type: 'import' as const,
+                body: bodyIds[index],
+                params: JSON.parse(JSON.stringify(draft.params)) as Record<string, unknown>,
+                suppressed: false,
+                dependsOn: []
+            }));
+            imports.push({
+                bodies: request.bodies.map((draft) => JSON.parse(JSON.stringify(draft)) as ImportBodyDraft),
+                bodyIds,
+                featureIds
+            });
+            document = {
+                ...document,
+                bodies: [...document.bodies, ...bodies],
+                features: [...document.features, ...features]
+            };
+            revision += 1;
+            return { success: true, value: { bodyIds, featureIds } };
+        },
+        undo(): { success: boolean; error?: string } {
+            undoCalls += 1;
+            const last = imports.pop();
+            if (last === undefined) {
+                return { success: false, error: 'Nothing to undo' };
+            }
+            document = {
+                ...document,
+                bodies: document.bodies.filter((body) => !last.bodyIds.includes(body.id)),
+                features: document.features.filter((feature) => !last.featureIds.includes(feature.id))
+            };
+            revision += 1;
+            return { success: true };
+        },
+        selectBody(id: string | undefined): void {
+            selections.push(id);
         }
     } as unknown as CadDocumentStore;
     const model =
@@ -461,7 +583,18 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     } as unknown as NukeCadStateManager;
     const service = {
         buildDocument: vi.fn(async () => overrides.build ?? BUILD_RESULT),
-        cancelJob: vi.fn(async () => true)
+        cancelJob: vi.fn(async () => true),
+        inspectImportSource: vi.fn(async (request: InspectImportSourceRequest): Promise<InspectImportSourceResult> => {
+            if (typeof overrides.inspection === 'function') {
+                return overrides.inspection(request);
+            }
+            return {
+                ...IMPORT_INSPECTION,
+                sourcePath: request.sourcePath,
+                ...(request.sourceUnit !== undefined ? { effectiveUnit: request.sourceUnit } : {}),
+                ...(overrides.inspection ?? {})
+            };
+        })
     };
     const fileService = {
         create: vi.fn(async (uri: URI, content: string) => {
@@ -477,6 +610,21 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
                 throw new Error(`File not found: ${uri.path.toString()}`);
             }
             return { value: { toString: () => content } };
+        }),
+        resolve: vi.fn(async (uri: URI) => {
+            const stat = filesystem.get(uri.path.toString());
+            if (stat === undefined) {
+                throw new Error(`File not found: ${uri.path.toString()}`);
+            }
+            return stat;
+        })
+    };
+    const fileDialog = {
+        showOpenDialog: vi.fn(async () => {
+            if (typeof overrides.pickImport === 'function') {
+                return overrides.pickImport();
+            }
+            return overrides.pickImport === undefined ? undefined : new URI(overrides.pickImport);
         })
     };
     const preferences = { get: vi.fn(() => overrides.enabled ?? true) };
@@ -512,6 +660,7 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         store,
         proposals,
         fileService as unknown as FileService,
+        fileDialog as unknown as FileDialogService,
         preferences as unknown as NukeCadPreferences,
         commandService as unknown as CommandService,
         undoService,
@@ -529,9 +678,16 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         edits,
         replacements,
         sketchEdits,
+        imports,
+        selections,
+        get undoCalls(): number {
+            return undoCalls;
+        },
         commands,
         undoEntries,
         fileService,
+        fileDialog,
+        filesystem,
         files,
         service,
         store,
@@ -612,6 +768,64 @@ function stubCandidateTessellation(harness: Harness): void {
         harness.capabilities as unknown as { readCandidateTessellation: () => Promise<typeof TOPOLOGY_PARSED_TESS> },
         'readCandidateTessellation'
     ).mockResolvedValue(TOPOLOGY_PARSED_TESS);
+}
+
+function importHarness(overrides: HarnessOptions = {}): Harness {
+    return createHarness({
+        pickImport: IMPORT_PATH,
+        ...overrides,
+        filesystem: {
+            [IMPORT_PATH]: { isFile: true, size: IMPORT_SIZE },
+            [`${WORKSPACE}/pincell.parts`]: { isDirectory: true },
+            [PARTS_IMPORT_PATH]: { isFile: true, size: IMPORT_SIZE },
+            ...overrides.filesystem
+        }
+    });
+}
+
+function inspectImport(
+    harness: Harness,
+    input: unknown = { sourcePath: IMPORT_PATH },
+    context: NukeCapabilityContext = CONTEXT
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(INSPECT_IMPORT_SOURCE_ID)!.invoke(input, context);
+}
+
+const IMPORT_PREVIEW_INPUT = {
+    sourcePath: IMPORT_PATH,
+    strategy: 'perSolid',
+    label: 'gui_pincell',
+    solidIndexes: [1, 2]
+} as const;
+
+function previewImport(
+    harness: Harness,
+    input: unknown = IMPORT_PREVIEW_INPUT,
+    context: NukeCapabilityContext = CONTEXT
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(PREVIEW_IMPORT_BODIES_ID)!.invoke(input, context);
+}
+
+function applyImport(harness: Harness, proposalId: string, context: NukeCapabilityContext = CONTEXT): Promise<NukeCapabilityResult> {
+    return harness.registered.get(APPLY_IMPORT_BODIES_ID)!.invoke({ proposalId }, context);
+}
+
+async function previewedImportProposal(
+    harness: Harness,
+    input: unknown = IMPORT_PREVIEW_INPUT,
+    context: NukeCapabilityContext = CONTEXT,
+    sourcePath = IMPORT_PATH
+): Promise<string> {
+    const inspected = await inspectImport(harness, { sourcePath }, context);
+    expect(inspected.ok).toBe(true);
+    const result = await previewImport(harness, input, context);
+    expect(result.ok).toBe(true);
+    return (result.data as { proposalId: string }).proposalId;
+}
+
+async function authorizeImport(harness: Harness, sourcePath = IMPORT_PATH): Promise<void> {
+    const inspected = await inspectImport(harness, { sourcePath });
+    expect(inspected.ok).toBe(true);
 }
 
 describe('readFeatureParamChanges', () => {
@@ -755,6 +969,55 @@ describe('readTopologyActions', () => {
             ok: false,
             message: expect.stringContaining('unknown action')
         });
+    });
+});
+
+describe('readInspectImportSourceInput', () => {
+    it('accepts an optional absolute path and source-unit override', () => {
+        expect(readInspectImportSourceInput({})).toEqual({ ok: true });
+        expect(readInspectImportSourceInput({ sourcePath: IMPORT_PATH, sourceUnit: 'cm' })).toEqual({
+            ok: true,
+            sourcePath: IMPORT_PATH,
+            sourceUnit: 'cm'
+        });
+    });
+
+    it('rejects non-object, empty, and unknown-unit input', () => {
+        expect(readInspectImportSourceInput('path')).toMatchObject({ ok: false });
+        expect(readInspectImportSourceInput({ sourcePath: '' })).toMatchObject({ ok: false });
+        expect(readInspectImportSourceInput({ sourceUnit: 'in' })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('sourceUnit')
+        });
+    });
+});
+
+describe('readImportPreviewInput', () => {
+    it('accepts both strategies, indexes, units, and a material', () => {
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, sourceUnit: 'm', material: 'steel' })).toEqual({
+            ok: true,
+            sourcePath: IMPORT_PATH,
+            strategy: 'perSolid',
+            label: 'gui_pincell',
+            solidIndexes: [1, 2],
+            sourceUnit: 'm',
+            material: 'steel'
+        });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, strategy: 'single' })).toMatchObject({ ok: true, strategy: 'single' });
+    });
+
+    it('rejects missing, malformed, and empty fields', () => {
+        expect(readImportPreviewInput(null)).toMatchObject({ ok: false });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, sourcePath: '' })).toMatchObject({ ok: false });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, strategy: 'merged' })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('strategy')
+        });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, label: '  ' })).toMatchObject({ ok: false });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, solidIndexes: [] })).toMatchObject({ ok: false });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, solidIndexes: [0] })).toMatchObject({ ok: false });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, solidIndexes: [1.5] })).toMatchObject({ ok: false });
+        expect(readImportPreviewInput({ ...IMPORT_PREVIEW_INPUT, material: 3 })).toMatchObject({ ok: false });
     });
 });
 
@@ -1458,6 +1721,525 @@ describe('NukeCadAuthoringCapabilities', () => {
         expect(await apply(harness, proposalId)).toMatchObject({ ok: false, message: expect.stringContaining('sketch change') });
         expect(harness.edits).toHaveLength(0);
         expect(harness.sketchEdits).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
+    });
+
+    it('hides every import capability while the kill switch is off', async () => {
+        const harness = importHarness({ enabled: false });
+
+        for (const id of [INSPECT_IMPORT_SOURCE_ID, PREVIEW_IMPORT_BODIES_ID, APPLY_IMPORT_BODIES_ID]) {
+            expect(harness.registered.get(id)!.when!(CONTEXT)).toBe(false);
+        }
+        expect(await inspectImport(harness)).toMatchObject({ ok: false, message: expect.stringContaining('disabled') });
+        expect(harness.fileDialog.showOpenDialog).not.toHaveBeenCalled();
+        expect(harness.service.inspectImportSource).not.toHaveBeenCalled();
+    });
+
+    it('registers the import capabilities only for a saved active document', () => {
+        const harness = importHarness();
+        const unsaved = importHarness({ saved: false });
+        const noModel = importHarness({ hasModel: false });
+
+        for (const id of [INSPECT_IMPORT_SOURCE_ID, PREVIEW_IMPORT_BODIES_ID, APPLY_IMPORT_BODIES_ID]) {
+            expect(harness.registered.get(id)!.when!(CONTEXT)).toBe(true);
+            expect(harness.registered.get(id)!.risk).toBe(id === APPLY_IMPORT_BODIES_ID ? 'execute' : 'read');
+            expect(unsaved.registered.get(id)!.when!(CONTEXT)).toBe(false);
+            expect(noModel.registered.get(id)!.when!(CONTEXT)).toBe(false);
+        }
+    });
+
+    it('returns a clean cancellation when the import picker is dismissed', async () => {
+        const harness = importHarness({ pickImport: async () => undefined });
+
+        const result = await inspectImport(harness, {});
+
+        expect(result).toMatchObject({ ok: false, message: 'No CAD import source was selected.' });
+        expect(harness.fileDialog.showOpenDialog).toHaveBeenCalledWith(
+            expect.objectContaining({
+                title: 'Authorize CAD import source',
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: { 'CAD Exchange Files': ['step', 'stp', 'iges', 'igs', 'brep'] }
+            })
+        );
+        expect(harness.service.inspectImportSource).not.toHaveBeenCalled();
+        expect(harness.proposals.list()).toHaveLength(0);
+    });
+
+    it('asks once for a direct path and reuses the session grant', async () => {
+        const harness = importHarness();
+
+        const first = await inspectImport(harness, { sourcePath: IMPORT_PATH });
+        const second = await inspectImport(harness, { sourcePath: IMPORT_PATH });
+
+        expect(first.ok).toBe(true);
+        expect(second.ok).toBe(true);
+        expect(harness.fileDialog.showOpenDialog).toHaveBeenCalledTimes(1);
+        expect(harness.service.inspectImportSource).toHaveBeenCalledTimes(2);
+        expect(harness.service.inspectImportSource).toHaveBeenLastCalledWith({
+            sourcePath: IMPORT_PATH,
+            targetUnits: 'mm',
+            maxSolids: 500
+        });
+        expect(first.data).toMatchObject({
+            documentPath: DOCUMENT_PATH,
+            documentUnits: 'mm',
+            source: {
+                path: IMPORT_PATH,
+                sourceHash: IMPORT_HASH,
+                sourceSize: IMPORT_SIZE,
+                sourceFormat: 'step',
+                fileUnit: 'mm',
+                effectiveUnit: 'mm'
+            },
+            solids: IMPORT_SOLIDS
+        });
+    });
+
+    it('skips the picker for a document-owned .parts source', async () => {
+        const harness = importHarness();
+
+        const result = await inspectImport(harness, { sourcePath: PARTS_IMPORT_PATH });
+
+        expect(result.ok).toBe(true);
+        expect(harness.fileDialog.showOpenDialog).not.toHaveBeenCalled();
+        expect(harness.service.inspectImportSource).toHaveBeenCalledWith({
+            sourcePath: PARTS_IMPORT_PATH,
+            targetUnits: 'mm',
+            maxSolids: 500
+        });
+    });
+
+    it('rejects unsafe direct paths before opening the picker or inspecting', async () => {
+        const outside = `${WORKSPACE}-evil/gui_pincell.step`;
+        const symlink = `${WORKSPACE}/linked.step`;
+        const oversized = `${WORKSPACE}/oversized.step`;
+        const unsupported = `${WORKSPACE}/notes.txt`;
+        const directory = `${WORKSPACE}/bundle.step`;
+        const cases: { sourcePath: string; filesystem: Record<string, Partial<FileStat>>; message: RegExp }[] = [
+            { sourcePath: 'relative/gui_pincell.step', filesystem: {}, message: /absolute/ },
+            { sourcePath: outside, filesystem: { [outside]: { isFile: true, size: 1 } }, message: /outside every workspace root/ },
+            { sourcePath: symlink, filesystem: { [symlink]: { isSymbolicLink: true } }, message: /symbolic link/ },
+            {
+                sourcePath: oversized,
+                filesystem: { [oversized]: { isFile: true, size: MAX_IMPORT_SOURCE_BYTES + 1 } },
+                message: /256 MiB/
+            },
+            { sourcePath: unsupported, filesystem: { [unsupported]: { isFile: true, size: 1 } }, message: /Unsupported/ },
+            { sourcePath: directory, filesystem: { [directory]: { isDirectory: true } }, message: /regular file/ }
+        ];
+
+        for (const entry of cases) {
+            const harness = importHarness({ filesystem: entry.filesystem });
+            const result = await inspectImport(harness, { sourcePath: entry.sourcePath });
+
+            expect(result.ok).toBe(false);
+            expect(result.message).toMatch(entry.message);
+            expect(harness.fileDialog.showOpenDialog).not.toHaveBeenCalled();
+            expect(harness.service.inspectImportSource).not.toHaveBeenCalled();
+        }
+    });
+
+    it('rejects outside, symlinked, oversized, and unsupported files chosen in the picker', async () => {
+        const outside = `${WORKSPACE}-evil/gui_pincell.step`;
+        const symlink = `${WORKSPACE}/picked.step`;
+        const oversized = `${WORKSPACE}/picked-large.step`;
+        const unsupported = `${WORKSPACE}/picked.txt`;
+        const cases: { pickImport: string; filesystem: Record<string, Partial<FileStat>>; message: RegExp }[] = [
+            { pickImport: outside, filesystem: { [outside]: { isFile: true, size: 1 } }, message: /outside every workspace root/ },
+            { pickImport: symlink, filesystem: { [symlink]: { isSymbolicLink: true } }, message: /symbolic link/ },
+            {
+                pickImport: oversized,
+                filesystem: { [oversized]: { isFile: true, size: MAX_IMPORT_SOURCE_BYTES + 1 } },
+                message: /256 MiB/
+            },
+            { pickImport: unsupported, filesystem: { [unsupported]: { isFile: true, size: 1 } }, message: /Unsupported/ }
+        ];
+
+        for (const entry of cases) {
+            const harness = importHarness({ pickImport: entry.pickImport, filesystem: entry.filesystem });
+            const result = await inspectImport(harness, {});
+
+            expect(result.ok).toBe(false);
+            expect(result.message).toMatch(entry.message);
+            expect(harness.service.inspectImportSource).not.toHaveBeenCalled();
+        }
+    });
+
+    it('rejects failed, hashless, and solid-less inspections without caching a grant', async () => {
+        const failed = importHarness({ inspection: { success: false, error: 'reader exploded' } });
+        expect(await inspectImport(failed)).toMatchObject({ ok: false, message: 'reader exploded' });
+
+        const hashless = importHarness({ inspection: { sourceHash: undefined } });
+        expect(await inspectImport(hashless)).toMatchObject({ ok: false, message: expect.stringContaining('SHA-256') });
+
+        const empty = importHarness({ inspection: { solids: [], solidCount: 0 } });
+        expect(await inspectImport(empty)).toMatchObject({ ok: false, message: expect.stringContaining('no solids') });
+
+        const preview = await previewImport(hashless, IMPORT_PREVIEW_INPUT);
+        expect(preview).toMatchObject({ ok: false, message: expect.stringContaining('Inspect and authorize') });
+    });
+
+    it('uses the requested source unit and reuses a grant across previews', async () => {
+        const harness = importHarness();
+        const inspected = await inspectImport(harness, { sourcePath: IMPORT_PATH });
+        expect(inspected.ok).toBe(true);
+
+        const first = await previewImport(harness, { ...IMPORT_PREVIEW_INPUT, sourceUnit: 'm' });
+        const second = await previewImport(harness, { ...IMPORT_PREVIEW_INPUT, solidIndexes: [3] });
+
+        expect(first.ok).toBe(true);
+        expect(second.ok).toBe(true);
+        expect(harness.fileDialog.showOpenDialog).toHaveBeenCalledTimes(1);
+        expect(harness.service.inspectImportSource.mock.calls.map(([request]) => request)).toEqual([
+            { sourcePath: IMPORT_PATH, targetUnits: 'mm', maxSolids: 500 },
+            { sourcePath: IMPORT_PATH, sourceUnit: 'm', targetUnits: 'mm', maxSolids: 500 },
+            { sourcePath: IMPORT_PATH, targetUnits: 'mm', maxSolids: 500 }
+        ]);
+        const firstProposal = harness.proposals.get((first.data as { proposalId: string }).proposalId)!;
+        if (!isImportProposal(firstProposal)) {
+            throw new Error('expected an import proposal');
+        }
+        expect(firstProposal.import.source.sourceUnit).toBe('m');
+        expect(firstProposal.import.source.effectiveUnit).toBe('m');
+    });
+
+    it('plans per-solid and single-body imports with unique names', async () => {
+        const harness = importHarness();
+        harness.currentDocument().bodies.push({ id: 'body-existing', name: 'fuel' });
+        await authorizeImport(harness);
+
+        const perSolid = await previewImport(harness);
+        expect(perSolid.ok).toBe(true);
+        const perProposal = harness.proposals.get((perSolid.data as { proposalId: string }).proposalId)!;
+        if (!isImportProposal(perProposal)) {
+            throw new Error('expected an import proposal');
+        }
+        expect(perProposal.import.strategy).toBe('perSolid');
+        expect(perProposal.import.solidCount).toBe(3);
+        expect(perProposal.import.selectedSolids).toHaveLength(2);
+        expect(perProposal.import.drafts.map((draft) => draft.name)).toEqual(['fuel 2', 'clad']);
+        expect(perProposal.import.drafts[0].params.selection).toEqual({
+            mode: 'solids',
+            solids: [{ index: 1, signature: { faceCount: 6, volume: 10 } }]
+        });
+        expect(perProposal.summary).toBe('Import 2 solids from gui_pincell.step as 2 bodies');
+        expect(perProposal.changes).toEqual([
+            { path: 'bodies.fuel 2', label: 'Body fuel 2', kind: 'add', after: 'fuel 2' },
+            { path: 'bodies.clad', label: 'Body clad', kind: 'add', after: 'clad' }
+        ]);
+        expect(perProposal.import.source.sourceHash).toBe(IMPORT_HASH);
+
+        const single = await previewImport(harness, {
+            sourcePath: IMPORT_PATH,
+            strategy: 'single',
+            label: 'assembly',
+            solidIndexes: [1, 2]
+        });
+        expect(single.ok).toBe(true);
+        const singleProposal = harness.proposals.get((single.data as { proposalId: string }).proposalId)!;
+        if (!isImportProposal(singleProposal)) {
+            throw new Error('expected an import proposal');
+        }
+        expect(singleProposal.import.drafts).toHaveLength(1);
+        expect(singleProposal.import.drafts[0].name).toBe('assembly');
+        expect(singleProposal.import.drafts[0].params.selection).toEqual({
+            mode: 'solids',
+            solids: [
+                { index: 1, signature: { faceCount: 6, volume: 10 } },
+                { index: 2, signature: { faceCount: 8, volume: 20 } }
+            ]
+        });
+        expect(singleProposal.import.selectedSolids.map((solid) => solid.index)).toEqual([1, 2]);
+    });
+
+    it('records the total inspection solid count separately from the selection', async () => {
+        const harness = importHarness({ inspection: { solidCount: undefined } });
+        await authorizeImport(harness);
+
+        const result = await previewImport(harness);
+
+        expect(result.ok).toBe(true);
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isImportProposal(proposal)) {
+            throw new Error('expected an import proposal');
+        }
+        expect(proposal.import.solidCount).toBe(3);
+        expect(proposal.import.selectedSolids).toHaveLength(2);
+    });
+
+    it('validates and applies one material tag to the whole batch', async () => {
+        const harness = importHarness();
+        await authorizeImport(harness);
+        const result = await previewImport(harness, { ...IMPORT_PREVIEW_INPUT, material: ' steel ' });
+
+        expect(result.ok).toBe(true);
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isImportProposal(proposal)) {
+            throw new Error('expected an import proposal');
+        }
+        expect(proposal.import.drafts.map((draft) => draft.material)).toEqual(['steel', 'steel']);
+        expect(proposal.import.bodies.map((body) => body.material)).toEqual(['steel', 'steel']);
+        expect(proposal.import.warnings).not.toContainEqual(expect.stringContaining('No material tag'));
+
+        const invalid = importHarness();
+        const rejected = await previewImport(invalid, { ...IMPORT_PREVIEW_INPUT, material: 'mat:UO2' });
+        expect(rejected).toMatchObject({ ok: false, message: expect.stringContaining("Drop the 'mat:' prefix") });
+        expect(invalid.service.inspectImportSource).not.toHaveBeenCalled();
+        expect(invalid.proposals.list()).toHaveLength(0);
+    });
+
+    it('warns about external sources, unknown units, excluded solids, and missing material', async () => {
+        const outside = '/workspace/other/gui_pincell.step';
+        const context: NukeCapabilityContext = { workspaceRoots: [WORKSPACE, '/workspace/other'], activeCadDocument: DOCUMENT_PATH };
+        const harness = importHarness({
+            pickImport: outside,
+            inspection: {
+                fileUnit: undefined,
+                effectiveUnit: undefined,
+                warnings: ['Reader note']
+            },
+            filesystem: {
+                [outside]: { isFile: true, size: IMPORT_SIZE }
+            }
+        });
+        await inspectImport(harness, { sourcePath: outside }, context);
+
+        const result = await previewImport(
+            harness,
+            {
+                sourcePath: outside,
+                strategy: 'single',
+                label: 'assembly',
+                solidIndexes: [1]
+            },
+            context
+        );
+
+        expect(result.ok).toBe(true);
+        expect(result.warnings).toEqual(
+            expect.arrayContaining([
+                'Reader note',
+                expect.stringContaining('outside the document folder'),
+                expect.stringContaining('unit is unknown'),
+                expect.stringContaining('Importing 1 of 3'),
+                expect.stringContaining('No material tag')
+            ])
+        );
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isImportProposal(proposal)) {
+            throw new Error('expected an import proposal');
+        }
+        expect(proposal.import.solidCount).toBe(3);
+        expect(proposal.import.selectedSolids).toHaveLength(1);
+        expect(proposal.import.warnings).toEqual(result.warnings);
+    });
+
+    it('previews without mutating the store, building geometry, or publishing a ghost', async () => {
+        const harness = importHarness();
+        await authorizeImport(harness);
+        const revision = harness.store.revision;
+
+        const result = await previewImport(harness);
+
+        expect(result.ok).toBe(true);
+        expect(harness.store.revision).toBe(revision);
+        expect(harness.imports).toHaveLength(0);
+        expect(harness.service.buildDocument).not.toHaveBeenCalled();
+        expect(harness.ghostPreview.show).not.toHaveBeenCalled();
+        expect(harness.ghostPreview.clear).not.toHaveBeenCalled();
+        expect(harness.commands).toContain('nuke.cad.openReviewPanel');
+        expect(result.changeSet).toMatchObject({
+            title: 'CAD import bodies',
+            applyCapability: APPLY_IMPORT_BODIES_ID
+        });
+        expect(result.data).toMatchObject({
+            proposalId: expect.any(String),
+            summary: 'Import 2 solids from gui_pincell.step as 2 bodies'
+        });
+        expect(result.data).not.toHaveProperty('impact');
+        expect(result.data).not.toHaveProperty('build');
+    });
+
+    it('requires an authorized import proposal for apply', async () => {
+        const harness = importHarness();
+        expect(await applyImport(harness, 'missing')).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('expired')
+        });
+
+        const featureHarness = createHarness();
+        const featurePreview = await preview(featureHarness);
+        const featureProposalId = (featurePreview.data as { proposalId: string }).proposalId;
+        expect(await applyImport(featureHarness, featureProposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('feature change')
+        });
+        expect(featureHarness.imports).toHaveLength(0);
+    });
+
+    it('applies one atomic import batch with a backup, rebuild, ids, and undo token', async () => {
+        const harness = importHarness();
+        const proposalId = await previewedImportProposal(harness);
+        const proposal = harness.proposals.get(proposalId)!;
+        if (!isImportProposal(proposal)) {
+            throw new Error('expected an import proposal');
+        }
+        const inspectedBefore = harness.service.inspectImportSource.mock.calls.length;
+
+        const result = await applyImport(harness, proposalId);
+
+        expect(result.ok).toBe(true);
+        expect(result.message).toBe('CAD import applied; rebuild scheduled.');
+        expect(result.undoToken).toBe('undo-token-1');
+        expect(result.changeSet).toMatchObject({ id: proposalId, title: 'CAD import bodies' });
+        expect(result.changeSet).not.toHaveProperty('applyCapability');
+        expect(result.data).toMatchObject({
+            proposalId,
+            bodyIds: ['import-body-1-1', 'import-body-1-2'],
+            featureIds: ['import-feature-1-1', 'import-feature-1-2'],
+            documentPath: DOCUMENT_PATH,
+            revision: 4,
+            backupPath: `${WORKSPACE}/.nuke-ai-backup-pincell.nuke-cad`,
+            rebuildScheduled: true
+        });
+        expect(harness.service.inspectImportSource).toHaveBeenCalledTimes(inspectedBefore + 1);
+        expect(harness.service.inspectImportSource).toHaveBeenLastCalledWith({
+            sourcePath: IMPORT_PATH,
+            targetUnits: 'mm',
+            maxSolids: 500
+        });
+        expect(harness.imports).toHaveLength(1);
+        expect(harness.imports[0].bodies).toEqual(proposal.import.drafts);
+        expect(harness.currentDocument().bodies.map((body) => body.name)).toEqual(['Body 1', 'fuel', 'clad']);
+        expect(harness.currentDocument().features.filter((feature) => feature.type === 'import')).toHaveLength(2);
+        expect(harness.commands).toContain('nuke.cad.rebuild');
+        expect(harness.undoEntries).toHaveLength(1);
+        expect(harness.files.has(new URI(`${WORKSPACE}/.nuke-ai-backup-pincell.nuke-cad`).path.toString())).toBe(true);
+        expect(harness.proposals.get(proposalId)).toBeUndefined();
+    });
+
+    it('rejects a changed source hash, size, or format before committing', async () => {
+        for (const change of [{ sourceHash: 'b'.repeat(64) }, { sourceSize: IMPORT_SIZE + 1 }, { sourceFormat: 'iges' as const }]) {
+            const harness = importHarness();
+            const proposalId = await previewedImportProposal(harness);
+            harness.service.inspectImportSource.mockResolvedValueOnce({
+                ...IMPORT_INSPECTION,
+                sourcePath: IMPORT_PATH,
+                ...change
+            });
+
+            const result = await applyImport(harness, proposalId);
+
+            expect(result).toMatchObject({ ok: false, message: expect.stringContaining('changed after this preview') });
+            expect(harness.imports).toHaveLength(0);
+            expect(harness.proposals.get(proposalId)).toBeDefined();
+        }
+    });
+
+    it('rejects an apply-time source that became a symlink or exceeded the size cap', async () => {
+        const cases = [
+            { entry: { isFile: true, isSymbolicLink: true, size: IMPORT_SIZE }, message: /symbolic link/ },
+            { entry: { isFile: true, size: MAX_IMPORT_SOURCE_BYTES + 1 }, message: /256 MiB/ }
+        ];
+
+        for (const change of cases) {
+            const harness = importHarness();
+            const proposalId = await previewedImportProposal(harness);
+            const inspectedBefore = harness.service.inspectImportSource.mock.calls.length;
+            harness.filesystem.set(IMPORT_PATH, {
+                ...harness.filesystem.get(IMPORT_PATH)!,
+                ...change.entry
+            });
+
+            const result = await applyImport(harness, proposalId);
+
+            expect(result).toMatchObject({ ok: false, message: expect.stringMatching(change.message) });
+            expect(harness.service.inspectImportSource).toHaveBeenCalledTimes(inspectedBefore);
+            expect(harness.imports).toHaveLength(0);
+            expect(harness.proposals.get(proposalId)).toBeDefined();
+        }
+    });
+
+    it('rejects a stale import proposal after revision or epoch changes', async () => {
+        const revision = importHarness();
+        const revisionProposal = await previewedImportProposal(revision);
+        revision.bumpRevision();
+        expect(await applyImport(revision, revisionProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this preview')
+        });
+        expect(revision.imports).toHaveLength(0);
+
+        const epoch = importHarness();
+        const epochProposal = await previewedImportProposal(epoch);
+        epoch.bumpEpoch();
+        expect(await applyImport(epoch, epochProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this preview')
+        });
+        expect(epoch.imports).toHaveLength(0);
+    });
+
+    it('rejects apply when body names change the re-planned drafts', async () => {
+        const harness = importHarness();
+        const proposalId = await previewedImportProposal(harness);
+        harness.currentDocument().bodies.push({ id: 'body-existing', name: 'fuel' });
+
+        const result = await applyImport(harness, proposalId);
+
+        expect(result).toMatchObject({ ok: false, message: expect.stringContaining('plan changed') });
+        expect(harness.imports).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
+    });
+
+    it('undoes an import through store.undo, clears selection, and rebuilds', async () => {
+        const harness = importHarness();
+        const proposalId = await previewedImportProposal(harness);
+        await applyImport(harness, proposalId);
+
+        const result = await harness.undoEntries[0].undo();
+
+        expect(result).toMatchObject({ ok: true, message: 'CAD import undone.' });
+        expect(harness.undoCalls).toBe(1);
+        expect(harness.selections).toEqual([undefined]);
+        expect(harness.commands.filter((command) => command === 'nuke.cad.rebuild')).toHaveLength(2);
+        expect(harness.currentDocument().bodies.map((body) => body.name)).toEqual(['Body 1']);
+        expect(harness.currentDocument().features.filter((feature) => feature.type === 'import')).toHaveLength(0);
+    });
+
+    it('rejects import undo after the applied revision changes', async () => {
+        const harness = importHarness();
+        const proposalId = await previewedImportProposal(harness);
+        await applyImport(harness, proposalId);
+        harness.bumpRevision();
+
+        expect(await harness.undoEntries[0].undo()).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this edit')
+        });
+        expect(harness.undoCalls).toBe(0);
+        expect(harness.selections).toHaveLength(0);
+    });
+
+    it('keeps feature, sketch, topology, and import applies separate', async () => {
+        const harness = importHarness();
+        const proposalId = await previewedImportProposal(harness);
+
+        expect(await apply(harness, proposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('import')
+        });
+        expect(await applySketch(harness, proposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('import')
+        });
+        expect(await applyTopology(harness, proposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('import')
+        });
+        expect(harness.imports).toHaveLength(0);
         expect(harness.proposals.get(proposalId)).toBeDefined();
     });
 });

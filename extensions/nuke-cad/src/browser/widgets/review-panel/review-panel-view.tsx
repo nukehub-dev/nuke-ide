@@ -97,16 +97,43 @@ export interface CadReviewTopologyContext {
     readonly openmcWarnings: readonly string[];
 }
 
+/** One planned body/feature created by an import proposal. */
+export interface CadReviewImportBody {
+    readonly name: string;
+    readonly label?: string;
+    readonly material?: string;
+    readonly featureName: string;
+}
+
+/** Source, unit, solid-selection, and plan metadata attached to an import proposal. */
+export interface CadReviewImportContext {
+    readonly sourcePath: string;
+    readonly sourceHash: string;
+    readonly sourceSize?: number;
+    readonly sourceFormat?: string;
+    readonly fileUnit?: string;
+    readonly effectiveUnit?: string;
+    readonly unitScaleFactor?: number;
+    readonly unitsMessage?: string;
+    readonly documentUnits?: string;
+    readonly solidCount: number;
+    readonly selectedSolidCount: number;
+    readonly strategy: 'single' | 'perSolid';
+    readonly bodies: readonly CadReviewImportBody[];
+    readonly warnings: readonly string[];
+}
+
 /** One proposal as rendered by the panel. */
 export interface CadReviewProposalView {
     readonly id: string;
     readonly summary: string;
     readonly documentPath: string;
     readonly changes: readonly NukeChange[];
-    readonly scope?: 'features' | 'sketch' | 'topology';
+    readonly scope?: 'features' | 'sketch' | 'topology' | 'import';
     readonly applyCapability?: string;
     readonly sketch?: CadReviewSketchContext;
     readonly topology?: CadReviewTopologyContext;
+    readonly importContext?: CadReviewImportContext;
     readonly impact?: CadReviewImpact;
     readonly build?: CadReviewBuild;
 }
@@ -119,7 +146,7 @@ export interface CadReviewAppliedEntry {
     readonly detail?: string;
     /** Opaque `NukeUndoService` token; empty when the apply returned none. */
     readonly undoToken: string;
-    readonly scope?: 'features' | 'sketch' | 'topology';
+    readonly scope?: 'features' | 'sketch' | 'topology' | 'import';
 }
 
 /** Props for the pure review panel view. */
@@ -461,6 +488,88 @@ function SketchContext(props: { readonly sketch: CadReviewSketchContext }): Reac
     );
 }
 
+function unitLabel(unit: string | undefined): string {
+    const trimmed = unit?.trim();
+    return trimmed !== undefined && trimmed.length > 0 ? trimmed : 'unknown';
+}
+
+/** Compact source, unit, and body plan for an import proposal. */
+function ImportPlan(props: { readonly context: CadReviewImportContext }): React.ReactElement {
+    const context = props.context;
+    const scale = context.unitScaleFactor;
+    return (
+        <div className="cad-review-import" role="group" aria-label="Import plan">
+            <span className="cad-review-import-section-title">Import plan</span>
+            <div className="cad-review-import-source">
+                <span className="codicon codicon-file-symlink-file" aria-hidden="true" />
+                <span className="cad-review-import-source-name">{documentBasename(context.sourcePath)}</span>
+                {context.sourceFormat !== undefined && (
+                    <NukeBadge className="cad-review-import-chip">{context.sourceFormat.toUpperCase()}</NukeBadge>
+                )}
+                {context.sourceSize !== undefined && (
+                    <NukeBadge className="cad-review-import-chip">{`${formatNumber(context.sourceSize)} bytes`}</NukeBadge>
+                )}
+            </div>
+            <span className="cad-review-import-source-path">{context.sourcePath}</span>
+            <div className="cad-review-import-units">
+                <span className="cad-review-import-line">
+                    {`File ${unitLabel(context.fileUnit)} \u00b7 effective ${unitLabel(context.effectiveUnit)} \u00b7 document ${unitLabel(
+                        context.documentUnits
+                    )}`}
+                </span>
+                {scale !== undefined && Number.isFinite(scale) && scale !== 1 && (
+                    <NukeBadge className="cad-review-import-chip">{`Scale \u00d7${formatNumber(scale)}`}</NukeBadge>
+                )}
+            </div>
+            {context.unitsMessage !== undefined && context.unitsMessage.length > 0 && (
+                <p className="cad-review-import-message">{context.unitsMessage}</p>
+            )}
+            <div className="cad-review-import-solids">
+                <span className="cad-review-import-line">
+                    {`${pluralize(context.solidCount, 'source solid')} \u00b7 ${context.selectedSolidCount} selected`}
+                </span>
+                <NukeBadge className="cad-review-import-chip">
+                    {context.strategy === 'single' ? 'Single body' : 'One body per solid'}
+                </NukeBadge>
+            </div>
+            {context.bodies.length > 0 && (
+                <div className="cad-review-import-plan">
+                    <span className="cad-review-import-section-title">Planned bodies</span>
+                    {context.bodies.map((body, index) => {
+                        const material = body.material?.trim();
+                        const hasMaterial = material !== undefined && material.length > 0;
+                        return (
+                            <div key={`${index}-${body.name}`} className="cad-review-import-body-row">
+                                <div className="cad-review-import-body-head">
+                                    <span className="cad-review-import-body-name">{body.name}</span>
+                                    {body.label !== undefined && body.label.length > 0 && body.label !== body.name && (
+                                        <span className="cad-review-import-body-label">{body.label}</span>
+                                    )}
+                                </div>
+                                <div className="cad-review-import-body-meta">
+                                    <span
+                                        className={hasMaterial ? 'cad-review-import-material' : 'cad-review-import-material is-placeholder'}
+                                    >
+                                        {hasMaterial ? material : 'No material tag'}
+                                    </span>
+                                    <span className="cad-review-import-feature">{`Feature ${body.featureName}`}</span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            {context.warnings.length > 0 && (
+                <ul className="cad-review-import-warnings">
+                    {context.warnings.map((warning, index) => (
+                        <li key={`${index}-${warning}`}>{warning}</li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 function ProposalCard(props: {
     readonly proposal: CadReviewProposalView;
     readonly applying: boolean;
@@ -471,7 +580,13 @@ function ProposalCard(props: {
 }): React.ReactElement {
     const proposal = props.proposal;
     const fallbackTitle =
-        proposal.scope === 'sketch' ? 'Sketch change' : proposal.scope === 'topology' ? 'Topology change' : 'Feature change';
+        proposal.scope === 'sketch'
+            ? 'Sketch change'
+            : proposal.scope === 'topology'
+              ? 'Topology change'
+              : proposal.scope === 'import'
+                ? 'Import bodies'
+                : 'Feature change';
     const blocked = proposal.topology !== undefined && proposal.topology.blockedRegions.length > 0;
     const requiresAcknowledgement = proposal.scope === 'topology' || proposal.topology?.impact.requiresAcknowledgement === true;
     const applyDisabled = props.applying || blocked || (requiresAcknowledgement && !props.acknowledged);
@@ -483,6 +598,7 @@ function ProposalCard(props: {
                 <span className="cad-review-proposal-title">
                     {proposal.summary.length > 0 ? proposal.summary : fallbackTitle}
                     {proposal.scope === 'topology' && <NukeBadge className="cad-review-topology-badge">Topology</NukeBadge>}
+                    {proposal.scope === 'import' && <NukeBadge className="cad-review-import-badge">Import</NukeBadge>}
                 </span>
             }
         >
@@ -491,19 +607,22 @@ function ProposalCard(props: {
                 <span className="cad-review-document-path">{proposal.documentPath}</span>
             </div>
             {proposal.sketch !== undefined && <SketchContext sketch={proposal.sketch} />}
-            <div className="cad-review-changes">
-                {proposal.changes.map((change, index) => (
-                    <NukeFormRow key={`${index}-${change.path}`} label={change.label} className="cad-review-change-row">
-                        <span className="cad-review-diff" data-kind={change.kind}>
-                            <span className="cad-review-diff-before">{formatReviewValue(change.before)}</span>
-                            <span className="cad-review-diff-arrow" aria-hidden="true">
-                                {'\u2192'}
+            {proposal.scope === 'import' && proposal.importContext !== undefined && <ImportPlan context={proposal.importContext} />}
+            {proposal.scope !== 'import' && (
+                <div className="cad-review-changes">
+                    {proposal.changes.map((change, index) => (
+                        <NukeFormRow key={`${index}-${change.path}`} label={change.label} className="cad-review-change-row">
+                            <span className="cad-review-diff" data-kind={change.kind}>
+                                <span className="cad-review-diff-before">{formatReviewValue(change.before)}</span>
+                                <span className="cad-review-diff-arrow" aria-hidden="true">
+                                    {'\u2192'}
+                                </span>
+                                <span className="cad-review-diff-after">{formatReviewValue(change.after)}</span>
                             </span>
-                            <span className="cad-review-diff-after">{formatReviewValue(change.after)}</span>
-                        </span>
-                    </NukeFormRow>
-                ))}
-            </div>
+                        </NukeFormRow>
+                    ))}
+                </div>
+            )}
             {proposal.topology !== undefined && (
                 <RegionImpact
                     proposalId={proposal.id}
@@ -554,7 +673,9 @@ function AppliedSection(props: {
                                         ? 'Sketch dimension'
                                         : entry.scope === 'topology'
                                           ? 'Topology change'
-                                          : 'Feature parameter'}
+                                          : entry.scope === 'import'
+                                            ? 'CAD import'
+                                            : 'Feature parameter'}
                                 </span>
                                 <span className="cad-review-applied-detail">
                                     {entry.detail ?? (entry.summary.length > 0 ? entry.summary : 'CAD edit')}

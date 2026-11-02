@@ -29,13 +29,13 @@
  * CAD edit review panel widget.
  *
  * Hosts {@link CadReviewPanelView} and owns the proposal lifecycle: it lists
- * previewed feature, sketch, and topology edits, tracks region-impact
+ * previewed feature, sketch, topology, and import edits, tracks region-impact
  * acknowledgement, confirms and invokes the proposal's apply capability
- * (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`, or
- * `nuke.cad.applyTopologyChange`), keeps applied entries for session undo
- * through `NukeUndoService`, and dismisses proposals. Opened through
- * `nuke.cad.openReviewPanel` in the right area, the CAD Studio menu, and the
- * Nuke Tools sidebar.
+ * (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
+ * `nuke.cad.applyTopologyChange`, or `nuke.cad.applyImportBodies`), keeps
+ * applied entries for session undo through `NukeUndoService`, and dismisses
+ * proposals. Opened through `nuke.cad.openReviewPanel` in the right area, the
+ * CAD Studio menu, and the Nuke Tools sidebar.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -146,7 +146,7 @@ export class CadReviewPanelWidget extends ReactWidget {
         }
     }
 
-    /** Map a stored proposal to the panel view, including sketch and topology context. */
+    /** Map a stored proposal to the panel view, including sketch, topology, and import context. */
     protected toView(proposal: NukeCadProposal): CadReviewProposalView {
         const common: CadReviewProposalView = {
             id: proposal.id,
@@ -178,6 +178,29 @@ export class CadReviewPanelWidget extends ReactWidget {
                     openmcStatus: proposal.topology.openmcStatus,
                     openmcProjectPath: proposal.topology.openmcProjectPath,
                     openmcWarnings: proposal.topology.openmcWarnings
+                }
+            };
+        }
+        if (proposal.scope === 'import') {
+            const details = proposal.import;
+            const totalSolids = (details as { readonly solidCount?: number }).solidCount;
+            return {
+                ...common,
+                importContext: {
+                    sourcePath: details.source.path,
+                    sourceHash: details.source.sourceHash,
+                    sourceSize: details.source.sourceSize,
+                    sourceFormat: details.source.sourceFormat,
+                    fileUnit: details.source.fileUnit,
+                    effectiveUnit: details.source.effectiveUnit,
+                    unitScaleFactor: details.source.unitScaleFactor,
+                    unitsMessage: details.source.unitsMessage,
+                    documentUnits: details.documentUnits,
+                    solidCount: totalSolids ?? details.selectedSolids.length,
+                    selectedSolidCount: details.selectedSolids.length,
+                    strategy: details.strategy,
+                    bodies: details.bodies,
+                    warnings: details.warnings
                 }
             };
         }
@@ -242,7 +265,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                 ? 'Apply this CAD sketch edit?'
                 : proposal.scope === 'topology'
                   ? 'Apply this CAD topology change?'
-                  : 'Apply this CAD feature change?';
+                  : proposal.scope === 'import'
+                    ? 'Apply this CAD import?'
+                    : 'Apply this CAD feature change?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${proposal.summary}`, 'Apply');
         if (confirmation !== 'Apply') {
             return;
@@ -288,7 +313,10 @@ export class CadReviewPanelWidget extends ReactWidget {
                 {
                     proposalId,
                     summary: proposal.summary,
-                    detail: describeAppliedChange(proposal.changes[0]),
+                    detail:
+                        proposal.scope === 'import'
+                            ? (describeImportApply(result.data) ?? describeAppliedChange(proposal.changes[0]))
+                            : describeAppliedChange(proposal.changes[0]),
                     undoToken: result.undoToken ?? '',
                     scope: proposal.scope
                 },
@@ -323,7 +351,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                 ? 'Undo this CAD sketch edit and restore the previous sketch dimensions?'
                 : entry.scope === 'topology'
                   ? 'Undo this CAD topology change and restore the previous feature parameters?'
-                  : 'Undo this CAD edit and restore the previous feature parameters?';
+                  : entry.scope === 'import'
+                    ? 'Undo this CAD import and remove the imported bodies?'
+                    : 'Undo this CAD edit and restore the previous feature parameters?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${entry.summary}`, 'Undo');
         if (confirmation !== 'Undo') {
             return;
@@ -355,4 +385,30 @@ function describeAppliedChange(change: CadReviewProposalView['changes'][number] 
         return undefined;
     }
     return `${change.label} ${formatAppliedValue(change.before)} → ${formatAppliedValue(change.after)}`;
+}
+
+function formatCount(count: number, singular: string, plural: string): string {
+    return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function resultIds(value: unknown): readonly string[] {
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+}
+
+/** Applied-entry detail from the import apply result's actual body and feature ids. */
+function describeImportApply(data: unknown): string | undefined {
+    if (data === undefined || data === null || typeof data !== 'object') {
+        return undefined;
+    }
+    const result = data as { readonly bodyIds?: unknown; readonly featureIds?: unknown };
+    const bodyIds = resultIds(result.bodyIds);
+    const featureIds = resultIds(result.featureIds);
+    const parts: string[] = [];
+    if (bodyIds.length > 0) {
+        parts.push(bodyIds.length <= 3 ? `Bodies ${bodyIds.join(', ')}` : formatCount(bodyIds.length, 'body', 'bodies'));
+    }
+    if (featureIds.length > 0) {
+        parts.push(formatCount(featureIds.length, 'import feature', 'import features'));
+    }
+    return parts.length > 0 ? parts.join(' \u00b7 ') : undefined;
 }

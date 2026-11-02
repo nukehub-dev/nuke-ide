@@ -40,6 +40,9 @@ const CAPABILITY_IDS = [
     'nuke.cad.applySketchChange',
     'nuke.cad.previewTopologyChange',
     'nuke.cad.applyTopologyChange',
+    'nuke.cad.inspectImportSource',
+    'nuke.cad.previewImportBodies',
+    'nuke.cad.applyImportBodies',
     'nuke.cad.exportDagmc',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
@@ -77,12 +80,12 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all twenty-eight capability tool names', () => {
+    it('exposes the nukeContext variable and all thirty-one capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(28);
+        expect(agent.functions).toHaveLength(31);
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -132,7 +135,7 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('sourceRejectionFraction');
         expect(prompt).toMatch(/filters,\s+triggers, and derivatives are preserved/);
         expect(prompt).toMatch(
-            /Applying a\s+previewed settings, material, tally, CAD feature, sketch, or topology change also requires explicit confirmation/i
+            /Applying a\s+previewed settings, material, tally, CAD feature, sketch, topology, or import\s+change also requires explicit confirmation/i
         );
     });
 
@@ -166,7 +169,31 @@ describe('NukeChatAgent', () => {
         expect(prompt).toMatch(/Apply never rewrites the OpenMC project/i);
         expect(prompt).toMatch(/patternCount.*including the original/i);
         expect(prompt).toMatch(/overlapping pattern may change only faces or volume/i);
-        expect(prompt).toMatch(/Booleans, add, delete,\s+reorder, imports, assemblies/);
+        expect(prompt).toMatch(/Booleans, add, delete,\s+reorder, assemblies, scripts/);
+        expect(prompt).not.toMatch(/Booleans, add, delete,\s+reorder, imports/);
+    });
+
+    it('covers the user-chosen import source, plan-only preview, stale checks, and apply', () => {
+        const prompt = promptTemplate();
+
+        expect(prompt).toContain('nuke_cad_inspectImportSource');
+        expect(prompt).toContain('nuke_cad_previewImportBodies');
+        expect(prompt).toContain('nuke_cad_applyImportBodies');
+        expect(prompt).toContain('## Import CAD as Body');
+        expect(prompt).toMatch(/user chooses the STEP\/STP,?\s+IGES\/IGS, or BREP file/i);
+        expect(prompt).toMatch(/path is only a hint/i);
+        expect(prompt).toMatch(/opens the native picker/i);
+        expect(prompt).toContain('`<stem>.parts/`');
+        expect(prompt).toMatch(/outside-root,\s+symlink, unsupported-extension, and over-256-MiB sources/i);
+        expect(prompt).toContain('strategy: "single" | "perSolid"');
+        expect(prompt).toMatch(/plan-only import\s+proposal/i);
+        expect(prompt).toMatch(/never builds geometry, shows a ghost, or mutates the document/i);
+        expect(prompt).toMatch(/format, size, hash, units, solids, warnings, and material\/label plan/i);
+        expect(prompt).toMatch(/not self-contained/i);
+        expect(prompt).toMatch(/rejects a stale hash,\s+size, selection, or plan/i);
+        expect(prompt).toContain('`addImportBodies`');
+        expect(prompt).toMatch(/never downloads or copies the source/i);
+        expect(prompt).toMatch(/exposes no import\s+tool through MCP/i);
     });
 
     it('stays within a bounded prompt budget', () => {

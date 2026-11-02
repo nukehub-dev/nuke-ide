@@ -34,16 +34,21 @@ import type { SketchDef } from '../../common/cad-document';
 import type { OpenmcRegionBlocker } from '../../common/openmc-region-references';
 import type { SketchSolveSummary } from '../sketch/sketch-edit-types';
 import type { TopologyImpact, TopologyRegionRef } from '../../common/topology-impact';
+import type { ImportSolidInfo } from '../../common/nuke-cad-protocol';
+import type { ImportBodyDraft } from '../document/cad-document-store';
 import {
     NUKE_CAD_FEATURE_PROPOSAL_LIMIT,
     NUKE_CAD_FEATURE_PROPOSAL_TTL_MS,
     NukeCadFeatureProposal,
     NukeCadFeatureProposalInput,
+    NukeCadImportProposal,
+    NukeCadImportProposalInput,
     NukeCadProposal,
     NukeCadProposalService,
     NukeCadSketchProposalInput,
     NukeCadTopologyProposal,
     NukeCadTopologyProposalInput,
+    isImportProposal,
     isSketchProposal,
     isTopologyProposal
 } from './nuke-cad-proposal-service';
@@ -208,6 +213,72 @@ function buildTopologyInput(summary = 'Open the coolant hole through the wall'):
     };
 }
 
+function importSolid(index: number, name: string): ImportSolidInfo {
+    return {
+        index,
+        name,
+        faceCount: 6,
+        volume: index * 10,
+        bboxMin: [0, 0, 0],
+        bboxMax: [index, 1, 1],
+        center: [index / 2, 0.5, 0.5]
+    };
+}
+
+function importDraft(name: string): ImportBodyDraft {
+    return {
+        name,
+        label: name,
+        material: 'steel',
+        params: {
+            sourcePath: './gui_pincell.step',
+            sourceHash: 'a'.repeat(64),
+            sourceSize: 4096,
+            sourceFormat: 'step',
+            selection: { mode: 'solids', solids: [{ index: 1, signature: { faceCount: 6, volume: 10 } }] }
+        }
+    };
+}
+
+function buildImportInput(summary = 'Import 2 solids from gui_pincell.step as 2 bodies'): NukeCadImportProposalInput {
+    return {
+        scope: 'import',
+        summary,
+        documentPath: DOCUMENT_PATH,
+        documentEpoch: 12,
+        baseRevision: BASE_REVISION,
+        changes: [
+            { path: 'bodies.fuel', label: 'Body fuel', kind: 'add', after: 'fuel' },
+            { path: 'bodies.clad', label: 'Body clad', kind: 'add', after: 'clad' }
+        ],
+        import: {
+            source: {
+                path: '/workspace/project/gui_pincell.step',
+                sourceHash: 'a'.repeat(64),
+                sourceSize: 4096,
+                sourceFormat: 'step',
+                fileUnit: 'mm',
+                effectiveUnit: 'mm',
+                unitScaleFactor: 1,
+                unitsMessage: 'The source declares millimetres.',
+                sourceUnit: 'mm'
+            },
+            documentUnits: 'mm',
+            strategy: 'perSolid',
+            label: 'gui_pincell',
+            solidCount: 3,
+            solidIndexes: [1, 2],
+            selectedSolids: [importSolid(1, 'fuel'), importSolid(2, 'clad')],
+            drafts: [importDraft('fuel'), importDraft('clad')],
+            bodies: [
+                { name: 'fuel', label: 'fuel', material: 'steel', featureName: 'fuel' },
+                { name: 'clad', label: 'clad', material: 'steel', featureName: 'clad' }
+            ],
+            warnings: ['No material tag was set.']
+        }
+    };
+}
+
 function blocker(): OpenmcRegionBlocker {
     const blocked = region('fuel', [1]);
     return {
@@ -228,6 +299,13 @@ function featureProposal(proposal: NukeCadProposal | undefined): NukeCadFeatureP
 function topologyProposal(proposal: NukeCadProposal | undefined): NukeCadTopologyProposal {
     if (proposal === undefined || proposal.scope !== 'topology') {
         throw new Error('Expected a topology proposal');
+    }
+    return proposal;
+}
+
+function importProposal(proposal: NukeCadProposal | undefined): NukeCadImportProposal {
+    if (proposal === undefined || proposal.scope !== 'import') {
+        throw new Error('Expected an import proposal');
     }
     return proposal;
 }
@@ -590,13 +668,16 @@ describe('NukeCadProposalService', () => {
         const feature = service.create({ ...buildInput('Feature change'), applyCapability: 'nuke.test.applyFeature' });
         const sketch = service.create({ ...buildSketchInput('Sketch change'), applyCapability: 'nuke.test.applySketch' });
         const topology = service.create({ ...buildTopologyInput('Topology change'), applyCapability: 'nuke.test.applyTopology' });
+        const imported = service.create({ ...buildImportInput('Import change'), applyCapability: 'nuke.test.applyImport' });
 
         expect(feature.applyCapability).toBe('nuke.test.applyFeature');
         expect(sketch.applyCapability).toBe('nuke.test.applySketch');
         expect(topology.applyCapability).toBe('nuke.test.applyTopology');
+        expect(imported.applyCapability).toBe('nuke.test.applyImport');
         expect(service.get(feature.id)?.applyCapability).toBe('nuke.test.applyFeature');
         expect(service.get(sketch.id)?.applyCapability).toBe('nuke.test.applySketch');
         expect(service.get(topology.id)?.applyCapability).toBe('nuke.test.applyTopology');
+        expect(service.get(imported.id)?.applyCapability).toBe('nuke.test.applyImport');
         expect(service.create(buildInput('Default feature')).applyCapability).toBeUndefined();
     });
 
@@ -681,6 +762,93 @@ describe('NukeCadProposalService', () => {
         expect(narrowed.topology.topology.requiresAcknowledgement).toBe(true);
         expect(isSketchProposal(narrowed)).toBe(false);
         expect(topology.scope).toBe('topology');
+    });
+
+    it('creates an import proposal with detached source, solids, drafts, and warnings', () => {
+        const service = new NukeCadProposalService();
+        const input = buildImportInput();
+        const created = service.create(input);
+
+        expect(created.scope).toBe('import');
+        expect(created.applyCapability).toBe('nuke.cad.applyImportBodies');
+        expect(created.createdAt).toBe(START);
+        expect(created.import.source).toEqual(input.import.source);
+        expect(created.import.drafts).toEqual(input.import.drafts);
+        expect(created.import.solidCount).toBe(3);
+        expect(created.import.selectedSolids.map((solid) => solid.index)).toEqual([1, 2]);
+        expect(created.import.warnings).toEqual(['No material tag was set.']);
+
+        (input.import.source as { sourceHash: string }).sourceHash = 'b'.repeat(64);
+        (input.import.selectedSolids[0] as { faceCount: number }).faceCount = 99;
+        (input.import.selectedSolids[0].bboxMin as number[])[0] = 99;
+        (input.import.drafts[0].params as { sourceHash: string }).sourceHash = 'b'.repeat(64);
+        (input.import.drafts[0] as { material?: string }).material = 'mutated-input';
+        (input.import.bodies[0] as { name: string }).name = 'mutated-input';
+        (input.import.warnings as string[]).push('Mutated input warning');
+
+        (created.import.source as { sourceHash: string }).sourceHash = 'c'.repeat(64);
+        (created.import.selectedSolids[0] as { faceCount: number }).faceCount = 42;
+        (created.import.drafts[0] as { material?: string }).material = 'mutated-return';
+        (created.import.bodies[0] as { name: string }).name = 'mutated-return';
+        (created.import.warnings as string[]).push('Mutated return warning');
+
+        const stored = importProposal(service.get(created.id));
+        expect(stored.import.source.sourceHash).toBe('a'.repeat(64));
+        expect(stored.import.selectedSolids[0].faceCount).toBe(6);
+        expect(stored.import.selectedSolids[0].bboxMin).toEqual([0, 0, 0]);
+        expect(stored.import.drafts[0].params).toMatchObject({ sourceHash: 'a'.repeat(64), sourcePath: './gui_pincell.step' });
+        expect(stored.import.drafts[0].material).toBe('steel');
+        expect(stored.import.bodies[0].name).toBe('fuel');
+        expect(stored.import.warnings).toEqual(['No material tag was set.']);
+        expect(stored.import).not.toBe(created.import);
+
+        const listed = importProposal(service.list()[0]);
+        expect(listed).not.toBe(stored);
+        (listed.import.drafts[0] as { material?: string }).material = 'mutated-list';
+        (listed.import.selectedSolids[0] as { volume: number }).volume = 0;
+        expect(importProposal(service.get(created.id)).import.drafts[0].material).toBe('steel');
+        expect(importProposal(service.get(created.id)).import.selectedSolids[0].volume).toBe(10);
+    });
+
+    it('keeps import proposals in one store with every other scope and narrows them', () => {
+        const service = new NukeCadProposalService();
+        const feature = service.create(buildInput('Feature change'));
+        const sketch = service.create(buildSketchInput('Sketch change'));
+        const topology = service.create(buildTopologyInput('Topology change'));
+        const imported = service.create(buildImportInput('Import change'));
+
+        const listed = service.list();
+        expect(listed.map((entry) => entry.id)).toEqual([feature.id, sketch.id, topology.id, imported.id]);
+        expect(listed.map((entry) => entry.scope)).toEqual(['features', 'sketch', 'topology', 'import']);
+        expect(listed.map((entry) => isImportProposal(entry))).toEqual([false, false, false, true]);
+
+        const narrowed = listed[3];
+        if (!isImportProposal(narrowed)) {
+            throw new Error('Expected an import proposal');
+        }
+        expect(narrowed.import.strategy).toBe('perSolid');
+        expect(narrowed.import.label).toBe('gui_pincell');
+        expect(isSketchProposal(narrowed)).toBe(false);
+        expect(isTopologyProposal(narrowed)).toBe(false);
+        expect(imported.scope).toBe('import');
+    });
+
+    it('applies the TTL and FIFO policy to import proposals', () => {
+        const service = new InspectableProposalService();
+        const ids: string[] = [];
+        for (let index = 0; index < NUKE_CAD_FEATURE_PROPOSAL_LIMIT + 1; index++) {
+            ids.push(service.create(buildImportInput(`Import change ${index + 1}`)).id);
+        }
+
+        expect(service.size).toBe(NUKE_CAD_FEATURE_PROPOSAL_LIMIT);
+        expect(service.has(ids[0])).toBe(false);
+        expect(service.get(ids[1])?.summary).toBe('Import change 2');
+
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS - 1);
+        expect(service.has(ids[1])).toBe(true);
+        advance(1);
+        expect(service.list()).toEqual([]);
+        expect(service.size).toBe(0);
     });
 
     it('applies the TTL and FIFO policy to topology proposals', () => {

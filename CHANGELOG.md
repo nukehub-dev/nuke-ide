@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: NukeAI previews and applies scalar feature edits (extrusion length, revolve/draft/pattern angles, fillet/chamfer scalars, hole diameter/depth, shell thickness) behind the default-off CAD AI authoring setting, with a real build, backup, rebuild, and undo.
 - nuke-cad: NukeAI previews and applies sketch-dimension edits with document-parameter cascade, review panel, atomic commit, and undo.
 - nuke-cad: NukeAI applies hole depth-mode and pattern-count edits with region-impact acknowledgement, OpenMC reference checks, and undo.
+- nuke-cad: NukeAI imports a user-chosen STEP/IGES/BREP source as editable bodies with a plan-only review, source re-inspection, backup, rebuild, and undo.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
 - nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.
