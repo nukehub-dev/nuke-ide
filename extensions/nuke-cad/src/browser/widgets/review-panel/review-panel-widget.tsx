@@ -29,13 +29,14 @@
  * CAD edit review panel widget.
  *
  * Hosts {@link CadReviewPanelView} and owns the proposal lifecycle: it lists
- * previewed feature, sketch, topology, and import edits, tracks region-impact
- * acknowledgement, confirms and invokes the proposal's apply capability
- * (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
- * `nuke.cad.applyTopologyChange`, or `nuke.cad.applyImportBodies`), keeps
- * applied entries for session undo through `NukeUndoService`, and dismisses
- * proposals. Opened through `nuke.cad.openReviewPanel` in the right area, the
- * CAD Studio menu, and the Nuke Tools sidebar.
+ * previewed feature, sketch, topology, import, and assembly edits, tracks
+ * region-impact acknowledgement, confirms and invokes the proposal's apply
+ * capability (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
+ * `nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`, or
+ * `nuke.cad.applyAssemblyChange`), keeps applied entries for session undo
+ * through `NukeUndoService`, and dismisses proposals. Opened through
+ * `nuke.cad.openReviewPanel` in the right area, the CAD Studio menu, and the
+ * Nuke Tools sidebar.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -136,17 +137,25 @@ export class CadReviewPanelWidget extends ReactWidget {
         return proposals;
     }
 
-    /** Forget acknowledgements for topology proposals that left the store. */
+    /** Forget acknowledgements for proposals that left the store or no longer need one. */
     protected dropMissingAcknowledgements(proposals: readonly CadReviewProposalView[]): void {
-        const liveTopologyIds = new Set(proposals.filter((proposal) => proposal.scope === 'topology').map((proposal) => proposal.id));
+        const liveAcknowledgementIds = new Set(
+            proposals
+                .filter(
+                    (proposal) =>
+                        proposal.scope === 'topology' ||
+                        (proposal.scope === 'assembly' && proposal.assembly?.requiresAcknowledgement === true)
+                )
+                .map((proposal) => proposal.id)
+        );
         for (const id of this.acknowledgedProposalIds) {
-            if (!liveTopologyIds.has(id)) {
+            if (!liveAcknowledgementIds.has(id)) {
                 this.acknowledgedProposalIds.delete(id);
             }
         }
     }
 
-    /** Map a stored proposal to the panel view, including sketch, topology, and import context. */
+    /** Map a stored proposal to the panel view, including sketch, topology, import, and assembly context. */
     protected toView(proposal: NukeCadProposal): CadReviewProposalView {
         const common: CadReviewProposalView = {
             id: proposal.id,
@@ -201,6 +210,25 @@ export class CadReviewPanelWidget extends ReactWidget {
                     strategy: details.strategy,
                     bodies: details.bodies,
                     warnings: details.warnings
+                }
+            };
+        }
+        if (proposal.scope === 'assembly') {
+            const details = proposal.assembly;
+            return {
+                ...common,
+                assembly: {
+                    placements: details.placements,
+                    bomDelta: details.bomDelta,
+                    collisionWarnings: details.collisionWarnings,
+                    overlapCheck: details.overlapCheck,
+                    removedSelectorKeys: details.removedSelectorKeys,
+                    removedRegions: details.removedRegions,
+                    blockedRegions: details.blockedRegions,
+                    openmcStatus: details.openmcStatus,
+                    openmcProjectPath: details.openmcProjectPath,
+                    openmcWarnings: details.openmcWarnings,
+                    requiresAcknowledgement: details.requiresAcknowledgement
                 }
             };
         }
@@ -267,7 +295,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                   ? 'Apply this CAD topology change?'
                   : proposal.scope === 'import'
                     ? 'Apply this CAD import?'
-                    : 'Apply this CAD feature change?';
+                    : proposal.scope === 'assembly'
+                      ? 'Apply this CAD assembly change?'
+                      : 'Apply this CAD feature change?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${proposal.summary}`, 'Apply');
         if (confirmation !== 'Apply') {
             return;
@@ -292,7 +322,9 @@ export class CadReviewPanelWidget extends ReactWidget {
             );
             return;
         }
-        const input = proposal.scope === 'topology' ? { proposalId, acknowledgeRegionChanges: true } : { proposalId };
+        const requiresRegionAcknowledgement =
+            proposal.scope === 'topology' || (proposal.scope === 'assembly' && proposal.assembly?.requiresAcknowledgement === true);
+        const input = requiresRegionAcknowledgement ? { proposalId, acknowledgeRegionChanges: true } : { proposalId };
         const inputErrors = validateCapabilityInput(capability, input);
         if (inputErrors.length > 0) {
             this.messageService.error(`Invalid CAD apply request: ${inputErrors.join('; ')}`);
@@ -316,7 +348,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                     detail:
                         proposal.scope === 'import'
                             ? (describeImportApply(result.data) ?? describeAppliedChange(proposal.changes[0]))
-                            : describeAppliedChange(proposal.changes[0]),
+                            : proposal.scope === 'assembly'
+                              ? (describeAssemblyApply(result.data) ?? describeAssemblyChange(proposal.changes[0]))
+                              : describeAppliedChange(proposal.changes[0]),
                     undoToken: result.undoToken ?? '',
                     scope: proposal.scope
                 },
@@ -353,7 +387,9 @@ export class CadReviewPanelWidget extends ReactWidget {
                   ? 'Undo this CAD topology change and restore the previous feature parameters?'
                   : entry.scope === 'import'
                     ? 'Undo this CAD import and remove the imported bodies?'
-                    : 'Undo this CAD edit and restore the previous feature parameters?';
+                    : entry.scope === 'assembly'
+                      ? 'Undo this CAD assembly change and restore the previous instances and placements?'
+                      : 'Undo this CAD edit and restore the previous feature parameters?';
         const confirmation = await this.messageService.warn(`${confirmPrompt} ${entry.summary}`, 'Undo');
         if (confirmation !== 'Undo') {
             return;
@@ -380,6 +416,22 @@ function formatAppliedValue(value: unknown): string {
 }
 
 /** Compact one-change detail for the applied entry; falls back to the full summary. */
+/** Short applied detail for a placement-only assembly edit. */
+function describeAssemblyChange(change: CadReviewProposalView['changes'][number] | undefined): string | undefined {
+    if (change === undefined) {
+        return undefined;
+    }
+    const id = change.label.replace(/^Assembly instance /, '');
+    if (change.kind === 'add') {
+        return `Added ${id}`;
+    }
+    if (change.kind === 'remove') {
+        return `Removed ${id}`;
+    }
+    const after = change.after as { readonly position?: readonly number[] } | undefined;
+    return after?.position !== undefined ? `Moved ${id} to [${after.position.join(', ')}]` : `Moved ${id}`;
+}
+
 function describeAppliedChange(change: CadReviewProposalView['changes'][number] | undefined): string | undefined {
     if (change === undefined) {
         return undefined;
@@ -393,6 +445,24 @@ function formatCount(count: number, singular: string, plural: string): string {
 
 function resultIds(value: unknown): readonly string[] {
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+}
+
+/** Applied-entry detail from the assembly apply result's actual instance ids. */
+function describeAssemblyApply(data: unknown): string | undefined {
+    if (data === undefined || data === null || typeof data !== 'object') {
+        return undefined;
+    }
+    const result = data as { readonly addedInstanceIds?: unknown; readonly removedInstanceIds?: unknown };
+    const added = resultIds(result.addedInstanceIds);
+    const removed = resultIds(result.removedInstanceIds);
+    const parts: string[] = [];
+    if (added.length > 0) {
+        parts.push(`Added ${added.length <= 3 ? added.join(', ') : formatCount(added.length, 'instance', 'instances')}`);
+    }
+    if (removed.length > 0) {
+        parts.push(`Removed ${removed.length <= 3 ? removed.join(', ') : formatCount(removed.length, 'instance', 'instances')}`);
+    }
+    return parts.length > 0 ? parts.join(' \u00b7 ') : undefined;
 }
 
 /** Applied-entry detail from the import apply result's actual body and feature ids. */

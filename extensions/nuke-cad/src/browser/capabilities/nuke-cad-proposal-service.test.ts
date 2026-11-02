@@ -36,9 +36,13 @@ import type { SketchSolveSummary } from '../sketch/sketch-edit-types';
 import type { TopologyImpact, TopologyRegionRef } from '../../common/topology-impact';
 import type { ImportSolidInfo } from '../../common/nuke-cad-protocol';
 import type { ImportBodyDraft } from '../document/cad-document-store';
+import type { AssemblyInstance } from '../../common/assembly-document';
 import {
     NUKE_CAD_FEATURE_PROPOSAL_LIMIT,
     NUKE_CAD_FEATURE_PROPOSAL_TTL_MS,
+    NukeCadAssemblyProposal,
+    NukeCadAssemblyProposalDetails,
+    NukeCadAssemblyProposalInput,
     NukeCadFeatureProposal,
     NukeCadFeatureProposalInput,
     NukeCadImportProposal,
@@ -48,6 +52,7 @@ import {
     NukeCadSketchProposalInput,
     NukeCadTopologyProposal,
     NukeCadTopologyProposalInput,
+    isAssemblyProposal,
     isImportProposal,
     isSketchProposal,
     isTopologyProposal
@@ -279,6 +284,80 @@ function buildImportInput(summary = 'Import 2 solids from gui_pincell.step as 2 
     };
 }
 
+function assemblyInstance(id: string, part: string, x: number): AssemblyInstance {
+    return { id, part, placement: { position: [x, 0, 0], orientation: [0, 0, 0, 1] } };
+}
+
+function buildAssemblyInput(summary = "Move assembly instance 'arm'"): NukeCadAssemblyProposalInput {
+    const beforeInstances = [assemblyInstance('base', 'body:base-body', 0), assemblyInstance('arm', 'body:arm-body', 20)];
+    const afterInstances = [assemblyInstance('base', 'body:base-body', 0), assemblyInstance('arm', 'body:arm-body', 30)];
+    const bom = [
+        { part: 'body:arm-body', before: 1, after: 1, delta: 0 },
+        { part: 'body:base-body', before: 1, after: 1, delta: 0 }
+    ];
+    const assembly = {
+        actions: [
+            {
+                action: 'setPlacement',
+                instanceId: 'arm',
+                placement: { position: [30, 0, 0], orientation: [0, 0, 0, 1] }
+            }
+        ],
+        before: { instances: beforeInstances, groundedInstanceId: 'base', bom },
+        after: { instances: afterInstances, groundedInstanceId: 'base', bom },
+        placements: [
+            {
+                instanceId: 'arm',
+                part: 'body:arm-body',
+                kind: 'place',
+                before: {
+                    placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] },
+                    matrix: [1, 0, 0, 20, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                    solidIds: []
+                },
+                after: {
+                    placement: { position: [30, 0, 0], orientation: [0, 0, 0, 1] },
+                    matrix: [1, 0, 0, 30, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                    solidIds: []
+                }
+            }
+        ],
+        bomDelta: {
+            rows: bom,
+            beforeTotal: 2,
+            afterTotal: 2,
+            groundedBefore: 'base',
+            groundedAfter: 'base'
+        },
+        warnings: [],
+        collisionWarnings: ["Assembly instances 'arm' and 'base' overlap."],
+        overlapCheck: true,
+        removedSelectorKeys: [],
+        removedRegions: [],
+        blockedRegions: [],
+        openmcStatus: 'no-saved-project',
+        openmcWarnings: [],
+        requiresAcknowledgement: false
+    } as unknown as NukeCadAssemblyProposalDetails;
+    return {
+        scope: 'assembly',
+        summary,
+        documentPath: DOCUMENT_PATH,
+        documentEpoch: 12,
+        baseRevision: BASE_REVISION,
+        changes: [
+            {
+                path: 'assemblies.instances.arm',
+                label: 'Assembly instance arm',
+                kind: 'update',
+                before: { position: [20, 0, 0], orientation: [0, 0, 0, 1] },
+                after: { position: [30, 0, 0], orientation: [0, 0, 0, 1] }
+            }
+        ],
+        assembly
+    };
+}
+
 function blocker(): OpenmcRegionBlocker {
     const blocked = region('fuel', [1]);
     return {
@@ -306,6 +385,13 @@ function topologyProposal(proposal: NukeCadProposal | undefined): NukeCadTopolog
 function importProposal(proposal: NukeCadProposal | undefined): NukeCadImportProposal {
     if (proposal === undefined || proposal.scope !== 'import') {
         throw new Error('Expected an import proposal');
+    }
+    return proposal;
+}
+
+function assemblyProposal(proposal: NukeCadProposal | undefined): NukeCadAssemblyProposal {
+    if (proposal === undefined || proposal.scope !== 'assembly') {
+        throw new Error('Expected an assembly proposal');
     }
     return proposal;
 }
@@ -864,6 +950,96 @@ describe('NukeCadProposalService', () => {
 
         advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS - 1);
         expect(service.has(ids[1])).toBe(true);
+        advance(1);
+        expect(service.list()).toEqual([]);
+        expect(service.size).toBe(0);
+    });
+
+    it('creates an assembly proposal with its default apply capability and detached snapshots', () => {
+        const service = new NukeCadProposalService();
+        const input = buildAssemblyInput();
+        const created = service.create(input);
+
+        expect(created.scope).toBe('assembly');
+        expect(created.applyCapability).toBe('nuke.cad.applyAssemblyChange');
+        expect(created.createdAt).toBe(START);
+        expect(created.assembly.before.instances.map((instance) => instance.id)).toEqual(['base', 'arm']);
+        expect(created.assembly.after.instances.map((instance) => instance.id)).toEqual(['base', 'arm']);
+        expect(created.assembly.before.groundedInstanceId).toBe('base');
+        expect(created.assembly.placements[0].instanceId).toBe('arm');
+        expect(created.assembly.bomDelta.rows).toEqual(input.assembly.bomDelta.rows);
+        expect(created.assembly.collisionWarnings).toEqual(["Assembly instances 'arm' and 'base' overlap."]);
+        expect(created.assembly.requiresAcknowledgement).toBe(false);
+
+        (input.assembly.actions[0] as { instanceId: string }).instanceId = 'mutated-input';
+        (input.assembly.before.instances[0] as { part: string }).part = 'mutated-input';
+        (input.assembly.after.instances[1].placement as { position: number[] }).position[0] = 99;
+        (input.assembly.placements[0] as { kind: string }).kind = 'mutated-input';
+        (input.assembly.bomDelta.rows[0] as { before: number }).before = 99;
+        (input.assembly.collisionWarnings as string[]).push('Mutated input warning');
+
+        (created.assembly.actions[0] as { instanceId: string }).instanceId = 'mutated-return';
+        (created.assembly.before.instances[0] as { part: string }).part = 'mutated-return';
+        (created.assembly.after.instances[1].placement as { position: number[] }).position[0] = 42;
+        (created.assembly.placements[0] as { kind: string }).kind = 'mutated-return';
+        (created.assembly.bomDelta.rows[0] as { before: number }).before = 42;
+        (created.assembly.collisionWarnings as string[]).push('Mutated return warning');
+
+        const stored = assemblyProposal(service.get(created.id));
+        expect(stored.assembly.actions[0]).toMatchObject({ action: 'setPlacement', instanceId: 'arm' });
+        expect(stored.assembly.before.instances[0].part).toBe('body:base-body');
+        expect(stored.assembly.after.instances[1].placement).toEqual({ position: [30, 0, 0], orientation: [0, 0, 0, 1] });
+        expect(stored.assembly.placements[0].kind).toBe('place');
+        expect(stored.assembly.bomDelta.rows[0].before).toBe(1);
+        expect(stored.assembly.collisionWarnings).toEqual(["Assembly instances 'arm' and 'base' overlap."]);
+        expect(stored.assembly).not.toBe(created.assembly);
+        expect(stored.assembly.actions).not.toBe(created.assembly.actions);
+        expect(service.get(created.id)).not.toBe(service.get(created.id));
+
+        const listed = assemblyProposal(service.list()[0]);
+        expect(listed).not.toBe(stored);
+        (listed.assembly.after.instances[1].placement as { position: number[] }).position[0] = 7;
+        (listed.assembly.actions[0] as { instanceId: string }).instanceId = 'mutated-list';
+        expect(assemblyProposal(service.get(created.id)).assembly.after.instances[1].placement).toEqual({
+            position: [30, 0, 0],
+            orientation: [0, 0, 0, 1]
+        });
+        expect(assemblyProposal(service.get(created.id)).assembly.actions[0]).toMatchObject({ instanceId: 'arm' });
+    });
+
+    it('keeps assembly proposals in one store with every other scope and narrows them', () => {
+        const service = new NukeCadProposalService();
+        const feature = service.create(buildInput('Feature change'));
+        const sketch = service.create(buildSketchInput('Sketch change'));
+        const topology = service.create(buildTopologyInput('Topology change'));
+        const imported = service.create(buildImportInput('Import change'));
+        const assembly = service.create(buildAssemblyInput('Assembly change'));
+
+        const listed = service.list();
+        expect(listed.map((entry) => entry.id)).toEqual([feature.id, sketch.id, topology.id, imported.id, assembly.id]);
+        expect(listed.map((entry) => entry.scope)).toEqual(['features', 'sketch', 'topology', 'import', 'assembly']);
+        expect(listed.map((entry) => isAssemblyProposal(entry))).toEqual([false, false, false, false, true]);
+
+        const narrowed = listed[4];
+        if (!isAssemblyProposal(narrowed)) {
+            throw new Error('Expected an assembly proposal');
+        }
+        expect(narrowed.assembly.placements[0].kind).toBe('place');
+        expect(narrowed.applyCapability).toBe('nuke.cad.applyAssemblyChange');
+        expect(isSketchProposal(narrowed)).toBe(false);
+        expect(isTopologyProposal(narrowed)).toBe(false);
+        expect(isImportProposal(narrowed)).toBe(false);
+        expect(assembly.scope).toBe('assembly');
+    });
+
+    it('preserves an explicit assembly apply capability and applies the shared TTL policy', () => {
+        const service = new InspectableProposalService();
+        const custom = service.create({ ...buildAssemblyInput('Custom assembly'), applyCapability: 'nuke.test.applyAssembly' });
+        expect(custom.applyCapability).toBe('nuke.test.applyAssembly');
+        expect(service.get(custom.id)?.applyCapability).toBe('nuke.test.applyAssembly');
+
+        advance(NUKE_CAD_FEATURE_PROPOSAL_TTL_MS - 1);
+        expect(service.has(custom.id)).toBe(true);
         advance(1);
         expect(service.list()).toEqual([]);
         expect(service.size).toBe(0);

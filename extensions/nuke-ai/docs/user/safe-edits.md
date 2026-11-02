@@ -1,9 +1,9 @@
 # Safe Edits
 
 NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, existing sketch
-dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, and imported
-STEP/IGES/BREP bodies without writing directly from the chat model. Every edit goes through a preview or plan, an
-explicit apply step with confirmation, and an in-session undo.
+dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
+STEP/IGES/BREP bodies, and placement-only edits on an existing grounded assembly without writing directly from the chat
+model. Every edit goes through a preview or plan, an explicit apply step with confirmation, and an in-session undo.
 
 ## Supported settings
 
@@ -99,8 +99,7 @@ Undo state is in memory for the current IDE session only:
 ## CAD feature edits
 
 CAD edits are opt-in. Turn on **Nuke CAD: AI Authoring** in **Settings → Nuke CAD**; while it is off, the CAD
-authoring tools (feature and sketch preview/apply plus sketch discovery) are absent from NukeAI. Only a saved
-`.nuke-cad` document can be edited.
+authoring tools are absent from NukeAI. Only a saved `.nuke-cad` document can be edited.
 
 The allowlist is deliberately narrow:
 
@@ -125,8 +124,9 @@ schedules the normal rebuild, and exposes **Undo** in the card. Undo re-checks t
 the before parameters in one batch, and schedules the rebuild again.
 
 New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
-sketch, scripts, booleans, add/delete/reorder, lattices, assemblies, and drawings are outside this surface. Imports use
-the separate import-body flow below. External MCP never exposes the CAD preview or apply tools.
+sketch, scripts, booleans, body/feature add/delete/reorder, lattices, and drawings are outside this surface. Imports use
+the separate import-body flow below and assemblies use the placement-only flow below. External MCP never exposes the CAD
+preview or apply tools.
 
 ## CAD sketch dimensions
 
@@ -230,6 +230,43 @@ IGES/IGS, or BREP file instead of a frozen assembly reference.
 
 This flow never downloads or copies a source, never accepts a path outside the workspace roots, and never exposes an
 import tool through MCP.
+
+## CAD assembly placement
+
+Assembly edits use the same opt-in switch and saved-document requirement. They change an **existing grounded assembly**
+only; NukeAI cannot turn a single-part document into an assembly, change grounding, author mates or connectors, add a new
+external source, replace a part, change an existing instance's scale, or rename an instance.
+
+1. NukeAI calls `nuke_cad_summarizeAssembly`. It returns the document path, every instance with its id, part source,
+   optional scale, placement and solved matrix, selector solid ids, the grounded instance, connectors, mates, BOM
+   quantities, and whether the document's `overlapCheck` policy is on. This read-only summary works even when AI
+   authoring is off, but changes need the switch. NukeAI never guesses an instance, part, or body id.
+2. NukeAI previews one to sixteen actions with `nuke_cad_previewAssemblyChange`:
+   - `{ "action": "addInstance", "part": "body:<id>", "placement": { "position": [...], "orientation": [...] } }` adds
+     an instance from an existing embedded body; pass an existing instance's exact `part` value to repeat that part.
+     `id` and a positive `scale` are optional.
+   - `{ "action": "removeInstance", "instanceId": "<instance>" }` removes a non-grounded instance whose part is an
+     embedded body and that has no connector or mate. At least one instance must remain.
+   - `{ "action": "setPlacement", "instanceId": "<instance>", "placement": { "position": [...], "orientation": [...] } }`
+     sets only the position and unit quaternion of a grounded or unmated instance. Existing scale, part source, and
+     names stay read-only.
+3. The preview runs a real candidate build and returns placement rows with before/after position, orientation, and
+   matrix, the BOM count delta, exact instance-overlap warnings, and whether `overlapCheck: false` disables overlap
+   warnings. Adding an instance and changing a placement never require an acknowledgement.
+4. Removing the last instance of a labeled embedded body deletes its DAGMC region. The preview then shows a **Region
+   impact** section and requires **I understand the solid and region impact** before **Apply** is enabled. A removed
+   group or material still referenced by the saved active OpenMC project shows **Blocked by OpenMC** and keeps Apply
+   disabled; an unsaved project is reported as not checked and still requires the acknowledgement. Assembly apply never
+   rewrites the OpenMC project.
+5. Apply accepts only the proposal id, plus the acknowledgement when the preview requested it. It re-runs the planner,
+   rejects a stale proposal or changed document, writes a hidden backup, commits one assembly-section batch, schedules
+   the rebuild, and exposes **Undo**. Undo restores the previous instances and grounding in one commit.
+6. The **CAD Edit Review** panel shows the same placement rows, BOM delta, and overlap warnings. Repeated body ids make
+   the viewport ghost approximate, and the panel says so rather than implying exact per-instance geometry.
+
+Mates, connectors, grounding changes, mated placements, file-backed removal, scale changes on an existing instance,
+part replacement, rename, new external sources, and single-part conversion stay in the Assembly card and Feature Tree.
+No assembly tool is exposed through MCP.
 
 ## Related
 

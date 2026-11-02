@@ -43,6 +43,9 @@ const CAPABILITY_IDS = [
     'nuke.cad.inspectImportSource',
     'nuke.cad.previewImportBodies',
     'nuke.cad.applyImportBodies',
+    'nuke.cad.summarizeAssembly',
+    'nuke.cad.previewAssemblyChange',
+    'nuke.cad.applyAssemblyChange',
     'nuke.cad.exportDagmc',
     'nuke.openmc.summarizeProject',
     'nuke.openmc.validateProject',
@@ -80,12 +83,12 @@ describe('NukeChatAgent', () => {
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
     });
 
-    it('exposes the nukeContext variable and all thirty-one capability tool names', () => {
+    it('exposes the nukeContext variable and all thirty-four capability tool names', () => {
         const agent = new NukeChatAgent();
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(31);
+        expect(agent.functions).toHaveLength(34);
     });
 
     it('uses the nuke-system prompt and includes the active context', () => {
@@ -135,7 +138,7 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('sourceRejectionFraction');
         expect(prompt).toMatch(/filters,\s+triggers, and derivatives are preserved/);
         expect(prompt).toMatch(
-            /Applying a\s+previewed settings, material, tally, CAD feature, sketch, topology, or import\s+change also requires explicit confirmation/i
+            /Applying a\s+previewed settings, material, tally, CAD feature, sketch, topology, import, or assembly\s+change also requires explicit confirmation/i
         );
     });
 
@@ -169,8 +172,9 @@ describe('NukeChatAgent', () => {
         expect(prompt).toMatch(/Apply never rewrites the OpenMC project/i);
         expect(prompt).toMatch(/patternCount.*including the original/i);
         expect(prompt).toMatch(/overlapping pattern may change only faces or volume/i);
-        expect(prompt).toMatch(/Booleans, add, delete,\s+reorder, assemblies, scripts/);
+        expect(prompt).toMatch(/Booleans, add, delete,\s+reorder, scripts/);
         expect(prompt).not.toMatch(/Booleans, add, delete,\s+reorder, imports/);
+        expect(prompt).not.toMatch(/assemblies, scripts/);
     });
 
     it('covers the user-chosen import source, plan-only preview, stale checks, and apply', () => {
@@ -194,6 +198,33 @@ describe('NukeChatAgent', () => {
         expect(prompt).toContain('`addImportBodies`');
         expect(prompt).toMatch(/never downloads or copies the source/i);
         expect(prompt).toMatch(/exposes no import\s+tool through MCP/i);
+    });
+
+    it('covers assembly discovery, placement actions, candidate review, conditional acknowledgement, and apply', () => {
+        const prompt = promptTemplate();
+
+        expect(prompt).toContain('nuke_cad_summarizeAssembly');
+        expect(prompt).toContain('nuke_cad_previewAssemblyChange');
+        expect(prompt).toContain('nuke_cad_applyAssemblyChange');
+        expect(prompt).toContain('## Assembly placement');
+        expect(prompt).toMatch(/existing grounded assembly only/i);
+        expect(prompt).toMatch(/one to sixteen `addInstance`, `removeInstance`, or `setPlacement`/);
+        expect(prompt).toMatch(/an existing instance part plus a placement/);
+        expect(prompt).toMatch(/non-grounded embedded-body instance with no connector or mate/);
+        expect(prompt).toMatch(/`setPlacement` sets a placement \(position \+ orientation\) on a grounded or unmated instance/);
+        expect(prompt).toMatch(/BOM count delta/);
+        expect(prompt).toMatch(/exact overlap warnings/);
+        expect(prompt).toMatch(/`overlapCheck: false` disclosure/);
+        expect(prompt).toMatch(/Removing the last instance of a labeled embedded body requires region acknowledgement/);
+        expect(prompt).toMatch(/saved active OpenMC reference to the removed group or material blocks Apply/);
+        expect(prompt).toMatch(/Unsaved projects are not checked/);
+        expect(prompt).toMatch(/Repeated body ids make the ghost approximate/);
+        expect(prompt).toContain('acknowledgeRegionChanges');
+        expect(prompt).toMatch(/one store batch/);
+        expect(prompt).toMatch(/undo restores the previous instances in one commit/);
+        expect(prompt).toMatch(/never rewrites the OpenMC project/);
+        expect(prompt).toMatch(/Mates, connectors, grounding changes, new external sources/);
+        expect(prompt).not.toMatch(/assemblies, scripts/);
     });
 
     it('stays within a bounded prompt budget', () => {

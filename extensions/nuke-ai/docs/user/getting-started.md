@@ -69,7 +69,7 @@ sketch or parametric curve references. A literal dimension changes only its sket
 cascades to every sketch and curve that references the parameter, and the diff names the parameter and all affected
 dimensions. Reference dimensions, missing sketches or parameters, unchanged values, and conflicting solves are
 rejected. New sketch entities, free-form sketch creation, unreferenced document parameters, scripts, booleans,
-add/delete/reorder, lattices, assemblies, and drawings are not editable in this mode.
+body/feature add/delete/reorder, lattices, and drawings are not editable in this mode.
 
 Topology-impact edits are the third flow. NukeAI can switch an existing hole between blind and through, or change the
 count of an existing linear or circular pattern. The preview builds the change and reports solid/face/triangle deltas,
@@ -93,6 +93,16 @@ rebuilds, and offers **Undo**. A source inside the document folder keeps the doc
 elsewhere is referenced in place, and NukeAI warns about it. The AI flow never downloads or copies a source and never
 accepts a path outside the workspace roots.
 
+Assembly placement is the fifth flow, for an existing grounded assembly only. NukeAI lists the instances, part sources,
+placements, grounding, selector ids, BOM quantities, and overlap policy first. It can add an instance from an existing
+body or reuse an existing part, remove a non-grounded embedded instance that has no connector or mate while keeping
+at least one instance, or set the position and orientation of a grounded or unmated instance. The preview runs a real
+candidate build and shows placement rows, the BOM count delta, exact overlap warnings, and whether `overlapCheck: false`
+disables overlap checks. Only removing the last instance of a labeled embedded body requires a region acknowledgement;
+a saved OpenMC reference to the removed group or material blocks Apply. Apply commits one assembly batch, rebuilds, and
+offers **Undo**. NukeAI does not create an assembly from a single part, change grounding, edit mates or connectors, add a
+new external source, replace a part, change an existing instance's scale, or rename an instance.
+
 ## Preview gallery
 
 Run **NukeAI: Open Preview Gallery** from the Command Palette to browse the saved previews. The gallery lists bundles
@@ -104,7 +114,7 @@ delete `.nuke-ide/ai/previews` in the file explorer. See [Previews and the Galle
 
 NukeAI ships five skills that load only when a task needs them:
 
-- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, and preview/apply feature, sketch, topology, or import edits.
+- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, and preview/apply feature, sketch, topology, import, or assembly-placement edits.
 - `/openmc-studio` — summarize, validate, import CAD, run, and poll an OpenMC project.
 - `/nuke-visualizer` — summarize or open a statepoint and capture a DAGMC viewport.
 - `/nuke-workflow` — the end-to-end CAD → DAGMC → OpenMC → statepoint → capture handoff.

@@ -59,7 +59,8 @@ by name when a conversation needs progressive disclosure.
   `nuke_cad_listSketchDimensions`, `nuke_cad_previewFeatureChange`, `nuke_cad_applyFeatureChange`,
   `nuke_cad_previewSketchChange`, `nuke_cad_applySketchChange`, `nuke_cad_previewTopologyChange`,
   `nuke_cad_applyTopologyChange`, `nuke_cad_inspectImportSource`, `nuke_cad_previewImportBodies`,
-  `nuke_cad_applyImportBodies`, `nuke_openmc_summarizeProject`, `nuke_openmc_validateProject`,
+  `nuke_cad_applyImportBodies`, `nuke_cad_summarizeAssembly`, `nuke_cad_previewAssemblyChange`,
+  `nuke_cad_applyAssemblyChange`, `nuke_openmc_summarizeProject`, `nuke_openmc_validateProject`,
   `nuke_openmc_importCad`, `nuke_openmc_runSimulation`, `nuke_openmc_getRunStatus`, `nuke_openmc_diagnoseProject`,
   `nuke_openmc_diagnoseRun`, `nuke_viz_summarizeStatepoint`, `nuke_viz_openStatepoint`, `nuke_viz_captureView`,
   `nuke_viz_diagnoseStatepoint`, `nuke_viz_compareStatepoints`, `nuke_viz_analyzeTallySeries`.

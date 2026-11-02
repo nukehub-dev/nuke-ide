@@ -85,8 +85,11 @@ import {
     prepareTopologyEdit,
     ResolvedTopologyEdit
 } from '../../common/cad-topology-edit';
-import { findOpenmcRegionBlockers } from '../../common/openmc-region-references';
-import { buildTopologyRegions, diffTopology, TopologyBuildSnapshot } from '../../common/topology-impact';
+import { CAD_ASSEMBLY_EDIT_LIMIT, AssemblyChangeInput, AssemblyRemovedRegion, prepareAssemblyEdit } from '../../common/cad-assembly-edit';
+import { AssemblyBomQuantityRow } from '../../common/assembly-bom';
+import { AssemblyInstance, instancePlacementToMatrix, isQuaternion, isVec3, PosQuatPlacement, Vec3 } from '../../common/assembly-document';
+import { findOpenmcRegionBlockers, OpenmcRegionBlocker } from '../../common/openmc-region-references';
+import { buildTopologyRegions, diffTopology, TopologyBuildSnapshot, TopologyRegionRef } from '../../common/topology-impact';
 import {
     FeatureParams,
     NukeCadDocument,
@@ -97,13 +100,22 @@ import {
 } from '../../common/cad-document';
 import { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import { NukeCadPreferences } from '../nuke-cad-preferences';
-import { CadDocumentStore, featuresConsumingSketch, ImportBodyDraft } from '../document/cad-document-store';
+import {
+    AssemblySection,
+    CadDocumentStore,
+    featuresConsumingSketch,
+    getAssemblySection,
+    ImportBodyDraft
+} from '../document/cad-document-store';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../commands';
 import {
+    isAssemblyProposal,
     isImportProposal,
     isSketchProposal,
     isTopologyProposal,
+    NukeCadAssemblyProposal,
+    NukeCadAssemblyProposalDetails,
     NukeCadFeatureProposal,
     NukeCadImportProposal,
     NukeCadImportProposalDetails,
@@ -114,6 +126,7 @@ import {
     NukeCadSketchProposal,
     NukeCadTopologyProposal
 } from './nuke-cad-proposal-service';
+import { buildBomRows, instanceSolidIds, solveAssemblyTransforms } from '../widgets/cad-viewport/assembly-view';
 import { compareCandidateSolids } from '../preview/ghost-preview-diff';
 import { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 import { parseTessellationAsync } from '../widgets/cad-viewport/tess-parse-client';
@@ -136,6 +149,9 @@ export const APPLY_TOPOLOGY_CHANGE_ID = 'nuke.cad.applyTopologyChange';
 export const INSPECT_IMPORT_SOURCE_ID = 'nuke.cad.inspectImportSource';
 export const PREVIEW_IMPORT_BODIES_ID = 'nuke.cad.previewImportBodies';
 export const APPLY_IMPORT_BODIES_ID = 'nuke.cad.applyImportBodies';
+export const SUMMARIZE_ASSEMBLY_ID = 'nuke.cad.summarizeAssembly';
+export const PREVIEW_ASSEMBLY_CHANGE_ID = 'nuke.cad.previewAssemblyChange';
+export const APPLY_ASSEMBLY_CHANGE_ID = 'nuke.cad.applyAssemblyChange';
 
 /** Upper bound the import planner and backend inspection must share. */
 const IMPORT_MAX_SOLIDS = 500;
@@ -336,6 +352,104 @@ const APPLY_IMPORT_BODIES_INPUT_SCHEMA: NukeJsonSchema = {
     additionalProperties: false
 };
 
+const ASSEMBLY_PLACEMENT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        position: {
+            type: 'array',
+            minItems: 3,
+            maxItems: 3,
+            items: { type: 'number' },
+            description: 'Translation in assembly units.'
+        },
+        orientation: {
+            type: 'array',
+            minItems: 4,
+            maxItems: 4,
+            items: { type: 'number' },
+            description: 'Unit quaternion in [x, y, z, w] order.'
+        }
+    },
+    required: ['position', 'orientation'],
+    additionalProperties: false
+};
+
+const PREVIEW_ASSEMBLY_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        changes: {
+            type: 'array',
+            minItems: 1,
+            maxItems: CAD_ASSEMBLY_EDIT_LIMIT,
+            items: {
+                type: 'object',
+                properties: {
+                    action: {
+                        type: 'string',
+                        enum: ['addInstance', 'removeInstance', 'setPlacement'],
+                        description: 'Assembly instance action.'
+                    },
+                    id: { type: 'string', description: 'New instance id; generated when omitted.' },
+                    part: { type: 'string', description: 'Existing body:<id> source or an existing instance part string.' },
+                    instanceId: { type: 'string', description: 'Target instance for removeInstance/setPlacement.' },
+                    placement: ASSEMBLY_PLACEMENT_SCHEMA,
+                    scale: {
+                        description: 'Positive uniform scale or [sx, sy, sz] per-axis scale.',
+                        oneOf: [
+                            { type: 'number', exclusiveMinimum: 0 },
+                            {
+                                type: 'array',
+                                minItems: 3,
+                                maxItems: 3,
+                                items: { type: 'number', exclusiveMinimum: 0 }
+                            }
+                        ]
+                    }
+                },
+                required: ['action'],
+                additionalProperties: false
+            }
+        }
+    },
+    required: ['changes'],
+    additionalProperties: false
+};
+
+const APPLY_ASSEMBLY_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string', description: 'Proposal id returned by nuke.cad.previewAssemblyChange.' },
+        acknowledgeRegionChanges: {
+            type: 'boolean',
+            description: 'Must be true when the preview removed the last instance of a labelled body.'
+        }
+    },
+    required: ['proposalId'],
+    additionalProperties: false
+};
+
+const SUMMARIZE_ASSEMBLY_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+};
+
+const SUMMARIZE_ASSEMBLY_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        documentPath: { type: 'string', description: 'Canonical path of the active .nuke-cad document.' },
+        hasAssembly: { type: 'boolean' },
+        groundedInstanceId: { type: 'string' },
+        overlapCheck: { type: 'boolean' },
+        instances: { type: 'array', items: { type: 'object' } },
+        bom: { type: 'array', items: { type: 'object' } },
+        connectors: { type: 'array', items: { type: 'object' } },
+        mates: { type: 'array', items: { type: 'object' } },
+        warnings: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['documentPath', 'hasAssembly', 'groundedInstanceId', 'overlapCheck', 'instances', 'bom', 'connectors', 'mates', 'warnings']
+};
+
 const PREVIEW_OUTPUT_SCHEMA: NukeJsonSchema = {
     type: 'object',
     properties: {
@@ -468,6 +582,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         registry.register(this.inspectImportSourceCapability());
         registry.register(this.previewImportBodiesCapability());
         registry.register(this.applyImportBodiesCapability());
+        registry.register(this.summarizeAssemblyCapability());
+        registry.register(this.previewAssemblyCapability());
+        registry.register(this.applyAssemblyCapability());
     }
 
     protected previewCapability(): NukeCapability {
@@ -655,6 +772,63 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             tags: ['cad', 'authoring', 'apply', 'import'],
             when: () => this.enabled() && this.hasActiveDocument(),
             invoke: (input, context) => this.applyImportBodies(input, context)
+        };
+    }
+
+    protected summarizeAssemblyCapability(): NukeCapability {
+        return {
+            id: SUMMARIZE_ASSEMBLY_ID,
+            title: 'Summarize CAD assembly',
+            description:
+                'Read the active .nuke-cad assembly: instances, part sources, placements and solved matrices, selector solid ' +
+                'ids, BOM quantities, connectors, mates, grounding, and the instance-overlap policy. Read-only metadata for ' +
+                'planning an assembly placement change; it works even when AI authoring is off.',
+            category: CATEGORY,
+            inputSchema: SUMMARIZE_ASSEMBLY_INPUT_SCHEMA,
+            outputSchema: SUMMARIZE_ASSEMBLY_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'assembly', 'read'],
+            when: () => this.store.document !== undefined,
+            invoke: () => this.summarizeAssembly()
+        };
+    }
+
+    protected previewAssemblyCapability(): NukeCapability {
+        return {
+            id: PREVIEW_ASSEMBLY_CHANGE_ID,
+            title: 'Preview CAD assembly change',
+            description:
+                'Propose assembly instance add/remove/placement actions for the active saved .nuke-cad document, validate ' +
+                'the candidate with a real build, and report planned transforms, BOM delta, overlap warnings, and any ' +
+                'labelled region or saved OpenMC reference the change would break. The preview is read-only.',
+            category: CATEGORY,
+            inputSchema: PREVIEW_ASSEMBLY_INPUT_SCHEMA,
+            outputSchema: PREVIEW_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'preview', 'assembly'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.previewAssemblyChange(input, context)
+        };
+    }
+
+    protected applyAssemblyCapability(): NukeCapability {
+        return {
+            id: APPLY_ASSEMBLY_CHANGE_ID,
+            title: 'Apply CAD assembly change',
+            description:
+                'Apply a previewed assembly instance change after any removed-region impact is acknowledged, schedule the ' +
+                'rebuild, and return an undo token. Rejects proposals that would break saved OpenMC DAGMC references.',
+            category: CATEGORY,
+            inputSchema: APPLY_ASSEMBLY_INPUT_SCHEMA,
+            risk: 'execute',
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            requiresConfirmation: true,
+            undoable: true,
+            tags: ['cad', 'authoring', 'apply', 'assembly'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.applyAssemblyChange(input, context)
         };
     }
 
@@ -1197,6 +1371,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (isImportProposal(proposal)) {
             return 'This proposal is an import; apply it with nuke.cad.applyImportBodies.';
         }
+        if (isAssemblyProposal(proposal)) {
+            return 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.';
+        }
         return 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.';
     }
 
@@ -1383,6 +1560,56 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                 this.fileService.delete(new URI(previewDirectory), { recursive: true, useTrash: false }).catch(() => undefined)
             ]);
         }
+    }
+
+    /**
+     * Read-only assembly metadata: instance placements and solved matrices,
+     * selector solid ids, BOM quantities, connectors, mates, and grounding.
+     */
+    protected async summarizeAssembly(): Promise<NukeCapabilityResult> {
+        const document = this.store.document;
+        if (!document) {
+            return this.inactiveResult();
+        }
+        const assembly = getAssemblySection(document);
+        const instances: readonly AssemblyInstance[] = assembly?.instances ?? [];
+        const transforms = assembly !== undefined ? solveAssemblyTransforms(assembly) : new Map();
+        const selectorMap = this.stateManager.model?.result.selectorMap;
+        const warnings: string[] = [];
+        if (assembly === undefined || instances.length === 0) {
+            warnings.push('This document has no assembly section.');
+        } else if (!assembly.groundedInstanceId) {
+            warnings.push('The assembly has no grounded instance.');
+        }
+        return {
+            ok: true,
+            data: {
+                documentPath: this.activeDocumentPath() ?? '',
+                hasAssembly: assembly !== undefined && instances.length > 0,
+                groundedInstanceId: assembly?.groundedInstanceId ?? '',
+                overlapCheck: document.overlapCheck !== false,
+                instances: instances.map((instance) => ({
+                    id: instance.id,
+                    part: instance.part,
+                    ...(instance.scale !== undefined ? { scale: instance.scale } : {}),
+                    placement: instance.placement,
+                    matrix: transforms.get(instance.id) ?? instancePlacementToMatrix(instance.placement),
+                    solidIds: instanceSolidIds(selectorMap, instance.id)
+                })),
+                bom: assembly !== undefined ? assemblyBomQuantities(assembly) : [],
+                connectors: (assembly?.connectors ?? []).map((connector) => ({
+                    id: connector.id,
+                    instanceId: connector.instanceId
+                })),
+                mates: (assembly?.mates ?? []).map((mate) => ({
+                    id: mate.id,
+                    type: mate.type,
+                    instanceA: mate.instanceA,
+                    instanceB: mate.instanceB
+                })),
+                warnings
+            }
+        };
     }
 
     /** Read-only sketch and dimension metadata for the active document. */
@@ -1636,6 +1863,182 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         });
     }
 
+    protected async previewAssemblyChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        const model = this.stateManager.model;
+        const document = this.store.document;
+        const uri = this.store.uri;
+        if (!model || !document || !uri) {
+            return this.inactiveResult();
+        }
+        if (!model.result.success) {
+            return { ok: false, message: 'Rebuild the active document successfully before previewing a change.' };
+        }
+        const documentPath = new URI(uri).path.toString();
+        const pathError = this.scopeError(documentPath, context.workspaceRoots);
+        if (pathError) {
+            return { ok: false, message: pathError };
+        }
+        const assembly = getAssemblySection(document);
+        if (assembly === undefined || assembly.instances.length === 0 || assembly.groundedInstanceId.length === 0) {
+            return {
+                ok: false,
+                message: 'Open a .nuke-cad document with a grounded assembly before previewing an assembly change.'
+            };
+        }
+        const actions = readAssemblyActions(input);
+        if (!actions.ok) {
+            return { ok: false, message: actions.message };
+        }
+        const prepared = prepareAssemblyEdit(document, actions.actions);
+        if (!prepared.ok) {
+            return { ok: false, message: prepared.message };
+        }
+        const baseEpoch = this.store.documentEpoch;
+        const baseRevision = this.store.revision;
+        this.ghostPreview.clear();
+        return this.runCandidateBuild(prepared.result.afterDocument, documentPath, context, async (build) => {
+            const validationError = validateAssemblyCandidateBuild(build, prepared.result.afterSection, document);
+            if (validationError) {
+                return { ok: false, message: validationError, warnings: build.warnings };
+            }
+            if (this.store.documentEpoch !== baseEpoch || this.store.revision !== baseRevision) {
+                return { ok: false, message: 'The document changed while the preview was building. Preview the change again.' };
+            }
+            const parsedCandidate = await this.readCandidateTessellation(build.tessPath);
+            const solidDiff = parsedCandidate
+                ? compareCandidateSolids(this.stateManager.solidSummaries, parsedCandidate)
+                : { addedSolidIds: [], removedSolidIds: [], changedSolidIds: [], changedBodyIds: [] };
+            const collisionWarnings = assemblyCollisionWarnings(build.warnings, document.overlapCheck !== false);
+            const openmc = await readOpenmcRegionReferences(this.fileService, context.activeOpenmcProject);
+            const beforeAssembly = assembly;
+            const beforeBom = assemblyBomQuantities(beforeAssembly);
+            const afterBom = assemblyBomQuantities(prepared.result.afterSection);
+            let removedRegions: readonly AssemblyRemovedRegion[] = prepared.result.removedRegions.map((region) => ({
+                ...region,
+                solidIds: [...region.solidIds]
+            }));
+            let blockedRegions: readonly OpenmcRegionBlocker[] = [];
+            if (prepared.result.requiresAcknowledgement) {
+                const beforeLabelMap = assemblyLabelSolidMap(model.result.selectorMap, beforeAssembly, document);
+                const afterLabelMap = assemblyLabelSolidMap(build.selectorMap, prepared.result.afterSection, document);
+                removedRegions = removedRegions.map((region) => ({
+                    ...region,
+                    solidIds: beforeLabelMap[region.selector] ?? region.solidIds
+                }));
+                const afterRegions = buildTopologyRegions({
+                    solidCount: build.solidCount ?? 0,
+                    faceCount: build.faceCount ?? 0,
+                    triangleCount: build.triangleCount ?? 0,
+                    selectorMap: afterLabelMap,
+                    regionManifest: build.regionManifest
+                });
+                blockedRegions = findOpenmcRegionBlockers(
+                    { removedRegions: removedRegions.map(removedRegionRef), changedRegions: [] },
+                    afterRegions,
+                    openmc
+                );
+            }
+            const placements = prepared.result.placements.map((plan) => ({
+                ...plan,
+                ...(plan.before !== undefined
+                    ? {
+                          before: {
+                              ...plan.before,
+                              solidIds: instanceSolidIds(model.result.selectorMap, plan.instanceId)
+                          }
+                      }
+                    : {}),
+                ...(plan.after !== undefined
+                    ? {
+                          after: {
+                              ...plan.after,
+                              solidIds: instanceSolidIds(build.selectorMap, plan.instanceId)
+                          }
+                      }
+                    : {})
+            }));
+            const summary = summarizeAssemblyActions(actions.actions);
+            const impact = buildImpact(model.result, build);
+            const warnings = uniqueStrings([
+                ...prepared.result.warnings,
+                ...collisionWarnings,
+                ...openmc.warnings,
+                ...(build.warnings ?? [])
+            ]);
+            const details: NukeCadAssemblyProposalDetails = {
+                actions: actions.actions,
+                before: {
+                    instances: beforeAssembly.instances,
+                    groundedInstanceId: beforeAssembly.groundedInstanceId,
+                    bom: beforeBom
+                },
+                after: {
+                    instances: prepared.result.afterSection.instances,
+                    groundedInstanceId: prepared.result.afterSection.groundedInstanceId,
+                    bom: afterBom
+                },
+                placements,
+                bomDelta: prepared.result.bomDelta,
+                warnings: prepared.result.warnings,
+                collisionWarnings,
+                overlapCheck: document.overlapCheck !== false,
+                removedSelectorKeys: prepared.result.removedSelectorKeys,
+                removedRegions,
+                blockedRegions,
+                openmcStatus: openmc.status,
+                ...(openmc.projectPath ? { openmcProjectPath: openmc.projectPath } : {}),
+                openmcWarnings: openmc.warnings,
+                requiresAcknowledgement: prepared.result.requiresAcknowledgement
+            };
+            const proposal = this.proposals.create({
+                scope: 'assembly',
+                applyCapability: APPLY_ASSEMBLY_CHANGE_ID,
+                summary,
+                documentPath,
+                documentEpoch: baseEpoch,
+                baseRevision,
+                changes: prepared.result.changes,
+                impact,
+                build: buildSummary(build),
+                assembly: details
+            });
+            if (parsedCandidate) {
+                this.ghostPreview.show({
+                    proposalId: proposal.id,
+                    tessData: parsedCandidate,
+                    ...solidDiff
+                });
+            }
+            void this.commands.executeCommand(NukeCadCommands.OPEN_REVIEW_PANEL.id).catch(() => undefined);
+            return {
+                ok: true,
+                data: {
+                    proposalId: proposal.id,
+                    summary,
+                    changes: proposal.changes,
+                    impact,
+                    assembly: details,
+                    blockedRegions,
+                    openmcStatus: openmc.status,
+                    openmcWarnings: openmc.warnings,
+                    warnings,
+                    build: buildSummary(build)
+                },
+                changeSet: {
+                    id: proposal.id,
+                    title: 'CAD assembly change',
+                    summary,
+                    changes: proposal.changes,
+                    ...(blockedRegions.length === 0 ? { applyCapability: APPLY_ASSEMBLY_CHANGE_ID } : {})
+                },
+                warnings
+            };
+        });
+    }
+
     /** Read and parse the candidate tessellation before the temp directory is deleted. */
     protected async readCandidateTessellation(
         tessPath: string | undefined
@@ -1650,6 +2053,204 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             console.warn('[NukeCadAuthoring] Candidate tessellation could not be parsed:', error);
             return undefined;
         }
+    }
+
+    protected async applyAssemblyChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        if (!this.hasActiveDocument()) {
+            return this.inactiveResult();
+        }
+        const proposalId = readProposalId(input);
+        if (!proposalId) {
+            return { ok: false, message: 'proposalId is required.' };
+        }
+        const proposal = this.proposals.get(proposalId);
+        if (!proposal) {
+            return { ok: false, message: 'This CAD preview is missing or expired. Preview the change again.' };
+        }
+        if (!isAssemblyProposal(proposal)) {
+            return { ok: false, message: this.wrongScopeApplyMessage(proposal) };
+        }
+        if (proposal.assembly.requiresAcknowledgement && !acknowledgesRegionChanges(input)) {
+            return { ok: false, message: 'Acknowledge the region impact before applying this assembly change.' };
+        }
+        const firstBlocker = proposal.assembly.blockedRegions[0];
+        if (firstBlocker) {
+            return {
+                ok: false,
+                message: `This assembly change would break a saved OpenMC reference: ${firstBlocker.message}`
+            };
+        }
+        const stale = this.assemblyStaleReason(proposal);
+        if (stale) {
+            return { ok: false, message: stale };
+        }
+        const document = this.store.document;
+        if (!document) {
+            return { ok: false, message: 'No CAD document is active.' };
+        }
+        const replanned = prepareAssemblyEdit(document, proposal.assembly.actions);
+        if (!replanned.ok) {
+            return { ok: false, message: replanned.message };
+        }
+        const currentAssembly = getAssemblySection(document);
+        if (currentAssembly === undefined) {
+            return { ok: false, message: 'The assembly section disappeared after this preview. Preview the change again.' };
+        }
+        const expectedAfterSection = {
+            ...currentAssembly,
+            instances: proposal.assembly.after.instances,
+            groundedInstanceId: proposal.assembly.after.groundedInstanceId
+        };
+        // Proposal storage is JSON-detached, so `undefined` fields (such as a
+        // removal's `after`) are dropped; normalize the re-planned diff the
+        // same way before comparing.
+        const replannedChanges = JSON.parse(JSON.stringify(replanned.result.changes)) as unknown;
+        if (
+            stableStringify(replanned.result.afterSection) !== stableStringify(expectedAfterSection) ||
+            stableStringify(replannedChanges) !== stableStringify(proposal.changes)
+        ) {
+            return { ok: false, message: 'The assembly changed after this preview. Preview the change again.' };
+        }
+        if (proposal.assembly.requiresAcknowledgement) {
+            if (context.activeOpenmcProject !== proposal.assembly.openmcProjectPath) {
+                return { ok: false, message: 'The active OpenMC project changed after this preview. Preview the change again.' };
+            }
+            const openmc = await readOpenmcRegionReferences(this.fileService, context.activeOpenmcProject);
+            if (proposal.assembly.openmcProjectPath !== undefined && openmc.status !== 'saved-project') {
+                return {
+                    ok: false,
+                    message: 'The saved OpenMC project can no longer be re-checked. Restore the project file and preview the change again.'
+                };
+            }
+            const model = this.stateManager.model;
+            const afterLabelMap = assemblyLabelSolidMap(model?.result.selectorMap, replanned.result.afterSection, document);
+            const modelManifest = model?.result.regionManifest;
+            const afterRegions = buildTopologyRegions({
+                solidCount: model?.result.solidCount ?? 0,
+                faceCount: model?.result.faceCount ?? 0,
+                triangleCount: model?.result.triangleCount ?? 0,
+                selectorMap: afterLabelMap,
+                // The live manifest still covers removed labels; keep only
+                // volumes whose label survives so the re-check cannot be
+                // satisfied by a stale region entry.
+                regionManifest:
+                    modelManifest !== undefined
+                        ? {
+                              ...modelManifest,
+                              volumes: modelManifest.volumes.filter((volume) => volume.selector in afterLabelMap)
+                          }
+                        : undefined
+            });
+            const blockers = findOpenmcRegionBlockers(
+                { removedRegions: proposal.assembly.removedRegions.map(removedRegionRef), changedRegions: [] },
+                afterRegions,
+                openmc
+            );
+            if (blockers.length > 0) {
+                return {
+                    ok: false,
+                    message: `This assembly change would break saved OpenMC references: ${blockers.map((blocker) => blocker.message).join(' ')}`
+                };
+            }
+        }
+        const backupPath = path.join(path.dirname(proposal.documentPath), `.nuke-ai-backup-${path.basename(proposal.documentPath)}`);
+        try {
+            const snapshot = this.store.toJson();
+            if (!snapshot) {
+                return { ok: false, message: 'The active CAD document could not be read for a backup.' };
+            }
+            await this.fileService.create(new URI(backupPath), snapshot, { overwrite: true });
+        } catch (error) {
+            return { ok: false, message: `Could not write the pre-apply CAD backup: ${errorMessage(error)}` };
+        }
+        const applied = this.store.applyAssemblyChanges({ actions: proposal.assembly.actions });
+        if (!applied.success) {
+            return {
+                ok: false,
+                message: applied.error || 'The CAD document rejected the assembly change.',
+                warnings: formatIssues(applied.issues)
+            };
+        }
+        const appliedRevision = this.store.revision;
+        const removedInstanceIds = applied.value?.removedInstanceIds ?? replanned.result.removedInstanceIds;
+        const addedInstanceIds = applied.value?.instanceIds ?? replanned.result.addedInstanceIds;
+        this.proposals.remove(proposal.id);
+        if (removedInstanceIds.length > 0) {
+            this.clearAssemblySelection();
+        }
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        const undoToken = this.undoService.register({
+            title: 'CAD assembly change',
+            undo: () => this.undoAssemblyChange(proposal, appliedRevision)
+        });
+        return {
+            ok: true,
+            message: 'CAD assembly change applied; rebuild scheduled.',
+            data: {
+                proposalId: proposal.id,
+                documentPath: proposal.documentPath,
+                revision: appliedRevision,
+                backupPath,
+                addedInstanceIds,
+                removedInstanceIds,
+                groundedInstanceId: applied.value?.groundedInstanceId ?? replanned.result.afterSection.groundedInstanceId,
+                rebuildScheduled: true,
+                changes: proposal.changes,
+                regionImpact: {
+                    removedRegions: proposal.assembly.removedRegions,
+                    removedSelectorKeys: proposal.assembly.removedSelectorKeys,
+                    requiresAcknowledgement: proposal.assembly.requiresAcknowledgement
+                }
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD assembly change',
+                summary: proposal.summary,
+                changes: proposal.changes
+            },
+            undoToken
+        };
+    }
+
+    protected async undoAssemblyChange(proposal: NukeCadAssemblyProposal, appliedRevision: number): Promise<NukeCapabilityResult> {
+        if (!this.hasActiveDocument()) {
+            return { ok: false, message: 'Open the document again before undoing this change.' };
+        }
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return { ok: false, message: 'This change belongs to a different document and can no longer be undone.' };
+        }
+        if (this.store.revision !== appliedRevision) {
+            return { ok: false, message: 'The document changed after this edit. Preview the change again.' };
+        }
+        const result = this.store.undo();
+        if (!result.success) {
+            return { ok: false, message: result.error || 'The CAD document rejected the undo.', warnings: formatIssues(result.issues) };
+        }
+        if (proposal.assembly.removedRegions.length > 0 || proposal.assembly.actions.some((action) => action.action === 'removeInstance')) {
+            this.clearAssemblySelection();
+        }
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        return { ok: true, message: 'CAD assembly change undone.' };
+    }
+
+    protected assemblyStaleReason(proposal: NukeCadAssemblyProposal): string | undefined {
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return 'The active document changed after this preview. Preview the change again.';
+        }
+        if (this.store.revision !== proposal.baseRevision) {
+            return 'The document changed after this preview. Preview the change again.';
+        }
+        return undefined;
+    }
+
+    /** Clear document and viewport selection after instances disappear. */
+    protected clearAssemblySelection(): void {
+        this.store.selectBody(undefined);
+        this.store.clearSelection();
+        this.stateManager.setSelection({});
     }
 
     protected async applyFeatureChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
@@ -1675,6 +2276,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         }
         if (isImportProposal(proposal)) {
             return { ok: false, message: 'This proposal is an import; apply it with nuke.cad.applyImportBodies.' };
+        }
+        if (isAssemblyProposal(proposal)) {
+            return { ok: false, message: 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.' };
         }
         const stale = this.staleReason(proposal);
         if (stale) {
@@ -1792,6 +2396,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (isImportProposal(proposal)) {
             return { ok: false, message: 'This proposal is an import; apply it with nuke.cad.applyImportBodies.' };
         }
+        if (isAssemblyProposal(proposal)) {
+            return { ok: false, message: 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.' };
+        }
         if (!isSketchProposal(proposal)) {
             return { ok: false, message: 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.' };
         }
@@ -1907,7 +2514,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                     ? 'This proposal is a sketch change; apply it with nuke.cad.applySketchChange.'
                     : isImportProposal(proposal)
                       ? 'This proposal is an import; apply it with nuke.cad.applyImportBodies.'
-                      : 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.'
+                      : isAssemblyProposal(proposal)
+                        ? 'This proposal is an assembly change; apply it with nuke.cad.applyAssemblyChange.'
+                        : 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.'
             };
         }
         const firstBlocker = proposal.topology.blockedRegions[0];
@@ -2355,6 +2964,218 @@ export function readTopologyActions(
     return { ok: true, actions };
 }
 
+/**
+ * Strictly shape-check one assembly preview request list.
+ *
+ * The pure engine validates semantic rules (grounding, mates, file-backed
+ * removal, body existence); this parser rejects malformed or ambiguous action
+ * objects before any planning or build starts.
+ */
+export function readAssemblyActions(
+    input: unknown
+): { ok: true; actions: readonly AssemblyChangeInput[] } | { ok: false; message: string } {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'changes is required.' };
+    }
+    const raw = (input as { changes?: unknown }).changes;
+    if (!Array.isArray(raw) || raw.length === 0) {
+        return { ok: false, message: `changes must contain 1 to ${CAD_ASSEMBLY_EDIT_LIMIT} assembly actions.` };
+    }
+    if (raw.length > CAD_ASSEMBLY_EDIT_LIMIT) {
+        return { ok: false, message: `changes must contain at most ${CAD_ASSEMBLY_EDIT_LIMIT} assembly actions.` };
+    }
+    const actions: AssemblyChangeInput[] = [];
+    const claimed = new Set<string>();
+    for (const [index, entry] of raw.entries()) {
+        const label = `Action ${index + 1}`;
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            return { ok: false, message: `${label} must be an object.` };
+        }
+        const record = entry as Record<string, unknown>;
+        const action = record.action;
+        if (action === 'addInstance') {
+            const unexpected = unexpectedKey(record, ['action', 'id', 'part', 'placement', 'scale']);
+            if (unexpected !== undefined) {
+                return { ok: false, message: `${label} has an unknown field '${unexpected}'.` };
+            }
+            if (record.id !== undefined && (typeof record.id !== 'string' || record.id.length === 0)) {
+                return { ok: false, message: `${label} id must be a non-empty string.` };
+            }
+            if (typeof record.part !== 'string' || record.part.length === 0) {
+                return { ok: false, message: `${label} needs a non-empty part.` };
+            }
+            if (!isPosQuatPlacement(record.placement)) {
+                return { ok: false, message: `${label} needs a placement with a finite position and non-zero quaternion.` };
+            }
+            if (record.scale !== undefined && !isAssemblyScale(record.scale)) {
+                return { ok: false, message: `${label} scale must be a positive number or [sx, sy, sz] array of positives.` };
+            }
+            if (record.id !== undefined) {
+                if (claimed.has(record.id)) {
+                    return { ok: false, message: `Duplicate assembly edit for instance '${record.id}'.` };
+                }
+                claimed.add(record.id);
+            }
+            actions.push({
+                action: 'addInstance',
+                ...(record.id !== undefined ? { id: record.id } : {}),
+                part: record.part,
+                placement: clonePosQuatPlacement(record.placement),
+                ...(record.scale !== undefined ? { scale: cloneAssemblyScale(record.scale) } : {})
+            });
+            continue;
+        }
+        if (action === 'removeInstance' || action === 'setPlacement') {
+            const allowed = action === 'removeInstance' ? ['action', 'instanceId'] : ['action', 'instanceId', 'placement'];
+            const unexpected = unexpectedKey(record, allowed);
+            if (unexpected !== undefined) {
+                return { ok: false, message: `${label} has an unknown field '${unexpected}'.` };
+            }
+            if (typeof record.instanceId !== 'string' || record.instanceId.length === 0) {
+                return { ok: false, message: `${label} needs a non-empty instanceId.` };
+            }
+            if (claimed.has(record.instanceId)) {
+                return { ok: false, message: `Duplicate assembly edit for instance '${record.instanceId}'.` };
+            }
+            claimed.add(record.instanceId);
+            if (action === 'removeInstance') {
+                actions.push({ action: 'removeInstance', instanceId: record.instanceId });
+                continue;
+            }
+            if (!isPosQuatPlacement(record.placement)) {
+                return {
+                    ok: false,
+                    message: `${label} needs a placement with a finite position and non-zero quaternion.`
+                };
+            }
+            actions.push({
+                action: 'setPlacement',
+                instanceId: record.instanceId,
+                placement: clonePosQuatPlacement(record.placement)
+            });
+            continue;
+        }
+        return { ok: false, message: `${label} has an unknown action '${String(action)}'.` };
+    }
+    return { ok: true, actions };
+}
+
+function unexpectedKey(record: Record<string, unknown>, allowed: readonly string[]): string | undefined {
+    return Object.keys(record).find((key) => !allowed.includes(key));
+}
+
+function isPosQuatPlacement(value: unknown): value is PosQuatPlacement {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+    }
+    const record = value as Record<string, unknown>;
+    if (unexpectedKey(record, ['position', 'orientation']) !== undefined) {
+        return false;
+    }
+    if (!isVec3(record.position) || !isQuaternion(record.orientation)) {
+        return false;
+    }
+    const [x, y, z, w] = record.orientation;
+    return Math.sqrt(x * x + y * y + z * z + w * w) > 1e-9;
+}
+
+function isAssemblyScale(value: unknown): value is number | Vec3 {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) && value > 0;
+    }
+    return isVec3(value) && value[0] > 0 && value[1] > 0 && value[2] > 0;
+}
+
+function clonePosQuatPlacement(placement: PosQuatPlacement): PosQuatPlacement {
+    return {
+        position: [placement.position[0], placement.position[1], placement.position[2]],
+        orientation: [placement.orientation[0], placement.orientation[1], placement.orientation[2], placement.orientation[3]]
+    };
+}
+
+function cloneAssemblyScale(scale: number | Vec3): number | Vec3 {
+    return Array.isArray(scale) ? [scale[0], scale[1], scale[2]] : scale;
+}
+
+/** Group instance BOM rows into quantity rows keyed by the exact part source. */
+function assemblyBomQuantities(assembly: AssemblySection): AssemblyBomQuantityRow[] {
+    const counts = new Map<string, number>();
+    for (const row of buildBomRows(assembly)) {
+        counts.set(row.part, (counts.get(row.part) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([part, count]) => ({ part, before: count, after: count, delta: 0 }));
+}
+
+/**
+ * Label-keyed region coverage for embedded `body:<id>` instances. External
+ * parts contribute nothing, because their labels belong to another document.
+ */
+function assemblyLabelSolidMap(
+    selectorMap: Readonly<Record<string, readonly number[]>> | undefined,
+    assembly: AssemblySection,
+    document: NukeCadDocument
+): Record<string, number[]> {
+    const bodyById = new Map(document.bodies.map((body) => [body.id, body] as const));
+    const labels = new Map<string, Set<number>>();
+    for (const instance of assembly.instances) {
+        if (!instance.part.startsWith('body:')) {
+            continue;
+        }
+        const bodyId = instance.part.slice('body:'.length);
+        const label = bodyById.get(bodyId)?.label;
+        if (label === undefined || label.length === 0) {
+            continue;
+        }
+        const solids = selectorMap?.[`${instance.id}/${label}`] ?? [];
+        if (!labels.has(label)) {
+            labels.set(label, new Set());
+        }
+        for (const solid of solids) {
+            labels.get(label)!.add(solid);
+        }
+    }
+    return Object.fromEntries([...labels.entries()].map(([label, solids]) => [label, [...solids].sort((left, right) => left - right)]));
+}
+
+function removedRegionRef(region: AssemblyRemovedRegion): TopologyRegionRef {
+    return {
+        kind: 'volume',
+        selector: region.selector,
+        group: region.group,
+        ...(region.material !== undefined ? { material: region.material } : {}),
+        ...(region.materialId !== undefined ? { materialId: region.materialId } : {}),
+        solidIds: region.solidIds
+    };
+}
+
+function assemblyCollisionWarnings(warnings: readonly string[] | undefined, overlapCheck: boolean): string[] {
+    const collisions = (warnings ?? []).filter((warning) => /overlap/i.test(warning));
+    if (!overlapCheck) {
+        collisions.push('Instance overlap checks are disabled for this document.');
+    }
+    return uniqueStrings(collisions);
+}
+
+function summarizeAssemblyActions(actions: readonly AssemblyChangeInput[]): string {
+    const parts = actions.map((action) => {
+        if (action.action === 'addInstance') {
+            const id = action.id !== undefined ? ` '${action.id}'` : '';
+            return `Add${id} ${action.part}`;
+        }
+        if (action.action === 'removeInstance') {
+            return `Remove instance '${action.instanceId}'`;
+        }
+        return `Move instance '${action.instanceId}'`;
+    });
+    return parts.join('; ');
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+    return [...new Set(values)];
+}
+
 /** One short human summary for the review panel and capability response. */
 function summarizeSketchEdit(prepared: PreparedSketchEdit): string {
     const edits = prepared.edits;
@@ -2451,6 +3272,63 @@ export function validateTopologyCandidateBuild(build: GeometryBuildResult): stri
     }
     if (!validBoundingBox(build.boundingBox)) {
         return 'The preview build produced an invalid bounding box; the topology change is not a usable geometry change.';
+    }
+    return undefined;
+}
+
+/**
+ * Validate an assembly candidate build without requiring unchanged topology.
+ *
+ * Solid, selector, and region coverage may change (add/remove actions), but the
+ * result must be usable, every selector key must belong to a final instance,
+ * and every added embedded labelled body must contribute its expected key.
+ */
+export function validateAssemblyCandidateBuild(
+    build: GeometryBuildResult,
+    afterSection: AssemblySection,
+    document?: NukeCadDocument
+): string | undefined {
+    if (!build.success) {
+        return build.error || 'The preview build failed.';
+    }
+    const failed = (build.featureResults ?? []).filter((feature: FeatureResult) => feature.status === 'failed');
+    if (failed.length > 0) {
+        return `The preview build failed for feature(s): ${failed.map((feature) => feature.featureId).join(', ')}.`;
+    }
+    if ((build.solidCount ?? 0) <= 0) {
+        return 'The preview build produced no solids; the assembly change is not a usable geometry change.';
+    }
+    if ((build.triangleCount ?? 0) <= 0) {
+        return 'The preview build produced no tessellation; the assembly change is not a usable geometry change.';
+    }
+    if (!validBoundingBox(build.boundingBox)) {
+        return 'The preview build produced an invalid bounding box; the assembly change is not a usable geometry change.';
+    }
+    const instanceIds = new Set(afterSection.instances.map((instance) => instance.id));
+    for (const key of Object.keys(build.selectorMap ?? {})) {
+        const slash = key.indexOf('/');
+        const prefix = slash >= 0 ? key.slice(0, slash) : key;
+        if (!instanceIds.has(prefix)) {
+            return `The preview build produced selector '${key}', which does not belong to a final assembly instance.`;
+        }
+    }
+    if (document !== undefined) {
+        const beforeIds = new Set((document.assembly?.instances ?? []).map((instance) => instance.id));
+        const bodyById = new Map(document.bodies.map((body) => [body.id, body] as const));
+        for (const instance of afterSection.instances) {
+            if (beforeIds.has(instance.id) || !instance.part.startsWith('body:')) {
+                continue;
+            }
+            const bodyId = instance.part.slice('body:'.length);
+            const label = bodyById.get(bodyId)?.label;
+            if (label === undefined || label.length === 0) {
+                continue;
+            }
+            const expected = `${instance.id}/${label}`;
+            if (!build.selectorMap || !(expected in build.selectorMap)) {
+                return `The preview build did not produce the expected selector '${expected}' for the added instance.`;
+            }
+        }
     }
     return undefined;
 }

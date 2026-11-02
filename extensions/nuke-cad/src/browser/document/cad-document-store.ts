@@ -99,6 +99,7 @@ import {
     type Vec3
 } from '../../common/assembly-document';
 import { countAssemblyDof } from '../../common/assembly-placement';
+import { prepareAssemblyEdit, type AssemblyChangeInput } from '../../common/cad-assembly-edit';
 
 /** Listener invoked after any mutation that changes the store state. */
 export type DocumentStoreListener = () => void;
@@ -159,6 +160,12 @@ export interface ImportBodiesRequest {
     readonly bodies: readonly ImportBodyDraft[];
     /** Optional shared feature-name prefix; defaults to each draft's body name. */
     readonly featureNamePrefix?: string;
+}
+
+/** One atomic assembly edit applied through {@link CadDocumentStore.applyAssemblyChanges}. */
+export interface AssemblyChangeRequest {
+    /** Add/remove/placement actions; the pure engine validates 1–16 actions. */
+    readonly actions: readonly AssemblyChangeInput[];
 }
 
 /** One instance appended by {@link CadDocumentStore.addAssemblyInstances}. */
@@ -2921,6 +2928,44 @@ export class CadDocumentStore {
             return { success: false, error: result.error, issues: result.issues };
         }
         return { success: true, value: ids };
+    }
+
+    /**
+     * Apply an atomic add/remove/placement assembly edit.
+     *
+     * The pure `prepareAssemblyEdit` engine validates the complete request and
+     * produces the candidate document; this method commits it once, so the
+     * batch is one undo entry and one change event. A rejected request leaves
+     * the live document and history untouched. Grounding never changes.
+     */
+    applyAssemblyChanges(request: AssemblyChangeRequest): DocumentMutationResult<{
+        readonly instanceIds: readonly string[];
+        readonly removedInstanceIds: readonly string[];
+        readonly groundedInstanceId: string;
+    }> {
+        if (request === null || typeof request !== 'object' || !Array.isArray(request.actions)) {
+            return { success: false, error: 'Assembly change request must carry an actions array' };
+        }
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const prepared = prepareAssemblyEdit(check.value!, request.actions);
+        if (!prepared.ok) {
+            return { success: false, error: prepared.message };
+        }
+        const committed = this.commit(prepared.result.afterDocument);
+        if (!committed.success) {
+            return { success: false, error: committed.error, issues: committed.issues };
+        }
+        return {
+            success: true,
+            value: {
+                instanceIds: prepared.result.addedInstanceIds,
+                removedInstanceIds: prepared.result.removedInstanceIds,
+                groundedInstanceId: prepared.result.afterSection.groundedInstanceId
+            }
+        };
     }
 
     /**

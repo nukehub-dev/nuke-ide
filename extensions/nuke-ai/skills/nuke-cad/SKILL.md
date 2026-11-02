@@ -6,10 +6,11 @@ description: Inspect, summarize, and export the active NukeCAD document to DAGMC
 # NukeCAD
 
 Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
-CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, topology-impact, or
-import change. Read/export is always available. Feature, sketch, topology, and import edits are available only when
-the user enabled **Nuke CAD: AI Authoring**; new sketch entities, scripts, document parameters not referenced by a
-sketch, booleans, add/delete/reorder, lattices, assemblies, and drawings stay in the CAD viewport and Feature Tree.
+CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, topology-impact, import,
+or assembly-placement change. Read/export is always available. Feature, sketch, topology, import, and assembly-placement
+edits are available only when the user enabled **Nuke CAD: AI Authoring**; new sketch entities, scripts, document
+parameters not referenced by a sketch, booleans, body/feature add/delete/reorder, lattices, assembly structure, and
+drawings stay in the CAD viewport and Feature Tree.
 
 ## Tool names
 
@@ -168,6 +169,73 @@ with `nuke_cad_applyImportBodies`.
   changed, preview again. Undo restores the previous document in this session.
 - Imported bodies are B-rep snapshots; their source surfaces are not editable. Replace or refresh the source instead.
 
+## Place assembly instances
+
+Use this flow when the user wants to add, remove, or reposition instances in an existing grounded assembly. The read-only
+summary works whenever a document is open and warns when it has no assembly; preview and apply are available only when
+`nuke_cad_previewAssemblyChange` is present, otherwise CAD AI authoring is off; point the user to **Settings → Nuke CAD →
+AI Authoring** and stop. The document must be saved.
+
+Start with `nuke_cad_summarizeAssembly` and pass no arguments. It returns the active document path, instances with
+their ids, part sources, placements (position, orientation, matrix), grounding, connectors, mates, selector solid ids,
+BOM quantities, and the overlap policy. Never guess an instance id, a part source, or a `body:<id>`.
+
+Call `nuke_cad_previewAssemblyChange` with one to sixteen actions. Each action is one of:
+
+```json
+{
+  "action": "addInstance",
+  "part": "body:3",
+  "placement": { "position": [0, 0, 10], "orientation": [0, 0, 0, 1] }
+}
+```
+
+```json
+{
+  "action": "addInstance",
+  "part": "<existing instance part>",
+  "id": "instance-4",
+  "placement": { "position": [5, 0, 0], "orientation": [0, 0, 0, 1] },
+  "scale": 1
+}
+```
+
+```json
+{ "action": "removeInstance", "instanceId": "instance-3" }
+```
+
+```json
+{
+  "action": "setPlacement",
+  "instanceId": "instance-2",
+  "placement": { "position": [0, 0, 20], "orientation": [0, 0, 0, 1] }
+}
+```
+
+- `addInstance` adds an instance from an existing `body:<id>` or by passing an existing instance's exact `part` value.
+  `placement` is required; `id` and a positive `scale` are optional, and an omitted id is generated.
+- `removeInstance` accepts only a non-grounded embedded-body instance (`body:<id>`) with no connector and no mate, and
+  at least one instance must remain. File-backed parts cannot be removed.
+- `setPlacement` sets only `placement` (position plus unit quaternion) on a grounded or unmated instance. Existing
+  mates, connectors, grounding, scale, part source, and names stay read-only.
+- Mates, connectors, grounding changes, mated placements, new external sources, part replacement, rename, scale
+  changes on an existing instance, single-part conversion, drawings, and MCP are out of scope.
+
+The preview runs a real candidate build and returns placement rows (instance, action, before/after position,
+orientation, and matrix), the BOM count delta, exact overlap warnings, and whether the document has `overlapCheck:
+false` (overlap warnings are disabled, not absent). It writes nothing.
+
+Review the rows, BOM delta, and overlap warnings before applying. Add and placement actions never require
+acknowledgement. Removing the last instance of a labeled embedded body requires region acknowledgement because its
+DAGMC region disappears; if the saved active OpenMC project references the removed group or material, **Apply** is
+blocked. An unsaved project is reported as not checked and still requires the acknowledgement. Apply never rewrites the
+OpenMC project.
+
+Call `nuke_cad_applyAssemblyChange` with `{ "proposalId", "acknowledgeRegionChanges": true }` only when the preview
+requested acknowledgement, and only after explicit confirmation. It re-runs the planner, rejects a stale proposal,
+writes a hidden backup, commits one store batch, schedules the rebuild, and returns an `undoToken`. Undo restores the
+previous instances in one commit. If the document changed after the preview, preview again instead of reusing the id.
+
 ## Inspect before export
 
 Always summarize the active document before calling `nuke_cad_exportDagmc`. The summary confirms that the model
@@ -225,10 +293,10 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 
 ## Boundaries
 
-- Do not author geometry beyond the scalar feature-edit, sketch-dimension, topology-impact, and import flows. New
-  sketch entities, scripts, document parameters not referenced by a sketch, booleans, add/delete/reorder, lattices,
-  assemblies, and drawings stay in the CAD viewport or Feature Tree.
-- Do not apply a feature, sketch, topology, or import change without an explicit confirmation, and never send CAD
-  authoring tools through MCP.
+- Do not author geometry beyond the scalar feature-edit, sketch-dimension, topology-impact, import, and
+  assembly-placement flows. New sketch entities, scripts, document parameters not referenced by a sketch, booleans,
+  body/feature add/delete/reorder, lattices, assembly structure, and drawings stay in the CAD viewport or Feature Tree.
+- Do not apply a feature, sketch, topology, import, or assembly change without an explicit confirmation, and never send
+  CAD authoring tools through MCP.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

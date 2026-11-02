@@ -28,12 +28,13 @@
 /**
  * Presentational CAD edit review panel.
  *
- * Renders NukeAI CAD edit proposals (feature-parameter, sketch-dimension, and
- * topology changes) with their document binding, parameter diff, build and
- * region impact, and Apply/Dismiss actions, plus the applied entries that can
- * still be undone in this session. The widget in `review-panel-widget.tsx` owns
- * all service interaction; this module stays a pure, hook-free function of its
- * props so it can be rendered in tests with `renderToStaticMarkup`.
+ * Renders NukeAI CAD edit proposals (feature-parameter, sketch-dimension,
+ * topology, import, and assembly-placement changes) with their document binding,
+ * plan or parameter diff, build and region impact, and Apply/Dismiss actions,
+ * plus the applied entries that can still be undone in this session. The widget
+ * in `review-panel-widget.tsx` owns all service interaction; this module stays a
+ * pure, hook-free function of its props so it can be rendered in tests with
+ * `renderToStaticMarkup`.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -45,6 +46,9 @@ import { NukeCheckbox } from 'nuke-essentials/lib/theme/browser/components/nuke-
 import { NukeEmptyState } from 'nuke-essentials/lib/theme/browser/components/nuke-empty-state';
 import { NukeFormRow, NukeSection } from 'nuke-essentials/lib/theme/browser/components/nuke-form';
 import { NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components/nuke-loading-overlay';
+import type { AssemblyBomDelta } from '../../../common/assembly-bom';
+import type { InstancePlacement } from '../../../common/assembly-document';
+import type { AssemblyPlacementPlan, AssemblyRemovedRegion } from '../../../common/cad-assembly-edit';
 import type { OpenmcReferenceSnapshot, OpenmcRegionBlocker } from '../../../common/openmc-region-references';
 import type { TopologyChangedRegion, TopologyImpact, TopologyRegionRef } from '../../../common/topology-impact';
 import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
@@ -97,6 +101,21 @@ export interface CadReviewTopologyContext {
     readonly openmcWarnings: readonly string[];
 }
 
+/** Placement, BOM, collision, and region impact attached to an assembly proposal. */
+export interface CadReviewAssemblyContext {
+    readonly placements: readonly AssemblyPlacementPlan[];
+    readonly bomDelta: AssemblyBomDelta;
+    readonly collisionWarnings: readonly string[];
+    readonly overlapCheck: boolean;
+    readonly removedSelectorKeys: readonly string[];
+    readonly removedRegions: readonly AssemblyRemovedRegion[];
+    readonly blockedRegions: readonly OpenmcRegionBlocker[];
+    readonly openmcStatus: OpenmcReferenceSnapshot['status'];
+    readonly openmcProjectPath?: string;
+    readonly openmcWarnings: readonly string[];
+    readonly requiresAcknowledgement: boolean;
+}
+
 /** One planned body/feature created by an import proposal. */
 export interface CadReviewImportBody {
     readonly name: string;
@@ -129,11 +148,12 @@ export interface CadReviewProposalView {
     readonly summary: string;
     readonly documentPath: string;
     readonly changes: readonly NukeChange[];
-    readonly scope?: 'features' | 'sketch' | 'topology' | 'import';
+    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly';
     readonly applyCapability?: string;
     readonly sketch?: CadReviewSketchContext;
     readonly topology?: CadReviewTopologyContext;
     readonly importContext?: CadReviewImportContext;
+    readonly assembly?: CadReviewAssemblyContext;
     readonly impact?: CadReviewImpact;
     readonly build?: CadReviewBuild;
 }
@@ -146,7 +166,7 @@ export interface CadReviewAppliedEntry {
     readonly detail?: string;
     /** Opaque `NukeUndoService` token; empty when the apply returned none. */
     readonly undoToken: string;
-    readonly scope?: 'features' | 'sketch' | 'topology' | 'import';
+    readonly scope?: 'features' | 'sketch' | 'topology' | 'import' | 'assembly';
 }
 
 /** Props for the pure review panel view. */
@@ -586,9 +606,16 @@ function ProposalCard(props: {
               ? 'Topology change'
               : proposal.scope === 'import'
                 ? 'Import bodies'
-                : 'Feature change';
-    const blocked = proposal.topology !== undefined && proposal.topology.blockedRegions.length > 0;
-    const requiresAcknowledgement = proposal.scope === 'topology' || proposal.topology?.impact.requiresAcknowledgement === true;
+                : proposal.scope === 'assembly'
+                  ? 'Assembly change'
+                  : 'Feature change';
+    const blocked =
+        (proposal.topology !== undefined && proposal.topology.blockedRegions.length > 0) ||
+        (proposal.assembly !== undefined && proposal.assembly.blockedRegions.length > 0);
+    const requiresAcknowledgement =
+        proposal.scope === 'topology' ||
+        proposal.topology?.impact.requiresAcknowledgement === true ||
+        (proposal.scope === 'assembly' && proposal.assembly?.requiresAcknowledgement === true);
     const applyDisabled = props.applying || blocked || (requiresAcknowledgement && !props.acknowledged);
     return (
         <NukeSection
@@ -599,6 +626,7 @@ function ProposalCard(props: {
                     {proposal.summary.length > 0 ? proposal.summary : fallbackTitle}
                     {proposal.scope === 'topology' && <NukeBadge className="cad-review-topology-badge">Topology</NukeBadge>}
                     {proposal.scope === 'import' && <NukeBadge className="cad-review-import-badge">Import</NukeBadge>}
+                    {proposal.scope === 'assembly' && <NukeBadge className="cad-review-assembly-badge">Assembly</NukeBadge>}
                 </span>
             }
         >
@@ -608,7 +636,15 @@ function ProposalCard(props: {
             </div>
             {proposal.sketch !== undefined && <SketchContext sketch={proposal.sketch} />}
             {proposal.scope === 'import' && proposal.importContext !== undefined && <ImportPlan context={proposal.importContext} />}
-            {proposal.scope !== 'import' && (
+            {proposal.scope === 'assembly' && proposal.assembly !== undefined && (
+                <AssemblyPlan
+                    proposalId={proposal.id}
+                    context={proposal.assembly}
+                    acknowledged={props.acknowledged}
+                    onAcknowledge={props.onAcknowledge}
+                />
+            )}
+            {proposal.scope !== 'import' && proposal.scope !== 'assembly' && (
                 <div className="cad-review-changes">
                     {proposal.changes.map((change, index) => (
                         <NukeFormRow key={`${index}-${change.path}`} label={change.label} className="cad-review-change-row">
@@ -675,7 +711,9 @@ function AppliedSection(props: {
                                           ? 'Topology change'
                                           : entry.scope === 'import'
                                             ? 'CAD import'
-                                            : 'Feature parameter'}
+                                            : entry.scope === 'assembly'
+                                              ? 'Assembly change'
+                                              : 'Feature parameter'}
                                 </span>
                                 <span className="cad-review-applied-detail">
                                     {entry.detail ?? (entry.summary.length > 0 ? entry.summary : 'CAD edit')}
@@ -696,6 +734,200 @@ function AppliedSection(props: {
                 );
             })}
         </NukeSection>
+    );
+}
+
+const ASSEMBLY_KIND_LABELS: Readonly<Record<AssemblyPlacementPlan['kind'], string>> = {
+    add: 'Add',
+    remove: 'Remove',
+    place: 'Place'
+};
+
+/** Compact placement line; raw matrices show their translation, never 16 numbers. */
+function formatAssemblyPlacement(placement: InstancePlacement): string {
+    if ('matrix' in placement) {
+        const matrix = placement.matrix;
+        return `Position ${formatPoint([matrix[3], matrix[7], matrix[11]])}`;
+    }
+    return `Position ${formatPoint(placement.position)} \u00b7 Orientation ${formatPoint(placement.orientation)}`;
+}
+
+function AssemblyPlacementRow(props: { readonly plan: AssemblyPlacementPlan }): React.ReactElement {
+    const plan = props.plan;
+    const before = plan.before;
+    const after = plan.after;
+    const snapshot = after ?? before;
+    const solidIds = snapshot?.solidIds ?? [];
+    return (
+        <div className={`cad-review-assembly-row is-${plan.kind}`}>
+            <div className="cad-review-assembly-row-head">
+                <span className={`cad-review-assembly-kind is-${plan.kind}`}>{ASSEMBLY_KIND_LABELS[plan.kind]}</span>
+                <span className="cad-review-assembly-instance">{plan.instanceId}</span>
+                <span className="cad-review-assembly-part">{plan.part}</span>
+            </div>
+            {plan.kind === 'place' && before !== undefined && after !== undefined && (
+                <div className="cad-review-assembly-placement">
+                    <span className="cad-review-assembly-before">{formatAssemblyPlacement(before.placement)}</span>
+                    <span className="cad-review-assembly-arrow" aria-hidden="true">
+                        {'\u2192'}
+                    </span>
+                    <span className="cad-review-assembly-after">{formatAssemblyPlacement(after.placement)}</span>
+                </div>
+            )}
+            {plan.kind !== 'place' && snapshot !== undefined && (
+                <div className="cad-review-assembly-placement">
+                    <span className={plan.kind === 'remove' ? 'cad-review-assembly-before' : 'cad-review-assembly-after'}>
+                        {formatAssemblyPlacement(snapshot.placement)}
+                    </span>
+                </div>
+            )}
+            {solidIds.length > 0 && <span className="cad-review-assembly-solids">{pluralize(solidIds.length, 'solid')}</span>}
+        </div>
+    );
+}
+
+function AssemblyBomDeltaTable(props: { readonly delta: AssemblyBomDelta }): React.ReactElement {
+    const delta = props.delta;
+    const hasChanges = delta.rows.some((row) => row.delta !== 0);
+    return (
+        <div className="cad-review-assembly-bom">
+            <span className="cad-review-assembly-section-title">Bill of materials</span>
+            {!hasChanges ? (
+                <span className="cad-review-assembly-bom-none">No quantity change</span>
+            ) : (
+                <>
+                    {delta.rows.map((row) => {
+                        const direction = row.delta > 0 ? 'is-increase' : row.delta < 0 ? 'is-decrease' : 'is-none';
+                        return (
+                            <div key={row.part} className="cad-review-assembly-bom-row">
+                                <span className="cad-review-assembly-part">{row.part}</span>
+                                <span className="cad-review-assembly-bom-counts">
+                                    {`${formatNumber(row.before)} \u2192 ${formatNumber(row.after)}`}
+                                </span>
+                                <NukeBadge className={`cad-review-assembly-delta ${direction}`}>
+                                    {row.delta > 0 ? `+${row.delta}` : String(row.delta)}
+                                </NukeBadge>
+                            </div>
+                        );
+                    })}
+                    <span className="cad-review-assembly-bom-total">
+                        {`Total instances ${formatNumber(delta.beforeTotal)} \u2192 ${formatNumber(delta.afterTotal)}`}
+                    </span>
+                </>
+            )}
+        </div>
+    );
+}
+
+function AssemblyCollisions(props: { readonly context: CadReviewAssemblyContext }): React.ReactElement {
+    const context = props.context;
+    return (
+        <div className="cad-review-assembly-collisions">
+            <span className="cad-review-assembly-section-title">Collision warnings</span>
+            {!context.overlapCheck ? (
+                <p className="cad-review-assembly-overlap is-muted">Instance overlap checks are disabled for this document.</p>
+            ) : context.collisionWarnings.length > 0 ? (
+                <ul className="cad-review-assembly-collision-list">
+                    {context.collisionWarnings.map((warning, index) => (
+                        <li key={`${index}-${warning}`}>{warning}</li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="cad-review-assembly-overlap is-muted">No instance collisions detected.</p>
+            )}
+        </div>
+    );
+}
+
+function AssemblyRemovedRegions(props: {
+    readonly proposalId: string;
+    readonly context: CadReviewAssemblyContext;
+    readonly acknowledged: boolean;
+    readonly onAcknowledge?: (proposalId: string, acknowledged: boolean) => void;
+}): React.ReactElement {
+    const context = props.context;
+    const firstBlocker = context.blockedRegions[0];
+    return (
+        <div className="cad-review-assembly-regions" role="group" aria-label="Assembly region impact">
+            <span className="cad-review-assembly-section-title">Region impact</span>
+            {context.removedSelectorKeys.length > 0 && (
+                <div className="cad-review-assembly-region-block">
+                    <span className="cad-review-assembly-region-label">Removed selectors</span>
+                    <ul className="cad-review-assembly-region-keys">
+                        {context.removedSelectorKeys.map((key) => (
+                            <li key={key} className="cad-review-region-selector">
+                                {key}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+            {context.removedRegions.map((region) => (
+                <div key={`${region.group}:${region.selector}`} className="cad-review-region-row cad-review-region-removed">
+                    <span className="cad-review-region-selector">{region.selector}</span>
+                    <span className="cad-review-region-group">{region.group}</span>
+                    <span className="cad-review-assembly-region-material">{region.material ?? 'No material tag'}</span>
+                </div>
+            ))}
+            {firstBlocker !== undefined ? (
+                <p className="cad-review-assembly-openmc is-error" role="alert">
+                    {`${firstBlocker.message} Update the OpenMC project first; apply stays blocked until reference '${firstBlocker.reference}' is removed.`}
+                </p>
+            ) : context.openmcStatus === 'no-saved-project' ? (
+                <p className="cad-review-assembly-openmc is-warning">
+                    OpenMC references were not checked because no saved OpenMC project is active.
+                </p>
+            ) : context.openmcStatus === 'saved-project' ? (
+                <p className="cad-review-assembly-openmc is-muted">{`OpenMC: ${
+                    context.openmcProjectPath !== undefined ? documentBasename(context.openmcProjectPath) : 'the saved OpenMC project'
+                } \u00b7 checked against the saved project file`}</p>
+            ) : (
+                <p className="cad-review-assembly-openmc is-warning">
+                    {context.openmcWarnings[0] ?? 'OpenMC references could not be checked for this change.'}
+                </p>
+            )}
+            <NukeCheckbox
+                className="cad-review-assembly-ack"
+                checked={props.acknowledged}
+                onChange={(checked) => props.onAcknowledge?.(props.proposalId, checked)}
+                ariaLabel="Acknowledge assembly region impact"
+            >
+                <span className="cad-review-assembly-ack-label">I understand the region impact</span>
+            </NukeCheckbox>
+        </div>
+    );
+}
+
+/** Placement rows, BOM delta, collision warnings, and optional removal acknowledgement. */
+function AssemblyPlan(props: {
+    readonly proposalId: string;
+    readonly context: CadReviewAssemblyContext;
+    readonly acknowledged: boolean;
+    readonly onAcknowledge?: (proposalId: string, acknowledged: boolean) => void;
+}): React.ReactElement {
+    const context = props.context;
+    return (
+        <div className="cad-review-assembly" role="group" aria-label="Assembly plan">
+            <span className="cad-review-assembly-section-title">Assembly plan</span>
+            <div className="cad-review-assembly-rows">
+                {context.placements.map((plan) => (
+                    <AssemblyPlacementRow key={`${plan.kind}:${plan.instanceId}`} plan={plan} />
+                ))}
+            </div>
+            <AssemblyBomDeltaTable delta={context.bomDelta} />
+            <AssemblyCollisions context={context} />
+            <p className="cad-review-assembly-note">
+                Ghost highlighting uses positional solid matching for repeated body ids; treat per-instance highlights as approximate.
+            </p>
+            {context.requiresAcknowledgement && (
+                <AssemblyRemovedRegions
+                    proposalId={props.proposalId}
+                    context={context}
+                    acknowledged={props.acknowledged}
+                    onAcknowledge={props.onAcknowledge}
+                />
+            )}
+        </div>
     );
 }
 

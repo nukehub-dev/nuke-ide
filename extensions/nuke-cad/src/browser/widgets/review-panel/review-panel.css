@@ -483,6 +483,260 @@
     line-height: 1.35;
 }
 
+/* Assembly plan: placement rows, BOM delta, collisions, and removal acknowledgement. */
+.cad-review-assembly {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-sideBarSectionHeader-border, var(--theia-panel-border));
+    border-radius: 4px;
+    background: var(--theia-sideBarSectionHeader-background, var(--theia-editorWidget-background));
+}
+
+.cad-review-assembly-badge {
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 10px;
+    vertical-align: middle;
+}
+
+.cad-review-assembly-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cad-review-assembly-row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 3px 6px;
+    border-left: 2px solid transparent;
+    border-radius: 3px;
+    background: var(--theia-editorWidget-background);
+    font-size: 11px;
+}
+
+.cad-review-assembly-row.is-add {
+    border-left-color: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successForeground));
+}
+
+.cad-review-assembly-row.is-remove {
+    border-left-color: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorForeground));
+}
+
+.cad-review-assembly-row.is-place {
+    border-left-color: var(--theia-gitDecoration-modifiedResourceForeground, var(--theia-editorWarning-foreground));
+}
+
+.cad-review-assembly-row-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+}
+
+.cad-review-assembly-kind {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-kind.is-add {
+    color: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successForeground));
+}
+
+.cad-review-assembly-kind.is-remove {
+    color: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorForeground));
+}
+
+.cad-review-assembly-kind.is-place {
+    color: var(--theia-gitDecoration-modifiedResourceForeground, var(--theia-editorWarning-foreground));
+}
+
+.cad-review-assembly-instance {
+    overflow-wrap: anywhere;
+    font-weight: 600;
+}
+
+.cad-review-assembly-part {
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-placement {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cad-review-assembly-before {
+    color: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorForeground));
+    text-decoration: line-through;
+}
+
+.cad-review-assembly-arrow {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-after {
+    overflow-wrap: anywhere;
+    color: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successForeground));
+    font-weight: 600;
+}
+
+.cad-review-assembly-solids {
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-bom,
+.cad-review-assembly-collisions,
+.cad-review-assembly-regions {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cad-review-assembly-bom-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    font-size: 11px;
+}
+
+.cad-review-assembly-bom-counts {
+    font-variant-numeric: tabular-nums;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-bom-none,
+.cad-review-assembly-bom-total {
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-delta {
+    padding: 0 5px;
+    font-size: 10px;
+}
+
+.cad-review-assembly-delta.is-increase {
+    background: var(--theia-gitDecoration-addedResourceForeground, var(--theia-badge-background));
+    color: var(--theia-badge-foreground);
+}
+
+.cad-review-assembly-delta.is-decrease {
+    background: var(--theia-inputValidation-errorBackground, var(--theia-badge-background));
+    color: var(--theia-errorForeground);
+}
+
+.cad-review-assembly-delta.is-none {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-overlap {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    line-height: 1.35;
+}
+
+.cad-review-assembly-overlap.is-muted {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-collision-list {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-review-assembly-collision-list li {
+    overflow-wrap: anywhere;
+}
+
+.cad-review-assembly-region-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cad-review-assembly-region-label {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-region-keys {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 10px;
+    line-height: 1.35;
+}
+
+.cad-review-assembly-region-keys li {
+    overflow-wrap: anywhere;
+}
+
+.cad-review-assembly-region-material {
+    overflow-wrap: anywhere;
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-openmc {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.cad-review-assembly-openmc.is-error {
+    color: var(--theia-errorForeground);
+}
+
+.cad-review-assembly-openmc.is-warning {
+    color: var(--theia-editorWarning-foreground);
+}
+
+.cad-review-assembly-openmc.is-muted {
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-assembly-ack {
+    align-items: flex-start;
+    margin-top: 1px;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.cad-review-assembly-ack-label {
+    font-size: 11px;
+    line-height: 1.35;
+}
+
 .cad-review-bbox,
 .cad-review-build {
     overflow-wrap: anywhere;
@@ -570,4 +824,11 @@
 
 .cad-review-empty {
     margin-top: 4px;
+}
+
+.cad-review-assembly-note {
+    margin: 4px 0 0;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--theia-descriptionForeground);
 }

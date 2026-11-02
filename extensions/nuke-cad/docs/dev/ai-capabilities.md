@@ -7,14 +7,15 @@ read the same `NukeCapability` objects without importing CAD widgets.
 The implementation lives in
 `src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and
 `src/browser/capabilities/nuke-cad-authoring-capabilities.ts` (the gated
-feature, sketch, topology, and import authoring slices):
+feature, sketch, topology, import, and assembly-placement authoring slices):
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
   the read/export capabilities below.
 - `NukeCadAuthoringCapabilities` registers the feature preview/apply pair, the
-  sketch dimension list/preview/apply trio, the topology preview/apply pair, and
-  the import inspect/preview/apply trio. All authoring capabilities are
-  default-off behind `nukeCad.aiAuthoringEnabled`.
+  sketch dimension list/preview/apply trio, the topology preview/apply pair,
+  the import inspect/preview/apply trio, and the assembly
+  summary/preview/apply trio. All authoring capabilities are default-off behind
+  `nukeCad.aiAuthoringEnabled`.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
   `NukeCadAuthoringContextContribution` additionally refreshes the tool set when
@@ -24,30 +25,34 @@ feature, sketch, topology, and import authoring slices):
 
 The handlers never reimplement geometry or export logic. Summaries read the
 active `NukeCadStateManager` model; export delegates to
-`NukeCadFrontendService.buildDocument` or `buildGeometry`; feature, sketch, and
-topology previews build a transient candidate document through the same
-`buildDocument` path; import inspection delegates to the read-only
+`NukeCadFrontendService.buildDocument` or `buildGeometry`; feature, sketch,
+topology, and assembly previews build a transient candidate document through the
+same `buildDocument` path; import inspection delegates to the read-only
 `inspectImportSource` RPC and import apply commits through
-`CadDocumentStore.addImportBodies`.
+`CadDocumentStore.addImportBodies`; assembly apply commits one
+`applyAssemblyChanges` batch through `CadDocumentStore`.
 
 ## Capabilities
 
-| ID                               | Risk      | Active model required | Purpose                                                              |
-| -------------------------------- | --------- | --------------------- | -------------------------------------------------------------------- |
-| `nuke.cad.summarizeDocument`     | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries               |
-| `nuke.cad.inspectSelection`      | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids                 |
-| `nuke.cad.diagnoseModel`         | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings          |
-| `nuke.cad.listSketchDimensions`  | `read`    | Document only         | Document parameters and per-sketch dimensions, datums, consumers     |
-| `nuke.cad.previewFeatureChange`  | `read`    | Yes, saved            | Validate scalar feature edits with a real build and diff them        |
-| `nuke.cad.applyFeatureChange`    | `execute` | Yes, saved            | Apply a previewed proposal, rebuild, and register undo               |
-| `nuke.cad.previewSketchChange`   | `read`    | Yes, saved            | Validate sketch-dimension or parameter edits with a real build       |
-| `nuke.cad.applySketchChange`     | `execute` | Yes, saved            | Apply a sketch proposal atomically, rebuild, and register undo       |
-| `nuke.cad.previewTopologyChange` | `read`    | Yes, saved            | Preview hole depth-mode or pattern-count edits with region impact    |
-| `nuke.cad.applyTopologyChange`   | `execute` | Yes, saved            | Apply a topology proposal exactly, rebuild, and register undo        |
-| `nuke.cad.inspectImportSource`   | `read`    | Yes, saved            | Inspect a user-chosen STEP/IGES/BREP source without building         |
-| `nuke.cad.previewImportBodies`   | `read`    | Yes, saved            | Plan imported bodies and open review without a build or write        |
-| `nuke.cad.applyImportBodies`     | `execute` | Yes, saved            | Re-inspect the source, add import bodies, rebuild, and register undo |
-| `nuke.cad.exportDagmc`           | `execute` | No                    | Build a source file and export DAGMC + region manifest               |
+| ID                               | Risk      | Active model required  | Purpose                                                               |
+| -------------------------------- | --------- | ---------------------- | --------------------------------------------------------------------- |
+| `nuke.cad.summarizeDocument`     | `read`    | Yes                    | Build counts, selection, manifest, and solid summaries                |
+| `nuke.cad.inspectSelection`      | `read`    | Yes                    | Primary solid, selected solids, and hidden solid ids                  |
+| `nuke.cad.diagnoseModel`         | `read`    | Yes                    | Build, manifest, selection, and per-solid geometry findings           |
+| `nuke.cad.listSketchDimensions`  | `read`    | Document only          | Document parameters and per-sketch dimensions, datums, consumers      |
+| `nuke.cad.previewFeatureChange`  | `read`    | Yes, saved             | Validate scalar feature edits with a real build and diff them         |
+| `nuke.cad.applyFeatureChange`    | `execute` | Yes, saved             | Apply a previewed proposal, rebuild, and register undo                |
+| `nuke.cad.previewSketchChange`   | `read`    | Yes, saved             | Validate sketch-dimension or parameter edits with a real build        |
+| `nuke.cad.applySketchChange`     | `execute` | Yes, saved             | Apply a sketch proposal atomically, rebuild, and register undo        |
+| `nuke.cad.previewTopologyChange` | `read`    | Yes, saved             | Preview hole depth-mode or pattern-count edits with region impact     |
+| `nuke.cad.applyTopologyChange`   | `execute` | Yes, saved             | Apply a topology proposal exactly, rebuild, and register undo         |
+| `nuke.cad.inspectImportSource`   | `read`    | Yes, saved             | Inspect a user-chosen STEP/IGES/BREP source without building          |
+| `nuke.cad.previewImportBodies`   | `read`    | Yes, saved             | Plan imported bodies and open review without a build or write         |
+| `nuke.cad.applyImportBodies`     | `execute` | Yes, saved             | Re-inspect the source, add import bodies, rebuild, and register undo  |
+| `nuke.cad.summarizeAssembly`     | `read`    | Document only          | Instances, parts, placements, grounding, selector ids, BOM, policy    |
+| `nuke.cad.previewAssemblyChange` | `read`    | Yes, grounded assembly | Preview add, remove, or placement actions with a real candidate build |
+| `nuke.cad.applyAssemblyChange`   | `execute` | Yes, saved             | Re-run the planner, commit one assembly batch, rebuild, and undo      |
+| `nuke.cad.exportDagmc`           | `execute` | No                     | Build a source file and export DAGMC + region manifest                |
 
 ### `nuke.cad.summarizeDocument`
 
@@ -203,7 +208,9 @@ params, restores the before params in one batch, and schedules the rebuild.
 The full design and its remaining security gates are documented in
 [Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Script,
 free-form sketch creation, new sketch entities/constraints/dimensions, topology changes beyond the two topology actions
-below, and editing or replacing an existing import source remain out of scope.
+below, assembly structure beyond placement (mates, connectors, grounding, mated placements, file-backed removal, scale,
+part replacement, rename, new external sources, or single-part conversion), and editing or replacing an existing import
+source remain out of scope.
 
 ## Sketch authoring (gated)
 
@@ -337,23 +344,105 @@ scheduled and a session-scoped undo token removes the added bodies and features 
 the source file. None of the three import ids is on the external MCP read-only allowlist, and the AI flow accepts no
 outside-root path or download URL.
 
+## Assembly placement authoring (gated)
+
+Assembly authoring uses the same switch and saved-document requirement for preview and apply; the read-only summary is
+available whenever a document is open. It edits an **existing grounded assembly** and never creates one, changes
+grounding, or authors mates or connectors. The three ids are:
+
+- `nuke.cad.summarizeAssembly` is read-only and works on the active document; without an assembly it warns and returns
+  empty instance/BOM lists. It returns `documentPath`, `hasAssembly`, `instances` (id, part source, optional scale,
+  placement, solved matrix, and selector solid ids), `bom` quantity per part/label, `groundedInstanceId`, `overlapCheck`,
+  `connectors` (id and instance id), `mates` (id, type, and instance ids), and `warnings`. It works even while the
+  authoring switch is off and never builds or mutates.
+- `nuke.cad.previewAssemblyChange` accepts one to sixteen actions and runs a real candidate build.
+- `nuke.cad.applyAssemblyChange` accepts only a proposal id plus the conditional acknowledgement and commits one
+  `applyAssemblyChanges` batch.
+
+Actions:
+
+```json
+{
+  "changes": [
+    {
+      "action": "addInstance",
+      "part": "body:3",
+      "placement": { "position": [0, 0, 10], "orientation": [0, 0, 0, 1] }
+    },
+    {
+      "action": "addInstance",
+      "part": "<existing instance part>",
+      "id": "instance-4",
+      "placement": { "position": [5, 0, 0], "orientation": [0, 0, 0, 1] },
+      "scale": 1
+    },
+    { "action": "removeInstance", "instanceId": "instance-3" },
+    {
+      "action": "setPlacement",
+      "instanceId": "instance-2",
+      "placement": { "position": [0, 0, 20], "orientation": [0, 0, 0, 1] }
+    }
+  ]
+}
+```
+
+- `addInstance` references an existing embedded `body:<id>` or passes the exact `part` string of an existing instance.
+  `placement` (position plus unit quaternion) is required; `id` and a positive uniform or per-axis `scale` are optional.
+  It never introduces a new external source.
+- `removeInstance` accepts only a non-grounded instance whose part is an embedded body and that has no connector and no
+  mate. At least one instance must remain. File-backed parts cannot be removed.
+- `setPlacement` writes only `placement` on a grounded or unmated instance. Existing scale, part source, names, mates,
+  and connectors stay read-only.
+- Unknown or duplicate targets, unsupported parts, grounding changes, connector/mate-dependent removals, a final count
+  below one, and more than sixteen actions reject the whole request before a build.
+
+The preview writes a transient candidate beside the source and runs the same display build path with
+`exportDagmc: false`, `exportMesh: false`, `useCache: false`, a bounded timeout, and `finally` cleanup. Validation
+requires a successful build, no failed features, finite solid/tessellation/bounding-box metrics, selector prefixes that
+belong to the final instance ids, and the expected labeled keys for an added instance. The result reports placement rows
+(instance, action, before/after position, orientation, and matrix), the BOM count delta, the exact instance-overlap
+warnings, and a limitation warning instead of a clean result when the document sets `overlapCheck: false`. Repeated
+body ids make the published ghost approximate; the result says so. The data carries `assembly.placements`,
+`assembly.bomDelta` (`rows`, `beforeTotal`, `afterTotal`, and grounding), `assembly.collisionWarnings`,
+`assembly.overlapCheck`, `assembly.requiresAcknowledgement`, `blockedRegions`, `openmcStatus`, `openmcWarnings`, and the
+candidate `build` summary.
+
+Region impact is conditional. Adding an instance and changing a placement never require acknowledgement. Removing the
+last instance of a labeled embedded body removes its DAGMC region, so the preview checks the **saved** active OpenMC
+project's group and material references and requires acknowledgement. A removed group or material still referenced
+blocks Apply; an unsaved project is reported as **not checked** and still requires acknowledgement. Apply never rewrites
+the OpenMC project.
+
+`nuke.cad.applyAssemblyChange` accepts only `{ "proposalId", "acknowledgeRegionChanges"? }`, where the acknowledgement
+is required only when the preview asked for it. It re-runs the pure planner against the current document, compares the
+stored assembly section and action rows, and rejects a stale proposal, revision, or epoch. It then writes a backup,
+clears the selection when an instance is removed, commits one `applyAssemblyChanges` store batch, schedules
+`nuke.cad.rebuild`, and registers a session-scoped undo token. Undo restores the previous instances and grounding in one
+commit. None of the three assembly ids is on the external MCP read-only allowlist; no new source path, part
+replacement, rename, scale change on an existing instance, grounded-instance removal, or single-part conversion is
+accepted.
+
 ## Review panel and ghost preview
 
-A successful feature, sketch, or topology preview also publishes the candidate
+A successful feature, sketch, topology, or assembly preview also publishes the candidate
 tessellation to `NukeCadGhostPreviewService` and reveals the **CAD Edit Review**
 panel. The viewport renders the candidate as a translucent `cad-ghost` group:
 unchanged solids use a cool ghost material, changed solids use a warmer accent.
 The group is scene-level, so a real model rebuild never disposes it, and it is
 hidden in sketch mode. The ghost is display-only and never participates in
 picking, selection, explode, fit, or the document store. An import preview opens
-the same panel without a ghost because it builds no candidate geometry.
+the same panel without a ghost because it builds no candidate geometry. An
+assembly preview with repeated body ids labels the ghost approximate.
 
 The panel (`CadReviewPanelWidget`, command `nuke.cad.openReviewPanel`) lists the
-stored feature, sketch, topology, and import proposals with the same `changeSet`
+stored feature, sketch, topology, import, and assembly proposals with the same `changeSet`
 rows, the solid/face/triangle impact, and the build counts. An import proposal
 shows the source path, format, hash, size, units, selected solids, strategy,
 body/feature count, label/material plan, and self-contained warning instead of a
-geometry impact. A sketch proposal also
+geometry impact. An assembly proposal adds placement rows (instance, action,
+before/after position, orientation, and matrix), the instance/BOM count delta,
+exact overlap warnings, the `overlapCheck: false` disclosure, and an approximate
+ghost label for repeated body ids. A sketch proposal also
 shows its target sketch, affected-sketch count, parameter/dimension rows, and
 per-sketch solver status (converged/failed, DOF, conflicting and redundant
 counts). A topology proposal shows a **Region impact** section with added,
@@ -362,9 +451,12 @@ requires the region acknowledgement checkbox before **Apply** is enabled; a
 removed region still referenced by the saved active OpenMC project disables
 Apply with **Blocked by OpenMC** and the blocking reference named, and an
 unsaved project is labelled not checked. The checkbox reads **I understand the
-solid and region impact**. **Apply** confirms, resolves the proposal's apply capability
+solid and region impact**. Assembly proposals show the same section only when a
+removal loses the last instance of a labeled embedded body. **Apply** confirms,
+resolves the proposal's apply capability
 (`nuke.cad.applyFeatureChange`, `nuke.cad.applySketchChange`,
-`nuke.cad.applyTopologyChange`, or `nuke.cad.applyImportBodies`) from the
+`nuke.cad.applyTopologyChange`, `nuke.cad.applyImportBodies`, or
+`nuke.cad.applyAssemblyChange`) from the
 capability registry, and keeps the
 returned undo token for **Undo**. **Dismiss** removes the proposal; the ghost
 service clears the overlay when the backing proposal disappears. The panel
@@ -385,6 +477,10 @@ and a 256 MiB size cap. A path inside the document's own `<stem>.parts/` folder,
 or a source this session already inspected, may be inspected without reopening
 the picker; any other workspace path is only a hint and reopens it. The AI flow
 never downloads or copies the source.
+
+Assembly authoring accepts no new path at all. Instance actions may reference an existing embedded `body:<id>` or
+duplicate an existing instance part; removal accepts only an existing embedded-body instance. A file-backed part, a new
+external source, a replacement part, or a rename is rejected.
 
 Paths are normalized with `path.resolve` after the scope check, so the backend
 and the manifest probe see the same canonical path. Manifest candidates are

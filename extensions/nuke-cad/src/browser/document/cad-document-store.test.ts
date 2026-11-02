@@ -3649,6 +3649,119 @@ describe('edit revision', () => {
     });
 });
 
+describe('applyAssemblyChanges batch (atomic assembly edits)', () => {
+    function batchStore(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('assembly-batch');
+        return store;
+    }
+
+    function groundedPair(store: CadDocumentStore): void {
+        const baseBody = store.addBody('Base', 'base').value!;
+        const armBody = store.addBody('Arm', 'arm').value!;
+        store.addAssemblyInstances(
+            [
+                { id: 'base', part: `body:${baseBody}`, placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } },
+                { id: 'arm', part: `body:${armBody}`, placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] } }
+            ],
+            'base'
+        );
+    }
+
+    it('applies add/remove/place in one commit with one change event and one undo step', () => {
+        const store = batchStore();
+        const baseBody = store.addBody('Base', 'base').value!;
+        const armBody = store.addBody('Arm', 'arm').value!;
+        store.addAssemblyInstances(
+            [
+                { id: 'base', part: `body:${baseBody}`, placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } },
+                { id: 'arm', part: `body:${armBody}`, placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] } }
+            ],
+            'base'
+        );
+        const before = JSON.stringify(store.document);
+        const revision = store.revision;
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const result = store.applyAssemblyChanges({
+            actions: [
+                {
+                    action: 'addInstance',
+                    id: 'arm-2',
+                    part: `body:${armBody}`,
+                    placement: { position: [40, 0, 0], orientation: [0, 0, 0, 1] }
+                },
+                { action: 'removeInstance', instanceId: 'arm' },
+                { action: 'setPlacement', instanceId: 'base', placement: { position: [2, 0, 0], orientation: [0, 0, 0, 1] } }
+            ]
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.value).toEqual({
+            instanceIds: ['arm-2'],
+            removedInstanceIds: ['arm'],
+            groundedInstanceId: 'base'
+        });
+        expect(changes).toBe(1);
+        expect(store.revision).toBe(revision + 1);
+        const assembly = getAssemblySection(store.document!)!;
+        expect(assembly.instances.map((instance) => instance.id)).toEqual(['base', 'arm-2']);
+        expect(assembly.instances.find((instance) => instance.id === 'base')?.placement).toEqual({
+            position: [2, 0, 0],
+            orientation: [0, 0, 0, 1]
+        });
+        expect(assembly.instances.find((instance) => instance.id === 'arm-2')?.placement).toEqual({
+            position: [40, 0, 0],
+            orientation: [0, 0, 0, 1]
+        });
+        expect(assembly.groundedInstanceId).toBe('base');
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+
+        expect(store.undo().success).toBe(true);
+        expect(JSON.stringify(store.document)).toBe(before);
+    });
+
+    it('rejects the whole batch without mutating the document or history', () => {
+        const store = batchStore();
+        const baseBody = store.addBody('Base', 'base').value!;
+        const armBody = store.addBody('Arm', 'arm').value!;
+        store.addAssemblyInstances(
+            [
+                { id: 'base', part: `body:${baseBody}`, placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } },
+                { id: 'arm', part: `body:${armBody}`, placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] } }
+            ],
+            'base'
+        );
+        const before = JSON.stringify(store.document);
+        const revision = store.revision;
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const result = store.applyAssemblyChanges({ actions: [{ action: 'removeInstance', instanceId: 'base' }] });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('grounded');
+        expect(changes).toBe(0);
+        expect(store.revision).toBe(revision);
+        expect(JSON.stringify(store.document)).toBe(before);
+        expect(store.undo().success).toBe(true);
+        expect(JSON.stringify(store.document)).not.toBe(before);
+    });
+
+    it('rejects an empty action list', () => {
+        const store = batchStore();
+        groundedPair(store);
+        const before = JSON.stringify(store.document);
+
+        const result = store.applyAssemblyChanges({ actions: [] });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No assembly edit actions');
+        expect(JSON.stringify(store.document)).toBe(before);
+    });
+});
+
 describe('CadDocumentStore example projects', () => {
     it('installs a sample as a dirty, unsaved document that validates', () => {
         const store = new CadDocumentStore();

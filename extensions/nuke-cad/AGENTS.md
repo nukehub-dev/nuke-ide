@@ -114,20 +114,29 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   commands. `nuke.cad.diagnoseModel` reports build, manifest, selection, and per-solid
   findings without rebuilding. The gated `nuke-cad-authoring-capabilities.ts` previews and applies scalar feature
   edits, existing sketch driving dimensions or document parameters a sketch references, topology-impacting hole
-  blind/through or linear/circular pattern counts, and imported STEP/IGES/BREP bodies through the document store; it is
-  default-off (`nukeCad.aiAuthoringEnabled`) and requires a saved document. Parameter-bound dimensions cascade to every
-  affected sketch and curve, a sketch apply commits the parameter and all sketches atomically, and a topology apply
-  replaces exact params in one commit (removing a blind hole's `depth` key), reports solid/region impact, and checks the
-  saved active OpenMC project's DAGMC references and requires region acknowledgement. Imports use a user-chosen source:
-  `inspectImportSource` returns format/size/hash/units/solids, `previewImportBodies` is plan-only (no build or ghost)
-  and opens the review panel with a one-to-N-body plan, and `applyImportBodies` re-inspects the source, rejects stale
-  hash/size/selection/plan, writes a backup, and commits one `addImportBodies`; the source must be in a workspace root,
-  a regular file (no symlink), a supported extension, and at most 256 MiB, and the AI flow never downloads or copies it.
-  Booleans, add/delete/reorder, lattices, new sketch entities/constraints/dimensions, scripts, assemblies, drawings, and
-  MCP stay excluded. A successful feature, sketch, or topology preview publishes the candidate tessellation to
-  `NukeCadGhostPreviewService` and reveals the **CAD Edit Review** panel; the panel applies the same capability and the
-  viewport renders the candidate in the scene-level `cad-ghost` group only. Import preview shows the plan without a
-  ghost. See `docs/dev/ai-capabilities.md`.
+  blind/through or linear/circular pattern counts, imported STEP/IGES/BREP bodies, and placement-only actions on an
+  existing grounded assembly through the document store (the assembly summary stays read-only); it is default-off
+  (`nukeCad.aiAuthoringEnabled`) and requires a saved document. Parameter-bound dimensions cascade to every affected sketch and curve, a sketch apply commits the
+  parameter and all sketches atomically, and a topology apply replaces exact params in one commit (removing a blind
+  hole's `depth` key), reports solid/region impact, and checks the saved active OpenMC project's DAGMC references and
+  requires region acknowledgement. Imports use a user-chosen source: `inspectImportSource` returns
+  format/size/hash/units/solids, `previewImportBodies` is plan-only (no build or ghost) and opens the review panel with a
+  one-to-N-body plan, and `applyImportBodies` re-inspects the source, rejects stale hash/size/selection/plan, writes a
+  backup, and commits one `addImportBodies`; the source must be in a workspace root, a regular file (no symlink), a
+  supported extension, and at most 256 MiB, and the AI flow never downloads or copies it. Assembly authoring summarizes
+  instances/parts/placements/grounding/selector ids/BOM/overlap policy, previews 1-16 add/remove/setPlacement actions with
+  a real candidate build, placement rows, BOM delta, exact overlap warnings, and `overlapCheck:false`, and applies one
+  `applyAssemblyChanges` batch; it adds only an existing `body:<id>` or reuses an existing instance part, removes only a
+  non-grounded connector-free embedded instance (final count >= 1), sets pos+quat only on a grounded/unmated instance,
+  requires acknowledgement only when a removal loses the last instance of a labeled embedded body, blocks on a saved
+  OpenMC reference, and never changes mates, connectors, grounding, sources, parts, names, or an existing instance's
+  scale.
+  Booleans, body/feature add/delete/reorder, lattices, new sketch entities/constraints/dimensions, scripts, assembly
+  structure beyond placement, drawings, and MCP stay excluded. A successful feature, sketch, topology, or assembly
+  preview publishes the candidate tessellation to `NukeCadGhostPreviewService` and reveals the **CAD Edit Review**
+  panel; the panel applies the same capability and the viewport renders the candidate in the scene-level `cad-ghost`
+  group only. Import preview shows the plan without a ghost; repeated-body assembly ghosts are approximate.
+  See `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
   floating bottom-left command-search launcher (`/`) over the shared `cad-command-registry.ts` table
@@ -210,6 +219,8 @@ npx lerna run build --scope nuke-cad
 npx vitest run extensions/nuke-cad/src/common/cad-feature-edit.test.ts \
   extensions/nuke-cad/src/common/cad-topology-edit.test.ts \
   extensions/nuke-cad/src/common/topology-impact.test.ts \
+  extensions/nuke-cad/src/common/cad-assembly-edit.test.ts \
+  extensions/nuke-cad/src/common/assembly-bom.test.ts \
   extensions/nuke-cad/src/common/openmc-region-references.test.ts \
   extensions/nuke-cad/src/browser/capabilities/openmc-region-reference-reader.test.ts \
   extensions/nuke-cad/src/browser/capabilities/import-source-policy.test.ts \

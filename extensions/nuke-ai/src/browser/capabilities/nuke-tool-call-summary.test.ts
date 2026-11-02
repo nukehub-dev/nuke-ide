@@ -272,6 +272,9 @@ describe('toolLabel', () => {
         expect(toolLabel('nuke_cad_inspectImportSource')).toBe('CAD import source');
         expect(toolLabel('nuke_cad_previewImportBodies')).toBe('CAD import preview');
         expect(toolLabel('nuke_cad_applyImportBodies')).toBe('CAD import applied');
+        expect(toolLabel('nuke_cad_summarizeAssembly')).toBe('CAD assembly summary');
+        expect(toolLabel('nuke_cad_previewAssemblyChange')).toBe('CAD assembly preview');
+        expect(toolLabel('nuke_cad_applyAssemblyChange')).toBe('CAD assembly applied');
         expect(toolLabel('nuke_cad_exportDagmc')).toBe('DAGMC export');
         expect(toolLabel('nuke_openmc_summarizeProject')).toBe('OpenMC project');
         expect(toolLabel('nuke_openmc_validateProject')).toBe('OpenMC validation');

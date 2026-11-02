@@ -1016,12 +1016,12 @@ the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
 
 ### AI edit review
 
-When NukeAI proposes a feature-parameter change, a sketch-dimension change, a topology-impact change, or an import and
-**Nuke CAD: AI Authoring** is enabled, the **CAD Edit Review** panel opens beside the viewport. It shows the target
-document, the before/after values, and the solid/face/triangle/bounding-box impact. A sketch proposal also names the
-target sketch, the affected-sketch count, every parameter/dimension row, and the solver status (DOF, conflicting and
-redundant constraints). A dimension bound to a document parameter cascades, so one row updates the parameter and the
-panel lists every affected dimension; a literal dimension edits only its sketch.
+When NukeAI proposes a feature-parameter change, a sketch-dimension change, a topology-impact change, an import, or an
+assembly placement and **Nuke CAD: AI Authoring** is enabled, the **CAD Edit Review** panel opens beside the viewport.
+It shows the target document, the before/after values, and the solid/face/triangle/bounding-box impact.
+A sketch proposal also names the target sketch, the affected-sketch count, every parameter/dimension row, and the solver
+status (DOF, conflicting and redundant constraints). A dimension bound to a document parameter cascades, so one row
+updates the parameter and the panel lists every affected dimension; a literal dimension edits only its sketch.
 
 A topology proposal adds a **Region impact** section with added, removed, and changed solids, named regions, and the
 status of references from the saved active OpenMC project. Region impact follows DAGMC group and material identity, so
@@ -1035,10 +1035,18 @@ label, material, and self-contained warning. It builds no candidate geometry, so
 plan is the review. Apply re-inspects the source, rejects a stale hash, size, selection, or plan, and adds the bodies in
 one commit.
 
-The viewport overlays a feature, sketch, or topology candidate as a translucent ghost; changed solids use a warmer
-accent, and the real model is untouched. **Apply** confirms and writes the change, **Dismiss** discards it, and
+An assembly placement proposal lists each instance action (add, remove, or set placement) with its before and after
+position, orientation, and matrix, plus the BOM count delta and exact overlap warnings. When the document sets
+`overlapCheck: false`, the panel says overlap checks are disabled instead of reporting a clean result. A removal that
+loses the last instance of a labeled embedded body adds the **Region impact** section and the acknowledgement checkbox;
+a saved OpenMC reference to the removed group or material shows **Blocked by OpenMC**. Adding an instance or changing a
+placement never requires acknowledgement. Repeated body ids make the ghost approximate, and the panel says so.
+
+The viewport overlays a feature, sketch, topology, or assembly candidate as a translucent ghost; changed solids use a
+warmer accent, and the real model is untouched. **Apply** confirms and writes the change, **Dismiss** discards it, and
 **Undo** restores the previous parameters, the parameter plus all affected sketches, the exact previous feature
-parameters, or (for an import) removes the added bodies and import features for the current session.
+parameters, the previous assembly instances, or (for an import) removes the added bodies and import features for the
+current session.
 Open the panel manually with **Open CAD Edit Review** in the Command Palette, the CAD Studio menu, or the Nuke Tools
 sidebar.
 
@@ -1202,6 +1210,20 @@ type, and DOF contribution; clicking a row selects the instance in the
 viewport. Rows are keyboard-selectable with Enter or Space. Assembly STEP
 export keeps one product per instance; DAGMC export imprints the placed solids
 (overlap stays a warning — assemblies overlap intentionally).
+
+With **Nuke CAD: AI Authoring** on, NukeAI can place existing instances without
+touching the assembly structure. On a saved, grounded assembly it can add an
+instance from an existing `body:<id>` or reuse an existing part, remove a
+non-grounded embedded instance that has no connector or mate while keeping at
+least one instance, or set the position and unit quaternion of a grounded or
+unmated instance. It cannot create an assembly from a single part, change
+grounding, add or edit mates and connectors, add a new external source, replace
+a part, change an existing instance's scale, or rename an instance. The preview
+runs a real candidate build and reports placement rows, the BOM count delta,
+exact overlap warnings, and the `overlapCheck: false` disclosure. Only removing
+the last instance of a labeled embedded body requires a region acknowledgement,
+and a saved OpenMC reference to its group or material blocks Apply. Apply commits
+one assembly batch, rebuilds, and offers **Undo**; see [AI edit review](#ai-edit-review).
 
 ### W7-X generator (parametric)
 

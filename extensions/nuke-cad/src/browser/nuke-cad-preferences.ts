@@ -197,9 +197,10 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             type: 'boolean',
             default: false,
             description:
-                'Allow NukeAI to propose and apply scalar feature-parameter edits (length, angle, radius, thickness) to ' +
-                'saved .nuke-cad documents. Every edit is previewed with a real build, shown as a diff, applied only after ' +
-                'confirmation, and can be undone. Script editing, sketches, topology changes, and imports stay disabled.'
+                'Allow NukeAI to propose and apply scalar feature-parameter edits (length, angle, radius, thickness), ' +
+                'sketch dimensions, topology changes, imported bodies, and assembly instance placements to saved .nuke-cad ' +
+                'documents. Every edit is previewed with a real build, shown as a diff, applied only after confirmation, ' +
+                'and can be undone. Script editing and assembly mate authoring stay disabled.'
         }
     }
 };

@@ -55,6 +55,7 @@ import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import type { NukeCadPreferences } from '../nuke-cad-preferences';
 import type { CadModel, NukeCadStateManager, SolidSummary } from '../state/nuke-cad-state-manager';
 import {
+    APPLY_ASSEMBLY_CHANGE_ID,
     APPLY_FEATURE_CHANGE_ID,
     APPLY_IMPORT_BODIES_ID,
     APPLY_SKETCH_CHANGE_ID,
@@ -62,17 +63,30 @@ import {
     INSPECT_IMPORT_SOURCE_ID,
     LIST_SKETCH_DIMENSIONS_ID,
     NukeCadAuthoringCapabilities,
+    PREVIEW_ASSEMBLY_CHANGE_ID,
     PREVIEW_FEATURE_CHANGE_ID,
     PREVIEW_IMPORT_BODIES_ID,
     PREVIEW_SKETCH_CHANGE_ID,
     PREVIEW_TOPOLOGY_CHANGE_ID,
+    SUMMARIZE_ASSEMBLY_ID,
+    readAssemblyActions,
     readFeatureParamChanges,
     readImportPreviewInput,
     readInspectImportSourceInput,
     readSketchEditRequests,
-    readTopologyActions
+    readTopologyActions,
+    validateAssemblyCandidateBuild
 } from './nuke-cad-authoring-capabilities';
-import { isImportProposal, isSketchProposal, isTopologyProposal, NukeCadProposalService } from './nuke-cad-proposal-service';
+import {
+    isAssemblyProposal,
+    isImportProposal,
+    isSketchProposal,
+    isTopologyProposal,
+    NukeCadAssemblyProposalDetails,
+    NukeCadProposalService
+} from './nuke-cad-proposal-service';
+import type { AssemblyChangeInput } from '../../common/cad-assembly-edit';
+import type { AssemblySection } from '../document/cad-document-store';
 import type { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 import type { NukeCadSketchEditService } from '../sketch/sketch-edit-service';
 import type { PreparedSketchEdit, SketchEditPrepareResult, SketchEditRequest } from '../sketch/sketch-edit-types';
@@ -133,6 +147,17 @@ const PARSED_TESS = {
     faces: [],
     edges: [],
     curves: []
+};
+
+const ASSEMBLY_PARSED_TESS = {
+    ...PARSED_TESS,
+    solids: [1, 2].map((solidId) => ({
+        solidId,
+        bodyId: solidId === 1 ? 'body-base' : 'body-arm',
+        faceCount: 6,
+        edgeCount: 12,
+        triangleCount: 12
+    }))
 };
 
 const OPENMC_PROJECT_PATH = `${WORKSPACE}/pincell.nuke-openmc`;
@@ -217,6 +242,87 @@ const TOPOLOGY_PARSED_TESS = {
 };
 
 const PATTERN_COUNT_CHANGE = { featureId: 'pattern-1', action: 'patternCount', count: 4 } as const;
+
+const ASSEMBLY_MANIFEST: RegionManifestData = {
+    version: 1,
+    volumes: [{ selector: 'base-solid' }, { selector: 'arm-solid' }],
+    surfaces: []
+};
+
+const ASSEMBLY_BUILD_BEFORE: GeometryBuildResult = {
+    success: true,
+    solidCount: 2,
+    faceCount: 12,
+    triangleCount: 24,
+    boundingBox: { min: [0, 0, 0], max: [30, 10, 10] },
+    selectorMap: { 'base/base-solid': [1], 'arm/arm-solid': [2] },
+    regionManifest: ASSEMBLY_MANIFEST,
+    featureResults: [
+        { featureId: 'pad-1', status: 'built' },
+        { featureId: 'pad-2', status: 'built' }
+    ]
+};
+
+const ASSEMBLY_BUILD_PLACED: GeometryBuildResult = {
+    ...ASSEMBLY_BUILD_BEFORE,
+    boundingBox: { min: [0, 0, 0], max: [40, 10, 10] }
+};
+
+const ASSEMBLY_BUILD_REMOVED: GeometryBuildResult = {
+    ...ASSEMBLY_BUILD_BEFORE,
+    solidCount: 1,
+    faceCount: 6,
+    triangleCount: 12,
+    boundingBox: { min: [0, 0, 0], max: [10, 10, 10] },
+    selectorMap: { 'base/base-solid': [1] },
+    regionManifest: {
+        version: 1,
+        volumes: [{ selector: 'base-solid' }],
+        surfaces: []
+    }
+};
+
+const ASSEMBLY_BUILD_ADDED: GeometryBuildResult = {
+    success: true,
+    solidCount: 3,
+    faceCount: 18,
+    triangleCount: 36,
+    boundingBox: { min: [0, 0, 0], max: [40, 10, 10] },
+    selectorMap: { 'base/base-solid': [1], 'arm/arm-solid': [2], 'arm2/arm-solid': [3] },
+    regionManifest: ASSEMBLY_MANIFEST,
+    featureResults: [
+        { featureId: 'pad-1', status: 'built' },
+        { featureId: 'pad-2', status: 'built' }
+    ]
+};
+
+const ASSEMBLY_OPENMC_PROJECT_PATH = `${WORKSPACE}/assembly.nuke-openmc`;
+const ASSEMBLY_OPENMC_CONTEXT: NukeCapabilityContext = { ...CONTEXT, activeOpenmcProject: ASSEMBLY_OPENMC_PROJECT_PATH };
+const ASSEMBLY_OPENMC_PROJECT_JSON = JSON.stringify({
+    version: 1,
+    state: {
+        settings: {
+            dagmcFile: 'assembly.h5m',
+            dagmcInfo: { materials: { 'arm-solid': { id: 1 }, 'base-solid': { id: 2 } } }
+        },
+        materials: []
+    }
+});
+
+const MOVE_ARM: AssemblyChangeInput = {
+    action: 'setPlacement',
+    instanceId: 'arm',
+    placement: { position: [30, 0, 0], orientation: [0, 0, 0, 1] }
+};
+
+const REMOVE_ARM: AssemblyChangeInput = { action: 'removeInstance', instanceId: 'arm' };
+
+const ADD_ARM2: AssemblyChangeInput = {
+    action: 'addInstance',
+    id: 'arm2',
+    part: 'body:body-arm',
+    placement: { position: [40, 0, 0], orientation: [0, 0, 0, 1] }
+};
 
 const SKETCH: SketchDef = {
     id: 'sketch-1',
@@ -305,6 +411,60 @@ function createTopologyDocument(): NukeCadDocument {
     } as unknown as NukeCadDocument;
 }
 
+function createAssemblyDocument(): NukeCadDocument {
+    return {
+        version: 3,
+        name: 'assembly',
+        units: 'mm',
+        bodies: [
+            { id: 'body-base', name: 'Base', label: 'base-solid' },
+            { id: 'body-arm', name: 'Arm', label: 'arm-solid' }
+        ],
+        features: [
+            {
+                id: 'pad-1',
+                name: 'Base pad',
+                type: 'pad',
+                body: 'body-base',
+                params: { length: 10 },
+                suppressed: false,
+                dependsOn: []
+            },
+            {
+                id: 'pad-2',
+                name: 'Arm pad',
+                type: 'pad',
+                body: 'body-arm',
+                params: { length: 10 },
+                suppressed: false,
+                dependsOn: []
+            }
+        ],
+        sketches: [],
+        curves: [],
+        datums: [],
+        parameters: {},
+        assembly: {
+            instances: [
+                {
+                    id: 'base',
+                    part: 'body:body-base',
+                    placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+                },
+                {
+                    id: 'arm',
+                    part: 'body:body-arm',
+                    placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] }
+                }
+            ],
+            connectors: [],
+            mates: [],
+            groundedInstanceId: 'base'
+        },
+        drawings: undefined
+    } as unknown as NukeCadDocument;
+}
+
 function createPreparedSketchEdit(document: NukeCadDocument): PreparedSketchEdit {
     const beforeSketch = document.sketches[0];
     const afterSketch: SketchDef = {
@@ -378,7 +538,10 @@ interface Harness {
     replacements: { id: string; params: Record<string, unknown> }[][];
     sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[];
     imports: { bodies: readonly ImportBodyDraft[]; bodyIds: string[]; featureIds: string[] }[];
+    assemblyChanges: { actions: readonly AssemblyChangeInput[] }[];
     selections: (string | undefined)[];
+    selectionClears: number;
+    stateSelections: number;
     undoCalls: number;
     commands: string[];
     undoEntries: NukeUndoEntry[];
@@ -419,6 +582,7 @@ interface HarnessOptions {
     inspection?: Partial<InspectImportSourceResult> | ((request: InspectImportSourceRequest) => Promise<InspectImportSourceResult>);
     pickImport?: string | (() => Promise<URI | undefined>);
     importAddSucceeds?: boolean;
+    assemblyApplySucceeds?: boolean;
     prepare?: (document: NukeCadDocument, requests: readonly SketchEditRequest[]) => Promise<SketchEditPrepareResult>;
 }
 
@@ -430,7 +594,11 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     const replacements: { id: string; params: Record<string, unknown> }[][] = [];
     const sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[] = [];
     const imports: { bodies: readonly ImportBodyDraft[]; bodyIds: string[]; featureIds: string[] }[] = [];
+    const assemblyChanges: { actions: readonly AssemblyChangeInput[] }[] = [];
     const selections: (string | undefined)[] = [];
+    let selectionClears = 0;
+    let stateSelections = 0;
+    let assemblyUndoDocument: NukeCadDocument | undefined;
     let undoCalls = 0;
     const undoEntries: NukeUndoEntry[] = [];
     const files = new Map<string, string>();
@@ -550,8 +718,64 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
             revision += 1;
             return { success: true, value: { bodyIds, featureIds } };
         },
+        applyAssemblyChanges(request: { actions: readonly AssemblyChangeInput[] }): {
+            success: boolean;
+            value?: { instanceIds: readonly string[]; removedInstanceIds: readonly string[]; groundedInstanceId: string };
+            error?: string;
+        } {
+            if (overrides.assemblyApplySucceeds === false) {
+                return { success: false, error: 'The CAD document rejected the assembly change.' };
+            }
+            const assembly = document.assembly;
+            if (assembly === undefined) {
+                return { success: false, error: 'No assembly section' };
+            }
+            const actions = JSON.parse(JSON.stringify(request.actions)) as AssemblyChangeInput[];
+            assemblyChanges.push({ actions });
+            const previous = document;
+            const addedInstanceIds: string[] = [];
+            const removedInstanceIds: string[] = [];
+            let instances = assembly.instances.map(
+                (instance) => JSON.parse(JSON.stringify(instance)) as (typeof assembly.instances)[number]
+            );
+            for (const action of actions) {
+                if (action.action === 'addInstance') {
+                    const id = action.id ?? `instance-${instances.length + 1}`;
+                    addedInstanceIds.push(id);
+                    instances.push({
+                        id,
+                        part: action.part,
+                        placement: action.placement,
+                        ...(action.scale !== undefined ? { scale: action.scale } : {})
+                    });
+                } else if (action.action === 'removeInstance') {
+                    removedInstanceIds.push(action.instanceId);
+                    instances = instances.filter((instance) => instance.id !== action.instanceId);
+                } else {
+                    instances = instances.map((instance) =>
+                        instance.id === action.instanceId ? { ...instance, placement: action.placement } : instance
+                    );
+                }
+            }
+            document = {
+                ...document,
+                assembly: { ...assembly, instances }
+            };
+            assemblyUndoDocument = previous;
+            revision += 1;
+            return {
+                success: true,
+                value: { instanceIds: addedInstanceIds, removedInstanceIds, groundedInstanceId: assembly.groundedInstanceId }
+            };
+        },
         undo(): { success: boolean; error?: string } {
             undoCalls += 1;
+            if (assemblyUndoDocument !== undefined) {
+                document = assemblyUndoDocument;
+                assemblyUndoDocument = undefined;
+                revision += 1;
+                return { success: true };
+            }
             const last = imports.pop();
             if (last === undefined) {
                 return { success: false, error: 'Nothing to undo' };
@@ -566,6 +790,9 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         },
         selectBody(id: string | undefined): void {
             selections.push(id);
+        },
+        clearSelection(): void {
+            selectionClears += 1;
         }
     } as unknown as CadDocumentStore;
     const model =
@@ -579,7 +806,10 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
     const stateManager = {
         model,
         scriptPath: DOCUMENT_PATH,
-        solidSummaries: overrides.solidSummaries ?? []
+        solidSummaries: overrides.solidSummaries ?? [],
+        setSelection: vi.fn(() => {
+            stateSelections += 1;
+        })
     } as unknown as NukeCadStateManager;
     const service = {
         buildDocument: vi.fn(async () => overrides.build ?? BUILD_RESULT),
@@ -679,7 +909,14 @@ function createHarness(overrides: HarnessOptions = {}): Harness {
         replacements,
         sketchEdits,
         imports,
+        assemblyChanges,
         selections,
+        get selectionClears(): number {
+            return selectionClears;
+        },
+        get stateSelections(): number {
+            return stateSelections;
+        },
         get undoCalls(): number {
             return undoCalls;
         },
@@ -768,6 +1005,59 @@ function stubCandidateTessellation(harness: Harness): void {
         harness.capabilities as unknown as { readCandidateTessellation: () => Promise<typeof TOPOLOGY_PARSED_TESS> },
         'readCandidateTessellation'
     ).mockResolvedValue(TOPOLOGY_PARSED_TESS);
+}
+
+function assemblyHarness(overrides: HarnessOptions = {}): Harness {
+    return createHarness({
+        document: createAssemblyDocument(),
+        modelResult: ASSEMBLY_BUILD_BEFORE,
+        build: ASSEMBLY_BUILD_PLACED,
+        solidSummaries: [1, 2].map((solidId) => ({
+            solidId,
+            faceCount: 6,
+            edgeCount: 12,
+            triangleCount: 12
+        })),
+        ...overrides
+    });
+}
+
+function summarizeAssembly(harness: Harness, context: NukeCapabilityContext = CONTEXT): Promise<NukeCapabilityResult> {
+    return harness.registered.get(SUMMARIZE_ASSEMBLY_ID)!.invoke({}, context);
+}
+
+function previewAssembly(
+    harness: Harness,
+    input: unknown = { changes: [MOVE_ARM] },
+    context: NukeCapabilityContext = CONTEXT
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(PREVIEW_ASSEMBLY_CHANGE_ID)!.invoke(input, context);
+}
+
+function applyAssembly(
+    harness: Harness,
+    proposalId: string,
+    context: NukeCapabilityContext = CONTEXT,
+    acknowledgeRegionChanges = false
+): Promise<NukeCapabilityResult> {
+    return harness.registered.get(APPLY_ASSEMBLY_CHANGE_ID)!.invoke({ proposalId, acknowledgeRegionChanges }, context);
+}
+
+async function previewedAssemblyProposal(
+    harness: Harness,
+    input: unknown = { changes: [MOVE_ARM] },
+    context: NukeCapabilityContext = CONTEXT
+): Promise<string> {
+    const result = await previewAssembly(harness, input, context);
+    expect(result.ok).toBe(true);
+    return (result.data as { proposalId: string }).proposalId;
+}
+
+function stubAssemblyTessellation(harness: Harness): void {
+    vi.spyOn(
+        harness.capabilities as unknown as { readCandidateTessellation: () => Promise<typeof ASSEMBLY_PARSED_TESS> },
+        'readCandidateTessellation'
+    ).mockResolvedValue(ASSEMBLY_PARSED_TESS);
 }
 
 function importHarness(overrides: HarnessOptions = {}): Harness {
@@ -969,6 +1259,81 @@ describe('readTopologyActions', () => {
             ok: false,
             message: expect.stringContaining('unknown action')
         });
+    });
+});
+
+describe('readAssemblyActions', () => {
+    it('accepts add, remove, and placement actions with placement and scale', () => {
+        const result = readAssemblyActions({
+            changes: [
+                ADD_ARM2,
+                REMOVE_ARM,
+                { action: 'setPlacement', instanceId: 'base', placement: { position: [1, 0, 0], orientation: [0, 0, 0, 1] } },
+                {
+                    action: 'addInstance',
+                    part: 'body:body-arm',
+                    placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] },
+                    scale: [1, 2, 3]
+                }
+            ]
+        });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.actions).toEqual([
+                ADD_ARM2,
+                REMOVE_ARM,
+                { action: 'setPlacement', instanceId: 'base', placement: { position: [1, 0, 0], orientation: [0, 0, 0, 1] } },
+                {
+                    action: 'addInstance',
+                    part: 'body:body-arm',
+                    placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] },
+                    scale: [1, 2, 3]
+                }
+            ]);
+        }
+    });
+
+    it('rejects empty, too many, duplicate, and malformed actions', () => {
+        expect(readAssemblyActions(null)).toMatchObject({ ok: false });
+        expect(readAssemblyActions({ changes: [] })).toMatchObject({ ok: false, message: expect.stringContaining('1 to 16') });
+        const tooMany = Array.from({ length: 17 }, (_, index) => ({
+            action: 'setPlacement',
+            instanceId: `instance-${index}`,
+            placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] }
+        }));
+        expect(readAssemblyActions({ changes: tooMany })).toMatchObject({ ok: false, message: expect.stringContaining('at most 16') });
+        expect(readAssemblyActions({ changes: [MOVE_ARM, MOVE_ARM] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('Duplicate')
+        });
+        expect(readAssemblyActions({ changes: [{ action: 'explode', instanceId: 'arm' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('unknown action')
+        });
+        expect(readAssemblyActions({ changes: [{ action: 'removeInstance', instanceId: '' }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('instanceId')
+        });
+        expect(
+            readAssemblyActions({
+                changes: [{ action: 'setPlacement', instanceId: 'arm', placement: { position: [0, 0], orientation: [0, 0, 0, 1] } }]
+            })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('placement') });
+        expect(
+            readAssemblyActions({
+                changes: [
+                    {
+                        action: 'addInstance',
+                        part: 'body:body-arm',
+                        placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] },
+                        scale: 0
+                    }
+                ]
+            })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('scale') });
+        expect(
+            readAssemblyActions({ changes: [{ action: 'removeInstance', instanceId: 'arm', placement: { position: [0, 0, 0] } }] })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('unknown field') });
     });
 });
 
@@ -2241,5 +2606,465 @@ describe('NukeCadAuthoringCapabilities', () => {
         });
         expect(harness.imports).toHaveLength(0);
         expect(harness.proposals.get(proposalId)).toBeDefined();
+    });
+
+    it('summarizes assembly instances, matrices, solid ids, BOM, and grounding without the kill switch', async () => {
+        const harness = assemblyHarness({ enabled: false });
+        const capability = harness.registered.get(SUMMARIZE_ASSEMBLY_ID)!;
+
+        expect(capability.when!(CONTEXT)).toBe(true);
+        const result = await summarizeAssembly(harness);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({
+            documentPath: DOCUMENT_PATH,
+            hasAssembly: true,
+            groundedInstanceId: 'base',
+            overlapCheck: true,
+            instances: [
+                {
+                    id: 'base',
+                    part: 'body:body-base',
+                    solidIds: [1],
+                    matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+                },
+                {
+                    id: 'arm',
+                    part: 'body:body-arm',
+                    solidIds: [2],
+                    matrix: [1, 0, 0, 20, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+                }
+            ],
+            bom: [
+                { part: 'body:body-arm', before: 1, after: 1, delta: 0 },
+                { part: 'body:body-base', before: 1, after: 1, delta: 0 }
+            ],
+            connectors: [],
+            mates: [],
+            warnings: []
+        });
+        expect(harness.preferences.get).not.toHaveBeenCalled();
+    });
+
+    it('warns when the active document has no assembly', async () => {
+        const harness = createHarness({ enabled: false });
+        const result = await summarizeAssembly(harness);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({
+            hasAssembly: false,
+            groundedInstanceId: '',
+            instances: [],
+            warnings: ['This document has no assembly section.']
+        });
+    });
+
+    it('gates assembly preview and apply but keeps summarize available with an open document', async () => {
+        const disabled = assemblyHarness({ enabled: false });
+        expect(disabled.registered.get(SUMMARIZE_ASSEMBLY_ID)!.when!(CONTEXT)).toBe(true);
+        for (const id of [PREVIEW_ASSEMBLY_CHANGE_ID, APPLY_ASSEMBLY_CHANGE_ID]) {
+            expect(disabled.registered.get(id)!.when!(CONTEXT)).toBe(false);
+        }
+        expect(await previewAssembly(disabled)).toMatchObject({ ok: false, message: expect.stringContaining('disabled') });
+        expect(disabled.service.buildDocument).not.toHaveBeenCalled();
+
+        const unsaved = assemblyHarness({ saved: false });
+        expect(await previewAssembly(unsaved)).toMatchObject({ ok: false, message: expect.stringContaining('Open a saved') });
+        const noModel = assemblyHarness({ hasModel: false });
+        expect(await previewAssembly(noModel)).toMatchObject({ ok: false, message: expect.stringContaining('Open a saved') });
+
+        const noDocument = createHarness({ document: createDocument(), enabled: false });
+        noDocument.registered.get(SUMMARIZE_ASSEMBLY_ID)!.when!(CONTEXT);
+        expect(await summarizeAssembly(noDocument)).toMatchObject({ ok: true });
+    });
+
+    it('rejects an ungrounded assembly before planning or building', async () => {
+        const document = createAssemblyDocument();
+        document.assembly!.groundedInstanceId = '';
+        const harness = assemblyHarness({ document });
+
+        expect(await previewAssembly(harness)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('grounded assembly')
+        });
+        expect(harness.service.buildDocument).not.toHaveBeenCalled();
+        expect(harness.proposals.list()).toHaveLength(0);
+    });
+
+    it('previews a placement with solved transforms, BOM delta, collisions, ghost, and review panel', async () => {
+        const harness = assemblyHarness({
+            build: { ...ASSEMBLY_BUILD_PLACED, warnings: ["Assembly instances 'arm' and 'base' overlap by 0.5 mm."] }
+        });
+        stubAssemblyTessellation(harness);
+
+        const result = await previewAssembly(harness);
+
+        expect(result.ok).toBe(true);
+        expect(result.changeSet).toMatchObject({
+            title: 'CAD assembly change',
+            applyCapability: APPLY_ASSEMBLY_CHANGE_ID
+        });
+        expect(result.data).toMatchObject({
+            summary: "Move instance 'arm'",
+            impact: { solids: { before: 2, after: 2 } },
+            assembly: {
+                before: {
+                    instances: [
+                        { id: 'base', placement: { position: [0, 0, 0] } },
+                        { id: 'arm', placement: { position: [20, 0, 0] } }
+                    ],
+                    groundedInstanceId: 'base'
+                },
+                after: {
+                    instances: [
+                        { id: 'base', placement: { position: [0, 0, 0] } },
+                        { id: 'arm', placement: { position: [30, 0, 0] } }
+                    ],
+                    groundedInstanceId: 'base'
+                },
+                placements: [{ instanceId: 'arm', kind: 'place' }],
+                bomDelta: { beforeTotal: 2, afterTotal: 2, groundedBefore: 'base', groundedAfter: 'base' },
+                collisionWarnings: ["Assembly instances 'arm' and 'base' overlap by 0.5 mm."],
+                overlapCheck: true,
+                requiresAcknowledgement: false,
+                openmcStatus: 'no-saved-project'
+            }
+        });
+        expect(result.warnings).toEqual(
+            expect.arrayContaining([
+                "Assembly instances 'arm' and 'base' overlap by 0.5 mm.",
+                expect.stringContaining('No saved OpenMC project')
+            ])
+        );
+        expect(harness.ghostPreview.show).toHaveBeenCalledWith(
+            expect.objectContaining({ tessData: ASSEMBLY_PARSED_TESS, addedSolidIds: [], removedSolidIds: [] })
+        );
+        expect(harness.commands).toContain('nuke.cad.openReviewPanel');
+        expect(harness.assemblyChanges).toHaveLength(0);
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isAssemblyProposal(proposal)) {
+            throw new Error('expected an assembly proposal');
+        }
+        expect(proposal.applyCapability).toBe(APPLY_ASSEMBLY_CHANGE_ID);
+        expect(proposal.assembly.placements[0].before?.solidIds).toEqual([2]);
+        expect(proposal.assembly.placements[0].after?.solidIds).toEqual([2]);
+        expect(proposal.assembly.placements[0].after?.matrix).toEqual([1, 0, 0, 30, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    });
+
+    it('reports disabled overlap checks and adds no acknowledgement for a placement', async () => {
+        const document = createAssemblyDocument();
+        document.overlapCheck = false;
+        const harness = assemblyHarness({ document });
+
+        const result = await previewAssembly(harness);
+
+        expect(result.ok).toBe(true);
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isAssemblyProposal(proposal)) {
+            throw new Error('expected an assembly proposal');
+        }
+        expect(proposal.assembly.overlapCheck).toBe(false);
+        expect(proposal.assembly.collisionWarnings).toContain('Instance overlap checks are disabled for this document.');
+        expect(proposal.assembly.requiresAcknowledgement).toBe(false);
+    });
+
+    it('requires acknowledgement only when a removal loses the last labelled instance', async () => {
+        const harness = assemblyHarness({ build: ASSEMBLY_BUILD_REMOVED });
+        stubAssemblyTessellation(harness);
+
+        const result = await previewAssembly(harness, { changes: [REMOVE_ARM] });
+
+        expect(result.ok).toBe(true);
+        const data = result.data as { proposalId: string; assembly: NukeCadAssemblyProposalDetails };
+        expect(data.assembly.requiresAcknowledgement).toBe(true);
+        expect(data.assembly.removedSelectorKeys).toEqual(['arm/arm-solid']);
+        expect(data.assembly.removedRegions).toEqual([{ selector: 'arm-solid', group: 'arm-solid', solidIds: [2] }]);
+        expect(data.assembly.bomDelta.rows).toEqual([
+            { part: 'body:body-arm', before: 1, after: 0, delta: -1 },
+            { part: 'body:body-base', before: 1, after: 1, delta: 0 }
+        ]);
+        expect(result.changeSet?.applyCapability).toBe(APPLY_ASSEMBLY_CHANGE_ID);
+        const proposal = harness.proposals.get(data.proposalId)!;
+        if (!isAssemblyProposal(proposal)) {
+            throw new Error('expected an assembly proposal');
+        }
+        expect(proposal.assembly.blockedRegions).toEqual([]);
+        expect(harness.ghostPreview.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the apply action when a removal breaks a saved OpenMC group', async () => {
+        const harness = assemblyHarness({
+            build: ASSEMBLY_BUILD_REMOVED,
+            files: { [ASSEMBLY_OPENMC_PROJECT_PATH]: ASSEMBLY_OPENMC_PROJECT_JSON }
+        });
+
+        const result = await previewAssembly(harness, { changes: [REMOVE_ARM] }, ASSEMBLY_OPENMC_CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect(result.changeSet?.applyCapability).toBeUndefined();
+        const data = result.data as {
+            proposalId: string;
+            assembly: NukeCadAssemblyProposalDetails;
+            blockedRegions: readonly { reference: string }[];
+        };
+        expect(data.blockedRegions).toHaveLength(1);
+        expect(data.blockedRegions[0].reference).toBe('arm-solid');
+        const proposal = harness.proposals.get(data.proposalId)!;
+        if (!isAssemblyProposal(proposal)) {
+            throw new Error('expected an assembly proposal');
+        }
+        expect(proposal.assembly.blockedRegions[0].message).toContain('arm-solid');
+        expect(proposal.assembly.openmcStatus).toBe('saved-project');
+    });
+
+    it('adds an instance without acknowledgement and validates its expected labelled selector', async () => {
+        const harness = assemblyHarness({ build: ASSEMBLY_BUILD_ADDED });
+
+        const result = await previewAssembly(harness, { changes: [ADD_ARM2] });
+
+        expect(result.ok).toBe(true);
+        const data = result.data as { proposalId: string; assembly: NukeCadAssemblyProposalDetails };
+        expect(data.assembly.requiresAcknowledgement).toBe(false);
+        expect(data.assembly.after.instances.map((instance) => instance.id)).toEqual(['base', 'arm', 'arm2']);
+        expect(data.assembly.bomDelta.rows).toEqual([
+            { part: 'body:body-arm', before: 1, after: 2, delta: 1 },
+            { part: 'body:body-base', before: 1, after: 1, delta: 0 }
+        ]);
+        expect(result.changeSet?.applyCapability).toBe(APPLY_ASSEMBLY_CHANGE_ID);
+    });
+
+    it('validates assembly candidate builds for usability, selector ownership, and expected added keys', () => {
+        const document = createAssemblyDocument();
+        const before = document.assembly as AssemblySection;
+        const addedSection: AssemblySection = {
+            ...before,
+            instances: [
+                ...before.instances,
+                { id: 'arm2', part: 'body:body-arm', placement: { position: [40, 0, 0], orientation: [0, 0, 0, 1] } }
+            ]
+        };
+
+        expect(validateAssemblyCandidateBuild(ASSEMBLY_BUILD_ADDED, addedSection, document)).toBeUndefined();
+        expect(validateAssemblyCandidateBuild({ ...ASSEMBLY_BUILD_ADDED, success: false, error: 'boom' }, addedSection, document)).toBe(
+            'boom'
+        );
+        expect(
+            validateAssemblyCandidateBuild(
+                { ...ASSEMBLY_BUILD_ADDED, featureResults: [{ featureId: 'pad-2', status: 'failed' }] },
+                addedSection,
+                document
+            )
+        ).toContain('pad-2');
+        expect(validateAssemblyCandidateBuild({ ...ASSEMBLY_BUILD_ADDED, solidCount: 0 }, addedSection, document)).toContain('no solids');
+        expect(validateAssemblyCandidateBuild({ ...ASSEMBLY_BUILD_ADDED, triangleCount: 0 }, addedSection, document)).toContain(
+            'no tessellation'
+        );
+        expect(
+            validateAssemblyCandidateBuild(
+                { ...ASSEMBLY_BUILD_ADDED, boundingBox: { min: [1, 1, 1], max: [1, 1, 1] } },
+                addedSection,
+                document
+            )
+        ).toContain('bounding box');
+        expect(
+            validateAssemblyCandidateBuild(
+                { ...ASSEMBLY_BUILD_ADDED, selectorMap: { 'base/base-solid': [1], 'ghost/arm-solid': [2] } },
+                addedSection,
+                document
+            )
+        ).toContain('does not belong to a final assembly instance');
+        expect(
+            validateAssemblyCandidateBuild(
+                { ...ASSEMBLY_BUILD_ADDED, selectorMap: { 'base/base-solid': [1], 'arm/arm-solid': [2] } },
+                addedSection,
+                document
+            )
+        ).toContain("expected selector 'arm2/arm-solid'");
+    });
+
+    it('rejects failed, empty, selector-mismatched, and missing-key preview builds', async () => {
+        const failed = assemblyHarness({ build: { ...ASSEMBLY_BUILD_PLACED, success: false, error: 'assembly build failed' } });
+        expect(await previewAssembly(failed)).toMatchObject({ ok: false, message: 'assembly build failed' });
+        expect(failed.proposals.list()).toHaveLength(0);
+
+        const noSolids = assemblyHarness({ build: { ...ASSEMBLY_BUILD_PLACED, solidCount: 0 } });
+        expect(await previewAssembly(noSolids)).toMatchObject({ ok: false, message: expect.stringContaining('no solids') });
+
+        const selector = assemblyHarness({
+            build: { ...ASSEMBLY_BUILD_PLACED, selectorMap: { 'base/base-solid': [1], 'ghost/arm-solid': [2] } }
+        });
+        expect(await previewAssembly(selector)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('does not belong to a final assembly instance')
+        });
+
+        const missingKey = assemblyHarness({ build: { ...ASSEMBLY_BUILD_ADDED, selectorMap: { 'base/base-solid': [1] } } });
+        expect(await previewAssembly(missingKey, { changes: [ADD_ARM2] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("expected selector 'arm2/arm-solid'")
+        });
+    });
+
+    it('applies a placement as one commit with a backup, rebuild, and undo', async () => {
+        const harness = assemblyHarness();
+        const proposalId = await previewedAssemblyProposal(harness);
+
+        const result = await applyAssembly(harness, proposalId);
+
+        expect(result.ok).toBe(true);
+        expect(result.message).toBe('CAD assembly change applied; rebuild scheduled.');
+        expect(result.changeSet).toMatchObject({ id: proposalId, title: 'CAD assembly change' });
+        expect(result.changeSet).not.toHaveProperty('applyCapability');
+        expect(result.undoToken).toBe('undo-token-1');
+        expect(result.data).toMatchObject({
+            proposalId,
+            documentPath: DOCUMENT_PATH,
+            revision: 4,
+            backupPath: `${WORKSPACE}/.nuke-ai-backup-pincell.nuke-cad`,
+            addedInstanceIds: [],
+            removedInstanceIds: [],
+            groundedInstanceId: 'base',
+            rebuildScheduled: true
+        });
+        expect(harness.assemblyChanges).toEqual([{ actions: [MOVE_ARM] }]);
+        expect(harness.files.has(new URI(`${WORKSPACE}/.nuke-ai-backup-pincell.nuke-cad`).path.toString())).toBe(true);
+        expect(harness.commands).toContain('nuke.cad.rebuild');
+        expect(harness.undoEntries).toHaveLength(1);
+        expect(harness.proposals.get(proposalId)).toBeUndefined();
+        expect(harness.selectionClears).toBe(0);
+    });
+
+    it('requires acknowledgement to remove instances and clears selection after apply', async () => {
+        const harness = assemblyHarness({ build: ASSEMBLY_BUILD_REMOVED });
+        const proposalId = await previewedAssemblyProposal(harness, { changes: [REMOVE_ARM] });
+
+        expect(await applyAssembly(harness, proposalId, CONTEXT, false)).toMatchObject({
+            ok: false,
+            message: 'Acknowledge the region impact before applying this assembly change.'
+        });
+        expect(harness.assemblyChanges).toHaveLength(0);
+
+        const result = await applyAssembly(harness, proposalId, CONTEXT, true);
+
+        expect(result.ok).toBe(true);
+        expect(harness.assemblyChanges).toHaveLength(1);
+        expect(harness.selections).toContain(undefined);
+        expect(harness.selectionClears).toBe(1);
+        expect(harness.stateSelections).toBe(1);
+        expect(result.data).toMatchObject({ removedInstanceIds: ['arm'], groundedInstanceId: 'base' });
+    });
+
+    it('rejects a blocked assembly apply and a changed OpenMC project', async () => {
+        const blocked = assemblyHarness({
+            build: ASSEMBLY_BUILD_REMOVED,
+            files: { [ASSEMBLY_OPENMC_PROJECT_PATH]: ASSEMBLY_OPENMC_PROJECT_JSON }
+        });
+        const blockedProposal = await previewedAssemblyProposal(blocked, { changes: [REMOVE_ARM] }, ASSEMBLY_OPENMC_CONTEXT);
+        expect(await applyAssembly(blocked, blockedProposal, ASSEMBLY_OPENMC_CONTEXT, true)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('arm-solid')
+        });
+        expect(blocked.assemblyChanges).toHaveLength(0);
+
+        const moved = assemblyHarness({ build: ASSEMBLY_BUILD_REMOVED });
+        const movedProposal = await previewedAssemblyProposal(moved, { changes: [REMOVE_ARM] }, CONTEXT);
+        expect(await applyAssembly(moved, movedProposal, ASSEMBLY_OPENMC_CONTEXT, true)).toMatchObject({
+            ok: false,
+            message: 'The active OpenMC project changed after this preview. Preview the change again.'
+        });
+        expect(moved.assemblyChanges).toHaveLength(0);
+    });
+
+    it('re-checks a previously clean OpenMC project on apply', async () => {
+        const harness = assemblyHarness({ build: ASSEMBLY_BUILD_REMOVED });
+        const proposalId = await previewedAssemblyProposal(harness, { changes: [REMOVE_ARM] }, ASSEMBLY_OPENMC_CONTEXT);
+        harness.files.set(new URI(ASSEMBLY_OPENMC_PROJECT_PATH).path.toString(), ASSEMBLY_OPENMC_PROJECT_JSON);
+
+        expect(await applyAssembly(harness, proposalId, ASSEMBLY_OPENMC_CONTEXT, true)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('arm-solid')
+        });
+        expect(harness.assemblyChanges).toHaveLength(0);
+    });
+
+    it('rejects stale, drifted, or store-rejected assembly applies', async () => {
+        const revision = assemblyHarness();
+        const revisionProposal = await previewedAssemblyProposal(revision);
+        revision.bumpRevision();
+        expect(await applyAssembly(revision, revisionProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this preview')
+        });
+        expect(revision.assemblyChanges).toHaveLength(0);
+
+        const drifted = assemblyHarness();
+        const driftedProposal = await previewedAssemblyProposal(drifted);
+        drifted.currentDocument().assembly!.groundedInstanceId = 'arm';
+        expect(await applyAssembly(drifted, driftedProposal)).toMatchObject({
+            ok: false,
+            message: 'The assembly changed after this preview. Preview the change again.'
+        });
+        expect(drifted.assemblyChanges).toHaveLength(0);
+
+        const rejected = assemblyHarness({ assemblyApplySucceeds: false });
+        const rejectedProposal = await previewedAssemblyProposal(rejected);
+        expect(await applyAssembly(rejected, rejectedProposal)).toMatchObject({
+            ok: false,
+            message: 'The CAD document rejected the assembly change.'
+        });
+        expect(rejected.undoEntries).toHaveLength(0);
+    });
+
+    it('undoes an assembly change through store.undo, clears selection, and rebuilds', async () => {
+        const harness = assemblyHarness({ build: ASSEMBLY_BUILD_REMOVED });
+        const proposalId = await previewedAssemblyProposal(harness, { changes: [REMOVE_ARM] });
+        await applyAssembly(harness, proposalId, CONTEXT, true);
+
+        const result = await harness.undoEntries[0].undo();
+
+        expect(result).toMatchObject({ ok: true, message: 'CAD assembly change undone.' });
+        expect(harness.undoCalls).toBe(1);
+        expect(harness.selections).toEqual([undefined, undefined]);
+        expect(harness.selectionClears).toBe(2);
+        expect(harness.stateSelections).toBe(2);
+        expect(harness.commands.filter((command) => command === 'nuke.cad.rebuild')).toHaveLength(2);
+        expect(harness.currentDocument().assembly!.instances.map((instance) => instance.id)).toEqual(['base', 'arm']);
+    });
+
+    it('rejects assembly undo after the applied revision changes', async () => {
+        const harness = assemblyHarness();
+        const proposalId = await previewedAssemblyProposal(harness);
+        await applyAssembly(harness, proposalId);
+        harness.bumpRevision();
+
+        expect(await harness.undoEntries[0].undo()).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this edit')
+        });
+        expect(harness.undoCalls).toBe(0);
+    });
+
+    it('keeps assembly applies separate from every other scope', async () => {
+        const harness = assemblyHarness();
+        const proposalId = await previewedAssemblyProposal(harness);
+
+        for (const result of [
+            await apply(harness, proposalId),
+            await applySketch(harness, proposalId),
+            await applyTopology(harness, proposalId),
+            await applyImport(harness, proposalId)
+        ]) {
+            expect(result).toMatchObject({ ok: false, message: expect.stringContaining('assembly change') });
+        }
+        expect(harness.assemblyChanges).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
+
+        const featureHarness = createHarness();
+        const featurePreview = await preview(featureHarness);
+        const featureProposalId = (featurePreview.data as { proposalId: string }).proposalId;
+        expect(await applyAssembly(featureHarness, featureProposalId)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('feature change')
+        });
     });
 });

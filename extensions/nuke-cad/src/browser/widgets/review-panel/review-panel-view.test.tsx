@@ -32,11 +32,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as React from '@theia/core/shared/react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { AssemblyBomDelta } from '../../../common/assembly-bom';
+import { instancePlacementToMatrix } from '../../../common/assembly-document';
+import type { AssemblyPlacementPlan, AssemblyPlacementSnapshot } from '../../../common/cad-assembly-edit';
 import type { OpenmcRegionBlocker } from '../../../common/openmc-region-references';
 import type { TopologyImpact, TopologyRegionRef } from '../../../common/topology-impact';
 import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
 import {
     CadReviewAppliedEntry,
+    CadReviewAssemblyContext,
     CadReviewImportContext,
     CadReviewPanelView,
     CadReviewPanelViewProps,
@@ -279,6 +283,96 @@ function importProposal(overrides: Partial<CadReviewProposalView> = {}): CadRevi
         impact: undefined,
         build: undefined,
         importContext: importContext(),
+        ...overrides
+    });
+}
+
+function placementSnapshot(
+    position: [number, number, number],
+    options: {
+        readonly orientation?: [number, number, number, number];
+        readonly solidIds?: readonly number[];
+    } = {}
+): AssemblyPlacementSnapshot {
+    const orientation = options.orientation ?? [0, 0, 0, 1];
+    return {
+        placement: { position, orientation },
+        matrix: instancePlacementToMatrix({ position, orientation }),
+        solidIds: options.solidIds ?? []
+    };
+}
+
+function assemblyPlacements(): readonly AssemblyPlacementPlan[] {
+    return [
+        {
+            instanceId: 'arm',
+            part: 'body:arm',
+            kind: 'place',
+            before: placementSnapshot([0, 0, 20], { solidIds: [2] }),
+            after: placementSnapshot([0, 0, 30], { solidIds: [2] })
+        },
+        {
+            instanceId: 'bolt',
+            part: 'body:bolt',
+            kind: 'add',
+            after: placementSnapshot([5, 0, 0], { orientation: [0.707, 0, 0, 0.707], solidIds: [3, 4] })
+        },
+        {
+            instanceId: 'spacer',
+            part: 'body:spacer',
+            kind: 'remove',
+            before: placementSnapshot([0, 0, 10], { solidIds: [1] })
+        }
+    ];
+}
+
+function bomDelta(overrides: Partial<AssemblyBomDelta> = {}): AssemblyBomDelta {
+    return {
+        rows: [
+            { part: 'body:arm', before: 1, after: 1, delta: 0 },
+            { part: 'body:bolt', before: 0, after: 1, delta: 1 },
+            { part: 'body:spacer', before: 1, after: 0, delta: -1 }
+        ],
+        beforeTotal: 2,
+        afterTotal: 2,
+        groundedBefore: 'base',
+        groundedAfter: 'base',
+        ...overrides
+    };
+}
+
+function assemblyContext(overrides: Partial<CadReviewAssemblyContext> = {}): CadReviewAssemblyContext {
+    return {
+        placements: assemblyPlacements(),
+        bomDelta: bomDelta(),
+        collisionWarnings: [],
+        overlapCheck: true,
+        removedSelectorKeys: [],
+        removedRegions: [],
+        blockedRegions: [],
+        openmcStatus: 'no-saved-project',
+        openmcWarnings: [],
+        requiresAcknowledgement: false,
+        ...overrides
+    };
+}
+
+function assemblyProposal(overrides: Partial<CadReviewProposalView> = {}): CadReviewProposalView {
+    return proposal({
+        summary: 'Move arm 20 → 30',
+        scope: 'assembly',
+        changes: [
+            {
+                path: 'assemblies.instances.arm',
+                label: 'Assembly instance arm',
+                kind: 'update',
+                before: { position: [0, 0, 20], orientation: [0, 0, 0, 1] },
+                after: { position: [0, 0, 30], orientation: [0, 0, 0, 1] }
+            }
+        ],
+        impact: undefined,
+        build: undefined,
+        assembly: assemblyContext(),
         ...overrides
     });
 }
@@ -709,5 +803,218 @@ describe('CadReviewPanelView', () => {
             expect(html).not.toContain('Planned bodies');
             expect(html).not.toContain('source solids');
         }
+    });
+
+    it('renders assembly placement rows, BOM delta, collision warnings, and the Assembly badge', () => {
+        const tree = CadReviewPanelView(
+            props({
+                proposals: [
+                    assemblyProposal({
+                        assembly: assemblyContext({
+                            collisionWarnings: ['Instances arm and bolt overlap.']
+                        })
+                    })
+                ]
+            })
+        );
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('cad-review-assembly');
+        expect(html).toContain('Assembly plan');
+        expect(html).toContain('>Assembly<');
+        expect(html).toContain('Move arm 20 → 30');
+        expect(html).toContain('>Place<');
+        expect(html).toContain('>Add<');
+        expect(html).toContain('>Remove<');
+        expect(html).toContain('arm');
+        expect(html).toContain('body:arm');
+        expect(html).toContain('bolt');
+        expect(html).toContain('body:bolt');
+        expect(html).toContain('spacer');
+        expect(html).toContain('body:spacer');
+        expect(html).toContain('Position [0, 0, 20] · Orientation [0, 0, 0, 1]');
+        expect(html).toContain('Position [0, 0, 30] · Orientation [0, 0, 0, 1]');
+        expect(html).toContain('Position [5, 0, 0] · Orientation [0.707, 0, 0, 0.707]');
+        expect(html).toContain('Position [0, 0, 10] · Orientation [0, 0, 0, 1]');
+        expect(html).toContain('2 solids');
+        expect(html).toContain('1 solid');
+        expect(html).toContain('Bill of materials');
+        expect(html).toContain('0 → 1');
+        expect(html).toContain('+1');
+        expect(html).toContain('1 → 0');
+        expect(html).toContain('-1');
+        expect(html).toContain('Total instances 2 → 2');
+        expect(html).toContain('Collision warnings');
+        expect(html).toContain('Instances arm and bolt overlap.');
+        expect(html).not.toContain('No quantity change');
+        expect(html).not.toContain('cad-review-assembly-ack');
+        expect(html).not.toContain('I understand the region impact');
+        expect(html).not.toContain('cad-review-changes');
+    });
+
+    it('keeps placement-only assembly apply enabled with no acknowledgement checkbox', () => {
+        const onApply = vi.fn();
+        const tree = CadReviewPanelView(props({ proposals: [assemblyProposal()], onApply }));
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).not.toContain('cad-review-assembly-ack');
+        expect(html).not.toContain('I understand the region impact');
+        expect(collectButtons(tree, 'cad-review-assembly-ack')).toHaveLength(0);
+
+        const applyButtons = collectButtons(tree, 'cad-review-apply');
+        expect(applyButtons).toHaveLength(1);
+        expect(applyButtons[0].props.disabled).toBe(false);
+        applyButtons[0].props.onClick?.();
+        expect(onApply).toHaveBeenCalledWith('proposal-1');
+    });
+
+    it('shows No quantity change and the disabled overlap notice', () => {
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        assemblyProposal({
+                            assembly: assemblyContext({
+                                bomDelta: bomDelta({ rows: [{ part: 'body:arm', before: 1, after: 1, delta: 0 }] }),
+                                overlapCheck: false
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('No quantity change');
+        expect(html).not.toContain('Total instances');
+        expect(html).toContain('Instance overlap checks are disabled for this document.');
+        expect(html).not.toContain('No instance collisions detected.');
+    });
+
+    it('shows a compact translation line for matrix placements', () => {
+        const matrix = instancePlacementToMatrix({ position: [1, 2, 3], orientation: [0, 0, 0, 1] });
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        assemblyProposal({
+                            assembly: assemblyContext({
+                                placements: [
+                                    {
+                                        instanceId: 'base',
+                                        part: 'body:base',
+                                        kind: 'add',
+                                        after: { placement: { matrix }, matrix, solidIds: [] }
+                                    }
+                                ]
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('Position [1, 2, 3]');
+        expect(html).not.toContain(matrix.join(', '));
+    });
+
+    it('requires acknowledgement before applying an assembly removal that drops a labelled region', () => {
+        const onAcknowledge = vi.fn();
+        const context = assemblyContext({
+            removedSelectorKeys: ['arm/arm'],
+            removedRegions: [{ selector: 'arm', group: 'arm', material: 'steel', solidIds: [2] }],
+            requiresAcknowledgement: true,
+            openmcStatus: 'saved-project',
+            openmcProjectPath: '/workspace/project/pincell.nuke-openmc'
+        });
+        const unacknowledged = CadReviewPanelView(props({ proposals: [assemblyProposal({ assembly: context })], onAcknowledge }));
+        const html = renderToStaticMarkup(unacknowledged);
+
+        expect(html).toContain('Region impact');
+        expect(html).toContain('Removed selectors');
+        expect(html).toContain('arm/arm');
+        expect(html).toContain('steel');
+        expect(html).toContain('I understand the region impact');
+        expect(html).toContain('aria-label="Acknowledge assembly region impact"');
+        expect(html).toContain('pincell.nuke-openmc · checked against the saved project file');
+        expect(collectButtons(unacknowledged, 'cad-review-apply')[0].props.disabled).toBe(true);
+
+        const checkboxes = collectButtons(unacknowledged, 'cad-review-assembly-ack');
+        expect(checkboxes[0].props.checked).toBe(false);
+        checkboxes[0].props.onChange?.(true);
+        expect(onAcknowledge).toHaveBeenCalledWith('proposal-1', true);
+
+        const acknowledged = CadReviewPanelView(
+            props({ proposals: [assemblyProposal({ assembly: context })], acknowledgedProposalIds: ['proposal-1'] })
+        );
+        expect(collectButtons(acknowledged, 'cad-review-assembly-ack')[0].props.checked).toBe(true);
+        expect(collectButtons(acknowledged, 'cad-review-apply')[0].props.disabled).toBe(false);
+    });
+
+    it('keeps assembly Apply disabled for an OpenMC-blocked removed region', () => {
+        const tree = CadReviewPanelView(
+            props({
+                proposals: [
+                    assemblyProposal({
+                        assembly: assemblyContext({
+                            removedSelectorKeys: ['shield/shield'],
+                            removedRegions: [{ selector: 'shield', group: 'shield', material: 'steel', solidIds: [3] }],
+                            requiresAcknowledgement: true,
+                            blockedRegions: [regionBlocker()]
+                        })
+                    })
+                ],
+                acknowledgedProposalIds: ['proposal-1']
+            })
+        );
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('still references region');
+        expect(html).toContain('Update the OpenMC project first; apply stays blocked until reference');
+        expect(html).toContain('is removed');
+        expect(collectButtons(tree, 'cad-review-apply')[0].props.disabled).toBe(true);
+        expect(collectButtons(tree, 'cad-review-assembly-ack')[0].props.checked).toBe(true);
+    });
+
+    it('warns that assembly OpenMC references were not checked without a saved project', () => {
+        const html = renderToStaticMarkup(
+            CadReviewPanelView(
+                props({
+                    proposals: [
+                        assemblyProposal({
+                            assembly: assemblyContext({
+                                removedSelectorKeys: ['arm/arm'],
+                                removedRegions: [{ selector: 'arm', group: 'arm', solidIds: [2] }],
+                                requiresAcknowledgement: true,
+                                openmcStatus: 'no-saved-project'
+                            })
+                        })
+                    ]
+                })
+            )
+        );
+
+        expect(html).toContain('OpenMC references were not checked because no saved OpenMC project is active.');
+        expect(html).not.toContain('checked against the saved project file');
+    });
+
+    it('falls back to the assembly title and labels applied assembly entries', () => {
+        const fallback = renderToStaticMarkup(CadReviewPanelView(props({ proposals: [assemblyProposal({ summary: '' })] })));
+        expect(fallback).toContain('Assembly change');
+        expect(fallback).toContain('>Assembly<');
+
+        const entry: CadReviewAppliedEntry = {
+            proposalId: 'proposal-5',
+            summary: 'Move arm 20 → 30',
+            detail: 'Added instance-3 · Removed instance-2',
+            undoToken: 'undo-5',
+            scope: 'assembly'
+        };
+        const applied = renderToStaticMarkup(
+            CadReviewPanelView(props({ proposals: [], applied: [entry], undoableProposalIds: ['proposal-5'] }))
+        );
+        expect(applied).toContain('Assembly change');
+        expect(applied).toContain('Added instance-3 · Removed instance-2');
+        expect(applied).not.toContain('Feature parameter');
+        expect(applied).not.toContain('Topology change');
     });
 });
