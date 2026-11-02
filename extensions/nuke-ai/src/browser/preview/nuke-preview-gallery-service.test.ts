@@ -59,6 +59,7 @@ interface BundleOptions {
 class FakeFileService {
     readonly entries = new Map<string, FakeEntry>();
     readonly reads: string[] = [];
+    readonly deletes: string[] = [];
 
     addDirectory(target: string, mtime = 0): void {
         this.ensureParents(target);
@@ -73,6 +74,16 @@ class FakeFileService {
     addSymlink(target: string): void {
         this.ensureParents(path.dirname(target));
         this.entries.set(target, { directory: false, mtime: 0, symlink: true });
+    }
+
+    async delete(uri: URI): Promise<void> {
+        const target = key(uri);
+        this.deletes.push(target);
+        for (const candidate of [...this.entries.keys()]) {
+            if (candidate === target || candidate.startsWith(`${target}/`)) {
+                this.entries.delete(candidate);
+            }
+        }
     }
 
     async read(uri: URI): Promise<{ value: string }> {
@@ -267,6 +278,39 @@ describe('NukePreviewGalleryService', () => {
             previewPath: `${PREVIEW_ROOT}/20260201-010101-bbbbbb/bundle-001/preview.png`,
             resultPath: `${PREVIEW_ROOT}/20260201-010101-bbbbbb/bundle-001/result.json`
         });
+    });
+
+    it('clears the preview history after validating the workspace path', async () => {
+        const { fileService, service } = setup();
+        addSession(fileService, '20260101-010101-aaaaaa', '2026-01-01T01:01:01.000Z', [
+            { bundleId: 'bundle-001', capabilityId: 'nuke.viz.captureView', caption: 'First view' }
+        ]);
+
+        expect(await service.clear()).toEqual({ cleared: true, message: 'Preview history cleared.' });
+        expect(fileService.deletes).toContain(PREVIEW_ROOT);
+        expect([...fileService.entries.keys()].some((entry) => entry.startsWith(`${PREVIEW_ROOT}/`))).toBe(false);
+    });
+
+    it('refuses to clear a symlinked preview root', async () => {
+        const { fileService, service } = setup();
+        fileService.addSymlink(PREVIEW_ROOT);
+
+        const result = await service.clear();
+
+        expect(result.cleared).toBe(false);
+        expect(result.message).toContain('symlinked');
+        expect(fileService.deletes).toEqual([]);
+    });
+
+    it('reports when there is no preview history', async () => {
+        const { fileService, service } = setup();
+        fileService.entries.delete(PREVIEW_ROOT);
+
+        const result = await service.clear();
+
+        expect(result.cleared).toBe(false);
+        expect(result.message).toContain('no saved preview history');
+        expect(fileService.deletes).toEqual([]);
     });
 
     it('does not read a symlinked result.json', async () => {

@@ -33,10 +33,12 @@
  * @module nuke-ai/browser/preview
  */
 
-import { injectable } from '@theia/core/shared/inversify';
+import { inject, injectable } from '@theia/core/shared/inversify';
 import { Command, CommandRegistry } from '@theia/core/lib/common/command';
 import { AbstractViewContribution } from '@theia/core/lib/browser';
+import { MessageService } from '@theia/core/lib/common/message-service';
 import { NukePreviewGalleryWidget } from './nuke-preview-gallery-widget';
+import { NukePreviewGalleryService } from './nuke-preview-gallery-service';
 
 /** Commands owned by the preview gallery. */
 export const NukePreviewGalleryCommands = {
@@ -44,12 +46,23 @@ export const NukePreviewGalleryCommands = {
         id: 'nuke.ai.openPreviewGallery',
         label: 'NukeAI: Open Preview Gallery',
         category: 'NukeAI'
+    } as Command,
+    CLEAR: {
+        id: 'nuke.ai.clearPreviewHistory',
+        label: 'NukeAI: Clear Preview History',
+        category: 'NukeAI'
     } as Command
 };
 
 /** Contribute the gallery view and its Command Palette entry. */
 @injectable()
 export class NukePreviewGalleryContribution extends AbstractViewContribution<NukePreviewGalleryWidget> {
+    @inject(NukePreviewGalleryService)
+    protected readonly galleryService: NukePreviewGalleryService;
+
+    @inject(MessageService)
+    protected readonly messageService: MessageService;
+
     constructor() {
         super({
             widgetId: NukePreviewGalleryWidget.ID,
@@ -64,5 +77,25 @@ export class NukePreviewGalleryContribution extends AbstractViewContribution<Nuk
         commands.registerCommand(NukePreviewGalleryCommands.OPEN, {
             execute: () => this.openView({ activate: true })
         });
+        commands.registerCommand(NukePreviewGalleryCommands.CLEAR, {
+            execute: () => this.clearHistory()
+        });
+    }
+
+    protected async clearHistory(): Promise<void> {
+        const choice = await this.messageService.warn(
+            'Delete every saved preview and trajectory in this workspace? This cannot be undone.',
+            'Clear History'
+        );
+        if (choice !== 'Clear History') {
+            return;
+        }
+        const result = await this.galleryService.clear();
+        if (result.cleared) {
+            this.messageService.info(result.message);
+            await this.tryGetWidget()?.refresh();
+        } else {
+            this.messageService.warn(result.message);
+        }
     }
 }

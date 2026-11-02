@@ -364,6 +364,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: script authoring tools refresh immediately when the workspace Script Authoring switch changes.
 - nuke-ai: script source inspection asks for confirmation before source text leaves the IDE; MCP resource reads share the session rate limit and audit ring.
 - nuke-ai: preview/log writes reject symlinked workspace paths, oversized previews fall back to bounded text, and diagnostic sessions reject non-diagnostic tools.
+- nuke-ai: NukeAI: Clear Preview History deletes the validated workspace preview folder after confirmation.
 - nuke-ai: preview history omits undo tokens, redacts credentials, and caps result snapshots; oversized inline previews and artifact lists fall back to bounded text.
 - nuke-ai: external MCP rejects concurrent initialize bursts beyond the 16-session cap.
 - nuke-ai: CAD and other capability tools appear after a document opens during chat startup instead of waiting for the next context change.

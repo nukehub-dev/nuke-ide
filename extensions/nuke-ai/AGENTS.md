@@ -90,8 +90,9 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   Theia keeps progress and confirmation UI; see `docs/dev/agent-and-cards.md`.
 - `src/browser/preview/` persists truthful previews and command-to-preview trajectory lines under `.nuke-ide/ai/previews`; see `docs/dev/preview.md`.
 - `nuke-preview-gallery-service.ts` scans `<workspace>/.nuke-ide/ai/previews` read-only, returns at most 100
-  newest-first entries, skips malformed/symlinked paths, and never reads outside the workspace; the gallery has no
-  delete or regenerate control. See `docs/user/previews.md`.
+  newest-first entries, skips malformed/symlinked paths, and never reads outside the workspace; the gallery itself has
+  no delete or regenerate control, while the separate **NukeAI: Clear Preview History** command deletes the validated
+  workspace preview folder after confirmation. See `docs/user/previews.md`.
 - `src/browser/capabilities/nuke-capability-tool-bridge.ts` keeps one tool per enabled capability under provider name `nuke-ai`. It subscribes to registry/context changes before the first refresh (a document can open during startup), unregisters stale tools before every refresh, debounces changes, coalesces concurrent refreshes, and disposes subscriptions and registrations on stop.
 - `src/browser/capabilities/` journals local-only metrics and applied edits under `<workspace>/.nuke-ide/ai`: no inputs,
   file contents, metric paths, raw tokens, or before/after values; undo tokens are SHA-256 hashed. Writes are serialized,

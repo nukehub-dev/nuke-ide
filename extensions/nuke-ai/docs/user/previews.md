@@ -43,18 +43,16 @@ bundles newest first.
 - With no saved previews, the empty state explains that previews appear after a NukeAI action captures a viewport
   or returns a result that carries a preview or artifact.
 
-The gallery only reads the workspace folder. It never deletes, regenerates, or writes a preview, and it never reads
-outside the open workspace. Malformed session or bundle metadata is skipped.
+To remove the history, run **NukeAI: Clear Preview History** from the Command Palette. It asks for confirmation and
+deletes the validated workspace preview folder; the gallery itself remains read-only and never deletes or regenerates
+a preview. Malformed session or bundle metadata is skipped, and the gallery never reads outside the open workspace.
 
 ## Retention and deletion
 
-The IDE keeps every bundle and never prunes automatically. To clear the history:
-
-1. Open the workspace in the file explorer.
-2. Delete the `.nuke-ide/ai/previews` folder.
-
-The IDE recreates the folder on the next capture. There is no delete control in the gallery, and deleting the folder
-does not affect CAD, OpenMC, or visualizer files outside it.
+The IDE keeps every bundle and never prunes automatically. Run **NukeAI: Clear Preview History** from the Command
+Palette and confirm, or delete the `.nuke-ide/ai/previews` folder in the file explorer. The IDE recreates the folder on
+the next capture. The gallery itself has no delete control, and clearing history does not affect CAD, OpenMC, or
+visualizer files outside it.
 
 ## Related pages
 

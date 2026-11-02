@@ -147,11 +147,47 @@ describe('NukePreviewGalleryContribution', () => {
         const openView = vi.spyOn(contribution, 'openView').mockResolvedValue(undefined as never);
 
         contribution.registerCommands(registry as unknown as CommandRegistry);
-        expect([...registry.handlers.keys()]).toEqual([NukePreviewGalleryCommands.OPEN.id]);
+        expect([...registry.handlers.keys()].sort()).toEqual(
+            [NukePreviewGalleryCommands.CLEAR.id, NukePreviewGalleryCommands.OPEN.id].sort()
+        );
 
         await registry.execute(NukePreviewGalleryCommands.OPEN.id);
 
         expect(openView).toHaveBeenCalledWith({ activate: true });
         expect(NukePreviewGalleryCommands.OPEN.label).toBe('NukeAI: Open Preview Gallery');
+        expect(NukePreviewGalleryCommands.CLEAR.label).toBe('NukeAI: Clear Preview History');
+    });
+
+    it('does nothing when clearing preview history is cancelled', async () => {
+        const contribution = new NukePreviewGalleryContribution();
+        const clear = vi.fn(async () => ({ cleared: true, message: 'Preview history cleared.' }));
+        const warn = vi.fn(async () => undefined);
+        const info = vi.fn(async () => undefined);
+        Object.assign(contribution, { galleryService: { clear }, messageService: { warn, info }, tryGetWidget: () => undefined });
+
+        await (contribution as unknown as { clearHistory(): Promise<void> }).clearHistory();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('cannot be undone'), 'Clear History');
+        expect(clear).not.toHaveBeenCalled();
+        expect(info).not.toHaveBeenCalled();
+    });
+
+    it('clears preview history after confirmation and refreshes an open gallery', async () => {
+        const contribution = new NukePreviewGalleryContribution();
+        const clear = vi.fn(async () => ({ cleared: true, message: 'Preview history cleared.' }));
+        const warn = vi.fn(async () => 'Clear History');
+        const info = vi.fn(async () => undefined);
+        const refresh = vi.fn();
+        Object.assign(contribution, {
+            galleryService: { clear },
+            messageService: { warn, info },
+            tryGetWidget: () => ({ refresh })
+        });
+
+        await (contribution as unknown as { clearHistory(): Promise<void> }).clearHistory();
+
+        expect(clear).toHaveBeenCalledTimes(1);
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(info).toHaveBeenCalledWith('Preview history cleared.');
     });
 });

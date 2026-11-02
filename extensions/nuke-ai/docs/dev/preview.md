@@ -95,8 +95,8 @@ Persistence rules:
   inline preview up to 4 MiB and falls back to text above that cap.
 - Path previews read for the chat are capped at 4 MiB. Inline image, SVG, and HTML previews share the 4 MiB cap. A
   failed or oversized preview becomes a text link with the path and a warning instead of an image block.
-- The store keeps one bundle per capability invocation and does not prune. Delete `.nuke-ide/ai/previews` in the
-  workspace to remove every recorded preview and trajectory. The IDE recreates the folder on the next capture.
+- The store keeps one bundle per capability invocation and does not prune automatically. **NukeAI: Clear Preview
+  History** deletes `.nuke-ide/ai/previews` after confirmation; the IDE recreates the folder on the next capture.
 - On dispose the bridge does not delete its session. Closing and reopening the IDE keeps the history.
 - With no workspace open, captures stay in memory, no files are written, and the store logs once that persistence is
   disabled. The preview still renders in the chat.

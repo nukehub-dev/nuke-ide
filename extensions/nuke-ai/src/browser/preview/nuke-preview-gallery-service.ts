@@ -47,7 +47,7 @@ import { WorkspaceService } from '@theia/workspace/lib/browser';
 import * as path from 'path';
 import { MAX_PERSISTED_RESULT_BYTES, MAX_PERSISTED_TRAJECTORY_BYTES } from '../../common/nuke-preview-protocol';
 import { isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
-import { isReferenceableFilePath } from './preview-path-policy';
+import { isReferenceableFilePath, isSafeDirectoryPath } from './preview-path-policy';
 
 /** Preview history location inside the workspace config folder. */
 export const NUKE_PREVIEW_GALLERY_ROOT = '.nuke-ide/ai/previews';
@@ -76,6 +76,12 @@ export interface NukePreviewGalleryEntry {
     readonly caption?: string;
     readonly capabilityId?: string;
     readonly resultPath?: string;
+}
+
+/** Result of clearing the persisted preview history. */
+export interface NukePreviewClearResult {
+    readonly cleared: boolean;
+    readonly message: string;
 }
 
 interface TrajectoryInfo {
@@ -115,6 +121,33 @@ export class NukePreviewGalleryService {
         }
         entries.sort(compareEntries);
         return entries.slice(0, NUKE_PREVIEW_GALLERY_LIMIT);
+    }
+
+    /** Delete the persisted preview history after validating its workspace path. */
+    async clear(): Promise<NukePreviewClearResult> {
+        const roots = this.readWorkspaceRoots();
+        if (roots.length === 0) {
+            return { cleared: false, message: 'No workspace folder is open; there is no preview history to clear.' };
+        }
+        const previewRootPath = path.join(roots[0], NUKE_PREVIEW_GALLERY_ROOT);
+        if (!(await isSafeDirectoryPath(this.fileService, previewRootPath, roots))) {
+            return { cleared: false, message: 'Preview history path is symlinked or outside the workspace; it was not cleared.' };
+        }
+        const previewRoot = URI.fromFilePath(previewRootPath);
+        const rootStat = await this.resolve(previewRoot);
+        if (!rootStat) {
+            return { cleared: false, message: 'There is no saved preview history to clear.' };
+        }
+        if (!rootStat.isDirectory || rootStat.isSymbolicLink) {
+            return { cleared: false, message: 'Preview history path is not a regular workspace directory; it was not cleared.' };
+        }
+        try {
+            await this.fileService.delete(previewRoot, { recursive: true, useTrash: false });
+            return { cleared: true, message: 'Preview history cleared.' };
+        } catch (error) {
+            this.logger.error('[NukeAI] Failed to clear the preview history:', error);
+            return { cleared: false, message: `Unable to clear the preview history: ${errorMessage(error)}` };
+        }
     }
 
     protected async readSession(sessionDir: FileStat, roots: readonly string[]): Promise<NukePreviewGalleryEntry[]> {
@@ -326,4 +359,8 @@ function mtimeIso(stat: FileStat | undefined): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }

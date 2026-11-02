@@ -118,8 +118,8 @@ document or project. Any action that sends a request includes the same context a
 
 Saved viewport captures and tool results that carry a preview or artifact live under `.nuke-ide/ai/previews`. Run **NukeAI: Open
 Preview Gallery** to browse the newest bundles in a read-only widget; selecting a card opens the saved image or
-artifact. The gallery never deletes or regenerates anything. See [Preview Gallery](previews.md) for the bundle layout
-and retention.
+artifact. Run **NukeAI: Clear Preview History** to delete the history after confirmation. The gallery itself never
+deletes or regenerates anything. See [Preview Gallery](previews.md) for the bundle layout and retention.
 
 ## External MCP
 
