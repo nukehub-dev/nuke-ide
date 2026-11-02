@@ -94,9 +94,44 @@
 }
 
 .cad-review-document-path {
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 10px;
     color: var(--theia-descriptionForeground);
+}
+
+.cad-review-sketch-context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-sideBarSectionHeader-border, var(--theia-panel-border));
+    border-radius: 4px;
+    background: var(--theia-sideBarSectionHeader-background, var(--theia-editorWidget-background));
+}
+
+.cad-review-sketch-name {
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cad-review-sketch-context .nuke-badge {
+    padding: 0 5px;
+    font-size: 10px;
+}
+
+.cad-review-sketch-issue.cad-review-sketch-error {
+    background: var(--theia-inputValidation-errorBackground, var(--theia-badge-background));
+    color: var(--theia-errorForeground);
+}
+
+.cad-review-sketch-issue.cad-review-sketch-warning {
+    background: var(--theia-inputValidation-warningBackground, var(--theia-badge-background));
+    color: var(--theia-editorWarning-foreground);
 }
 
 .cad-review-changes {
@@ -211,9 +246,25 @@
 }
 
 .cad-review-applied-summary {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
     font-size: 12px;
+}
+
+.cad-review-applied-kind {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-descriptionForeground);
+}
+
+.cad-review-applied-detail {
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    line-height: 1.35;
 }
 
 .cad-review-applied-badge {

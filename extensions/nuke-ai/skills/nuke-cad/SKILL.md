@@ -6,9 +6,10 @@ description: Inspect, summarize, and export the active NukeCAD document to DAGMC
 # NukeCAD
 
 Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
-CAD document is ready for simulation, or asks for a small parameter change. Read/export is always available. Scalar
-feature edits are available only when the user enabled **Nuke CAD: AI Authoring**; sketches, scripts, document
-parameters, topology, booleans, imports, assemblies, and drawings stay in the CAD viewport and Feature Tree.
+CAD document is ready for simulation, or asks for a small feature-parameter or sketch-dimension change. Read/export is
+always available. Feature and sketch edits are available only when the user enabled **Nuke CAD: AI Authoring**; new
+sketch entities, scripts, document parameters not referenced by a sketch, topology, booleans, imports, assemblies, and
+drawings stay in the CAD viewport and Feature Tree.
 
 ## Tool names
 
@@ -55,6 +56,48 @@ hidden backup, applies the batch, schedules the rebuild, and returns an `undoTok
 document changed, or the affected feature changed, preview again instead of reusing the old id.
 
 Never invent a feature id or parameter. Ask for the exact feature when the document has more than one candidate.
+
+## Edit a sketch dimension
+
+Only use this flow when the user asks to change a sketch dimension or a document parameter that a sketch references,
+and the preview tool is present. If `nuke_cad_previewSketchChange` is unavailable, CAD AI authoring is off; point the
+user to **Settings → Nuke CAD → AI Authoring** and stop. The document must be saved.
+
+Start with `nuke_cad_listSketchDimensions` and pass no arguments. It returns the document path, the document parameter
+table, and every sketch with its id, name, datum, consumers, and dimensions. Each dimension reports its id, kind,
+driving flag, bound parameter, and current value. Never guess a sketch id, dimension id, or parameter name; ask the
+user when the target is ambiguous.
+
+Call `nuke_cad_previewSketchChange` with one to eight edits on one target sketch:
+
+```json
+{
+  "changes": [
+    { "sketchId": "fuel-sketch", "dimensionId": "dimension-5", "value": 0.44 },
+    { "sketchId": "fuel-sketch", "parameterName": "fuelRadius", "value": 0.44 }
+  ]
+}
+```
+
+Only existing driving dimensions and document parameters referenced by that sketch are accepted.
+
+- A **literal driving dimension** changes only that sketch, and the diff names the sketch and dimension.
+- A **parameter-bound dimension** cascades: the preview updates the document parameter and re-solves every sketch and
+  curve that references it. The diff lists the parameter and every affected dimension, so show the full impact before
+  applying.
+- A **reference dimension** (`driving: false`) cannot be edited. Ask the user to change the driving geometry instead.
+- Rejected previews name the cause: a missing sketch, dimension, or parameter, a parameter the sketch does not
+  reference, a value that does not change anything, or a solve that conflicts. A conflicting solve is never applied.
+  Fix the request or ask the user instead of retrying the same preview.
+
+The preview runs a real build, preserves topology, selector, and region coverage, opens the **CAD Edit Review**
+panel, and shows the candidate as a display-only ghost. It writes nothing and returns a proposal id, diff, impact, and
+solver status.
+
+Call `nuke_cad_applySketchChange` with only `{ "proposalId" }`, and only after explicit confirmation. It re-checks the
+document revision and proposal freshness, writes the parameter and every affected sketch in one atomic commit,
+rebuilds, and returns an `undoToken`. If the preview expired or the document changed, preview again instead of reusing
+the old id. Undo from the card or the review panel restores the parameter and sketches together.
 
 ## Inspect before export
 
@@ -113,8 +156,10 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 
 ## Boundaries
 
-- Do not author geometry beyond the scalar feature-edit flow. Sketches, scripts, document parameters, topology,
-  booleans, imports, assemblies, and drawings stay in the CAD viewport or Feature Tree.
-- Do not apply a feature change without an explicit confirmation, and never send CAD authoring tools through MCP.
+- Do not author geometry beyond the scalar feature-edit and sketch-dimension flows. New sketch entities, scripts,
+  document parameters not referenced by a sketch, topology, booleans, imports, assemblies, and drawings stay in the
+  CAD viewport or Feature Tree.
+- Do not apply a feature or sketch change without an explicit confirmation, and never send CAD authoring tools
+  through MCP.
 - Do not claim a model is simulation-ready from a summary alone; export and import are separate verified steps.
 - Do not read or quote files outside the workspace.

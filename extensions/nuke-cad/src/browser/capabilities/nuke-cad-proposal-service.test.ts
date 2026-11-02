@@ -30,11 +30,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SketchDef } from '../../common/cad-document';
+import type { SketchSolveSummary } from '../sketch/sketch-edit-types';
 import {
     NUKE_CAD_FEATURE_PROPOSAL_LIMIT,
     NUKE_CAD_FEATURE_PROPOSAL_TTL_MS,
+    NukeCadFeatureProposal,
     NukeCadFeatureProposalInput,
-    NukeCadProposalService
+    NukeCadProposal,
+    NukeCadProposalService,
+    NukeCadSketchProposalInput,
+    isSketchProposal
 } from './nuke-cad-proposal-service';
 
 const START = Date.parse('2026-01-01T00:00:00.000Z');
@@ -67,6 +73,79 @@ function buildInput(summary = 'Increase the fuel pellet height'): NukeCadFeature
         before: { fuel: { length: 1 } },
         after: { fuel: { length: 1.2 } }
     };
+}
+
+function sketchDef(id: string, name: string, radius: number): SketchDef {
+    return {
+        id,
+        name,
+        datumId: 'xy',
+        primitives: [{ id: `${id}-circle`, type: 'circle', radius }],
+        constraints: []
+    };
+}
+
+function solverSummary(overrides: Partial<SketchSolveSummary> = {}): SketchSolveSummary {
+    return {
+        status: 'converged',
+        dof: 0,
+        fullyConstrained: true,
+        conflicting: [],
+        redundant: [],
+        errorCount: 0,
+        warningCount: 0,
+        sketches: [],
+        ...overrides
+    };
+}
+
+function buildSketchInput(summary = 'Set the fuel pellet radius'): NukeCadSketchProposalInput {
+    return {
+        scope: 'sketch',
+        summary,
+        documentPath: DOCUMENT_PATH,
+        documentEpoch: 12,
+        baseRevision: BASE_REVISION,
+        changes: [
+            {
+                path: 'sketches.pellet.dimensions.diameter',
+                label: 'pellet diameter',
+                kind: 'update',
+                before: 1,
+                after: 1.2
+            }
+        ],
+        sketch: {
+            targetSketchId: 'pellet',
+            targetSketchName: 'Pellet profile',
+            affectedSketchIds: ['pellet'],
+            affectedFeatureIds: ['fuel'],
+            beforeSketches: { pellet: sketchDef('pellet', 'Pellet profile', 1) },
+            afterSketches: { pellet: sketchDef('pellet', 'Pellet profile', 1.2) },
+            beforeParameters: { pelletDiameter: 1 },
+            afterParameters: { pelletDiameter: 1.2 },
+            solver: solverSummary(),
+            edits: [
+                {
+                    kind: 'dimension',
+                    sketchId: 'pellet',
+                    sketchName: 'Pellet profile',
+                    dimensionId: 'diameter',
+                    dimensionKind: 'diameter',
+                    before: 1,
+                    after: 1.2,
+                    affectedDimensionIds: ['diameter']
+                }
+            ]
+        }
+    };
+}
+
+function featureProposal(proposal: NukeCadProposal | undefined): NukeCadFeatureProposal {
+    if (proposal === undefined || proposal.scope !== 'features') {
+        throw new Error('Expected a feature proposal');
+    }
+    return proposal;
 }
 
 function advance(milliseconds: number): void {
@@ -115,7 +194,7 @@ describe('NukeCadProposalService', () => {
         (created.edits[0] as { after?: number }).after = 99;
         (created as { summary: string }).summary = 'Mutated return';
 
-        const stored = service.get(created.id)!;
+        const stored = featureProposal(service.get(created.id));
         expect(stored.summary).toBe('Increase the fuel pellet height');
         expect(stored.before).toEqual({ fuel: { length: 1 } });
         expect(stored.after).toEqual({ fuel: { length: 1.2 } });
@@ -127,7 +206,7 @@ describe('NukeCadProposalService', () => {
         (stored.changes[0] as { after?: unknown }).after = 123;
         (stored.edits[0] as { after?: number }).after = 123;
 
-        const reread = service.get(created.id)!;
+        const reread = featureProposal(service.get(created.id));
         expect(reread.before).toEqual({ fuel: { length: 1 } });
         expect(reread.after).toEqual({ fuel: { length: 1.2 } });
         expect(reread.changes[0].after).toBe(1.2);
@@ -355,5 +434,82 @@ describe('NukeCadProposalService', () => {
         expect(plain.build).toBeUndefined();
         expect('impact' in plain).toBe(false);
         expect('build' in plain).toBe(false);
+    });
+
+    it('stores detached sketch snapshots for sketch proposals', () => {
+        const service = new NukeCadProposalService();
+        const input = buildSketchInput();
+        const created = service.create(input);
+
+        expect(created.sketch.targetSketchName).toBe('Pellet profile');
+        expect(created.sketch.affectedSketchIds).toEqual(['pellet']);
+
+        input.sketch.beforeSketches.pellet.name = 'Mutated input';
+        (input.sketch.afterSketches.pellet.primitives[0] as { radius?: number }).radius = 99;
+        (input.sketch.beforeParameters as { pelletDiameter?: number }).pelletDiameter = 99;
+        (input.sketch.afterParameters as { pelletDiameter?: number }).pelletDiameter = 99;
+        (input.sketch.solver as { dof: number }).dof = 5;
+        (input.sketch.edits[0] as { after?: number }).after = 99;
+
+        expect(created.sketch.beforeSketches.pellet.name).toBe('Pellet profile');
+        expect(created.sketch.afterSketches.pellet.primitives[0]).toEqual({ id: 'pellet-circle', type: 'circle', radius: 1.2 });
+        expect(created.sketch.beforeParameters).toEqual({ pelletDiameter: 1 });
+        expect(created.sketch.afterParameters).toEqual({ pelletDiameter: 1.2 });
+        expect(created.sketch.solver.dof).toBe(0);
+        expect(created.sketch.edits[0].after).toBe(1.2);
+
+        (created.sketch.beforeSketches.pellet as { name: string }).name = 'Mutated return';
+        (created.sketch.afterSketches.pellet.primitives[0] as { radius?: number }).radius = 42;
+        (created.sketch.edits[0] as { after?: number }).after = 42;
+        (created.sketch.solver as { dof: number }).dof = 42;
+
+        const stored = service.get(created.id);
+        if (stored === undefined || !isSketchProposal(stored)) {
+            throw new Error('Expected a sketch proposal');
+        }
+        expect(stored.sketch.beforeSketches.pellet.name).toBe('Pellet profile');
+        expect(stored.sketch.afterSketches.pellet.primitives[0]).toEqual({ id: 'pellet-circle', type: 'circle', radius: 1.2 });
+        expect(stored.sketch.edits[0].after).toBe(1.2);
+        expect(stored.sketch.solver.dof).toBe(0);
+        expect(service.get(created.id)).not.toBe(service.get(created.id));
+
+        const listed = service.list();
+        expect(listed).toHaveLength(1);
+        if (!isSketchProposal(listed[0])) {
+            throw new Error('Expected a sketch proposal');
+        }
+        (listed[0].sketch.afterSketches.pellet as { name: string }).name = 'Mutated list';
+        expect(stored.sketch.afterSketches.pellet.name).toBe('Pellet profile');
+    });
+
+    it('keeps feature and sketch proposals in one store and narrows by scope', () => {
+        const service = new NukeCadProposalService();
+        const feature = service.create(buildInput('Feature change'));
+        const sketch = service.create(buildSketchInput('Sketch change'));
+
+        const listed = service.list();
+        expect(listed.map((entry) => entry.id)).toEqual([feature.id, sketch.id]);
+        expect(listed.map((entry) => entry.scope)).toEqual(['features', 'sketch']);
+
+        expect(isSketchProposal(listed[0])).toBe(false);
+        expect(isSketchProposal(listed[1])).toBe(true);
+        const narrowed = listed[1];
+        if (!isSketchProposal(narrowed)) {
+            throw new Error('Expected a sketch proposal');
+        }
+        expect(narrowed.sketch.targetSketchId).toBe('pellet');
+        expect(narrowed.applyCapability).toBe('nuke.cad.applySketchChange');
+    });
+
+    it('preserves an explicit apply capability for both proposal scopes', () => {
+        const service = new NukeCadProposalService();
+        const feature = service.create({ ...buildInput('Feature change'), applyCapability: 'nuke.test.applyFeature' });
+        const sketch = service.create({ ...buildSketchInput('Sketch change'), applyCapability: 'nuke.test.applySketch' });
+
+        expect(feature.applyCapability).toBe('nuke.test.applyFeature');
+        expect(sketch.applyCapability).toBe('nuke.test.applySketch');
+        expect(service.get(feature.id)?.applyCapability).toBe('nuke.test.applyFeature');
+        expect(service.get(sketch.id)?.applyCapability).toBe('nuke.test.applySketch');
+        expect(service.create(buildInput('Default feature')).applyCapability).toBeUndefined();
     });
 });

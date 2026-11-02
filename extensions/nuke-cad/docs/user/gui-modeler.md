@@ -1004,12 +1004,16 @@ the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
 
 ### AI edit review
 
-When NukeAI proposes a feature-parameter change and **Nuke CAD: AI Authoring** is enabled, the **CAD Edit
-Review** panel opens beside the viewport. It shows the target document, the before/after values, and the
-solid/face/triangle/bounding-box impact. The viewport overlays the candidate as a translucent ghost; changed
-solids use a warmer accent, and the real model is untouched. **Apply** confirms and writes the change,
-**Dismiss** discards it, and **Undo** restores the previous parameters for the current session. Open the panel
-manually with **Open CAD Edit Review** in the Command Palette, the CAD Studio menu, or the Nuke Tools sidebar.
+When NukeAI proposes a feature-parameter change or a sketch-dimension change and **Nuke CAD: AI Authoring** is
+enabled, the **CAD Edit Review** panel opens beside the viewport. It shows the target document, the before/after
+values, and the solid/face/triangle/bounding-box impact. A sketch proposal also names the target sketch, the
+affected-sketch count, every parameter/dimension row, and the solver status (DOF, conflicting and redundant
+constraints). A dimension bound to a document parameter cascades, so one row updates the parameter and the panel
+lists every affected dimension; a literal dimension edits only its sketch. The viewport overlays the candidate as a
+translucent ghost; changed solids use a warmer accent, and the real model is untouched. **Apply** confirms and writes
+the change, **Dismiss** discards it, and **Undo** restores the previous parameters or the parameter plus all affected
+sketches for the current session. Open the panel manually with **Open CAD Edit Review** in the Command Palette, the
+CAD Studio menu, or the Nuke Tools sidebar.
 
 ### Reference repair
 

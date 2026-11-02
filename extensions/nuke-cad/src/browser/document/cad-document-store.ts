@@ -127,6 +127,14 @@ export interface DocumentSelection {
     readonly selectedCurveId?: string;
 }
 
+/** One atomic sketch-authoring transaction. */
+export interface SketchAuthoringEdit {
+    /** Full replacement definitions for existing sketches. */
+    readonly sketches: readonly SketchDef[];
+    /** Document parameter values changed by the edit. */
+    readonly parameters?: Readonly<Record<string, number>>;
+}
+
 /** One body + import feature pair created by {@link CadDocumentStore.addImportBodies}. */
 export interface ImportBodyDraft {
     /** Body name shown in the feature tree. */
@@ -539,7 +547,7 @@ export function sampleParametricWithUnits(
     return points;
 }
 
-function buildCurveSamples(
+export function buildCurveSamples(
     source: CurveSource,
     parameters: Record<string, number>,
     units?: DocumentUnits
@@ -1325,6 +1333,91 @@ export class CadDocumentStore {
             doc.sketches[index] = sketchWithoutLocalParams;
         } else {
             doc.sketches.push(sketchWithoutLocalParams);
+        }
+
+        return this.commit(doc);
+    }
+
+    /**
+     * Apply a cross-sketch sketch-authoring edit atomically.
+     *
+     * Replaces existing sketches and updates document parameters in one
+     * validated commit, so a parameter shared by several sketches produces one
+     * undo entry, one revision bump, and one change event. Parametric curves
+     * referencing a changed parameter are re-sampled against the candidate
+     * parameter table. {@link upsertSketch} cannot express this transaction: it
+     * replaces one sketch at a time and would commit each dependent sketch as a
+     * separate history entry.
+     */
+    applySketchAuthoringEdit(edit: SketchAuthoringEdit): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (!Array.isArray(edit.sketches) || edit.sketches.length === 0) {
+            return { success: false, error: 'Sketch authoring edit requires at least one sketch' };
+        }
+        const original = check.value!;
+
+        for (const sketchDef of edit.sketches) {
+            if (!original.sketches.some((s) => s.id === sketchDef.id)) {
+                return { success: false, error: `Sketch '${sketchDef.id}' not found` };
+            }
+        }
+
+        const explicitParameters = edit.parameters ?? {};
+        for (const [name, value] of Object.entries(explicitParameters)) {
+            if (!Number.isFinite(value)) {
+                return { success: false, error: `Parameter '${name}' must be a finite number` };
+            }
+        }
+
+        const doc = cloneDocument(original);
+        const changedParameterNames = new Set<string>();
+        for (const sketchDef of edit.sketches) {
+            const index = doc.sketches.findIndex((s) => s.id === sketchDef.id);
+            const localParameters: Record<string, number> = sketchDef.parameters ?? {};
+            for (const [name, value] of Object.entries(localParameters)) {
+                doc.parameters[name] = value;
+                changedParameterNames.add(name);
+            }
+            doc.sketches[index] = { ...sketchDef, parameters: undefined };
+        }
+        for (const [name, value] of Object.entries(explicitParameters)) {
+            doc.parameters[name] = value;
+            changedParameterNames.add(name);
+        }
+
+        if (changedParameterNames.size > 0) {
+            const curveIds = new Set<string>();
+            for (const usage of collectParameterUsages(original)) {
+                if (!changedParameterNames.has(usage.name)) {
+                    continue;
+                }
+                for (const referrer of usage.usedBy) {
+                    if (referrer.kind === 'curve') {
+                        curveIds.add(referrer.id);
+                    }
+                }
+            }
+            for (const curveId of curveIds) {
+                const index = doc.curves.findIndex((c) => c.id === curveId);
+                if (index < 0) {
+                    continue;
+                }
+                const curve = doc.curves[index];
+                if (curve.source.kind === 'points') {
+                    continue;
+                }
+                const result = buildCurveSamples(curve.source, doc.parameters, doc.units);
+                if (result.error !== undefined) {
+                    return { success: false, error: `Could not resample curve '${curve.name}': ${result.error}` };
+                }
+                if (result.samples.length < 4) {
+                    return { success: false, error: `Curve '${curve.name}' resampled to fewer than 4 points` };
+                }
+                doc.curves[index] = { ...curve, samples: result.samples };
+            }
         }
 
         return this.commit(doc);

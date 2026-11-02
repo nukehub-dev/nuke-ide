@@ -45,6 +45,7 @@ import {
     type SketchEllipse,
     type TemporaryConstraint,
     type SolverResult,
+    type SolverStatus,
     type SolverDiagnostic,
     buildSolverDiagnostics
 } from '../../common/sketch-solver';
@@ -234,6 +235,8 @@ export interface AutoConstraintFeedback {
 export interface SketchStatus {
     /** Remaining degrees of freedom (0 = fully constrained). */
     dof: number;
+    /** Outcome of the most recent committed solve. */
+    solveStatus: SolverStatus;
     /** Caller-assigned ids of conflicting constraints. */
     conflicting: string[];
     /** Caller-assigned ids of redundant constraints. */
@@ -750,6 +753,7 @@ export class SketchSession {
         }
         this.status = {
             dof: 0,
+            solveStatus: 'converged',
             conflicting: [],
             redundant: [],
             fullyConstrained: false,
@@ -4967,6 +4971,7 @@ export class SketchSession {
         }
         this.status = {
             dof: result.dof,
+            solveStatus: result.status,
             conflicting: result.conflicting,
             redundant: result.redundant,
             partiallyRedundant: result.partiallyRedundant ?? [],
@@ -6439,6 +6444,7 @@ export class SketchSession {
         }
         this.status = {
             dof: result.dof,
+            solveStatus: result.status,
             conflicting: result.conflicting,
             redundant: result.redundant,
             partiallyRedundant: result.partiallyRedundant ?? [],
@@ -6500,6 +6506,7 @@ export class SketchSession {
 
         this.status = {
             dof: result.dof,
+            solveStatus: result.status,
             conflicting: result.conflicting,
             redundant: result.redundant,
             partiallyRedundant: result.partiallyRedundant ?? [],

@@ -7,11 +7,12 @@ read the same `NukeCapability` objects without importing CAD widgets.
 The implementation lives in
 `src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and
 `src/browser/capabilities/nuke-cad-authoring-capabilities.ts` (the gated
-feature-edit slice):
+feature and sketch authoring slices):
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
   the read/export capabilities below.
-- `NukeCadAuthoringCapabilities` registers the feature preview/apply pair. It is
+- `NukeCadAuthoringCapabilities` registers the feature preview/apply pair and
+  the sketch dimension list/preview/apply trio. All authoring capabilities are
   default-off behind `nukeCad.aiAuthoringEnabled`.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
@@ -27,14 +28,17 @@ transient candidate document through the same `buildDocument` path.
 
 ## Capabilities
 
-| ID                              | Risk      | Active model required | Purpose                                                       |
-| ------------------------------- | --------- | --------------------- | ------------------------------------------------------------- |
-| `nuke.cad.summarizeDocument`    | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries        |
-| `nuke.cad.inspectSelection`     | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids          |
-| `nuke.cad.diagnoseModel`        | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings   |
-| `nuke.cad.previewFeatureChange` | `read`    | Yes, saved            | Validate scalar feature edits with a real build and diff them |
-| `nuke.cad.applyFeatureChange`   | `execute` | Yes, saved            | Apply a previewed proposal, rebuild, and register undo        |
-| `nuke.cad.exportDagmc`          | `execute` | No                    | Build a source file and export DAGMC + region manifest        |
+| ID                              | Risk      | Active model required | Purpose                                                          |
+| ------------------------------- | --------- | --------------------- | ---------------------------------------------------------------- |
+| `nuke.cad.summarizeDocument`    | `read`    | Yes                   | Build counts, selection, manifest, and solid summaries           |
+| `nuke.cad.inspectSelection`     | `read`    | Yes                   | Primary solid, selected solids, and hidden solid ids             |
+| `nuke.cad.diagnoseModel`        | `read`    | Yes                   | Build, manifest, selection, and per-solid geometry findings      |
+| `nuke.cad.listSketchDimensions` | `read`    | Document only         | Document parameters and per-sketch dimensions, datums, consumers |
+| `nuke.cad.previewFeatureChange` | `read`    | Yes, saved            | Validate scalar feature edits with a real build and diff them    |
+| `nuke.cad.applyFeatureChange`   | `execute` | Yes, saved            | Apply a previewed proposal, rebuild, and register undo           |
+| `nuke.cad.previewSketchChange`  | `read`    | Yes, saved            | Validate sketch-dimension or parameter edits with a real build   |
+| `nuke.cad.applySketchChange`    | `execute` | Yes, saved            | Apply a sketch proposal atomically, rebuild, and register undo   |
+| `nuke.cad.exportDagmc`          | `execute` | No                    | Build a source file and export DAGMC + region manifest           |
 
 ### `nuke.cad.summarizeDocument`
 
@@ -189,7 +193,54 @@ params, restores the before params in one batch, and schedules the rebuild.
 
 The full design and its remaining security gates are documented in
 [Cad Authoring Design](../../../nuke-ai/docs/dev/cad-authoring-design.md). Script,
-sketch, parameter, topology, and import authoring remain out of scope.
+free-form sketch creation, new sketch entities/constraints/dimensions, topology, and import authoring remain out of
+scope.
+
+## Sketch authoring (gated)
+
+Sketch authoring uses the same switch and saved-document requirement. Discovery is
+`nuke.cad.listSketchDimensions` with no arguments. It returns `documentPath`, the document `parameters` table, and one
+entry per sketch with `id`, `name`, `datumId`, `consumers` (feature ids), and `dimensions`. Each dimension reports
+`id`, `kind`, `driving`, optional `parameter`, and `value`.
+
+Preview (`nuke.cad.previewSketchChange`) accepts one to eight edits, all on one target sketch:
+
+```json
+{
+  "changes": [
+    { "sketchId": "fuel-sketch", "dimensionId": "dimension-5", "value": 0.44 },
+    { "sketchId": "fuel-sketch", "parameterName": "fuelRadius", "value": 0.44 }
+  ]
+}
+```
+
+Resolution rules:
+
+- A `dimensionId` must exist in the target sketch, be a driving dimension (`driving: true`), and reference an existing
+  constraint. Reference dimensions are rejected.
+- A `parameterName` must exist in the document parameter table and be referenced by a sketch or parametric curve. A
+  parameter no sketch or curve references is rejected; the edit then cascades to every sketch and curve that uses it.
+- Each request must change the current value. Duplicate targets, more than eight edits, and edits spanning multiple
+  sketches are rejected.
+- A **literal** driving dimension updates only the target sketch. A **parameter-bound** dimension updates
+  `document.parameters[parameterName]` and cascades to every sketch whose constraints or dimensions reference the
+  parameter, and to every parametric curve whose expression consumes it. The returned edits name the parameter and every
+  affected dimension id and sketch id.
+
+The solver transaction (`NukeCadSketchEditService.prepare`) runs on a detached clone. Every affected sketch is restored
+with `SketchSession.fromSketchDef`, solved with planegcs, and written back with its solved primitives and dimension
+values. Dependent parametric curves are resampled and the candidate document is validated. The preview requires a
+converged solver status with no conflicting constraints, no failed curve resample, and no document-validation issue;
+otherwise it returns a stable error code (`dimension-not-driving`, `parameter-not-referenced`, `solve-conflicting`,
+`value-unchanged`, and so on) and stores no proposal. Parameter-bound edits are stored as document-parameter updates,
+never as a sketch-local `parameters` table, so a later rebuild re-solves from the same source of truth.
+
+Apply (`nuke.cad.applySketchChange`) accepts only `{ "proposalId" }`. It re-checks the document epoch, revision, the
+affected sketch snapshots, and the parameter values, then applies the stored solved sketches and parameter updates
+atomically with the same backup/restore path as feature authoring. The parameter and **every** affected sketch commit
+in one document-store transaction before scheduling `nuke.cad.rebuild`, so a multi-sketch cascade cannot half-apply.
+Undo re-checks the epoch, revision, and applied values and restores the parameter and all affected sketches together. None of the sketch
+authoring ids is on the external MCP read-only allowlist; MCP stays read-only.
 
 ## Review panel and ghost preview
 
@@ -202,12 +253,16 @@ sketch mode. The ghost is display-only and never participates in picking,
 selection, explode, fit, or the document store.
 
 The panel (`CadReviewPanelWidget`, command `nuke.cad.openReviewPanel`) lists the
-stored proposals with the same `changeSet` rows, the solid/face/triangle impact,
-and the build counts. **Apply** confirms, resolves
-`nuke.cad.applyFeatureChange` from the capability registry, and keeps the
-returned undo token for **Undo**. **Dismiss** removes the proposal; the ghost
-service clears the overlay when the backing proposal disappears. The panel
-never writes the document directly; the capability remains the only writer.
+stored feature and sketch proposals with the same `changeSet` rows, the
+solid/face/triangle impact, and the build counts. A sketch proposal also shows
+its target sketch, affected-sketch count, parameter/dimension rows, and
+per-sketch solver status (converged/failed, DOF, conflicting and redundant
+counts). **Apply** confirms, resolves the proposal's apply capability
+(`nuke.cad.applyFeatureChange` or `nuke.cad.applySketchChange`) from the
+capability registry, and keeps the returned undo token for **Undo**.
+**Dismiss** removes the proposal; the ghost service clears the overlay when the
+backing proposal disappears. The panel never writes the document directly; the
+capability remains the only writer.
 
 ## Path scoping
 
@@ -248,7 +303,6 @@ merged sidecar there, so the source directory is the normal location.
 3. Return `NukeCapabilityResult` with truthful `data`, `warnings`, `artifacts`,
    `nextActions`, or `undoToken` where applicable. Add an `outputSchema` when
    consumers need structured output.
-4. Register the capability in `NukeCadCapabilities.registerCapabilities` and
-   cover it with a plain-fake unit test in
-   `nuke-cad-capabilities.test.ts`.
+4. Register the capability in `NukeCadCapabilities.registerCapabilities` (or
+   the gated authoring contribution) and cover it with a plain-fake unit test.
 5. Update this page and the capability table when the contract changes.

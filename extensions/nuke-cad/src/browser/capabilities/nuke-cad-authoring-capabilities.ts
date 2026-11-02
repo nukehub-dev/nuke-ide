@@ -26,15 +26,16 @@
 // *****************************************************************************
 
 /**
- * NukeCAD Feature Authoring Capabilities
+ * NukeCAD Authoring Capabilities
  *
- * The narrow AI authoring slice: scalar feature-parameter edits on a saved
- * `.nuke-cad` document. Every preview runs a real build in a private temporary
- * directory, keeps the solid count, selector map, and region coverage
- * unchanged, and stores a short-lived proposal. Apply writes the parameters
- * through the document store, schedules the existing rebuild, and registers a
- * session-scoped undo. The whole surface is default-off behind
- * `nukeCad.aiAuthoringEnabled`.
+ * The narrow AI authoring slice: scalar feature-parameter edits and sketch
+ * driving-dimension edits on a saved `.nuke-cad` document. Every preview runs a
+ * real build in a private temporary directory, keeps the solid count, selector
+ * map, and region coverage unchanged, and stores a short-lived proposal. Apply
+ * writes the changes through the document store, schedules the existing
+ * rebuild, and registers a session-scoped undo. The whole authoring surface is
+ * default-off behind `nukeCad.aiAuthoringEnabled`; listing sketch dimensions is
+ * read-only metadata and stays available.
  *
  * @module nuke-cad/browser/capabilities
  */
@@ -62,21 +63,33 @@ import {
     prepareFeatureEdit,
     ResolvedFeatureEdit
 } from '../../common/cad-feature-edit';
-import { FeatureParams } from '../../common/cad-document';
+import { FeatureParams, NukeCadDocument, SketchDef } from '../../common/cad-document';
 import { NukeCadFrontendService } from '../nuke-cad-frontend-service';
 import { NukeCadPreferences } from '../nuke-cad-preferences';
-import { CadDocumentStore } from '../document/cad-document-store';
+import { CadDocumentStore, featuresConsumingSketch } from '../document/cad-document-store';
 import { NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import { NukeCadCommands } from '../commands';
-import { NukeCadFeatureProposal, NukeCadProposalBuild, NukeCadProposalImpact, NukeCadProposalService } from './nuke-cad-proposal-service';
+import {
+    isSketchProposal,
+    NukeCadFeatureProposal,
+    NukeCadProposalBuild,
+    NukeCadProposalImpact,
+    NukeCadProposalService,
+    NukeCadSketchProposal
+} from './nuke-cad-proposal-service';
 import { compareCandidateSolids } from '../preview/ghost-preview-diff';
 import { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
 import { parseTessellationAsync } from '../widgets/cad-viewport/tess-parse-client';
 import { AI_AUTHORING_PREFERENCE } from './nuke-cad-authoring-constants';
+import { NukeCadSketchEditService, sketchDefinitionsEqual } from '../sketch/sketch-edit-service';
+import { CAD_SKETCH_EDIT_LIMIT, PreparedSketchEdit, SketchEditRequest } from '../sketch/sketch-edit-types';
 
-/** Stable capability ids for the feature-authoring slice. */
+/** Stable capability ids for the feature- and sketch-authoring slice. */
 export const PREVIEW_FEATURE_CHANGE_ID = 'nuke.cad.previewFeatureChange';
 export const APPLY_FEATURE_CHANGE_ID = 'nuke.cad.applyFeatureChange';
+export const LIST_SKETCH_DIMENSIONS_ID = 'nuke.cad.listSketchDimensions';
+export const PREVIEW_SKETCH_CHANGE_ID = 'nuke.cad.previewSketchChange';
+export const APPLY_SKETCH_CHANGE_ID = 'nuke.cad.applySketchChange';
 
 /** Preview builds must not inherit the backend's one-hour document timeout. */
 const PREVIEW_TIMEOUT_SECONDS = 120;
@@ -122,6 +135,15 @@ const APPLY_INPUT_SCHEMA: NukeJsonSchema = {
     additionalProperties: false
 };
 
+const APPLY_SKETCH_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string', description: 'Proposal id returned by nuke.cad.previewSketchChange.' }
+    },
+    required: ['proposalId'],
+    additionalProperties: false
+};
+
 const PREVIEW_OUTPUT_SCHEMA: NukeJsonSchema = {
     type: 'object',
     properties: {
@@ -134,7 +156,82 @@ const PREVIEW_OUTPUT_SCHEMA: NukeJsonSchema = {
     required: ['proposalId', 'summary', 'changes', 'impact']
 };
 
-/** Preview/apply capabilities for scalar `.nuke-cad` feature edits. */
+const LIST_SKETCH_DIMENSIONS_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+};
+
+const LIST_SKETCH_DIMENSIONS_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        documentPath: { type: 'string', description: 'Canonical path of the active .nuke-cad document.' },
+        parameters: {
+            type: 'object',
+            description: 'Document parameter name to current value.',
+            additionalProperties: { type: 'number' }
+        },
+        sketches: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string' },
+                    datumId: { type: 'string' },
+                    consumedByFeatureIds: { type: 'array', items: { type: 'string' } },
+                    dimensions: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'string' },
+                                kind: {
+                                    type: 'string',
+                                    enum: ['distance', 'distanceH', 'distanceV', 'angle', 'radius', 'diameter']
+                                },
+                                driving: { type: 'boolean' },
+                                parameter: { type: 'string', description: 'Document parameter driving the dimension, when bound.' },
+                                value: { type: 'number' }
+                            },
+                            required: ['id', 'kind', 'driving', 'value'],
+                            additionalProperties: false
+                        }
+                    }
+                },
+                required: ['id', 'name', 'datumId', 'consumedByFeatureIds', 'dimensions'],
+                additionalProperties: false
+            }
+        }
+    },
+    required: ['documentPath', 'parameters', 'sketches']
+};
+
+const PREVIEW_SKETCH_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        changes: {
+            type: 'array',
+            minItems: 1,
+            maxItems: CAD_SKETCH_EDIT_LIMIT,
+            items: {
+                type: 'object',
+                properties: {
+                    sketchId: { type: 'string', description: 'Sketch id from nuke.cad.listSketchDimensions.' },
+                    dimensionId: { type: 'string', description: 'Driving dimension id on that sketch.' },
+                    parameterName: { type: 'string', description: 'Document parameter referenced by that sketch.' },
+                    value: { type: 'number', description: 'New finite scalar value.' }
+                },
+                required: ['sketchId', 'value'],
+                additionalProperties: false
+            }
+        }
+    },
+    required: ['changes'],
+    additionalProperties: false
+};
+
+/** Preview/apply capabilities for scalar feature and sketch-dimension `.nuke-cad` edits. */
 @injectable()
 export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution {
     constructor(
@@ -146,12 +243,16 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         @inject(NukeCadPreferences) protected readonly preferences: NukeCadPreferences,
         @inject(CommandService) protected readonly commands: CommandService,
         @inject(NukeUndoService) protected readonly undoService: NukeUndoService,
-        @inject(NukeCadGhostPreviewService) protected readonly ghostPreview: NukeCadGhostPreviewService
+        @inject(NukeCadGhostPreviewService) protected readonly ghostPreview: NukeCadGhostPreviewService,
+        @inject(NukeCadSketchEditService) protected readonly sketchEditService: NukeCadSketchEditService
     ) {}
 
     registerCapabilities(registry: NukeCapabilityRegistry): void {
+        registry.register(this.listSketchDimensionsCapability());
         registry.register(this.previewCapability());
         registry.register(this.applyCapability());
+        registry.register(this.previewSketchCapability());
+        registry.register(this.applySketchCapability());
     }
 
     protected previewCapability(): NukeCapability {
@@ -169,6 +270,61 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
             tags: ['cad', 'authoring', 'preview'],
             when: () => this.enabled() && this.hasActiveDocument(),
             invoke: (input, context) => this.previewFeatureChange(input, context)
+        };
+    }
+
+    protected listSketchDimensionsCapability(): NukeCapability {
+        return {
+            id: LIST_SKETCH_DIMENSIONS_ID,
+            title: 'List CAD sketch dimensions',
+            description:
+                'Read the active .nuke-cad document parameters, sketches, and driving/reference dimensions. This is read-only ' +
+                'metadata to call before previewing a sketch change; it works even when AI authoring is off.',
+            category: CATEGORY,
+            inputSchema: LIST_SKETCH_DIMENSIONS_INPUT_SCHEMA,
+            outputSchema: LIST_SKETCH_DIMENSIONS_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'sketch', 'read'],
+            when: () => this.store.document !== undefined,
+            invoke: () => this.listSketchDimensions()
+        };
+    }
+
+    protected previewSketchCapability(): NukeCapability {
+        return {
+            id: PREVIEW_SKETCH_CHANGE_ID,
+            title: 'Preview CAD sketch change',
+            description:
+                'Propose driving-dimension or referenced-parameter edits for one sketch in the active saved .nuke-cad ' +
+                'document, re-solve the affected sketches, and validate the result with a real build before anything is written. ' +
+                'The preview is read-only.',
+            category: CATEGORY,
+            inputSchema: PREVIEW_SKETCH_INPUT_SCHEMA,
+            risk: 'read',
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            tags: ['cad', 'authoring', 'preview', 'sketch'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input, context) => this.previewSketchChange(input, context)
+        };
+    }
+
+    protected applySketchCapability(): NukeCapability {
+        return {
+            id: APPLY_SKETCH_CHANGE_ID,
+            title: 'Apply CAD sketch change',
+            description:
+                'Apply a previewed sketch-dimension change to the active .nuke-cad document, schedule the rebuild, and ' +
+                'return an undo token. Accepts only a proposal id.',
+            category: CATEGORY,
+            inputSchema: APPLY_SKETCH_INPUT_SCHEMA,
+            risk: 'execute',
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            requiresConfirmation: true,
+            undoable: true,
+            tags: ['cad', 'authoring', 'apply', 'sketch'],
+            when: () => this.enabled() && this.hasActiveDocument(),
+            invoke: (input) => this.applySketchChange(input)
         };
     }
 
@@ -245,42 +401,7 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         const baseEpoch = this.store.documentEpoch;
         const baseRevision = this.store.revision;
         this.ghostPreview.clear();
-        const workspaceRoot = context.workspaceRoots[0];
-        if (!workspaceRoot) {
-            return { ok: false, message: 'A workspace root is required to run a CAD preview build.' };
-        }
-
-        const previewId = globalThis.crypto.randomUUID();
-        const previewDirectory = path.join(workspaceRoot, ...PREVIEW_ROOT, previewId);
-        // Keep the transient document beside the source so document-relative
-        // imports resolve exactly as they do for the real document. Only the
-        // build artifacts go to the private preview directory.
-        const candidateStem = `.nuke-ai-preview-${previewId}`;
-        const candidatePath = path.join(path.dirname(documentPath), `${candidateStem}.nuke-cad`);
-        const jobId = `cad-ai-preview-${previewId}`;
-        const abort = (): void => {
-            void this.service.cancelJob(jobId);
-        };
-        context.signal?.addEventListener('abort', abort);
-        try {
-            await this.fileService.create(new URI(candidatePath), JSON.stringify(prepared.result.afterDocument, null, 2));
-            if (context.signal?.aborted) {
-                return { ok: false, message: 'The CAD preview was cancelled.' };
-            }
-            const build = await this.service.buildDocument({
-                scriptPath: candidatePath,
-                outputDirectory: previewDirectory,
-                useCache: false,
-                jobId,
-                timeoutSeconds: PREVIEW_TIMEOUT_SECONDS
-            });
-            if (!build.success) {
-                return {
-                    ok: false,
-                    message: build.error || 'The preview build failed.',
-                    warnings: build.warnings
-                };
-            }
+        return this.runCandidateBuild(prepared.result.afterDocument, documentPath, context, async (build) => {
             const topologyError = compareBuild(model.result, build);
             if (topologyError) {
                 return { ok: false, message: topologyError, warnings: build.warnings };
@@ -342,6 +463,57 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                 },
                 warnings: build.warnings
             };
+        });
+    }
+
+    /**
+     * Write the detached candidate beside the source document, run one private
+     * build, and delegate the review step. The transient document, its region
+     * sidecar, and the preview directory are always deleted.
+     */
+    protected async runCandidateBuild(
+        candidate: NukeCadDocument,
+        documentPath: string,
+        context: NukeCapabilityContext,
+        review: (build: GeometryBuildResult) => Promise<NukeCapabilityResult>
+    ): Promise<NukeCapabilityResult> {
+        const workspaceRoot = context.workspaceRoots[0];
+        if (!workspaceRoot) {
+            return { ok: false, message: 'A workspace root is required to run a CAD preview build.' };
+        }
+
+        const previewId = globalThis.crypto.randomUUID();
+        const previewDirectory = path.join(workspaceRoot, ...PREVIEW_ROOT, previewId);
+        // Keep the transient document beside the source so document-relative
+        // imports resolve exactly as they do for the real document. Only the
+        // build artifacts go to the private preview directory.
+        const candidateStem = `.nuke-ai-preview-${previewId}`;
+        const candidatePath = path.join(path.dirname(documentPath), `${candidateStem}.nuke-cad`);
+        const jobId = `cad-ai-preview-${previewId}`;
+        const abort = (): void => {
+            void this.service.cancelJob(jobId);
+        };
+        context.signal?.addEventListener('abort', abort);
+        try {
+            await this.fileService.create(new URI(candidatePath), JSON.stringify(candidate, null, 2));
+            if (context.signal?.aborted) {
+                return { ok: false, message: 'The CAD preview was cancelled.' };
+            }
+            const build = await this.service.buildDocument({
+                scriptPath: candidatePath,
+                outputDirectory: previewDirectory,
+                useCache: false,
+                jobId,
+                timeoutSeconds: PREVIEW_TIMEOUT_SECONDS
+            });
+            if (!build.success) {
+                return {
+                    ok: false,
+                    message: build.error || 'The preview build failed.',
+                    warnings: build.warnings
+                };
+            }
+            return await review(build);
         } catch (error) {
             return { ok: false, message: errorMessage(error) };
         } finally {
@@ -357,6 +529,133 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
                 this.fileService.delete(new URI(previewDirectory), { recursive: true, useTrash: false }).catch(() => undefined)
             ]);
         }
+    }
+
+    /** Read-only sketch and dimension metadata for the active document. */
+    protected async listSketchDimensions(): Promise<NukeCapabilityResult> {
+        const document = this.store.document;
+        if (!document) {
+            return this.inactiveResult();
+        }
+        return {
+            ok: true,
+            data: {
+                documentPath: this.activeDocumentPath() ?? '',
+                parameters: { ...document.parameters },
+                sketches: document.sketches.map((sketch) => ({
+                    id: sketch.id,
+                    name: sketch.name,
+                    datumId: sketch.datumId,
+                    consumedByFeatureIds: featuresConsumingSketch(document, sketch.id),
+                    dimensions: (sketch.dimensions ?? []).map((dimension) => ({
+                        id: dimension.id,
+                        kind: dimension.kind,
+                        driving: dimension.driving,
+                        ...(dimension.parameter !== undefined ? { parameter: dimension.parameter } : {}),
+                        value: dimension.value
+                    }))
+                }))
+            }
+        };
+    }
+
+    protected async previewSketchChange(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        const model = this.stateManager.model;
+        const document = this.store.document;
+        const uri = this.store.uri;
+        if (!model || !document || !uri) {
+            return this.inactiveResult();
+        }
+        if (!model.result.success) {
+            return { ok: false, message: 'Rebuild the active document successfully before previewing a change.' };
+        }
+        const documentPath = new URI(uri).path.toString();
+        const pathError = this.scopeError(documentPath, context.workspaceRoots);
+        if (pathError) {
+            return { ok: false, message: pathError };
+        }
+        const requests = readSketchEditRequests(input);
+        if (!requests.ok) {
+            return { ok: false, message: requests.message };
+        }
+        const baseEpoch = this.store.documentEpoch;
+        const baseRevision = this.store.revision;
+        const prepared = await this.sketchEditService.prepare(document, requests.changes);
+        if (!prepared.ok) {
+            return { ok: false, message: prepared.message };
+        }
+        if (this.store.documentEpoch !== baseEpoch || this.store.revision !== baseRevision) {
+            return { ok: false, message: 'The document changed while the sketch was solving. Preview the change again.' };
+        }
+        this.ghostPreview.clear();
+        const sketch = prepared.result;
+        return this.runCandidateBuild(sketch.afterDocument, documentPath, context, async (build) => {
+            const topologyError = compareBuild(model.result, build);
+            if (topologyError) {
+                return { ok: false, message: topologyError, warnings: build.warnings };
+            }
+            if (this.store.documentEpoch !== baseEpoch || this.store.revision !== baseRevision) {
+                return { ok: false, message: 'The document changed while the preview was building. Preview the change again.' };
+            }
+            const summary = summarizeSketchEdit(sketch);
+            const impact = buildImpact(model.result, build);
+            const parsedCandidate = await this.readCandidateTessellation(build.tessPath);
+            const details = {
+                targetSketchId: sketch.targetSketchId,
+                targetSketchName: sketch.targetSketchName,
+                affectedSketchIds: sketch.affectedSketchIds,
+                affectedFeatureIds: sketch.affectedFeatureIds,
+                beforeSketches: sketch.beforeSketches,
+                afterSketches: sketch.afterSketches,
+                beforeParameters: sketch.beforeParameters,
+                afterParameters: sketch.afterParameters,
+                solver: sketch.solver,
+                edits: sketch.edits
+            };
+            const proposal = this.proposals.create({
+                scope: 'sketch',
+                applyCapability: APPLY_SKETCH_CHANGE_ID,
+                summary,
+                documentPath,
+                documentEpoch: baseEpoch,
+                baseRevision,
+                changes: sketch.changes,
+                impact,
+                build: buildSummary(build),
+                sketch: details
+            });
+            if (parsedCandidate) {
+                const diff = compareCandidateSolids(this.stateManager.solidSummaries, parsedCandidate);
+                this.ghostPreview.show({
+                    proposalId: proposal.id,
+                    tessData: parsedCandidate,
+                    ...diff
+                });
+            }
+            void this.commands.executeCommand(NukeCadCommands.OPEN_REVIEW_PANEL.id).catch(() => undefined);
+            return {
+                ok: true,
+                data: {
+                    proposalId: proposal.id,
+                    summary,
+                    changes: proposal.changes,
+                    impact,
+                    build: buildSummary(build),
+                    sketch: details
+                },
+                changeSet: {
+                    id: proposal.id,
+                    title: 'CAD sketch dimension change',
+                    summary,
+                    changes: proposal.changes,
+                    applyCapability: APPLY_SKETCH_CHANGE_ID
+                },
+                warnings: build.warnings
+            };
+        });
     }
 
     /** Read and parse the candidate tessellation before the temp directory is deleted. */
@@ -389,6 +688,9 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         const proposal = this.proposals.get(proposalId);
         if (!proposal) {
             return { ok: false, message: 'This CAD preview is missing or expired. Preview the change again.' };
+        }
+        if (isSketchProposal(proposal)) {
+            return { ok: false, message: 'This proposal is a sketch change; apply it with nuke.cad.applySketchChange.' };
         }
         const stale = this.staleReason(proposal);
         if (stale) {
@@ -485,6 +787,136 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         return undefined;
     }
 
+    protected async applySketchChange(input: unknown): Promise<NukeCapabilityResult> {
+        if (!this.enabled()) {
+            return this.disabledResult();
+        }
+        if (!this.hasActiveDocument()) {
+            return this.inactiveResult();
+        }
+        const proposalId = readProposalId(input);
+        if (!proposalId) {
+            return { ok: false, message: 'proposalId is required.' };
+        }
+        const proposal = this.proposals.get(proposalId);
+        if (!proposal) {
+            return { ok: false, message: 'This CAD preview is missing or expired. Preview the change again.' };
+        }
+        if (!isSketchProposal(proposal)) {
+            return { ok: false, message: 'This proposal is a feature change; apply it with nuke.cad.applyFeatureChange.' };
+        }
+        const stale = this.sketchStaleReason(proposal);
+        if (stale) {
+            return { ok: false, message: stale };
+        }
+        const backupPath = path.join(path.dirname(proposal.documentPath), `.nuke-ai-backup-${path.basename(proposal.documentPath)}`);
+        try {
+            const snapshot = this.store.toJson();
+            if (!snapshot) {
+                return { ok: false, message: 'The active CAD document could not be read for a backup.' };
+            }
+            await this.fileService.create(new URI(backupPath), snapshot, { overwrite: true });
+        } catch (error) {
+            return { ok: false, message: `Could not write the pre-apply CAD backup: ${errorMessage(error)}` };
+        }
+        const result = this.store.applySketchAuthoringEdit({
+            sketches: Object.values(proposal.sketch.afterSketches),
+            parameters: proposal.sketch.afterParameters
+        });
+        if (!result.success) {
+            return { ok: false, message: result.error || 'The CAD document rejected the change.', warnings: formatIssues(result.issues) };
+        }
+        const appliedRevision = this.store.revision;
+        this.proposals.remove(proposal.id);
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        const undoToken = this.undoService.register({
+            title: 'CAD sketch dimension change',
+            undo: () => this.undoSketchChange(proposal, appliedRevision)
+        });
+        return {
+            ok: true,
+            message: 'CAD sketch change applied; rebuild scheduled.',
+            data: {
+                proposalId: proposal.id,
+                documentPath: proposal.documentPath,
+                revision: appliedRevision,
+                backupPath,
+                changes: proposal.changes,
+                rebuildScheduled: true,
+                affectedFeatureIds: proposal.sketch.affectedFeatureIds
+            },
+            changeSet: {
+                id: proposal.id,
+                title: 'CAD sketch dimension change',
+                summary: proposal.summary,
+                changes: proposal.changes,
+                applyCapability: APPLY_SKETCH_CHANGE_ID
+            },
+            undoToken
+        };
+    }
+
+    protected async undoSketchChange(proposal: NukeCadSketchProposal, appliedRevision: number): Promise<NukeCapabilityResult> {
+        if (!this.hasActiveDocument()) {
+            return { ok: false, message: 'Open the document again before undoing this change.' };
+        }
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return { ok: false, message: 'This change belongs to a different document and can no longer be undone.' };
+        }
+        if (this.store.revision !== appliedRevision) {
+            return { ok: false, message: 'The document changed after this edit. Preview the change again.' };
+        }
+        const current = this.store.document;
+        if (!current) {
+            return { ok: false, message: 'No CAD document is active.' };
+        }
+        for (const [id, after] of Object.entries(proposal.sketch.afterSketches)) {
+            const currentSketch = current.sketches.find((candidate) => candidate.id === id);
+            if (!sketchDefinitionsEqual(persistedSketch(currentSketch), persistedSketch(after))) {
+                return { ok: false, message: `Sketch '${id}' changed after apply. Preview the change again.` };
+            }
+        }
+        for (const [name, after] of Object.entries(proposal.sketch.afterParameters)) {
+            if (current.parameters[name] !== after) {
+                return { ok: false, message: `Parameter '${name}' changed after apply. Preview the change again.` };
+            }
+        }
+        const result = this.store.applySketchAuthoringEdit({
+            sketches: Object.values(proposal.sketch.beforeSketches),
+            parameters: proposal.sketch.beforeParameters
+        });
+        if (!result.success) {
+            return { ok: false, message: result.error || 'The CAD document rejected the undo.', warnings: formatIssues(result.issues) };
+        }
+        void this.commands.executeCommand(NukeCadCommands.REBUILD_GEOMETRY.id).catch(() => undefined);
+        return { ok: true, message: 'CAD sketch change undone.' };
+    }
+
+    protected sketchStaleReason(proposal: NukeCadSketchProposal): string | undefined {
+        if (this.store.documentEpoch !== proposal.documentEpoch || this.activeDocumentPath() !== proposal.documentPath) {
+            return 'The active document changed after this preview. Preview the change again.';
+        }
+        if (this.store.revision !== proposal.baseRevision) {
+            return 'The document changed after this preview. Preview the change again.';
+        }
+        const document = this.store.document;
+        if (!document) {
+            return 'No CAD document is active.';
+        }
+        for (const [name, before] of Object.entries(proposal.sketch.beforeParameters)) {
+            if (document.parameters[name] !== before) {
+                return `Parameter '${name}' changed after this preview. Preview the change again.`;
+            }
+        }
+        for (const [id, before] of Object.entries(proposal.sketch.beforeSketches)) {
+            const sketch = document.sketches.find((candidate) => candidate.id === id);
+            if (!sketchDefinitionsEqual(sketch, before)) {
+                return `Sketch '${id}' changed after this preview. Preview the change again.`;
+            }
+        }
+        return undefined;
+    }
+
     protected scopeError(documentPath: string, workspaceRoots: readonly string[]): string | undefined {
         if (!path.isAbsolute(documentPath)) {
             return 'The active CAD document path must be absolute.';
@@ -551,6 +983,84 @@ function summarize(edits: readonly ResolvedFeatureEdit[]): string {
     return edits.map((edit) => `${edit.featureId} ${edit.param}: ${formatNumber(edit.before)} → ${formatNumber(edit.after)}`).join('; ');
 }
 
+/** Read and shape-check one sketch preview request list. */
+export function readSketchEditRequests(
+    input: unknown
+): { ok: true; changes: readonly SketchEditRequest[] } | { ok: false; message: string } {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return { ok: false, message: 'changes is required.' };
+    }
+    const raw = (input as { changes?: unknown }).changes;
+    if (!Array.isArray(raw) || raw.length === 0) {
+        return { ok: false, message: `changes must contain 1 to ${CAD_SKETCH_EDIT_LIMIT} sketch edits.` };
+    }
+    if (raw.length > CAD_SKETCH_EDIT_LIMIT) {
+        return { ok: false, message: `changes must contain at most ${CAD_SKETCH_EDIT_LIMIT} sketch edits.` };
+    }
+    const changes: SketchEditRequest[] = [];
+    for (const [index, entry] of raw.entries()) {
+        const label = `Edit ${index + 1}`;
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            return { ok: false, message: `${label} must be an object.` };
+        }
+        const record = entry as Record<string, unknown>;
+        if (typeof record.sketchId !== 'string' || record.sketchId.length === 0) {
+            return { ok: false, message: `${label} needs a non-empty sketchId.` };
+        }
+        const dimensionId = record.dimensionId;
+        const parameterName = record.parameterName;
+        if (dimensionId !== undefined && (typeof dimensionId !== 'string' || dimensionId.length === 0)) {
+            return { ok: false, message: `${label} dimensionId must be a non-empty string.` };
+        }
+        if (parameterName !== undefined && (typeof parameterName !== 'string' || parameterName.length === 0)) {
+            return { ok: false, message: `${label} parameterName must be a non-empty string.` };
+        }
+        if ((dimensionId === undefined) === (parameterName === undefined)) {
+            return { ok: false, message: `${label} must set exactly one of dimensionId or parameterName.` };
+        }
+        if (typeof record.value !== 'number' || !Number.isFinite(record.value)) {
+            return { ok: false, message: `${label} needs a finite numeric value.` };
+        }
+        if (dimensionId !== undefined) {
+            changes.push({ sketchId: record.sketchId, dimensionId: dimensionId as string, value: record.value });
+        } else {
+            changes.push({ sketchId: record.sketchId, parameterName: parameterName as string, value: record.value });
+        }
+    }
+    return { ok: true, changes };
+}
+
+/** One short human summary for the review panel and capability response. */
+function summarizeSketchEdit(prepared: PreparedSketchEdit): string {
+    const edits = prepared.edits;
+    if (edits.length > 1) {
+        const changes = edits.map((edit) => {
+            const target = edit.dimensionId ?? edit.parameterName ?? 'dimension';
+            return `${target} ${formatNumber(edit.before)} → ${formatNumber(edit.after)}`;
+        });
+        return `Change ${edits.length} sketch dimensions in ${prepared.targetSketchName}: ${changes.join('; ')}`;
+    }
+    if (edits.length === 0) {
+        return `Change sketch ${prepared.targetSketchName}`;
+    }
+    const edit = edits[0];
+    const affectedDimensions = edit.affectedDimensionIds.length;
+    if (edit.kind === 'parameter' && affectedDimensions > 1) {
+        return `${describeSketchEdit(edit)} (${affectedDimensions} dimensions in ${prepared.affectedSketchIds.length} sketches)`;
+    }
+    return describeSketchEdit(edit);
+}
+
+function describeSketchEdit(edit: PreparedSketchEdit['edits'][number]): string {
+    const before = formatNumber(edit.before);
+    const after = formatNumber(edit.after);
+    if (edit.kind === 'parameter') {
+        return `Change parameter ${edit.parameterName} ${before} → ${after}`;
+    }
+    const kind = edit.dimensionKind !== undefined ? ` ${edit.dimensionKind}` : '';
+    return `Change sketch ${edit.sketchName}: ${edit.dimensionId}${kind} ${before} → ${after}`;
+}
+
 function formatNumber(value: number): string {
     return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
 }
@@ -614,6 +1124,15 @@ function manifestCoverage(manifest: RegionManifestData | undefined): string {
         volumes: manifest.volumes.map((volume) => volume.selector),
         surfaces: manifest.surfaces.map((surface) => surface.selector)
     });
+}
+
+/**
+ * Compare sketches by their persisted shape. The document store merges
+ * sketch-local parameters into `doc.parameters` and clears the field on
+ * commit, while solver snapshots still carry the local table.
+ */
+function persistedSketch(sketch: SketchDef | undefined): SketchDef | undefined {
+    return sketch === undefined ? undefined : { ...sketch, parameters: undefined };
 }
 
 /** JSON stringify with sorted object keys, so object key order cannot fake a difference. */

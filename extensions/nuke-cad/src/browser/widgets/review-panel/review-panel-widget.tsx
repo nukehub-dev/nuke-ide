@@ -29,11 +29,11 @@
  * CAD edit review panel widget.
  *
  * Hosts {@link CadReviewPanelView} and owns the proposal lifecycle: it lists
- * previewed feature edits, confirms and invokes the existing
- * `nuke.cad.applyFeatureChange` capability, keeps applied entries for session
- * undo through `NukeUndoService`, and dismisses proposals. Opened through
- * `nuke.cad.openReviewPanel` in the right area, the CAD Studio menu, and the
- * Nuke Tools sidebar.
+ * previewed feature and sketch edits, confirms and invokes the proposal's
+ * apply capability (`nuke.cad.applyFeatureChange` or `nuke.cad.applySketchChange`),
+ * keeps applied entries for session undo through `NukeUndoService`, and
+ * dismisses proposals. Opened through `nuke.cad.openReviewPanel` in the right
+ * area, the CAD Studio menu, and the Nuke Tools sidebar.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -50,7 +50,7 @@ import { NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-se
 import { NukeCapabilityContextService, NukeCapabilityRegistry } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { validateCapabilityInput } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
 import { CadDocumentStore } from '../../document/cad-document-store';
-import { NukeCadProposalService } from '../../capabilities/nuke-cad-proposal-service';
+import { NukeCadProposal, NukeCadProposalService } from '../../capabilities/nuke-cad-proposal-service';
 import { APPLY_FEATURE_CHANGE_ID } from '../../capabilities/nuke-cad-authoring-capabilities';
 import { AI_AUTHORING_PREFERENCE } from '../../capabilities/nuke-cad-authoring-constants';
 import { CadReviewAppliedEntry, CadReviewPanelView, CadReviewProposalView } from './review-panel-view';
@@ -124,9 +124,35 @@ export class CadReviewPanelWidget extends ReactWidget {
         return this.preferenceService.get<boolean>(AI_AUTHORING_PREFERENCE, false) === true;
     }
 
-    /** Live proposals from the store; the store already prunes expired entries. */
+    /** Live proposals from the store, mapped to the presentational view model. */
     protected currentProposals(): readonly CadReviewProposalView[] {
-        return this.proposalService.list();
+        return this.proposalService.list().map((proposal) => this.toView(proposal));
+    }
+
+    /** Map a stored proposal to the panel view, including sketch solver context. */
+    protected toView(proposal: NukeCadProposal): CadReviewProposalView {
+        const common: CadReviewProposalView = {
+            id: proposal.id,
+            summary: proposal.summary,
+            documentPath: proposal.documentPath,
+            changes: proposal.changes,
+            scope: proposal.scope,
+            applyCapability: proposal.applyCapability,
+            impact: proposal.impact,
+            build: proposal.build
+        };
+        if (proposal.scope !== 'sketch') {
+            return common;
+        }
+        return {
+            ...common,
+            sketch: {
+                targetSketchId: proposal.sketch.targetSketchId,
+                targetSketchName: proposal.sketch.targetSketchName,
+                affectedSketchIds: proposal.sketch.affectedSketchIds,
+                solver: proposal.sketch.solver
+            }
+        };
     }
 
     /** Applied proposal ids whose tokens are still redeemable. */
@@ -163,14 +189,16 @@ export class CadReviewPanelWidget extends ReactWidget {
             this.messageService.warn('This CAD proposal is no longer available. Preview the change again.');
             return;
         }
-        const confirmation = await this.messageService.warn(`Apply this CAD feature change? ${proposal.summary}`, 'Apply');
+        const confirmPrompt = proposal.scope === 'sketch' ? 'Apply this CAD sketch edit?' : 'Apply this CAD feature change?';
+        const confirmation = await this.messageService.warn(`${confirmPrompt} ${proposal.summary}`, 'Apply');
         if (confirmation !== 'Apply') {
             return;
         }
 
-        const capability = this.capabilityRegistry.get(APPLY_FEATURE_CHANGE_ID);
+        const capabilityId = proposal.applyCapability ?? APPLY_FEATURE_CHANGE_ID;
+        const capability = this.capabilityRegistry.get(capabilityId);
         if (capability === undefined) {
-            this.messageService.error('The CAD feature-change capability is not registered. Reload the window and try again.');
+            this.messageService.error('The CAD edit apply capability is not registered. Reload the window and try again.');
             return;
         }
         const context = await this.capabilityContext.getContext();
@@ -198,7 +226,7 @@ export class CadReviewPanelWidget extends ReactWidget {
         try {
             const result = await capability.invoke(input, context);
             if (!result.ok) {
-                this.messageService.error(result.message || 'The CAD feature change could not be applied.');
+                this.messageService.error(result.message || 'The CAD edit could not be applied.');
                 return;
             }
             this.proposalService.remove(proposalId);
@@ -206,14 +234,16 @@ export class CadReviewPanelWidget extends ReactWidget {
                 {
                     proposalId,
                     summary: proposal.summary,
-                    undoToken: result.undoToken ?? ''
+                    detail: describeAppliedChange(proposal.changes[0]),
+                    undoToken: result.undoToken ?? '',
+                    scope: proposal.scope
                 },
                 ...this.applied
             ];
-            this.messageService.info(result.message || 'CAD feature change applied.');
+            this.messageService.info(result.message || 'CAD edit applied.');
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            this.messageService.error(`The CAD feature change could not be applied: ${message}`);
+            this.messageService.error(`The CAD edit could not be applied: ${message}`);
         } finally {
             this.applying = false;
             this.update();
@@ -233,10 +263,11 @@ export class CadReviewPanelWidget extends ReactWidget {
             this.messageService.warn('This CAD edit has no undo token left.');
             return;
         }
-        const confirmation = await this.messageService.warn(
-            `Undo this CAD edit and restore the previous feature parameters? ${entry.summary}`,
-            'Undo'
-        );
+        const confirmPrompt =
+            entry.scope === 'sketch'
+                ? 'Undo this CAD sketch edit and restore the previous sketch dimensions?'
+                : 'Undo this CAD edit and restore the previous feature parameters?';
+        const confirmation = await this.messageService.warn(`${confirmPrompt} ${entry.summary}`, 'Undo');
         if (confirmation !== 'Undo') {
             return;
         }
@@ -249,4 +280,22 @@ export class CadReviewPanelWidget extends ReactWidget {
         this.messageService.info(result.message || 'CAD change undone.');
         this.update();
     }
+}
+
+function formatAppliedValue(value: unknown): string {
+    if (value === undefined) {
+        return '—';
+    }
+    if (typeof value === 'number') {
+        return String(Number(value.toFixed(6)));
+    }
+    return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** Compact one-change detail for the applied entry; falls back to the full summary. */
+function describeAppliedChange(change: CadReviewProposalView['changes'][number] | undefined): string | undefined {
+    if (change === undefined) {
+        return undefined;
+    }
+    return `${change.label} ${formatAppliedValue(change.before)} → ${formatAppliedValue(change.after)}`;
 }

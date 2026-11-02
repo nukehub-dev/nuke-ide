@@ -39,7 +39,7 @@ import type {
     NukeCapabilityRegistry,
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
-import type { NukeCadDocument } from '../../common/cad-document';
+import type { NukeCadDocument, SketchDef } from '../../common/cad-document';
 import type { GeometryBuildResult, RegionManifestData } from '../../common/nuke-cad-protocol';
 import type { CadDocumentStore } from '../document/cad-document-store';
 import type { NukeCadFrontendService } from '../nuke-cad-frontend-service';
@@ -47,12 +47,18 @@ import type { NukeCadPreferences } from '../nuke-cad-preferences';
 import type { CadModel, NukeCadStateManager } from '../state/nuke-cad-state-manager';
 import {
     APPLY_FEATURE_CHANGE_ID,
+    APPLY_SKETCH_CHANGE_ID,
+    LIST_SKETCH_DIMENSIONS_ID,
     NukeCadAuthoringCapabilities,
     PREVIEW_FEATURE_CHANGE_ID,
-    readFeatureParamChanges
+    PREVIEW_SKETCH_CHANGE_ID,
+    readFeatureParamChanges,
+    readSketchEditRequests
 } from './nuke-cad-authoring-capabilities';
-import { NukeCadProposalService } from './nuke-cad-proposal-service';
+import { isSketchProposal, NukeCadProposalService } from './nuke-cad-proposal-service';
 import type { NukeCadGhostPreviewService } from '../preview/nuke-cad-ghost-preview-service';
+import type { NukeCadSketchEditService } from '../sketch/sketch-edit-service';
+import type { PreparedSketchEdit, SketchEditPrepareResult, SketchEditRequest } from '../sketch/sketch-edit-types';
 
 const WORKSPACE = '/workspace/project';
 const DOCUMENT_PATH = `${WORKSPACE}/pincell.nuke-cad`;
@@ -76,6 +82,26 @@ const BUILD_RESULT: GeometryBuildResult = {
         { featureId: 'pad-1', status: 'built' },
         { featureId: 'fillet-1', status: 'built' }
     ]
+};
+
+/** Minimal parsed tessellation used to exercise ghost publication. */
+const PARSED_TESS = {
+    version: 1,
+    tolerance: 0,
+    boundingBox: { min: [0, 0, 0], max: [10, 10, 10] },
+    solids: [],
+    faces: [],
+    edges: [],
+    curves: []
+};
+
+const SKETCH: SketchDef = {
+    id: 'sketch-1',
+    name: 'fuel-sketch',
+    datumId: 'datum-xy',
+    primitives: [],
+    constraints: [{ id: 'constraint-1', type: 'radius' }],
+    dimensions: [{ id: 'dim-1', constraintId: 'constraint-1', kind: 'radius', targetIds: ['circle-1'], driving: true, value: 0.4 }]
 };
 
 function createDocument(): NukeCadDocument {
@@ -105,12 +131,77 @@ function createDocument(): NukeCadDocument {
                 dependsOn: ['pad-1']
             }
         ],
-        sketches: [],
+        sketches: [JSON.parse(JSON.stringify(SKETCH)) as SketchDef],
         curves: [],
         datums: [],
-        parameters: {},
+        parameters: { fuelRadius: 0.4 },
         drawings: undefined
     } as unknown as NukeCadDocument;
+}
+
+function createPreparedSketchEdit(document: NukeCadDocument): PreparedSketchEdit {
+    const beforeSketch = document.sketches[0];
+    const afterSketch: SketchDef = {
+        ...beforeSketch,
+        parameters: {},
+        dimensions: (beforeSketch.dimensions ?? []).map((dimension) =>
+            dimension.id === 'dim-1' ? { ...dimension, value: 0.44 } : dimension
+        )
+    };
+    return {
+        targetSketchId: 'sketch-1',
+        targetSketchName: 'fuel-sketch',
+        afterDocument: { ...document, sketches: [afterSketch] },
+        beforeSketches: { 'sketch-1': beforeSketch },
+        afterSketches: { 'sketch-1': afterSketch },
+        beforeParameters: {},
+        afterParameters: {},
+        edits: [
+            {
+                kind: 'dimension',
+                sketchId: 'sketch-1',
+                sketchName: 'fuel-sketch',
+                dimensionId: 'dim-1',
+                dimensionKind: 'radius',
+                before: 0.4,
+                after: 0.44,
+                affectedDimensionIds: ['dim-1']
+            }
+        ],
+        changes: [
+            {
+                path: 'sketches.sketch-1.dimensions.dim-1',
+                label: 'fuel-sketch: Radius dim-1',
+                kind: 'update',
+                before: 0.4,
+                after: 0.44
+            }
+        ],
+        solver: {
+            status: 'converged',
+            dof: 0,
+            fullyConstrained: true,
+            conflicting: [],
+            redundant: [],
+            errorCount: 0,
+            warningCount: 0,
+            sketches: [
+                {
+                    sketchId: 'sketch-1',
+                    sketchName: 'fuel-sketch',
+                    status: 'converged',
+                    dof: 0,
+                    fullyConstrained: true,
+                    conflicting: [],
+                    redundant: [],
+                    errorCount: 0,
+                    warningCount: 0
+                }
+            ]
+        },
+        affectedSketchIds: ['sketch-1'],
+        affectedFeatureIds: ['pad-1']
+    };
 }
 
 interface Harness {
@@ -118,27 +209,39 @@ interface Harness {
     registered: Map<string, NukeCapability>;
     proposals: NukeCadProposalService;
     edits: { id: string; params: Record<string, unknown> }[][];
+    sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[];
     commands: string[];
     undoEntries: NukeUndoEntry[];
     fileService: { create: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
     service: { buildDocument: ReturnType<typeof vi.fn>; cancelJob: ReturnType<typeof vi.fn> };
     store: CadDocumentStore;
     preferences: { get: ReturnType<typeof vi.fn> };
+    ghostPreview: { show: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> };
+    sketchPrepare: ReturnType<typeof vi.fn>;
     bumpRevision: () => void;
     currentDocument: () => NukeCadDocument;
 }
 
-function createHarness(overrides: { enabled?: boolean; build?: GeometryBuildResult } = {}): Harness {
+interface HarnessOptions {
+    enabled?: boolean;
+    build?: GeometryBuildResult;
+    hasModel?: boolean;
+    saved?: boolean;
+    prepare?: (document: NukeCadDocument, requests: readonly SketchEditRequest[]) => Promise<SketchEditPrepareResult>;
+}
+
+function createHarness(overrides: HarnessOptions = {}): Harness {
     let document = createDocument();
     let revision = 3;
     const edits: { id: string; params: Record<string, unknown> }[][] = [];
+    const sketchEdits: { sketches: SketchDef[]; parameters: Record<string, number> }[] = [];
     const undoEntries: NukeUndoEntry[] = [];
     const store = {
         get document(): NukeCadDocument {
             return document;
         },
-        get uri(): string {
-            return new URI(DOCUMENT_PATH).toString();
+        get uri(): string | undefined {
+            return overrides.saved === false ? undefined : new URI(DOCUMENT_PATH).toString();
         },
         get documentEpoch(): number {
             return 7;
@@ -160,14 +263,37 @@ function createHarness(overrides: { enabled?: boolean; build?: GeometryBuildResu
             };
             revision += 1;
             return { success: true };
+        },
+        applySketchAuthoringEdit(edit: { sketches: readonly SketchDef[]; parameters?: Readonly<Record<string, number>> }): {
+            success: boolean;
+        } {
+            const sketches = edit.sketches.map((sketch) => JSON.parse(JSON.stringify(sketch)) as SketchDef);
+            const parameters = { ...(edit.parameters ?? {}) };
+            for (const sketch of sketches) {
+                Object.assign(parameters, sketch.parameters ?? {});
+            }
+            sketchEdits.push({ sketches, parameters });
+            document = {
+                ...document,
+                sketches: document.sketches.map((sketch) => {
+                    const replacement = sketches.find((entry) => entry.id === sketch.id);
+                    return replacement ? { ...replacement, parameters: undefined } : sketch;
+                }),
+                parameters: { ...document.parameters, ...parameters }
+            };
+            revision += 1;
+            return { success: true };
         }
     } as unknown as CadDocumentStore;
-    const model = {
-        scriptPath: DOCUMENT_PATH,
-        result: BUILD_RESULT,
-        manifest: MANIFEST
-    } as CadModel;
-    const stateManager = { model, scriptPath: DOCUMENT_PATH } as unknown as NukeCadStateManager;
+    const model =
+        overrides.hasModel === false
+            ? undefined
+            : ({
+                  scriptPath: DOCUMENT_PATH,
+                  result: BUILD_RESULT,
+                  manifest: MANIFEST
+              } as CadModel);
+    const stateManager = { model, scriptPath: DOCUMENT_PATH, solidSummaries: [] } as unknown as NukeCadStateManager;
     const service = {
         buildDocument: vi.fn(async () => overrides.build ?? BUILD_RESULT),
         cancelJob: vi.fn(async () => true)
@@ -196,8 +322,13 @@ function createHarness(overrides: { enabled?: boolean; build?: GeometryBuildResu
         clear: vi.fn(),
         state: undefined,
         onDidChange: vi.fn()
-    } as unknown as NukeCadGhostPreviewService;
+    };
     const proposals = new NukeCadProposalService();
+    const sketchPrepare = vi.fn(
+        overrides.prepare ??
+            (async (doc: NukeCadDocument): Promise<SketchEditPrepareResult> => ({ ok: true, result: createPreparedSketchEdit(doc) }))
+    );
+    const sketchEditService = { prepare: sketchPrepare } as unknown as NukeCadSketchEditService;
     const capabilities = new NukeCadAuthoringCapabilities(
         stateManager,
         service as unknown as NukeCadFrontendService,
@@ -207,7 +338,8 @@ function createHarness(overrides: { enabled?: boolean; build?: GeometryBuildResu
         preferences as unknown as NukeCadPreferences,
         commandService as unknown as CommandService,
         undoService,
-        ghostPreview
+        ghostPreview as unknown as NukeCadGhostPreviewService,
+        sketchEditService
     );
     const registered = new Map<string, NukeCapability>();
     capabilities.registerCapabilities({
@@ -218,12 +350,15 @@ function createHarness(overrides: { enabled?: boolean; build?: GeometryBuildResu
         registered,
         proposals,
         edits,
+        sketchEdits,
         commands,
         undoEntries,
         fileService,
         service,
         store,
         preferences,
+        ghostPreview,
+        sketchPrepare,
         bumpRevision: () => {
             revision += 1;
         },
@@ -239,6 +374,22 @@ async function preview(harness: Harness): Promise<NukeCapabilityResult> {
 
 function apply(harness: Harness, proposalId: string): Promise<NukeCapabilityResult> {
     return harness.registered.get(APPLY_FEATURE_CHANGE_ID)!.invoke({ proposalId }, CONTEXT);
+}
+
+const SKETCH_REQUEST: readonly SketchEditRequest[] = [{ sketchId: 'sketch-1', dimensionId: 'dim-1', value: 0.44 }];
+
+function previewSketch(harness: Harness, input: unknown = { changes: SKETCH_REQUEST }): Promise<NukeCapabilityResult> {
+    return harness.registered.get(PREVIEW_SKETCH_CHANGE_ID)!.invoke(input, CONTEXT);
+}
+
+function applySketch(harness: Harness, proposalId: string): Promise<NukeCapabilityResult> {
+    return harness.registered.get(APPLY_SKETCH_CHANGE_ID)!.invoke({ proposalId }, CONTEXT);
+}
+
+async function previewedSketchProposal(harness: Harness): Promise<string> {
+    const result = await previewSketch(harness);
+    expect(result.ok).toBe(true);
+    return (result.data as { proposalId: string }).proposalId;
 }
 
 describe('readFeatureParamChanges', () => {
@@ -262,6 +413,49 @@ describe('readFeatureParamChanges', () => {
     it('rejects an unknown parameter', () => {
         const result = readFeatureParamChanges({ changes: [{ featureId: 'pad1', param: 'width', value: 2 }] });
         expect(result).toMatchObject({ ok: false, message: expect.stringContaining('Unsupported') });
+    });
+});
+
+describe('readSketchEditRequests', () => {
+    it('accepts exactly one dimension or parameter target per edit', () => {
+        const result = readSketchEditRequests({
+            changes: [
+                { sketchId: 'sketch-1', dimensionId: 'dim-1', value: 0.44 },
+                { sketchId: 'sketch-1', parameterName: 'fuelRadius', value: 0.5 }
+            ]
+        });
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.changes).toEqual([
+                { sketchId: 'sketch-1', dimensionId: 'dim-1', value: 0.44 },
+                { sketchId: 'sketch-1', parameterName: 'fuelRadius', value: 0.5 }
+            ]);
+        }
+    });
+
+    it('rejects ambiguous, empty, and non-finite edits', () => {
+        expect(
+            readSketchEditRequests({
+                changes: [{ sketchId: 'sketch-1', dimensionId: 'dim-1', parameterName: 'fuelRadius', value: 0.44 }]
+            })
+        ).toMatchObject({ ok: false, message: expect.stringContaining('exactly one') });
+        expect(readSketchEditRequests({ changes: [{ sketchId: 'sketch-1', value: 0.44 }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('exactly one')
+        });
+        expect(readSketchEditRequests({ changes: [{ sketchId: '', dimensionId: 'dim-1', value: 0.44 }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('sketchId')
+        });
+        expect(readSketchEditRequests({ changes: [{ sketchId: 'sketch-1', dimensionId: 'dim-1', value: Number.NaN }] })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('finite')
+        });
+        const tooMany = Array.from({ length: 9 }, (_, index) => ({ sketchId: 'sketch-1', dimensionId: `dim-${index}`, value: 1 }));
+        expect(readSketchEditRequests({ changes: tooMany })).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('at most 8')
+        });
     });
 });
 
@@ -306,6 +500,10 @@ describe('NukeCadAuthoringCapabilities', () => {
         expect(harness.fileService.delete).toHaveBeenCalledWith(expect.any(URI), { recursive: true, useTrash: false });
         expect(harness.fileService.delete).toHaveBeenCalledTimes(3);
         const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        expect(proposal.scope).toBe('features');
+        if (proposal.scope !== 'features') {
+            throw new Error('expected a feature proposal');
+        }
         expect(proposal.before['pad-1']).toMatchObject({ length: 100 });
         expect(proposal.after['pad-1']).toMatchObject({ length: 120 });
         expect(harness.edits).toHaveLength(0);
@@ -404,5 +602,202 @@ describe('NukeCadAuthoringCapabilities', () => {
         const harness = createHarness();
         expect(await apply(harness, 'missing')).toMatchObject({ ok: false, message: expect.stringContaining('expired') });
         expect(harness.edits).toHaveLength(0);
+    });
+
+    it('lists sketch dimensions without the authoring preference', async () => {
+        const harness = createHarness({ enabled: false });
+        const capability = harness.registered.get(LIST_SKETCH_DIMENSIONS_ID)!;
+
+        expect(capability.when!(CONTEXT)).toBe(true);
+        const result = await capability.invoke({}, CONTEXT);
+
+        expect(result.ok).toBe(true);
+        expect(result.data).toMatchObject({
+            documentPath: DOCUMENT_PATH,
+            parameters: { fuelRadius: 0.4 },
+            sketches: [
+                {
+                    id: 'sketch-1',
+                    name: 'fuel-sketch',
+                    datumId: 'datum-xy',
+                    consumedByFeatureIds: ['pad-1'],
+                    dimensions: [{ id: 'dim-1', kind: 'radius', driving: true, value: 0.4 }]
+                }
+            ]
+        });
+    });
+
+    it('hides sketch preview while the kill switch is off and rejects unsaved or unbuilt documents', async () => {
+        const disabled = createHarness({ enabled: false });
+        expect(disabled.registered.get(PREVIEW_SKETCH_CHANGE_ID)!.when!(CONTEXT)).toBe(false);
+        expect(await previewSketch(disabled)).toMatchObject({ ok: false, message: expect.stringContaining('disabled') });
+        expect(disabled.sketchPrepare).not.toHaveBeenCalled();
+
+        const unsaved = createHarness({ saved: false });
+        expect(await previewSketch(unsaved)).toMatchObject({ ok: false, message: expect.stringContaining('Open a saved') });
+        expect(unsaved.sketchPrepare).not.toHaveBeenCalled();
+
+        const noModel = createHarness({ hasModel: false });
+        expect(await previewSketch(noModel)).toMatchObject({ ok: false, message: expect.stringContaining('Open a saved') });
+        expect(noModel.sketchPrepare).not.toHaveBeenCalled();
+    });
+
+    it('returns the planner error without building', async () => {
+        const harness = createHarness({
+            prepare: async () => ({ ok: false, code: 'dimension-not-found', message: "Dimension 'dim-9' not found" })
+        });
+        expect(await previewSketch(harness)).toMatchObject({ ok: false, message: "Dimension 'dim-9' not found" });
+        expect(harness.service.buildDocument).not.toHaveBeenCalled();
+        expect(harness.proposals.list()).toHaveLength(0);
+    });
+
+    it('previews a sketch edit with a real build and a sketch proposal', async () => {
+        const harness = createHarness();
+        vi.spyOn(
+            harness.capabilities as unknown as { readCandidateTessellation: () => Promise<typeof PARSED_TESS> },
+            'readCandidateTessellation'
+        ).mockResolvedValue(PARSED_TESS);
+
+        const result = await previewSketch(harness);
+
+        expect(result.ok).toBe(true);
+        expect(result.changeSet).toMatchObject({
+            title: 'CAD sketch dimension change',
+            applyCapability: APPLY_SKETCH_CHANGE_ID
+        });
+        expect(result.data).toMatchObject({
+            summary: 'Change sketch fuel-sketch: dim-1 radius 0.4 → 0.44',
+            impact: { solids: { before: 2, after: 2 } },
+            sketch: { targetSketchId: 'sketch-1', affectedFeatureIds: ['pad-1'] }
+        });
+        expect(harness.sketchPrepare).toHaveBeenCalledTimes(1);
+        expect(harness.sketchPrepare.mock.calls[0][1]).toEqual(SKETCH_REQUEST);
+        const request = harness.service.buildDocument.mock.calls[0][0];
+        expect(request).toMatchObject({
+            useCache: false,
+            timeoutSeconds: 120,
+            outputDirectory: expect.stringContaining('.nuke-ide/ai/cad-previews'),
+            scriptPath: expect.stringMatching(/\.nuke-ai-preview-.*\.nuke-cad$/)
+        });
+        expect(request.jobId).toMatch(/^cad-ai-preview-/);
+        expect(harness.fileService.create).toHaveBeenCalledTimes(1);
+        expect(harness.fileService.delete).toHaveBeenCalledTimes(3);
+        expect(harness.ghostPreview.show).toHaveBeenCalledTimes(1);
+        expect(harness.commands).toContain('nuke.cad.openReviewPanel');
+
+        const proposal = harness.proposals.get((result.data as { proposalId: string }).proposalId)!;
+        if (!isSketchProposal(proposal)) {
+            throw new Error('expected a sketch proposal');
+        }
+        expect(proposal.scope).toBe('sketch');
+        expect(proposal.applyCapability).toBe(APPLY_SKETCH_CHANGE_ID);
+        expect(proposal.sketch.targetSketchName).toBe('fuel-sketch');
+        expect(proposal.sketch.beforeSketches['sketch-1']?.dimensions?.[0].value).toBe(0.4);
+        expect(proposal.sketch.afterSketches['sketch-1']?.dimensions?.[0].value).toBe(0.44);
+        expect(proposal.sketch.affectedFeatureIds).toEqual(['pad-1']);
+        expect(proposal.sketch.solver.status).toBe('converged');
+        expect(harness.sketchEdits).toHaveLength(0);
+    });
+
+    it('rejects a sketch preview that changes topology or arrives stale', async () => {
+        const count = createHarness({ build: { ...BUILD_RESULT, solidCount: 3 } });
+        expect(await previewSketch(count)).toMatchObject({ ok: false, message: expect.stringContaining('solid count') });
+        expect(count.proposals.list()).toHaveLength(0);
+
+        const selector = createHarness({ build: { ...BUILD_RESULT, selectorMap: { fuel: [1] } } });
+        expect(await previewSketch(selector)).toMatchObject({ ok: false, message: expect.stringContaining('selector map') });
+        expect(selector.proposals.list()).toHaveLength(0);
+
+        const drift = createHarness();
+        drift.service.buildDocument.mockImplementation(async () => {
+            drift.bumpRevision();
+            return BUILD_RESULT;
+        });
+        expect(await previewSketch(drift)).toMatchObject({ ok: false, message: expect.stringContaining('changed while') });
+        expect(drift.proposals.list()).toHaveLength(0);
+    });
+
+    it('applies a sketch preview, schedules the rebuild, and registers undo', async () => {
+        const harness = createHarness();
+        const proposalId = await previewedSketchProposal(harness);
+
+        const result = await applySketch(harness, proposalId);
+
+        expect(result.ok).toBe(true);
+        expect(result.changeSet).toMatchObject({
+            id: proposalId,
+            title: 'CAD sketch dimension change',
+            applyCapability: APPLY_SKETCH_CHANGE_ID
+        });
+        expect(result.undoToken).toBe('undo-token-1');
+        expect(result.data).toMatchObject({
+            proposalId,
+            documentPath: DOCUMENT_PATH,
+            rebuildScheduled: true,
+            affectedFeatureIds: ['pad-1'],
+            backupPath: expect.stringContaining('.nuke-ai-backup-')
+        });
+        expect(harness.sketchEdits).toHaveLength(1);
+        expect(harness.sketchEdits[0].sketches[0].dimensions?.[0].value).toBe(0.44);
+        expect(harness.commands).toContain('nuke.cad.rebuild');
+        expect(harness.undoEntries).toHaveLength(1);
+        expect(harness.proposals.get(proposalId)).toBeUndefined();
+    });
+
+    it('rejects a stale sketch proposal after the revision, parameter, or sketch changes', async () => {
+        const revision = createHarness();
+        const revisionProposal = await previewedSketchProposal(revision);
+        revision.bumpRevision();
+        expect(await applySketch(revision, revisionProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining('changed after this preview')
+        });
+        expect(revision.sketchEdits).toHaveLength(0);
+
+        const parameter = createHarness({
+            prepare: async (doc) => {
+                const prepared = createPreparedSketchEdit(doc);
+                return { ok: true, result: { ...prepared, beforeParameters: { fuelRadius: 0.4 }, afterParameters: { fuelRadius: 0.5 } } };
+            }
+        });
+        const parameterProposal = await previewedSketchProposal(parameter);
+        parameter.currentDocument().parameters.fuelRadius = 0.6;
+        expect(await applySketch(parameter, parameterProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("Parameter 'fuelRadius' changed")
+        });
+        expect(parameter.sketchEdits).toHaveLength(0);
+
+        const sketch = createHarness();
+        const sketchProposal = await previewedSketchProposal(sketch);
+        sketch.currentDocument().sketches[0].dimensions![0].value = 0.41;
+        expect(await applySketch(sketch, sketchProposal)).toMatchObject({
+            ok: false,
+            message: expect.stringContaining("Sketch 'sketch-1' changed")
+        });
+        expect(sketch.sketchEdits).toHaveLength(0);
+    });
+
+    it('undoes a sketch change through the undo entry', async () => {
+        const harness = createHarness();
+        const proposalId = await previewedSketchProposal(harness);
+        await applySketch(harness, proposalId);
+
+        const result = await harness.undoEntries[0].undo();
+
+        expect(result).toMatchObject({ ok: true, message: 'CAD sketch change undone.' });
+        expect(harness.sketchEdits).toHaveLength(2);
+        expect(harness.sketchEdits[1].sketches[0].dimensions?.[0].value).toBe(0.4);
+        expect(harness.commands.filter((command) => command === 'nuke.cad.rebuild')).toHaveLength(2);
+    });
+
+    it('rejects a sketch proposal through the feature apply capability', async () => {
+        const harness = createHarness();
+        const proposalId = await previewedSketchProposal(harness);
+
+        expect(await apply(harness, proposalId)).toMatchObject({ ok: false, message: expect.stringContaining('sketch change') });
+        expect(harness.edits).toHaveLength(0);
+        expect(harness.sketchEdits).toHaveLength(0);
+        expect(harness.proposals.get(proposalId)).toBeDefined();
     });
 });

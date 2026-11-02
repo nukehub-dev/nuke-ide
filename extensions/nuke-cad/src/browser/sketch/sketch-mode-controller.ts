@@ -184,6 +184,7 @@ export class SketchModeController {
         conflicting: [],
         redundant: [],
         fullyConstrained: false,
+        solveStatus: 'converged',
         lastAutoConstraints: []
     };
 

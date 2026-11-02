@@ -1194,6 +1194,20 @@ describe('SketchSession', () => {
             expect(error!.message).toContain('Conflicting constraints');
         });
 
+        it('records the most recent solver convergence status', async () => {
+            const session = await twoPointSession();
+            expect(session.getStatus().solveStatus).toBe('converged');
+
+            const points = session.getPrimitives().filter((p) => p.type === 'point');
+            await session.addConstraint('distance', [points[0].id, points[1].id], 5);
+            const conflicting = await session.addConstraint('distance', [points[0].id, points[1].id], 6);
+            expect(conflicting.success).toBe(true);
+
+            const status = session.getStatus();
+            expect(status.solveStatus).toBe('failed');
+            expect(status.conflicting.length).toBeGreaterThan(0);
+        });
+
         it('reports fully-constrained through the diagnostics channel', async () => {
             const session = await makeSession('rectangle');
             await session.click({ x: 0, y: 0 });

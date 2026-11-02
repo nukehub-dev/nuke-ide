@@ -28,12 +28,12 @@
 /**
  * Presentational CAD edit review panel.
  *
- * Renders NukeAI feature-change proposals with their document binding,
- * parameter diff, build impact, and Apply/Dismiss actions, plus the applied
- * entries that can still be undone in this session. The widget in
- * `review-panel-widget.tsx` owns all service interaction; this module stays a
- * pure, hook-free function of its props so it can be rendered in tests with
- * `renderToStaticMarkup`.
+ * Renders NukeAI CAD edit proposals (feature-parameter and sketch-dimension
+ * changes) with their document binding, parameter diff, build impact, and
+ * Apply/Dismiss actions, plus the applied entries that can still be undone in
+ * this session. The widget in `review-panel-widget.tsx` owns all service
+ * interaction; this module stays a pure, hook-free function of its props so it
+ * can be rendered in tests with `renderToStaticMarkup`.
  *
  * @module nuke-cad/browser/widgets
  */
@@ -44,6 +44,7 @@ import { NukeBadge } from 'nuke-essentials/lib/theme/browser/components/nuke-bad
 import { NukeEmptyState } from 'nuke-essentials/lib/theme/browser/components/nuke-empty-state';
 import { NukeFormRow, NukeSection } from 'nuke-essentials/lib/theme/browser/components/nuke-form';
 import { NukeLoadingOverlay } from 'nuke-essentials/lib/theme/browser/components/nuke-loading-overlay';
+import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
 
 /** Before/after count for one build-impact metric. */
 export interface CadReviewImpactPair {
@@ -76,12 +77,23 @@ export interface CadReviewBuild {
     readonly triangleCount?: number;
 }
 
+/** Solver and affected-sketch context attached to a sketch proposal. */
+export interface CadReviewSketchContext {
+    readonly targetSketchId: string;
+    readonly targetSketchName: string;
+    readonly affectedSketchIds: readonly string[];
+    readonly solver: SketchSolveSummary;
+}
+
 /** One proposal as rendered by the panel. */
 export interface CadReviewProposalView {
     readonly id: string;
     readonly summary: string;
     readonly documentPath: string;
     readonly changes: readonly NukeChange[];
+    readonly scope?: 'features' | 'sketch';
+    readonly applyCapability?: string;
+    readonly sketch?: CadReviewSketchContext;
     readonly impact?: CadReviewImpact;
     readonly build?: CadReviewBuild;
 }
@@ -90,8 +102,11 @@ export interface CadReviewProposalView {
 export interface CadReviewAppliedEntry {
     readonly proposalId: string;
     readonly summary: string;
+    /** Compact primary change shown in the sidebar; falls back to `summary`. */
+    readonly detail?: string;
     /** Opaque `NukeUndoService` token; empty when the apply returned none. */
     readonly undoToken: string;
+    readonly scope?: 'features' | 'sketch';
 }
 
 /** Props for the pure review panel view. */
@@ -204,6 +219,55 @@ function ImpactSummary(props: { readonly impact?: CadReviewImpact; readonly buil
     );
 }
 
+function pluralize(count: number, singular: string): string {
+    return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+interface SketchIssue {
+    readonly key: 'error' | 'warning';
+    readonly label: string;
+    readonly severity: 'error' | 'warning';
+}
+
+/** Compact solver issue labels; conflicting constraints name the error cause. */
+function sketchIssues(solver: SketchSolveSummary): readonly SketchIssue[] {
+    const issues: SketchIssue[] = [];
+    if (solver.errorCount > 0) {
+        issues.push({
+            key: 'error',
+            label:
+                solver.conflicting.length > 0
+                    ? pluralize(solver.conflicting.length, 'conflicting constraint')
+                    : pluralize(solver.errorCount, 'solver error'),
+            severity: 'error'
+        });
+    }
+    if (solver.warningCount > 0) {
+        issues.push({ key: 'warning', label: pluralize(solver.warningCount, 'warning'), severity: 'warning' });
+    }
+    return issues;
+}
+
+function SketchContext(props: { readonly sketch: CadReviewSketchContext }): React.ReactElement {
+    const sketch = props.sketch;
+    const solver = sketch.solver;
+    const affectedCount = sketch.affectedSketchIds.length;
+    return (
+        <div className="cad-review-sketch-context" role="group" aria-label={`Sketch context for ${sketch.targetSketchName}`}>
+            <span className="cad-review-sketch-name">{`Sketch ${sketch.targetSketchName}`}</span>
+            <NukeBadge className="cad-review-sketch-solver">
+                {solver.fullyConstrained ? 'Fully constrained' : `${solver.dof} DOF`}
+            </NukeBadge>
+            {affectedCount > 1 && <NukeBadge className="cad-review-sketch-affected">{`${affectedCount} affected sketches`}</NukeBadge>}
+            {sketchIssues(solver).map((issue) => (
+                <NukeBadge key={issue.key} className={`cad-review-sketch-issue cad-review-sketch-${issue.severity}`}>
+                    {issue.label}
+                </NukeBadge>
+            ))}
+        </div>
+    );
+}
+
 function ProposalCard(props: {
     readonly proposal: CadReviewProposalView;
     readonly applying: boolean;
@@ -211,16 +275,18 @@ function ProposalCard(props: {
     readonly onDismiss: (proposalId: string) => void;
 }): React.ReactElement {
     const proposal = props.proposal;
+    const fallbackTitle = proposal.scope === 'sketch' ? 'Sketch change' : 'Feature change';
     return (
         <NukeSection
             className="cad-review-proposal"
             icon="git-compare"
-            title={<span className="cad-review-proposal-title">{proposal.summary.length > 0 ? proposal.summary : 'Feature change'}</span>}
+            title={<span className="cad-review-proposal-title">{proposal.summary.length > 0 ? proposal.summary : fallbackTitle}</span>}
         >
             <div className="cad-review-document">
                 <span className="cad-review-document-name">{documentBasename(proposal.documentPath)}</span>
                 <span className="cad-review-document-path">{proposal.documentPath}</span>
             </div>
+            {proposal.sketch !== undefined && <SketchContext sketch={proposal.sketch} />}
             <div className="cad-review-changes">
                 {proposal.changes.map((change, index) => (
                     <NukeFormRow key={`${index}-${change.path}`} label={change.label} className="cad-review-change-row">
@@ -271,7 +337,12 @@ function AppliedSection(props: {
                     <div key={`${entry.proposalId}-${entry.undoToken}`} className="cad-review-applied">
                         <div className="cad-review-applied-body">
                             <span className="cad-review-applied-summary">
-                                {entry.summary.length > 0 ? entry.summary : 'CAD feature change'}
+                                <span className="cad-review-applied-kind">
+                                    {entry.scope === 'sketch' ? 'Sketch dimension' : 'Feature parameter'}
+                                </span>
+                                <span className="cad-review-applied-detail">
+                                    {entry.detail ?? (entry.summary.length > 0 ? entry.summary : 'CAD edit')}
+                                </span>
                             </span>
                             <NukeBadge className="cad-review-applied-badge">Applied</NukeBadge>
                         </div>
@@ -280,7 +351,7 @@ function AppliedSection(props: {
                             className="theia-button secondary cad-review-undo"
                             onClick={() => props.onUndo(entry.proposalId)}
                             disabled={!undoable || props.applying}
-                            aria-label={`Undo ${entry.summary.length > 0 ? entry.summary : 'CAD feature change'}`}
+                            aria-label={`Undo ${entry.summary.length > 0 ? entry.summary : 'CAD edit'}`}
                         >
                             Undo
                         </button>
@@ -309,7 +380,7 @@ export function CadReviewPanelView(props: CadReviewPanelViewProps): React.ReactE
                             <NukeBadge className="cad-review-count">{props.proposals.length}</NukeBadge>
                         )}
                     </h2>
-                    <p className="header-description">Review AI-proposed feature edits before applying them.</p>
+                    <p className="header-description">Review AI-proposed CAD edits before applying them.</p>
                 </div>
             </div>
 
@@ -321,7 +392,7 @@ export function CadReviewPanelView(props: CadReviewPanelViewProps): React.ReactE
                         title="AI authoring is off"
                         message={
                             <>
-                                Turn on AI authoring in <strong>Settings → Nuke CAD → AI Authoring</strong> to review proposed feature edits
+                                Turn on AI authoring in <strong>Settings → Nuke CAD → AI Authoring</strong> to review proposed CAD edits
                                 here.
                             </>
                         }
@@ -339,7 +410,7 @@ export function CadReviewPanelView(props: CadReviewPanelViewProps): React.ReactE
                         className="cad-review-empty"
                         icon="git-compare"
                         title="No proposed edits"
-                        message="NukeAI feature-change previews appear here with their diff, impact, and Apply/Dismiss actions."
+                        message="NukeAI CAD edit previews appear here with their diff, impact, and Apply/Dismiss actions."
                     />
                 )}
 

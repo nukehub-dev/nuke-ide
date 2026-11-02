@@ -27,14 +27,13 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
   and `ChatAgent`; an empty default-agent preference is set to NukeAI, and the welcome picker lists NukeAI and Nuke
   Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and
-  write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings, materials, and tallies, a
-  shown diff, confirmation, and undo reporting; see `docs/user/safe-edits.md`.
-- CAD feature authoring ships as a gated Phase 1 slice: NukeAI previews and applies scalar feature params
-  (extrusion length, revolve/draft/pattern angles, fillet/chamfer scalars, hole diameter/depth, shell thickness) on saved
-  `.nuke-cad` documents only while `nukeCad.aiAuthoringEnabled` is on.
-  The preview runs a real build, reveals the CAD Edit Review panel, and shows a display-only ghost overlay; apply is one
-  commit, backs up the document, rebuilds, and is undoable. Scripts,
-  sketches, parameters, topology, imports, and MCP remain excluded. See `docs/dev/cad-authoring-design.md`.
+  write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings,
+  materials, tallies, and CAD feature/sketch edits, a shown diff, confirmation, and undo reporting; see
+  `docs/user/safe-edits.md`.
+- CAD authoring ships two gated slices (scalar feature params; existing sketch dimensions or referenced parameters) on
+  saved `.nuke-cad` documents while `nukeCad.aiAuthoringEnabled` is on: real-build preview, CAD Edit Review panel +
+  ghost, atomic commit, backup, rebuild, undo; parameter-bound edits cascade. New sketch entities/constraints/dimensions,
+  scripts, unreferenced parameters, topology, imports, and MCP stay excluded. See `docs/dev/cad-authoring-design.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic
   and read-only support tools (including statepoint comparison and tally-series analysis), never the preview or apply tools.

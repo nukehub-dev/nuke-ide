@@ -26,14 +26,14 @@
 // *****************************************************************************
 
 /**
- * CAD feature change proposal service
+ * CAD edit proposal service
  *
- * In-memory store for previewed `.nuke-cad` feature-parameter edits. A proposal
- * pins the document path, epoch, and base revision the preview was resolved
- * against and stores detached before/after parameter snapshots, so an apply
- * capability can reject stale or cross-document proposals. Proposals expire
- * after ten minutes and the store keeps at most twenty, mirroring the OpenMC
- * change proposal store.
+ * In-memory store for previewed `.nuke-cad` edits: feature-parameter changes
+ * and sketch-dimension changes. A proposal pins the document path, epoch, and
+ * base revision the preview was resolved against and stores detached
+ * before/after snapshots, so an apply capability can reject stale or
+ * cross-document proposals. Proposals expire after ten minutes and the store
+ * keeps at most twenty, mirroring the OpenMC change proposal store.
  *
  * Store changes are announced through `onDidChange` for review surfaces.
  * Reads (`get`/`has`/`list`) drop expired proposals silently so polling a
@@ -47,16 +47,20 @@ import { Emitter, Event } from '@theia/core/lib/common/event';
 import { injectable } from '@theia/core/shared/inversify';
 import { NukeChange } from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { ResolvedFeatureEdit } from '../../common/cad-feature-edit';
-import { FeatureParams } from '../../common/cad-document';
+import { FeatureParams, SketchDef } from '../../common/cad-document';
+import type { ResolvedSketchEdit, SketchSolveSummary } from '../sketch/sketch-edit-types';
 import { CadBoundingBox } from '../../common/nuke-cad-protocol';
 
-/** Maximum number of feature proposals kept in memory. */
+/** Maximum number of CAD proposals kept in memory. */
 export const NUKE_CAD_FEATURE_PROPOSAL_LIMIT = 20;
 
-/** Feature proposal lifetime in milliseconds. */
+/** CAD proposal lifetime in milliseconds. */
 export const NUKE_CAD_FEATURE_PROPOSAL_TTL_MS = 10 * 60 * 1000;
 
-/** Topology and size delta measured while previewing a feature proposal. */
+/** Apply capability used when a sketch preview does not name one. */
+const DEFAULT_SKETCH_APPLY_CAPABILITY_ID = 'nuke.cad.applySketchChange';
+
+/** Topology and size delta measured while previewing a CAD edit proposal. */
 export interface NukeCadProposalImpact {
     readonly solids: { readonly before: number; readonly after: number };
     readonly faces: { readonly before: number; readonly after: number };
@@ -64,7 +68,7 @@ export interface NukeCadProposalImpact {
     readonly boundingBox: { readonly before?: CadBoundingBox; readonly after?: CadBoundingBox };
 }
 
-/** Outcome of the preview build backing a feature proposal. */
+/** Outcome of the preview build backing a CAD edit proposal. */
 export interface NukeCadProposalBuild {
     readonly success: boolean;
     readonly solidCount: number;
@@ -72,10 +76,9 @@ export interface NukeCadProposalBuild {
     readonly triangleCount: number;
 }
 
-/** A previewed feature change awaiting apply. */
-export interface NukeCadFeatureProposal {
+/** Fields shared by every previewed CAD edit proposal. */
+export interface NukeCadProposalCommon {
     readonly id: string;
-    readonly scope: 'features';
     readonly summary: string;
     readonly documentPath: string;
     /** `CadDocumentStore.documentEpoch` when the preview was resolved. */
@@ -83,11 +86,6 @@ export interface NukeCadFeatureProposal {
     /** `CadDocumentStore.revision` the preview was resolved against. */
     readonly baseRevision: number;
     readonly changes: readonly NukeChange[];
-    readonly edits: readonly ResolvedFeatureEdit[];
-    /** Parameter snapshot per feature id before the change. */
-    readonly before: Record<string, FeatureParams>;
-    /** Parameter snapshot per feature id after the change. */
-    readonly after: Record<string, FeatureParams>;
     /** Optional topology and size delta measured by the preview. */
     readonly impact?: NukeCadProposalImpact;
     /** Optional outcome of the preview build. */
@@ -95,22 +93,75 @@ export interface NukeCadFeatureProposal {
     readonly createdAt: number;
 }
 
-/** The payload stored when a feature preview creates a proposal. */
-export interface NukeCadFeatureProposalInput {
-    readonly scope: 'features';
+/** Caller-supplied fields shared by every previewed CAD edit proposal. */
+export interface NukeCadProposalCommonInput {
     readonly summary: string;
     readonly documentPath: string;
     readonly documentEpoch: number;
     readonly baseRevision: number;
     readonly changes: readonly NukeChange[];
-    readonly edits: readonly ResolvedFeatureEdit[];
-    readonly before: Record<string, FeatureParams>;
-    readonly after: Record<string, FeatureParams>;
     /** Optional topology and size delta measured by the preview. */
     readonly impact?: NukeCadProposalImpact;
     /** Optional outcome of the preview build. */
     readonly build?: NukeCadProposalBuild;
 }
+
+/** A previewed feature change awaiting apply. */
+export interface NukeCadFeatureProposal extends NukeCadProposalCommon {
+    readonly scope: 'features';
+    /** Capability that applies the stored proposal; defaults to `nuke.cad.applyFeatureChange`. */
+    readonly applyCapability?: string;
+    readonly edits: readonly ResolvedFeatureEdit[];
+    /** Parameter snapshot per feature id before the change. */
+    readonly before: Record<string, FeatureParams>;
+    /** Parameter snapshot per feature id after the change. */
+    readonly after: Record<string, FeatureParams>;
+}
+
+/** The payload stored when a feature preview creates a proposal. */
+export interface NukeCadFeatureProposalInput extends NukeCadProposalCommonInput {
+    readonly scope: 'features';
+    /** Capability that applies the stored proposal; defaults to `nuke.cad.applyFeatureChange`. */
+    readonly applyCapability?: string;
+    readonly edits: readonly ResolvedFeatureEdit[];
+    /** Parameter snapshot per feature id before the change. */
+    readonly before: Record<string, FeatureParams>;
+    /** Parameter snapshot per feature id after the change. */
+    readonly after: Record<string, FeatureParams>;
+}
+
+/** Detached sketch and parameter snapshots captured by a sketch preview. */
+export interface NukeCadSketchProposalDetails {
+    readonly targetSketchId: string;
+    readonly targetSketchName: string;
+    readonly affectedSketchIds: readonly string[];
+    readonly affectedFeatureIds: readonly string[];
+    readonly beforeSketches: Readonly<Record<string, SketchDef>>;
+    readonly afterSketches: Readonly<Record<string, SketchDef>>;
+    readonly beforeParameters: Readonly<Record<string, number>>;
+    readonly afterParameters: Readonly<Record<string, number>>;
+    readonly solver: SketchSolveSummary;
+    readonly edits: readonly ResolvedSketchEdit[];
+}
+
+/** A previewed sketch-dimension change awaiting apply. */
+export interface NukeCadSketchProposal extends NukeCadProposalCommon {
+    readonly scope: 'sketch';
+    /** Capability that applies the stored proposal. */
+    readonly applyCapability: string;
+    readonly sketch: NukeCadSketchProposalDetails;
+}
+
+/** The payload stored when a sketch preview creates a proposal. */
+export interface NukeCadSketchProposalInput extends NukeCadProposalCommonInput {
+    readonly scope: 'sketch';
+    /** Capability that applies the stored proposal; defaults to `nuke.cad.applySketchChange`. */
+    readonly applyCapability?: string;
+    readonly sketch: NukeCadSketchProposalDetails;
+}
+
+/** Any previewed CAD edit awaiting apply. */
+export type NukeCadProposal = NukeCadFeatureProposal | NukeCadSketchProposal;
 
 /**
  * Deep-clone a JSON-compatible value so stored snapshots stay detached.
@@ -122,10 +173,15 @@ function cloneValue<T>(value: T): T {
     return value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
 }
 
-/** In-memory feature proposal store with a fixed capacity and TTL. */
+/** Whether a proposal edits sketch dimensions rather than feature parameters. */
+export function isSketchProposal(proposal: NukeCadProposal): proposal is NukeCadSketchProposal {
+    return proposal.scope === 'sketch';
+}
+
+/** In-memory CAD proposal store with a fixed capacity and TTL. */
 @injectable()
 export class NukeCadProposalService implements Disposable {
-    protected readonly proposals = new Map<string, NukeCadFeatureProposal>();
+    protected readonly proposals = new Map<string, NukeCadProposal>();
     protected readonly onDidChangeEmitter = new Emitter<void>();
 
     /** Fires whenever a proposal is added or removed from the store. */
@@ -143,14 +199,17 @@ export class NukeCadProposalService implements Disposable {
 
     /**
      * Store a proposal, pruning expired entries and the oldest entry when the
-     * store is full. Snapshots are cloned so later caller mutations do not
+     * store is full. The input is cloned so later caller mutations do not
      * change the stored proposal.
      *
      * @param input - Summary, document binding, diff, resolved edits,
-     * before/after parameter snapshots, and optional preview metadata.
+     * before/after snapshots, and optional preview metadata.
      * @returns A detached copy of the stored proposal.
      */
-    create(input: NukeCadFeatureProposalInput): NukeCadFeatureProposal {
+    create(input: NukeCadFeatureProposalInput): NukeCadFeatureProposal;
+    create(input: NukeCadSketchProposalInput): NukeCadSketchProposal;
+    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput): NukeCadProposal;
+    create(input: NukeCadFeatureProposalInput | NukeCadSketchProposalInput): NukeCadProposal {
         this.pruneExpired();
         while (this.proposals.size >= NUKE_CAD_FEATURE_PROPOSAL_LIMIT) {
             const oldest = this.proposals.keys().next().value as string | undefined;
@@ -159,21 +218,17 @@ export class NukeCadProposalService implements Disposable {
             }
             this.proposals.delete(oldest);
         }
-        const proposal: NukeCadFeatureProposal = {
-            id: this.createId(),
-            scope: input.scope,
-            summary: input.summary,
-            documentPath: input.documentPath,
-            documentEpoch: input.documentEpoch,
-            baseRevision: input.baseRevision,
-            changes: cloneValue(input.changes),
-            edits: cloneValue(input.edits),
-            before: cloneValue(input.before),
-            after: cloneValue(input.after),
-            ...(input.impact === undefined ? {} : { impact: cloneValue(input.impact) }),
-            ...(input.build === undefined ? {} : { build: cloneValue(input.build) }),
-            createdAt: this.now()
-        };
+        const cloned = cloneValue(input);
+        const createdAt = this.now();
+        const proposal: NukeCadProposal =
+            cloned.scope === 'sketch'
+                ? {
+                      ...cloned,
+                      id: this.createId(),
+                      applyCapability: cloned.applyCapability ?? DEFAULT_SKETCH_APPLY_CAPABILITY_ID,
+                      createdAt
+                  }
+                : { ...cloned, id: this.createId(), createdAt };
         this.proposals.set(proposal.id, proposal);
         this.onDidChangeEmitter.fire();
         return cloneValue(proposal);
@@ -186,7 +241,7 @@ export class NukeCadProposalService implements Disposable {
      * @param id - Proposal id.
      * @returns The proposal, or `undefined` when missing or expired.
      */
-    get(id: string): NukeCadFeatureProposal | undefined {
+    get(id: string): NukeCadProposal | undefined {
         this.pruneExpired();
         const proposal = this.proposals.get(id);
         return proposal === undefined ? undefined : cloneValue(proposal);
@@ -210,7 +265,7 @@ export class NukeCadProposalService implements Disposable {
      *
      * @returns The live proposals.
      */
-    list(): readonly NukeCadFeatureProposal[] {
+    list(): readonly NukeCadProposal[] {
         this.pruneExpired();
         return Array.from(this.proposals.values(), (proposal) => cloneValue(proposal));
     }

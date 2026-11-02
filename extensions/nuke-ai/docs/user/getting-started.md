@@ -58,10 +58,23 @@ on the next capture.
 
 CAD authoring is opt-in. Enable **Nuke CAD: AI Authoring** in **Settings → Nuke CAD** first. NukeAI can then propose
 scalar changes to an existing feature on a saved `.nuke-cad` document: pad/pocket length, revolve/groove angle, fillet
-radius, chamfer distance, draft angle, pattern spacing/angle, shell thickness, and blind-hole diameter/depth. It previews every change with a real build, shows the diff and impact (solid/face/triangle
-counts and bounding box), and applies only the returned proposal after explicit confirmation. Apply writes a hidden
-backup beside the document, schedules the normal rebuild, and offers **Undo** in the chat. Sketches, document
-parameters, scripts, topology, booleans, imports, assemblies, and drawings are not editable in this mode. A successful preview also opens the **CAD Edit Review** panel and shows the candidate geometry as a translucent ghost in the viewport; changed solids use a warmer accent. Apply, Dismiss, and Undo are available there as well as in the chat card. The preview rejects any edit that changes the solid count, selector map, or region-manifest coverage.
+radius, chamfer distance, draft angle, pattern spacing/angle, shell thickness, and blind-hole diameter/depth. It
+previews every change with a real build, shows the diff and impact (solid/face/triangle counts and bounding box), and
+applies only the returned proposal after explicit confirmation. Apply writes a hidden backup beside the document,
+schedules the normal rebuild, and offers **Undo** in the chat.
+
+Sketch dimensions use a second flow on the same saved document. NukeAI lists the sketch dimensions and document
+parameters first, then previews one to eight edits to existing driving dimensions or to document parameters that a
+sketch or parametric curve references. A literal dimension changes only its sketch; a parameter-bound dimension
+cascades to every sketch and curve that references the parameter, and the diff names the parameter and all affected
+dimensions. Reference dimensions, missing sketches or parameters, unchanged values, and conflicting solves are
+rejected. New sketch entities, free-form sketch creation, unreferenced document parameters, scripts, topology,
+booleans, imports, assemblies, and drawings are not editable in this mode.
+
+A successful preview also opens the **CAD Edit Review** panel and shows the candidate geometry as a translucent ghost
+in the viewport; changed solids use a warmer accent. Apply, Dismiss, and Undo are available there as well as in the
+chat card. Apply commits the parameter and all affected sketches atomically. The preview rejects any edit that changes
+the solid count, selector map, or region-manifest coverage.
 
 ## Preview gallery
 

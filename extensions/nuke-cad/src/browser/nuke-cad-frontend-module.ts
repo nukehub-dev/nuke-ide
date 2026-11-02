@@ -45,6 +45,7 @@ import { NukeCadAuthoringCapabilities } from './capabilities/nuke-cad-authoring-
 import { NukeCadAuthoringContextContribution } from './capabilities/nuke-cad-authoring-context';
 import { NukeCadProposalService } from './capabilities/nuke-cad-proposal-service';
 import { NukeCadGhostPreviewService } from './preview/nuke-cad-ghost-preview-service';
+import { NukeCadSketchEditService } from './sketch/sketch-edit-service';
 import { CadReviewPanelWidget } from './widgets/review-panel/review-panel-widget';
 import { bindNukeCadPreferences, NukeCadPreferences } from './nuke-cad-preferences';
 import { NukeCadStateManager } from './state/nuke-cad-state-manager';
@@ -80,6 +81,9 @@ export default new ContainerModule((bind) => {
     bind(NukeCapabilityContribution).toService(NukeCadCapabilities);
     bind(NukeCadProposalService).toSelf().inSingletonScope();
     bind(NukeCadGhostPreviewService).toSelf().inSingletonScope();
+    bind(NukeCadSketchEditService)
+        .toDynamicValue(() => new NukeCadSketchEditService())
+        .inSingletonScope();
     bind(NukeCadAuthoringCapabilities).toSelf().inSingletonScope();
     bind(NukeCapabilityContribution).toService(NukeCadAuthoringCapabilities);
     bind(NukeCadContextContribution).toSelf().inSingletonScope();

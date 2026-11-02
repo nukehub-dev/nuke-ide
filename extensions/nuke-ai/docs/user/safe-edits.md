@@ -1,8 +1,8 @@
 # Safe Edits
 
-NukeAI can change basic OpenMC run settings, materials, tallies, and scalar CAD feature parameters without writing
-directly from the chat model. Every edit goes through a preview, an explicit apply step with confirmation, and an
-in-session undo.
+NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, and existing sketch
+dimensions or referenced document parameters without writing directly from the chat model. Every edit goes through a
+preview, an explicit apply step with confirmation, and an in-session undo.
 
 ## Supported settings
 
@@ -97,8 +97,9 @@ Undo state is in memory for the current IDE session only:
 
 ## CAD feature edits
 
-CAD edits are opt-in. Turn on **Nuke CAD: AI Authoring** in **Settings → Nuke CAD**; while it is off, both CAD
-preview and apply tools are absent from NukeAI. Only a saved `.nuke-cad` document can be edited.
+CAD edits are opt-in. Turn on **Nuke CAD: AI Authoring** in **Settings → Nuke CAD**; while it is off, the CAD
+authoring tools (feature and sketch preview/apply plus sketch discovery) are absent from NukeAI. Only a saved
+`.nuke-cad` document can be edited.
 
 The allowlist is deliberately narrow:
 
@@ -122,8 +123,42 @@ document revision, or a feature whose parameters changed after the preview. Befo
 schedules the normal rebuild, and exposes **Undo** in the card. Undo re-checks the revision and applied values, restores
 the before parameters in one batch, and schedules the rebuild again.
 
-Sketches, document parameters, scripts, topology, booleans, imports, assemblies, and drawings are outside this surface.
-External MCP never exposes the CAD preview or apply tools.
+New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
+sketch, scripts, topology, booleans, imports, assemblies, and drawings are outside this surface. External MCP never
+exposes the CAD preview or apply tools.
+
+## CAD sketch dimensions
+
+Sketch edits use the same opt-in switch: **Nuke CAD: AI Authoring** in **Settings → Nuke CAD**. Only a saved `.nuke-cad`
+document can be edited, and NukeAI starts by calling `nuke_cad_listSketchDimensions`. That read-only tool returns the
+document path, the document parameter table, and every sketch with its id, name, datum, consumers, and dimensions (id,
+kind, driving flag, bound parameter, and current value), so NukeAI never guesses a sketch or dimension.
+
+A preview accepts one to eight edits on one target sketch, in either form:
+
+```json
+{ "sketchId": "fuel-sketch", "dimensionId": "dimension-5", "value": 0.44 }
+```
+
+```json
+{ "sketchId": "fuel-sketch", "parameterName": "fuelRadius", "value": 0.44 }
+```
+
+Only existing driving dimensions and document parameters referenced by a sketch or parametric curve are editable.
+A literal driving dimension changes only that sketch. A parameter-bound dimension cascades: the document parameter
+changes, and every sketch and parametric curve that references it is re-solved or re-sampled. The preview diff names
+the parameter and every affected dimension and sketch, so review the full impact before applying.
+
+The preview runs a real build and is rejected when the sketch, dimension, or parameter is missing, the dimension is a
+reference (`driving: false`), the parameter is not referenced by any sketch or curve, the value does not change
+anything, or the solver reports a conflict. It preserves topology, selector, and region coverage. A successful preview
+opens the **CAD Edit Review** panel with the same diff, solver status, and build impact, and shows the candidate
+geometry as a display-only ghost.
+
+Apply accepts only the proposal id after explicit confirmation. It re-checks the document revision and proposal
+freshness, then writes the parameter and every affected sketch in one atomic document-store commit and rebuilds. If the
+document changed after the preview, preview again instead of reusing the id. Undo from the chat card or the review
+panel restores the parameter and all affected sketches together and schedules the rebuild again.
 
 ## Related
 

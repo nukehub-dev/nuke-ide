@@ -32,6 +32,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as React from '@theia/core/shared/react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { SketchSolveSummary } from '../../sketch/sketch-edit-types';
 import { CadReviewAppliedEntry, CadReviewPanelView, CadReviewPanelViewProps, CadReviewProposalView } from './review-panel-view';
 
 // The shared loading overlay pulls Theia's widget helper, which touches the
@@ -116,6 +117,44 @@ function props(overrides: Partial<CadReviewPanelViewProps> = {}): CadReviewPanel
         onUndo: vi.fn(),
         ...overrides
     };
+}
+
+function solverSummary(overrides: Partial<SketchSolveSummary> = {}): SketchSolveSummary {
+    return {
+        status: 'converged',
+        dof: 0,
+        fullyConstrained: true,
+        conflicting: [],
+        redundant: [],
+        errorCount: 0,
+        warningCount: 0,
+        sketches: [],
+        ...overrides
+    };
+}
+
+function sketchProposal(overrides: Partial<CadReviewProposalView> = {}): CadReviewProposalView {
+    return proposal({
+        scope: 'sketch',
+        changes: [
+            {
+                path: 'sketches.pellet.dimensions.diameter',
+                label: 'pellet diameter',
+                kind: 'update',
+                before: 1,
+                after: 1.2
+            }
+        ],
+        impact: undefined,
+        build: undefined,
+        sketch: {
+            targetSketchId: 'pellet',
+            targetSketchName: 'Pellet profile',
+            affectedSketchIds: ['pellet', 'clad'],
+            solver: solverSummary()
+        },
+        ...overrides
+    });
 }
 
 describe('CadReviewPanelView', () => {
@@ -235,5 +274,56 @@ describe('CadReviewPanelView', () => {
         const dismissButtons = collectButtons(tree, 'cad-review-dismiss');
         expect(applyButtons[0].props.disabled).toBe(true);
         expect(dismissButtons[0].props.disabled).toBe(true);
+    });
+
+    it('renders sketch context for a fully constrained sketch proposal', () => {
+        const tree = CadReviewPanelView(props({ proposals: [sketchProposal()] }));
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('cad-review-sketch-context');
+        expect(html).toContain('Sketch Pellet profile');
+        expect(html).toContain('Fully constrained');
+        expect(html).toContain('2 affected sketches');
+        expect(html).toContain('pellet diameter');
+        expect(html).toContain('cad-review-diff-before');
+    });
+
+    it('renders DOF, conflicting constraints, and warnings for an under-constrained sketch', () => {
+        const tree = CadReviewPanelView(
+            props({
+                proposals: [
+                    sketchProposal({
+                        sketch: {
+                            targetSketchId: 'pellet',
+                            targetSketchName: 'Pellet profile',
+                            affectedSketchIds: ['pellet'],
+                            solver: solverSummary({
+                                fullyConstrained: false,
+                                dof: 3,
+                                conflicting: ['constraint-1'],
+                                errorCount: 1,
+                                warningCount: 2
+                            })
+                        }
+                    })
+                ]
+            })
+        );
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).toContain('cad-review-sketch-context');
+        expect(html).toContain('3 DOF');
+        expect(html).toContain('1 conflicting constraint');
+        expect(html).toContain('2 warnings');
+        expect(html).not.toContain('2 affected sketches');
+    });
+
+    it('renders feature proposals without the sketch context block', () => {
+        const tree = CadReviewPanelView(props({ proposals: [proposal({ scope: 'features' })] }));
+        const html = renderToStaticMarkup(tree);
+
+        expect(html).not.toContain('cad-review-sketch-context');
+        expect(html).toContain('fuel length');
+        expect(html).toContain('Solids 2 → 2');
     });
 });

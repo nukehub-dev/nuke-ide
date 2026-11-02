@@ -278,6 +278,118 @@ describe('CadDocumentStore', () => {
         });
     });
 
+    describe('atomic sketch authoring edits', () => {
+        function parametricCurve(amp: number, x = 'amp*cos(t)', y = 'amp*sin(t)'): CurveDef {
+            return {
+                id: 'curve-1',
+                name: 'Curve 1',
+                source: {
+                    kind: 'parametric',
+                    x,
+                    y,
+                    z: '0',
+                    tStart: 0,
+                    tEnd: 2 * Math.PI,
+                    sampleCount: 16
+                },
+                samples: [
+                    [amp, 0, 0],
+                    [0, amp, 0],
+                    [-amp, 0, 0],
+                    [0, -amp, 0]
+                ]
+            };
+        }
+
+        it('replaces a sketch and a parameter with one revision, one undo entry, and one change event', () => {
+            const store = new CadDocumentStore();
+            expect(store.loadDocument(minimalDoc({ parameters: { width: 10 }, sketches: [sketch('s1')] })).success).toBe(true);
+            const revision = store.revision;
+            let events = 0;
+            store.onChange(() => events++);
+
+            const updated = sketch('s1');
+            updated.primitives = [{ id: 'p1', type: 'point', x: 0, y: 0 }];
+            const result = store.applySketchAuthoringEdit({ sketches: [updated], parameters: { width: 20 } });
+
+            expect(result.success).toBe(true);
+            expect(store.revision).toBe(revision + 1);
+            expect(events).toBe(1);
+            expect(store.document?.parameters.width).toBe(20);
+            expect(store.document?.sketches[0].primitives).toHaveLength(1);
+            expect(store.canUndo).toBe(true);
+
+            expect(store.undo().success).toBe(true);
+            expect(store.document?.parameters.width).toBe(10);
+            expect(store.document?.sketches[0].primitives).toHaveLength(0);
+            expect(store.canUndo).toBe(false);
+        });
+
+        it('resamples parametric curves that reference a changed parameter', () => {
+            const store = new CadDocumentStore();
+            expect(
+                store.loadDocument(minimalDoc({ parameters: { amp: 1 }, sketches: [sketch('s1')], curves: [parametricCurve(1)] })).success
+            ).toBe(true);
+
+            const result = store.applySketchAuthoringEdit({ sketches: [sketch('s1')], parameters: { amp: 2 } });
+            expect(result.success).toBe(true);
+            const samples = store.document!.curves[0].samples;
+            expect(samples[0][0]).toBeCloseTo(2, 8);
+            expect(samples[0][1]).toBeCloseTo(0, 8);
+        });
+
+        it('rejects unknown sketches and non-finite parameters without mutating', () => {
+            const store = new CadDocumentStore();
+            expect(store.loadDocument(minimalDoc({ parameters: { width: 10 }, sketches: [sketch('s1')] })).success).toBe(true);
+            store.markSaved();
+            const revision = store.revision;
+
+            const unknown = store.applySketchAuthoringEdit({ sketches: [sketch('missing')] });
+            expect(unknown.success).toBe(false);
+            expect(unknown.error).toContain('not found');
+            expect(store.document?.sketches.map((s) => s.id)).toEqual(['s1']);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+
+            const nonFinite = store.applySketchAuthoringEdit({
+                sketches: [sketch('s1')],
+                parameters: { width: Number.POSITIVE_INFINITY }
+            });
+            expect(nonFinite.success).toBe(false);
+            expect(store.document?.parameters.width).toBe(10);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+
+            const empty = store.applySketchAuthoringEdit({ sketches: [] });
+            expect(empty.success).toBe(false);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+        });
+
+        it('rejects a curve resample failure without mutating', () => {
+            const store = new CadDocumentStore();
+            expect(
+                store.loadDocument(
+                    minimalDoc({
+                        parameters: { amp: 1 },
+                        sketches: [sketch('s1')],
+                        curves: [parametricCurve(1, 'sqrt(amp - 100)', '0')]
+                    })
+                ).success
+            ).toBe(true);
+            store.markSaved();
+            const revision = store.revision;
+
+            const result = store.applySketchAuthoringEdit({ sketches: [sketch('s1')], parameters: { amp: 0 } });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Could not resample');
+            expect(store.document?.parameters.amp).toBe(1);
+            expect(store.document?.curves[0].samples[0][0]).toBe(1);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+        });
+    });
+
     describe('feature operations', () => {
         it('adds, updates, renames, and deletes features', () => {
             const store = new CadDocumentStore();

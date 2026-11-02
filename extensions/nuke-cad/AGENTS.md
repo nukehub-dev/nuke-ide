@@ -112,12 +112,14 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - CAD AI capabilities live in `src/browser/capabilities/nuke-cad-capabilities.ts`, use the
   nuke-core capability contract, and delegate to existing CAD services; never expose raw
   commands. `nuke.cad.diagnoseModel` reports build, manifest, selection, and per-solid
-  findings without rebuilding. The gated `nuke-cad-authoring-capabilities.ts` pair previews
-  scalar feature edits with a real build and applies them through the document store; it is
-  default-off (`nukeCad.aiAuthoringEnabled`), requires a saved document, and never exposes
-  scripts, sketches, topology, or MCP. A successful preview publishes the candidate tessellation to
-  `NukeCadGhostPreviewService` and reveals the **CAD Edit Review** panel; the panel applies the same capability
-  and the viewport renders the candidate in the scene-level `cad-ghost` group only. See `docs/dev/ai-capabilities.md`.
+  findings without rebuilding. The gated `nuke-cad-authoring-capabilities.ts` previews and applies scalar feature
+  edits and existing sketch driving dimensions or document parameters a sketch references through the document store;
+  it is default-off (`nukeCad.aiAuthoringEnabled`) and requires a saved document. Parameter-bound dimensions cascade to
+  every affected sketch and curve, and a sketch apply commits the parameter and all sketches atomically. New sketch
+  entities/constraints/dimensions, scripts, topology, and MCP stay excluded. A successful preview publishes the
+  candidate tessellation to `NukeCadGhostPreviewService` and reveals the **CAD Edit Review** panel; the panel applies
+  the same capability and the viewport renders the candidate in the scene-level `cad-ghost` group only. See
+  `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
   floating bottom-left command-search launcher (`/`) over the shared `cad-command-registry.ts` table
@@ -200,7 +202,11 @@ npx lerna run build --scope nuke-cad
 npx vitest run extensions/nuke-cad/src/common/cad-feature-edit.test.ts \
   extensions/nuke-cad/src/browser/capabilities/nuke-cad-authoring-capabilities.test.ts \
   extensions/nuke-cad/src/browser/capabilities/nuke-cad-proposal-service.test.ts \
-  extensions/nuke-cad/src/browser/document/cad-document-store.test.ts
+  extensions/nuke-cad/src/browser/document/cad-document-store.test.ts \
+  extensions/nuke-cad/src/browser/sketch/sketch-session.test.ts \
+  extensions/nuke-cad/src/browser/sketch/sketch-edit-service.test.ts \
+  extensions/nuke-cad/src/browser/preview \
+  extensions/nuke-cad/src/browser/widgets/review-panel
 yarn test:python   # includes nuke-cad tests/python and tests/e2e (e2e skips without env gates)
 yarn lint
 ```
