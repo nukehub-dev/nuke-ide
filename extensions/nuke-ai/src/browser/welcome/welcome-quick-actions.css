@@ -121,12 +121,14 @@
 
 .nuke-welcome-quick-action-label {
     font-weight: 600;
+    overflow-wrap: anywhere;
 }
 
 .nuke-welcome-quick-action-description {
     color: var(--theia-descriptionForeground, #9d9d9d);
     font-size: 12px;
     line-height: 1.4;
+    overflow-wrap: anywhere;
 }
 
 .nuke-welcome-quick-actions-setup {
@@ -189,5 +191,38 @@
         flex: 1 1 100%;
         max-width: 100%;
         width: auto;
+    }
+}
+
+/* A docked chat panel can be dragged far below the card's comfortable width.
+   Drop the decorative icon and the secondary line before the label starts to
+   break every word. */
+@container (max-width: 240px) {
+    .nuke-welcome-quick-action-icon {
+        display: none;
+    }
+
+    .nuke-welcome-quick-action-description {
+        display: none;
+    }
+
+    .nuke-welcome-quick-actions {
+        gap: 8px;
+        padding: 0 10px;
+        margin-top: 12px;
+    }
+
+    .nuke-welcome-quick-actions-header {
+        gap: 0;
+    }
+}
+
+@container (max-width: 180px) {
+    .nuke-welcome-quick-actions-subtitle {
+        display: none;
+    }
+
+    .nuke-welcome-quick-actions-title {
+        font-size: 13px;
     }
 }

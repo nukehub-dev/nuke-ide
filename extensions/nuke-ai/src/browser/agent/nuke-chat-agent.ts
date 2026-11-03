@@ -105,7 +105,7 @@ export class NukeChatAgent extends AbstractStreamParsingChatAgent {
 
     description = 'Nuclear engineering assistant for CAD, DAGMC export, OpenMC projects and runs, and statepoint visualization in NukeIDE.';
 
-    iconClass = 'codicon codicon-beaker';
+    iconClass = 'codicon codicon-hubot';
 
     tags = ['nuke', 'nuclear', 'cad', 'openmc', 'visualizer'];
 

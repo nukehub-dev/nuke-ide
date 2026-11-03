@@ -25,7 +25,12 @@ provider and API key there, then return to the chat. The card disappears once a 
 provider key of its own.
 
 The NukeAI bot above the model configuration and quick-start sections follows the pointer, blinks, and tilts its head.
-It is decorative, and its autonomous motion stops when your system requests reduced motion.
+It is decorative, and its autonomous motion stops when your system requests reduced motion. The chat agent uses the
+same robot identity (`hubot`) wherever Theia shows an agent icon.
+
+The chat panel docks on the right and can be dragged narrow. Below roughly 260 px the quick-start cards switch to one
+column and drop their secondary line, the guide button goes full width, and the composer's option row wraps so the
+send button stays reachable. A width of about 300 px or more keeps the full card layout.
 
 ## Chat basics
 

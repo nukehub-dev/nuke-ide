@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: NukeAI actions appear directly in the CAD viewport, OpenMC validation/run, DAGMC, and tally menus.
 - nuke-ai: NukeAI adds welcome quick actions, model setup guidance, a run-status refresh, and a read-only preview gallery.
 - nuke-ai: capability tools expose a local catalog and local metrics/edit journals; undo remains session-scoped.
+- nuke-ai: the chat welcome, tool cards, and composer adapt to a narrow docked panel with wrapping option rows, single-column cards, and a full-width guide button; the NukeAI agent uses the robot identity.
 - nuke-cad: NukeAI can diagnose the active CAD model without rebuilding it.
 - nuke-cad: CAD documents can be summarized, inspected, and exported to DAGMC from NukeAI.
 - nuke-cad: the CAD Edit Review panel shows pending CAD authoring proposals, renders candidate geometry as a viewport ghost, and applies/dismisses/undoes them.

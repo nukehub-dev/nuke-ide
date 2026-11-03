@@ -74,3 +74,59 @@
     gap: 6px;
     line-height: 1.2;
 }
+
+/* The docked chat panel can be dragged narrower than the welcome content's
+   natural width. Make the panel the container so the guide button and mascot
+   degrade instead of overflowing. */
+.theia-WelcomeMessage-Main[data-provider='nuke'] {
+    container-type: inline-size;
+    container-name: nuke-chat-welcome;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow-wrap: break-word;
+}
+
+@container nuke-chat-welcome (max-width: 260px) {
+    .nuke-welcome-guide-button {
+        width: 100%;
+        justify-content: center;
+        padding-inline: 6px;
+        white-space: normal;
+    }
+}
+
+@container nuke-chat-welcome (max-width: 200px) {
+    .nuke-welcome-guide-button .codicon {
+        display: none;
+    }
+}
+
+@container (max-width: 200px) {
+    .nuke-ai-bot.nuke-ai-bot-welcome {
+        width: 64px;
+        height: 64px;
+    }
+}
+
+/* Composer row: Theia keeps every option at its natural size, so in a very
+   narrow panel the left group overlaps the send button. Let the row wrap. */
+.chat-input-widget .theia-ChatInputOptions {
+    height: auto;
+    min-height: 25px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding-bottom: 2px;
+}
+
+.chat-input-widget .theia-ChatInputOptions-left {
+    flex-wrap: wrap;
+}
+
+.chat-input-widget .theia-ChatInputOptions-right {
+    margin-left: auto;
+}
+
+.chat-input-widget .theia-ChatInput-Editor-Box,
+.chat-input-widget .theia-ChatInput-Editor {
+    min-width: 0;
+}

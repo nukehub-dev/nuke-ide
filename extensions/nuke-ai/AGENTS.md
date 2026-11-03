@@ -20,10 +20,12 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - Hover/focus hints in the welcome and chat surfaces use the shared `nuke-essentials` `Tooltip`; native `title` attributes are not product tooltips.
 - `src/browser/welcome/nuke-ai-chat-frontend-module.ts` rebinds `ChatWelcomeMessageProvider` to
   `NukeChatWelcomeMessageProvider` (priority 101) and keeps `ChatSessionsWelcomeMessageProvider`; do not change the
-  provider's screens or styling. The welcome surface also owns the `NukeAI quick start` actions, model-setup card, and
-  pointer-tracking decorative bot; the bot replaces the former static logo across the welcome screens, blinks and tilts
-  toward the pointer, stops autonomous motion under `prefers-reduced-motion`, and quick actions only execute existing commands.
-  The welcome guide link targets `nuke.docs.open` with `/nuke-ai/user/getting-started.md`.
+  fallback session provider's screens or styling. The welcome surface also owns the `NukeAI quick start` actions,
+  model-setup card, and pointer-tracking decorative bot; the bot replaces the former static logo across the welcome
+  screens, blinks and tilts toward the pointer, stops autonomous motion under `prefers-reduced-motion`, and quick
+  actions only execute existing commands. The welcome and tool cards are container-query responsive: the quick-action
+  grid, guide button, chat composer options, and two-column tool-card grids collapse or wrap in a narrow docked panel.
+  The guide link targets `nuke.docs.open` with `/nuke-ai/user/getting-started.md`.
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
   and `ChatAgent`; an empty default-agent preference is set to NukeAI, and the welcome picker lists NukeAI and Nuke
   Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and

@@ -363,6 +363,22 @@
     border-top: 1px solid var(--theia-editorWidget-border, #454545);
 }
 
+/* A narrow chat panel keeps the tool card single-column; the two-column grids
+   above only fit when there is room for both labels. */
+@container (max-width: 320px) {
+    .nuke-tool-card {
+        padding: 10px;
+    }
+
+    .nuke-tool-card-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .nuke-tool-card-changes .nuke-tool-card-change {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 .nuke-tool-card-change-body {
     display: flex;
     flex-direction: column;

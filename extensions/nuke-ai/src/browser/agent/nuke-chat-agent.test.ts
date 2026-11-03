@@ -84,7 +84,7 @@ describe('NukeChatAgent', () => {
         expect(NUKE_CHAT_AGENT_ID).toBe('NukeAI');
         expect(agent.id).toBe('NukeAI');
         expect(agent.name).toBe('NukeAI');
-        expect(agent.iconClass).toBe('codicon codicon-beaker');
+        expect(agent.iconClass).toBe('codicon codicon-hubot');
         expect(agent.locations).toEqual([ChatAgentLocation.Panel]);
         expect(agent.tags).toEqual(['nuke', 'nuclear', 'cad', 'openmc', 'visualizer']);
         expect(agent.languageModelRequirements).toEqual([{ purpose: 'chat' }]);
