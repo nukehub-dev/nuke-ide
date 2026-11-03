@@ -28,6 +28,11 @@ The NukeAI bot above the model configuration and quick-start sections follows th
 It is decorative, and its autonomous motion stops when your system requests reduced motion. The chat agent uses the
 same robot identity (`hubot`) wherever Theia shows an agent icon.
 
+The recommended path is the **Get started with NukeAI** walkthrough (**Help → NukeAI Walkthrough...**): enabling AI,
+connecting a model, choosing a default agent, asking a first question, and keeping tool confirmations on. Its copy and
+links point at the NukeAI guide and NukeHub, not at Theia's generic AI documentation. Progress is kept per step, so
+the walkthrough resumes where you stopped.
+
 The chat panel docks on the right and can be dragged narrow. Below roughly 260 px the quick-start cards switch to one
 column and drop their secondary line, the guide button goes full width, and the composer's option row wraps so the
 send button stays reachable. A width of about 300 px or more keeps the full card layout.

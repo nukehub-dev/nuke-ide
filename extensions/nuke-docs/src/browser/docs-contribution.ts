@@ -37,7 +37,7 @@ export class DocsContribution extends AbstractViewContribution<DocsWidget> {
         menus.registerMenuAction(CommonMenus.HELP, {
             commandId: NukeDocsCommands.OPEN_DOCS.id,
             label: NukeDocsCommands.OPEN_DOCS.label,
-            order: 'a05'
+            order: 'a11'
         });
     }
 }

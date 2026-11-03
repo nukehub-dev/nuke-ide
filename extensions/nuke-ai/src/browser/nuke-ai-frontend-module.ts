@@ -43,12 +43,17 @@ import { Agent } from '@theia/ai-core';
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 import { bindViewContribution, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution } from '@theia/core/lib/common/command';
+import { MenuContribution } from '@theia/core/lib/common/menu';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser/frontend-application-contribution';
 import { ChatResponsePartRenderer } from '@theia/ai-chat-ui/lib/browser/chat-response-part-renderer';
 import { AIVariableContribution } from '@theia/ai-core/lib/common/variable-service';
 import { SkillDirectoryContribution } from '@theia/ai-core/lib/browser/skill-service';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
 import { NukeContextActionContribution } from 'nuke-core/lib/common/nuke-context-action-protocol';
+import { AiGettingStartedWalkthroughProvider } from '@theia/ai-ide/lib/browser/ai-getting-started-walkthrough';
+import { WalkthroughProvider } from '@theia/getting-started/lib/common/walkthrough-provider';
+import { NukeAiHelpMenuContribution } from './actions/nuke-ai-help-menu-contribution';
+import { NukeAiWalkthroughProvider } from './welcome/nuke-ai-walkthrough-provider';
 import { NukeCapabilityToolBridge } from './capabilities/nuke-capability-tool-bridge';
 import { NukeAiMetricsService } from './capabilities/nuke-ai-metrics-service';
 import { NukeEditJournal } from './capabilities/nuke-edit-journal';
@@ -76,7 +81,19 @@ import { NukeAiCapabilityCatalogCommandContribution } from './commands/nuke-ai-c
 import { NukeAiMetricsCommandContribution } from './commands/nuke-ai-metrics-command';
 import './capabilities/nuke-tool-call.css';
 
-export default new ContainerModule((bind) => {
+export default new ContainerModule((bind, unbind, isBound, rebind) => {
+    bind(NukeAiHelpMenuContribution).toSelf().inSingletonScope();
+    bind(MenuContribution).toService(NukeAiHelpMenuContribution);
+
+    // The shipped walkthrough is NukeAI's: replace Theia's provider with the
+    // wrapper that keeps its id and step ids but rewrites the copy and links.
+    bind(AiGettingStartedWalkthroughProvider).toSelf().inSingletonScope();
+    if (isBound(WalkthroughProvider)) {
+        rebind(WalkthroughProvider).to(NukeAiWalkthroughProvider).inSingletonScope();
+    } else {
+        bind(WalkthroughProvider).to(NukeAiWalkthroughProvider).inSingletonScope();
+    }
+
     bind(NukeChatAgent).toSelf().inSingletonScope();
     bind(Agent).toService(NukeChatAgent);
     bind(ChatAgent).toService(NukeChatAgent);
