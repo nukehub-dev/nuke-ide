@@ -30,6 +30,8 @@
  *
  * Templates are shallow parameter presets merged over an empty v3 document at
  * creation time. No template metadata is stored in the document itself.
+ * Geometry-bearing starters (for example the pincell) live in the component
+ * template registry instead.
  *
  * @module nuke-cad/common
  */
@@ -51,8 +53,9 @@ export interface DocumentTemplate {
 /**
  * Built-in document templates shipped with the CAD modeler.
  *
- * Empty is first and is the no-op default. Preset parameter names are chosen to
- * match the terminology used in their respective demo models.
+ * Empty is first and is the no-op default. Component geometry starters (for
+ * example the pincell) are supplied by `component-templates.ts`; preset
+ * parameter names here match the terminology used in their demo models.
  */
 export const DOCUMENT_TEMPLATES: ReadonlyArray<DocumentTemplate> = [
     {
@@ -60,16 +63,6 @@ export const DOCUMENT_TEMPLATES: ReadonlyArray<DocumentTemplate> = [
         name: 'Empty document',
         description: 'Start from scratch with the default datum planes.',
         parameters: {}
-    },
-    {
-        id: 'pincell',
-        name: 'Pincell starter (cm)',
-        description: 'Fuel/clad radii and pitch for a simple lattice pincell.',
-        parameters: {
-            fuelRadius: 0.4,
-            cladRadius: 0.5,
-            pitch: 1.26
-        }
     },
     {
         id: 'tokamak',

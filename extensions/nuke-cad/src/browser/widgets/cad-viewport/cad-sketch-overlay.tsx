@@ -94,6 +94,7 @@ import {
     clampPanelPosition
 } from './draggable-panel';
 import { type DocumentTemplate } from '../../../common/document-templates';
+import { type ComponentTemplate } from '../../../common/component-templates';
 import { type SampleProject } from '../../../common/sample-projects';
 import { type DressUpPickMode } from './dress-up-pick';
 import { CadCommandSearchLauncher } from './cad-command-search';
@@ -6387,8 +6388,10 @@ function ContextShortcutBar(props: ContextShortcutBarProps): React.ReactElement 
 
 interface DocumentTemplatePickerProps {
     readonly templates: ReadonlyArray<DocumentTemplate>;
+    readonly componentTemplates?: ReadonlyArray<ComponentTemplate>;
     readonly samples?: ReadonlyArray<SampleProject>;
     readonly onSelect: (templateId: string) => void;
+    readonly onCreateComponentTemplate?: (templateId: string) => void;
     readonly onSelectSample?: (sampleId: string) => void;
     readonly onDownloadSample?: (sampleId: string) => void;
     readonly onCancel: () => void;
@@ -6409,7 +6412,8 @@ function sampleBadgeClass(badge: SampleProject['badge']): string {
 }
 
 export function DocumentTemplatePicker(props: DocumentTemplatePickerProps): React.ReactElement {
-    const { templates, samples, onSelect, onSelectSample, onDownloadSample, onCancel } = props;
+    const { templates, componentTemplates, samples, onSelect, onCreateComponentTemplate, onSelectSample, onDownloadSample, onCancel } =
+        props;
     const [pendingExternal, setPendingExternal] = React.useState<SampleProject | undefined>(undefined);
 
     if (pendingExternal !== undefined) {
@@ -6483,6 +6487,24 @@ export function DocumentTemplatePicker(props: DocumentTemplatePickerProps): Reac
                         ))}
                     </div>
                 </div>
+                {componentTemplates !== undefined && componentTemplates.length > 0 && onCreateComponentTemplate !== undefined && (
+                    <div className="cad-template-section">
+                        <div className="cad-template-section-title">Parametric components</div>
+                        <div className="cad-template-section-hint">Complete starting models created with their template defaults.</div>
+                        <div className="cad-template-list">
+                            {componentTemplates.map((template) => (
+                                <button
+                                    key={template.id}
+                                    className="cad-template-item"
+                                    onClick={() => onCreateComponentTemplate(template.id)}
+                                >
+                                    <span className="cad-template-name">{template.name}</span>
+                                    <span className="cad-template-description">{template.description}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 {samples !== undefined && samples.length > 0 && onSelectSample !== undefined && (
                     <div className="cad-template-section">
                         <div className="cad-template-section-title">Example projects</div>

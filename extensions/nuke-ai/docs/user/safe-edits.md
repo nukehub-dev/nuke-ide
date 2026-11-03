@@ -3,8 +3,9 @@
 NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, existing sketch
 dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
 STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, existing drawing-sheet presentation
-settings, and, on Linux only, sandboxed Python model scripts without writing directly from the chat model. Every edit
-goes through a preview or plan, an explicit apply step with confirmation, and an in-session undo.
+settings, parameterized component-document creation, and, on Linux only, sandboxed Python model scripts without writing
+directly from the chat model. Every edit goes through a preview or plan, an explicit apply step with confirmation, and
+an in-session undo.
 
 ## Supported settings
 
@@ -96,6 +97,21 @@ Undo state is in memory for the current IDE session only:
 - it does not survive an IDE restart or window reload;
 - each token is one-shot and is removed after a successful undo;
 - an unknown, expired, or already used token reports `This change can no longer be undone.`
+
+## CAD component creation
+
+With **Nuke CAD: AI Authoring** enabled, NukeAI can create a new `.nuke-cad` from a shipped parametric component, such
+as the pincell. It lists the template catalogue, resolves the numeric parameters in their declared or requested length
+unit, re-solves every affected sketch, and runs a real preview build. The chat card shows one row per parameter (default
+before, resolved value after) and the build summary. Creation has no before-model, so it does not open the **CAD Edit
+Review** panel and does not draw a viewport ghost.
+
+Apply accepts only the returned proposal and asks where to save the new document when no path is supplied. It refuses
+while the active CAD document has unsaved changes and requires `replaceExisting` for a clean, open document. The target
+must be a new `.nuke-cad` file inside a workspace root, with an existing folder chain and no symlink. Apply writes the
+file, installs it as the active document, schedules the rebuild, and offers **Undo**. Undo deletes the created file only
+while its contents still match what apply wrote. The model supplies a template id and numbers only; it cannot supply
+geometry, document JSON, code, a user-defined template, or overwrite an existing file.
 
 ## CAD feature edits
 

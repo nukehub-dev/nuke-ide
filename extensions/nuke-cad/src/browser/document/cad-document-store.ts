@@ -1184,6 +1184,16 @@ export class CadDocumentStore {
     }
 
     /**
+     * Install a supplied document body as the active document, marked dirty.
+     * The body is deep-cloned, renamed, and validated through the same install path as samples.
+     */
+    createTemplateDocument(name: string, document: NukeCadDocument): DocumentMutationResult {
+        const clone = JSON.parse(JSON.stringify(document)) as NukeCadDocument;
+        clone.name = name;
+        return this.installDocument(clone, true);
+    }
+
+    /**
      * Validate and install a fresh document, resetting per-document derived
      * state (history, selection, build outputs, drawing counter) and emitting
      * one change event.

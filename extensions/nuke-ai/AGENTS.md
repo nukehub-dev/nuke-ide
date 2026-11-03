@@ -30,10 +30,12 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings,
   materials, tallies, and CAD feature/sketch/topology/import/assembly/drawing edits, a shown diff or plan, confirmation, and
   undo reporting; script preview is shown but its apply is panel-only, never from chat. See `docs/user/safe-edits.md`.
-- CAD authoring ships seven gated slices on saved models while `nukeCad.aiAuthoringEnabled` is on:
+- CAD authoring ships eight slices: the edit slices and creation apply follow `nukeCad.aiAuthoringEnabled` (default off) and
+  the edit slices require a saved model; template listing is read-only and ungated:
   scalar feature params; existing sketch dimensions or referenced parameters; topology-impacting hole blind/through
   mode or linear/circular pattern count; imported STEP/IGES/BREP bodies; placement-only edits on an existing grounded
-  assembly; and presentation settings on existing drawing sheets. The feature, sketch, topology, and assembly slices run
+  assembly; presentation settings on existing drawing sheets; Linux-only sandboxed full-file `.py` replacements; and
+  shipped-template document creation. The feature, sketch, topology, and assembly slices run
   a real-build preview, CAD Edit Review panel + ghost, atomic commit, backup, rebuild, and undo; parameter-bound edits
   cascade. The topology slice reports added/removed solids
   and named regions, checks the saved active OpenMC project's DAGMC references, and requires acknowledgement; apply never
@@ -48,7 +50,11 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   is rejected when a view is outside A4 and views never move, hidden dimensions stay listed but leave SVG/DXF, and the
   title block is fixed. Drawing apply is one `applyDrawingChanges` commit with backup, sheet refresh, undo, and no
   `nuke.cad.rebuild`.
-  The seventh slice is Linux-only sandboxed `.py` authoring, requiring both `nukeCad.aiAuthoringEnabled` and
+  Creation is parameter-only: `listDocumentTemplates` is read-only and ungated, `prepareDocumentCreation` resolves
+  typed parameters, re-solves affected sketches, and real-builds a private candidate without installing it, and
+  `createDocumentFromTemplate` writes a fresh `.nuke-cad` at a validated workspace path (write, confirmed, undoable;
+  dirty-document refusal, `replaceExisting` for a clean open document, hash-guarded undo); it is card-only with no ghost.
+  Script authoring (the seventh slice) is Linux-only sandboxed `.py` authoring, requiring both `nukeCad.aiAuthoringEnabled` and
   workspace-scoped `nukeCad.scriptAuthoringEnabled`: `inspectScriptSource` returns bounded text/hash/imports (text goes to
   the model provider; inspection requires confirmation), `previewScriptChange` takes an exact base hash plus the full body, runs `bwrap` with no
   network/workspace, returns a diff/sandbox/build audit and no ghost, and omits `applyCapability` so chat has no Apply.
@@ -56,7 +62,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   export while the model stays sandboxed. No fallback without bubblewrap or libseccomp; the filter is a denylist, so
   residual kernel/bubblewrap risk remains.
   Booleans, body/feature add/delete/reorder, lattices, partial or unsandboxed scripts, unreferenced parameters, assembly
-  structure beyond placement, drawing creation/deletion or view placement, title-block edits, and MCP stay excluded. See
+  structure beyond placement, drawing creation/deletion or view placement, title-block edits, model-authored or
+  user-registered templates, overwriting an existing file, and MCP stay excluded. See
   `docs/dev/cad-authoring-design.md` and `docs/dev/skills.md`.
 - `src/browser/agent/nuke-diagnostics-agent.ts` owns the read-only `Nuke Diagnostics` agent (`NUKE_DIAGNOSTICS_AGENT_ID`),
   bound as both `Agent` and `ChatAgent` with the `nuke-diagnostics-system` prompt set; it may only call the diagnostic

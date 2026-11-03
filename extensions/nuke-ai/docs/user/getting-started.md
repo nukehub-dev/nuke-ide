@@ -54,6 +54,17 @@ under the workspace at `.nuke-ide/ai/previews/` so the command-to-preview histor
 [Previews and the Gallery](previews.md) for the folder layout and the read-only gallery; the IDE recreates the folder
 on the next capture.
 
+### Creating a component document
+
+With **Nuke CAD: AI Authoring** enabled, NukeAI can start a new `.nuke-cad` from a shipped parametric component. Ask
+for one such as _make me a pin cell with a 0.45 cm fuel radius and a 1.3 cm pitch_. NukeAI lists the templates,
+resolves the numeric parameters (including radius/diameter equivalents), re-solves the affected sketches, and runs a
+real preview build. The chat card shows the resolved parameter rows and build summary; there is no **CAD Edit Review**
+panel and no ghost because a new document has no before-model. Apply confirms, asks where to save the new `.nuke-cad`,
+writes it, and offers **Undo**. A dirty active document blocks creation; a clean open document requires
+`replaceExisting`; an existing file is never overwritten. The model supplies only a template id and numbers, never
+geometry, JSON, or code.
+
 ### CAD feature edits
 
 CAD authoring is opt-in. Enable **Nuke CAD: AI Authoring** in **Settings → Nuke CAD** first. NukeAI can then propose

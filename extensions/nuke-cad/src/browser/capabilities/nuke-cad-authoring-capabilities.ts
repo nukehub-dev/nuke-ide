@@ -155,6 +155,7 @@ import { readOpenmcRegionReferences } from './openmc-region-reference-reader';
 import { inferImportSourceFormat, normalizeImportSourceUnit, planImportBodies } from '../widgets/cad-viewport/import-body';
 import { documentRelativeAssemblyPart } from '../widgets/cad-viewport/cad-import-path';
 import { validateImportSourcePath, type ValidatedImportSource } from './import-source-policy';
+import { runCandidateBuild as runCandidateBuildAt } from './cad-preview-build';
 import { hashScriptContent, readActiveScript, validateProposedScript } from './script-source-policy';
 import { unifiedScriptDiff } from './script-diff';
 import { NukeCadScriptAuditService } from './script-audit-service';
@@ -188,9 +189,6 @@ const IMPORT_SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 /** Preview builds must not inherit the backend's one-hour document timeout. */
 const PREVIEW_TIMEOUT_SECONDS = 120;
-
-/** The private candidate lives under the workspace and is always deleted. */
-const PREVIEW_ROOT = ['.nuke-ide', 'ai', 'cad-previews'] as const;
 
 /** Script staging, rebuild, and backup directories under the workspace. */
 const SCRIPT_WORK_ROOT = ['.nuke-ide', 'ai', 'cad-scripts'] as const;
@@ -2563,78 +2561,19 @@ export class NukeCadAuthoringCapabilities implements NukeCapabilityContribution 
         if (!workspaceRoot) {
             return { ok: false, message: 'A workspace root is required to run a CAD preview build.' };
         }
-
-        const previewId = globalThis.crypto.randomUUID();
-        const previewDirectory = path.join(workspaceRoot, ...PREVIEW_ROOT, previewId);
-        // Keep the transient document beside the source so document-relative
-        // imports resolve exactly as they do for the real document. Only the
-        // build artifacts go to the private preview directory.
-        const candidateStem = `.nuke-ai-preview-${previewId}`;
-        const candidatePath = path.join(path.dirname(documentPath), `${candidateStem}.nuke-cad`);
-        const candidateSidecarPath = `${candidatePath.slice(0, -'.nuke-cad'.length)}.regions.json`;
-        const sourceSidecarPath = regionSidecarPath(documentPath);
-        const jobId = `cad-ai-preview-${previewId}`;
-        const abort = (): void => {
-            void this.service.cancelJob(jobId);
-        };
-        context.signal?.addEventListener('abort', abort);
-        try {
-            if (sourceSidecarPath !== undefined) {
-                let sourceExists: boolean;
-                try {
-                    sourceExists = await this.fileService.exists(new URI(sourceSidecarPath));
-                } catch (error) {
-                    return {
-                        ok: false,
-                        message: `The CAD region manifest '${sourceSidecarPath}' could not be inspected: ${errorMessage(error)}`
-                    };
-                }
-                if (sourceExists) {
-                    try {
-                        const source = await this.fileService.readFile(new URI(sourceSidecarPath));
-                        await this.fileService.create(new URI(candidateSidecarPath), source.value.toString());
-                    } catch (error) {
-                        return {
-                            ok: false,
-                            message: `The CAD region manifest '${sourceSidecarPath}' could not be copied for the preview: ${errorMessage(error)}`
-                        };
-                    }
-                }
-            }
-            await this.fileService.create(new URI(candidatePath), JSON.stringify(candidate, null, 2));
-            if (context.signal?.aborted) {
-                return { ok: false, message: 'The CAD preview was cancelled.' };
-            }
-            const build = await this.service.buildDocument({
-                scriptPath: candidatePath,
-                outputDirectory: previewDirectory,
-                useCache: false,
-                jobId,
+        return runCandidateBuildAt(
+            {
+                candidate,
+                layout: 'beside',
+                documentPath,
+                fileService: this.fileService,
+                service: this.service,
+                workspaceRoot,
+                signal: context.signal,
                 timeoutSeconds: PREVIEW_TIMEOUT_SECONDS
-            });
-            if (!build.success) {
-                return {
-                    ok: false,
-                    message: build.error || 'The preview build failed.',
-                    warnings: build.warnings
-                };
-            }
-            return await review(build);
-        } catch (error) {
-            return { ok: false, message: errorMessage(error) };
-        } finally {
-            context.signal?.removeEventListener('abort', abort);
-            await Promise.all([
-                this.fileService.delete(new URI(candidatePath), { recursive: false, useTrash: false }).catch(() => undefined),
-                this.fileService
-                    .delete(new URI(candidateSidecarPath), {
-                        recursive: false,
-                        useTrash: false
-                    })
-                    .catch(() => undefined),
-                this.fileService.delete(new URI(previewDirectory), { recursive: true, useTrash: false }).catch(() => undefined)
-            ]);
-        }
+            },
+            review
+        );
     }
 
     /**
@@ -4929,11 +4868,6 @@ export function validateAssemblyCandidateBuild(
         }
     }
     return undefined;
-}
-
-/** Region-manifest sidecar path for a `.nuke-cad` document; non-document paths have none. */
-function regionSidecarPath(documentPath: string): string | undefined {
-    return documentPath.endsWith('.nuke-cad') ? `${documentPath.slice(0, -'.nuke-cad'.length)}.regions.json` : undefined;
 }
 
 /** Reject any preview that changes topology or region coverage. */

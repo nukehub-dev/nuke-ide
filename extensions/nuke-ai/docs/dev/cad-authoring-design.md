@@ -2,7 +2,7 @@
 
 ## Status and gate
 
-**Seven gated slices implemented behind default-off switches.** The shipped authoring surface covers scalar
+**Eight authoring slices implemented; seven are gated behind default-off switches and the template list stays read-only and ungated.** The shipped authoring surface covers scalar
 feature-parameter edits (`nuke.cad.previewFeatureChange` / `nuke.cad.applyFeatureChange`), sketch-dimension or
 referenced-document-parameter edits (`nuke.cad.listSketchDimensions` / `nuke.cad.previewSketchChange` /
 `nuke.cad.applySketchChange`), topology-impacting feature edits (`nuke.cad.previewTopologyChange` /
@@ -10,37 +10,44 @@ referenced-document-parameter edits (`nuke.cad.listSketchDimensions` / `nuke.cad
 `nuke.cad.previewImportBodies` / `nuke.cad.applyImportBodies`), placement-only assembly edits on an existing
 grounded assembly (`nuke.cad.summarizeAssembly` / `nuke.cad.previewAssemblyChange` /
 `nuke.cad.applyAssemblyChange`), drawing-sheet settings (`nuke.cad.summarizeDrawing` /
-`nuke.cad.previewDrawingChange` / `nuke.cad.applyDrawingChange`), and Linux-only sandboxed Python model scripts
-(`nuke.cad.inspectScriptSource` / `nuke.cad.previewScriptChange` / `nuke.cad.applyScriptChange`). Preview and apply are
-disabled unless `nukeCad.aiAuthoringEnabled` is on; the script slice additionally requires workspace-scoped
-`nukeCad.scriptAuthoringEnabled` and a working bubblewrap user namespace. The assembly and drawing summaries stay
+`nuke.cad.previewDrawingChange` / `nuke.cad.applyDrawingChange`), Linux-only sandboxed Python model scripts
+(`nuke.cad.inspectScriptSource` / `nuke.cad.previewScriptChange` / `nuke.cad.applyScriptChange`), and document creation
+from shipped component templates (`nuke.cad.listDocumentTemplates` / `nuke.cad.prepareDocumentCreation` /
+`nuke.cad.createDocumentFromTemplate`). Preview and apply are
+disabled unless `nukeCad.aiAuthoringEnabled` is on; the template list is read-only and ungated, and the script slice
+additionally requires workspace-scoped `nukeCad.scriptAuthoringEnabled` and a working bubblewrap user namespace. The
+assembly and drawing summaries stay
 read-only whenever a document is open. The feature, sketch, topology, and assembly slices ship the **CAD Edit Review**
 panel and a display-only viewport ghost for the candidate geometry. The import slice uses the same panel with a
 plan-only proposal: it builds no geometry and shows no ghost. The drawing slice is also plan-only and shows no ghost
 because drawings are derived linework, not candidate geometry. The script slice shows a diff, sandbox, and build result
-with no ghost and no chat Apply. Sketches are editable only through existing driving dimensions and document parameters
+with no ghost and no chat Apply. Creation uses only the AI tool card: there is no before-model, so it has no review
+panel and no ghost. Sketches are editable only through existing driving dimensions and document parameters
 they reference; new sketch entities, constraints, and dimensions and free-form sketch creation remain design-only.
 
-All seven slices follow the security model below: stale-proposal rejection, a pre-apply backup, one atomic
-commit, session-scoped undo, and no MCP exposure. The feature, sketch, topology, and assembly slices schedule a rebuild
+All eight slices follow the security model below: stale-proposal rejection, a pre-apply backup where an existing file
+changes, one atomic commit, session-scoped undo, and no MCP exposure. The feature, sketch, topology, and assembly slices schedule a rebuild
 after their commit; the import slice schedules a rebuild; the drawing slice refreshes only the affected sheet; the script
-slice writes the script plus backup and rebuilds in the sandbox. The feature, sketch, topology, and assembly slices add a real-build preview; the scalar and
+slice writes the script plus backup and rebuilds in the sandbox; creation prepares a real private candidate and, on
+apply, installs and saves a fresh `.nuke-cad`. The feature, sketch, topology, and assembly slices add a real-build preview; the scalar and
 sketch slices also require topology/selector/region invariance, while the topology slice reports solid and region changes
 explicitly and requires acknowledgement, and the assembly slice requires it only when a removal loses the last instance
 of a labeled embedded body. The import slice is plan-only, re-inspects a user-chosen source at apply time, and rejects a
 stale hash, size, selection, or plan instead of building candidate geometry. The drawing slice is plan-only too: it
 re-runs the pure drawing planner, rejects a stale sheet/view/dimension plan, and never schedules `nuke.cad.rebuild`. The
 script slice requires an exact base hash and the full replacement body; preview runs in `bwrap` with no network or
-workspace bind, and apply requires the panel-issued nonce. The [security checklist](#security-checklist-for-future-surfaces)
+workspace bind, and apply requires the panel-issued nonce. Creation accepts only a shipped template id and numeric
+parameters; it never accepts geometry, JSON, or code, and its undo deletes the new file only while its hash matches what
+apply wrote. The [security checklist](#security-checklist-for-future-surfaces)
 below remains the bar for any future widening.
 
 This page records the shipped contract:
 
-- The seven slices are implemented behind default-off switches; broader authoring is not authorized.
+- The eight slices are implemented behind default-off switches; broader authoring is not authorized.
 - It does not authorize unsandboxed `.py`/build123d execution, partial script edits, raw Python execution, free-form
   sketch creation, new sketch entities/constraints/dimensions, booleans, body/feature add/delete/reorder, assembly
   structure authoring (mates, connectors, grounding changes, new external sources, part replacement, rename, scale, or
-  single-part conversion), or free-form JSON patches.
+  single-part conversion), model-authored or user-registered templates, or free-form JSON patches.
 - Any new authoring surface starts behind a default-off kill switch and follows the same security review.
 - The script slice is Linux-only: macOS, Windows, and environments without `bwrap`/user namespaces/libseccomp have no
   fallback and no unsandboxed execution path.
@@ -62,54 +69,58 @@ path with no unsandboxed fallback.
 | Prompt injection via names/text                                                                                                            | Body names, feature names, parameter names, material tags, build warnings, and import product names come from documents and external CAD files. They are untrusted data that the model reads and that UIs render. A malicious document can carry instructions, Markdown/HTML, control characters, or misleading labels.                                                                                                                                                   |
 | Simulation impact                                                                                                                          | `label`, `material`, selector maps, and body identity feed the region manifest and DAGMC export. A geometry edit that changes solid identity or region coverage can invalidate a coupled OpenMC model even when the shape still builds.                                                                                                                                                                                                                                   |
 
-The shipped CAD AI surface is read/export plus the seven gated authoring slices:
+The shipped CAD AI surface is read/export plus the eight gated authoring slices:
 
-| Capability                       | Risk      | Effect                                                                          |
-| -------------------------------- | --------- | ------------------------------------------------------------------------------- |
-| `nuke.cad.summarizeDocument`     | `read`    | Build counts, selection, manifest, optional per-solid summaries                 |
-| `nuke.cad.inspectSelection`      | `read`    | Selected solids and hidden ids                                                  |
-| `nuke.cad.diagnoseModel`         | `read`    | Build, manifest, selection, and per-solid findings without rebuilding           |
-| `nuke.cad.listSketchDimensions`  | `read`    | Document parameters and per-sketch dimensions, datums, and consumers            |
-| `nuke.cad.previewFeatureChange`  | `read`    | Real-build preview of scalar feature edits; gated by the switch                 |
-| `nuke.cad.applyFeatureChange`    | `execute` | Applies a previewed feature proposal, rebuilds, and registers undo              |
-| `nuke.cad.previewSketchChange`   | `read`    | Real-build preview of sketch-dimension or referenced-parameter edits            |
-| `nuke.cad.applySketchChange`     | `execute` | Applies a previewed sketch proposal atomically, rebuilds, and registers undo    |
-| `nuke.cad.previewTopologyChange` | `read`    | Real-build preview of hole depth-mode or pattern-count edits with region impact |
-| `nuke.cad.applyTopologyChange`   | `execute` | Applies exact feature parameters, rebuilds, and registers undo                  |
-| `nuke.cad.inspectImportSource`   | `read`    | Inspects a user-chosen STEP/IGES/BREP source without building                   |
-| `nuke.cad.previewImportBodies`   | `read`    | Plans imported bodies and opens review without a build, ghost, or write         |
-| `nuke.cad.applyImportBodies`     | `execute` | Re-inspects the source, adds import bodies, rebuilds, and registers undo        |
-| `nuke.cad.summarizeAssembly`     | `read`    | Instances, parts, placements, grounding, selector ids, BOM, and overlap policy  |
-| `nuke.cad.previewAssemblyChange` | `read`    | Real-build preview of instance add, remove, and placement actions               |
-| `nuke.cad.applyAssemblyChange`   | `execute` | Re-runs the planner, commits one store batch, rebuilds, and registers undo      |
-| `nuke.cad.summarizeDrawing`      | `read`    | Sheets, views, dimensions, visibility, and fixed title-block fields             |
-| `nuke.cad.previewDrawingChange`  | `read`    | Plan-only sheet-size, view-display, and dimension-visibility preview            |
-| `nuke.cad.applyDrawingChange`    | `execute` | Commits one drawing batch, refreshes the sheet, and registers undo              |
-| `nuke.cad.inspectScriptSource`   | `read`    | Bounded active-script text, hash, imports, and model assignment                 |
-| `nuke.cad.previewScriptChange`   | `execute` | Sandboxed full-script preview with diff, limits, counts, and audit id           |
-| `nuke.cad.applyScriptChange`     | `execute` | Panel-issued nonce, atomic overwrite with backup, sandboxed rebuild, undo       |
-| `nuke.cad.exportDagmc`           | `execute` | Builds a source and writes STEP, DAGMC, manifest, and cache artifacts           |
+| Capability                            | Risk      | Effect                                                                          |
+| ------------------------------------- | --------- | ------------------------------------------------------------------------------- |
+| `nuke.cad.summarizeDocument`          | `read`    | Build counts, selection, manifest, optional per-solid summaries                 |
+| `nuke.cad.inspectSelection`           | `read`    | Selected solids and hidden ids                                                  |
+| `nuke.cad.diagnoseModel`              | `read`    | Build, manifest, selection, and per-solid findings without rebuilding           |
+| `nuke.cad.listSketchDimensions`       | `read`    | Document parameters and per-sketch dimensions, datums, and consumers            |
+| `nuke.cad.listDocumentTemplates`      | `read`    | Shipped component templates, units, and typed parameters; ungated               |
+| `nuke.cad.prepareDocumentCreation`    | `read`    | Resolve parameters, re-solve, and real-build a candidate; no install or write   |
+| `nuke.cad.createDocumentFromTemplate` | `write`   | Install and save a fresh `.nuke-cad`; confirmed and undoable                    |
+| `nuke.cad.previewFeatureChange`       | `read`    | Real-build preview of scalar feature edits; gated by the switch                 |
+| `nuke.cad.applyFeatureChange`         | `execute` | Applies a previewed feature proposal, rebuilds, and registers undo              |
+| `nuke.cad.previewSketchChange`        | `read`    | Real-build preview of sketch-dimension or referenced-parameter edits            |
+| `nuke.cad.applySketchChange`          | `execute` | Applies a previewed sketch proposal atomically, rebuilds, and registers undo    |
+| `nuke.cad.previewTopologyChange`      | `read`    | Real-build preview of hole depth-mode or pattern-count edits with region impact |
+| `nuke.cad.applyTopologyChange`        | `execute` | Applies exact feature parameters, rebuilds, and registers undo                  |
+| `nuke.cad.inspectImportSource`        | `read`    | Inspects a user-chosen STEP/IGES/BREP source without building                   |
+| `nuke.cad.previewImportBodies`        | `read`    | Plans imported bodies and opens review without a build, ghost, or write         |
+| `nuke.cad.applyImportBodies`          | `execute` | Re-inspects the source, adds import bodies, rebuilds, and registers undo        |
+| `nuke.cad.summarizeAssembly`          | `read`    | Instances, parts, placements, grounding, selector ids, BOM, and overlap policy  |
+| `nuke.cad.previewAssemblyChange`      | `read`    | Real-build preview of instance add, remove, and placement actions               |
+| `nuke.cad.applyAssemblyChange`        | `execute` | Re-runs the planner, commits one store batch, rebuilds, and registers undo      |
+| `nuke.cad.summarizeDrawing`           | `read`    | Sheets, views, dimensions, visibility, and fixed title-block fields             |
+| `nuke.cad.previewDrawingChange`       | `read`    | Plan-only sheet-size, view-display, and dimension-visibility preview            |
+| `nuke.cad.applyDrawingChange`         | `execute` | Commits one drawing batch, refreshes the sheet, and registers undo              |
+| `nuke.cad.inspectScriptSource`        | `read`    | Bounded active-script text, hash, imports, and model assignment                 |
+| `nuke.cad.previewScriptChange`        | `execute` | Sandboxed full-script preview with diff, limits, counts, and audit id           |
+| `nuke.cad.applyScriptChange`          | `execute` | Panel-issued nonce, atomic overwrite with backup, sandboxed rebuild, undo       |
+| `nuke.cad.exportDagmc`                | `execute` | Builds a source and writes STEP, DAGMC, manifest, and cache artifacts           |
 
 `nuke.cad.diagnoseModel` and `nuke.cad.listSketchDimensions` give the model bounded ways to inspect a model.
 `nuke.cad.inspectImportSource` extends that read-only inspection to a user-chosen exchange file,
 `nuke.cad.summarizeAssembly` extends it to the existing grounded assembly, and `nuke.cad.summarizeDrawing` extends it
 to existing sheets, views, and dimensions, and `nuke.cad.inspectScriptSource` extends it to the active `.py` model (with
 the privacy caveat that its text reaches the model provider). Preview never mutates `CadDocumentStore` and script
-preview never writes the source; only the seven apply capabilities commit, and external MCP never exposes write/execute
+preview never writes the source; only the eight apply capabilities commit, and external MCP never exposes write/execute
 CAD tools. Script apply is panel-only: its proposal stores an approval nonce that is not rendered in the review view,
-and its preview `changeSet` omits `applyCapability` so the chat card has no Apply action.
+and its preview `changeSet` omits `applyCapability` so the chat card has no Apply action. Creation is card-only and has
+no ghost because a new document has no before-model.
 
 ## Shipped surface
 
-| Layer                                                                                             | Shipped behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Capability registration (`extensions/nuke-cad/src/browser/capabilities/nuke-cad-capabilities.ts`) | Read/export plus the seven gated authoring slices: feature preview/apply, sketch list/preview/apply, topology preview/apply, import inspect/preview/apply, assembly summary/preview/apply, drawing summary/preview/apply, and script inspect/preview/apply. The switches, region-impact acknowledgement, saved-project reference check, source-picker policy, script sandbox/approval nonce, and undo boundary stay in force. Unchanged exclusions: unsandboxed scripts, booleans/body/feature add/delete/reorder, drawing creation/deletion, title-block editing, and assembly structure beyond placement. |
-| Import source policy                                                                              | AI imports accept a user-granted workspace-root regular STEP/IGES/BREP file with a supported extension and at most 256 MiB, or a file in the document's own `<stem>.parts/`; the source is re-inspected at apply and is never copied or downloaded by the AI flow.                                                                                                                                                                                                                                                                                                                                          |
-| Proposal/undo pattern                                                                             | One scoped in-memory store (20 entries, 10-minute TTL, deep-cloned snapshots) covers feature, sketch, topology, import, assembly, drawing, and script proposals. Script proposals additionally hold a panel-issued approval nonce outside the review view. Applied changes register one-shot, session-scoped `NukeUndoService` reverse handlers.                                                                                                                                                                                                                                                            |
-| Document state (`CadDocumentStore`)                                                               | Framework-free in-memory authority; immutable snapshots; depth-100 snapshot undo/redo; one history entry per committed mutation; `documentEpoch` on install; `loadDocument` resets history; drawing mutations bump `drawingVersion` and never schedule a rebuild. The store exposes the revision/identity, single-transaction batch APIs, exact feature-parameter replacement (including key removal), guarded restore, and drawing batch used by the authoring slices.                                                                                                                                     |
-| Build orchestration (`NukeCadFrontendService` → `NukeCadBackendService`)                          | `buildDocument` → `geometry_service.py --from-document`; display builds skip DAGMC/mesh. Feature, sketch, topology, and assembly previews use a bounded job with timeout, abort/cancel, private output, and cleanup. Import and drawing previews are plan-only. Script preview and rebuilds use `python/sandbox_service.py` (bubblewrap + `prlimit` + libseccomp) with no fallback to the normal child process.                                                                                                                                                                                             |
-| NukeAI bridge                                                                                     | Generic `NukeCapability` → tool conversion; change-set cards; apply requires `write`/`execute`; undo redeems the service token. The capability registry and context-change events refresh the tool set, and the kill switch removes preview/apply tools when authoring is off. No duplicate tool-conversion path was added.                                                                                                                                                                                                                                                                                 |
-| MCP                                                                                               | The explicit read-only allowlist stays in force. No CAD authoring ID is exposed, and regression tests prove the preview/apply and script IDs never register externally.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Layer                                                                     | Shipped behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Capability registration (`extensions/nuke-cad/src/browser/capabilities/`) | Read/export plus the eight gated authoring slices: feature preview/apply, sketch list/preview/apply, topology preview/apply, import inspect/preview/apply, assembly summary/preview/apply, drawing summary/preview/apply, script inspect/preview/apply, and template list/prepare/create (`nuke-cad-creation-capabilities.ts`). The switches, region-impact acknowledgement, saved-project reference check, source-picker policy, script sandbox/approval nonce, creation target policy, and undo boundary stay in force. Unchanged exclusions: unsandboxed scripts, booleans/body/feature add/delete/reorder, drawing creation/deletion, title-block editing, assembly structure beyond placement, and model-authored templates. |
+| Import source policy                                                      | AI imports accept a user-granted workspace-root regular STEP/IGES/BREP file with a supported extension and at most 256 MiB, or a file in the document's own `<stem>.parts/`; the source is re-inspected at apply and is never copied or downloaded by the AI flow.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Proposal/undo pattern                                                     | One scoped in-memory store (20 entries, 10-minute TTL, deep-cloned snapshots) covers feature, sketch, topology, import, assembly, drawing, and script proposals. Script proposals additionally hold a panel-issued approval nonce outside the review view. Creation uses a separate 20-entry, 10-minute-TTL store because there is no active document to bind an epoch or revision to. Applied changes register one-shot, session-scoped `NukeUndoService` reverse handlers.                                                                                                                                                                                                                                                      |
+| Document state (`CadDocumentStore`)                                       | Framework-free in-memory authority; immutable snapshots; depth-100 snapshot undo/redo; one history entry per committed mutation; `documentEpoch` on install; `loadDocument` resets history; drawing mutations bump `drawingVersion` and never schedule a rebuild. The store exposes the revision/identity, single-transaction batch APIs, exact feature-parameter replacement (including key removal), guarded restore, and drawing batch used by the authoring slices.                                                                                                                                                                                                                                                           |
+| Build orchestration (`NukeCadFrontendService` → `NukeCadBackendService`)  | `buildDocument` → `geometry_service.py --from-document`; display builds skip DAGMC/mesh. Feature, sketch, topology, and assembly previews use a bounded job with timeout, abort/cancel, private output, and cleanup. Import and drawing previews are plan-only. Script preview and rebuilds use `python/sandbox_service.py` (bubblewrap + `prlimit` + libseccomp) with no fallback to the normal child process.                                                                                                                                                                                                                                                                                                                   |
+| NukeAI bridge                                                             | Generic `NukeCapability` → tool conversion; change-set cards; apply requires `write`/`execute`; undo redeems the service token. The capability registry and context-change events refresh the tool set, and the kill switch removes preview/apply tools when authoring is off. No duplicate tool-conversion path was added.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| MCP                                                                       | The explicit read-only allowlist stays in force. No CAD authoring ID is exposed, and regression tests prove the preview/apply and script IDs never register externally.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 The CAD build service is the only build path. The design does not add an evaluator, a second feature builder, or a
 model-reachable file writer. `geometry_service.py` continues to own document builds, STEP/tessellation output, and feature
@@ -118,7 +129,7 @@ validation. Script preview and sandboxed rebuilds add one constrained execution 
 
 ## Editable surfaces
 
-The shipped surface is seven static slices. None can be widened by the model.
+The shipped surface is eight static slices. None can be widened by the model.
 
 ### Slice 1: scalar feature parameters
 
@@ -418,7 +429,40 @@ unavailable, with no fallback.
   depends on kernel and bubblewrap correctness because the filter is a denylist. None of the three script ids is
   exposed through MCP.
 
-Deliberately outside all seven slices: new sketch entities, constraints, or dimensions, free-form sketch creation,
+### Slice 8: document creation from component templates
+
+The eighth slice creates a new `.nuke-cad` document from a shipped parametric component template. It never edits an
+existing document and never accepts geometry, document JSON, or code from the model. The model supplies a template id,
+an optional document name, and numeric parameter values only.
+
+- **Discovery.** `nuke.cad.listDocumentTemplates` is read-only and ungated. It filters by category and free-text query,
+  ranks exact id, keyword/id substring, name, then description matches, caps at 50, and returns each template's units
+  and typed parameters (name, label, kind, unit, default, min/max/step, pair, and derived alias).
+- **Resolution.** `nuke.cad.prepareDocumentCreation` resolves length values in the caller's unit, validates
+  positive-integer counts and inclusive ranges, enforces mutual radius/diameter pairs, and folds derived aliases into
+  their document parameter. Unknown parameters, disagreeing pairs, and out-of-range values reject the request.
+- **Solve and build.** For every changed document parameter, prepare finds the affected sketches and parametric curves,
+  runs the existing sketch-edit solver transaction, and cascades the parameter to every consumer. It then builds the
+  candidate in the private preview directory with a real display build, `useCache: false`, a 120-second timeout, and at
+  least one required solid. The candidate, sidecar, and artifacts are deleted in `finally`; nothing is installed and no
+  user document is written.
+- **Review.** A successful prepare stores a one-shot proposal (separate 20-entry, 10-minute-TTL store) and returns the
+  resolved parameter rows and preview build in the `changeSet`. Creation uses the AI tool card only: there is no
+  before-model, so no **CAD Edit Review** panel and no viewport ghost.
+- **Apply.** `nuke.cad.createDocumentFromTemplate` accepts a proposal id, an optional target path, and
+  `replaceExisting`. A dirty active document refuses; a clean open document requires `replaceExisting: true`. The target
+  must be a fresh `.nuke-cad` path inside a workspace root, at most 1024 characters, without NUL/control characters, with
+  an existing parent chain, and with no symlink segment. Apply re-hashes the stored candidate, installs it, saves it
+  through `CadDocumentSaveService`, consumes the proposal, schedules the rebuild, and returns an undo token. If no path
+  is supplied, the native save dialog chooses it.
+- **Undo.** Undo deletes the created file only while its on-disk SHA-256 still matches what apply wrote, then restores
+  the previous document (or a fresh `Untitled`). A file that changed after creation is kept and reported.
+
+Templates are self-contained (declared units, labelled bodies, no `import` features). Free-form sketch or feature
+creation in the new document, model-authored or user-registered templates, overwriting an existing file, and MCP
+exposure remain out of scope. The created document is an ordinary editable `.nuke-cad` file afterwards.
+
+Deliberately outside all eight slices: new sketch entities, constraints, or dimensions, free-form sketch creation,
 document parameters not referenced by a sketch, partial script edits or arbitrary unsandboxed Python, topology
 references/pushes/pulls, topology changes beyond hole depth mode and linear/circular pattern count (booleans and consumed
 bodies, feature/body add, delete, or reorder, lattices), datums, and suppression. Scalar and sketch edits still require
@@ -428,7 +472,9 @@ authoring is placement-only: mates, connectors, grounding changes, mated placeme
 on an existing instance, part replacement, rename, new external sources, and single-part-to-assembly conversion are out
 of scope. Drawing authoring covers presentation settings only: creation, deletion, view placement, view structure, the
 title block, and geometry are out of scope. Script authoring covers full-file replacement only, runs Linux-only, and
-never removes the sandboxed marking automatically.
+never removes the sandboxed marking automatically. Creation authoring covers shipped templates and numeric parameters
+only: model-authored or user-registered templates, free-form geometry input, and overwriting an existing file are out of
+scope.
 
 ## Candidate document-patch surface (not shipped)
 
@@ -793,9 +839,11 @@ after verifying its hash. A user can also recover manually from the reported `ba
 
 ## Confirmation and undo UX
 
-The NukeAI tool card and the **CAD Edit Review** panel are the confirmation surfaces for all seven slices. The panel
+The NukeAI tool card and the **CAD Edit Review** panel are the confirmation surfaces for the seven edit slices. The panel
 renders the same proposal (feature, sketch, topology, import, assembly, drawing, or script) and invokes the same apply
-capability; it never writes the document or script directly. Script apply is panel-only because the panel holds the
+capability; it never writes the document or script directly. Creation is card-only: there is no before-model, so it
+shows the resolved parameter rows and preview build in the tool card and never opens the panel or draws a ghost. Script
+apply is panel-only because the panel holds the
 proposal's approval nonce, and a script preview card deliberately has no Apply action. Feature, sketch, topology, and
 assembly proposals show the candidate geometry as the same display-only viewport ghost. The panel reuses the proposed-vs-current tessellation split: unchanged solids use
 the cool ghost material and changed solids use the warmer accent. A sketch cascade highlights every affected sketch's
@@ -925,7 +973,7 @@ Kill switch:
 
 ### Security requirements (implemented)
 
-The seven shipped slices implement these requirements. They remain the bar for any future authoring surface:
+The eight shipped slices implement these requirements. They remain the bar for any future authoring surface:
 
 - A bounded, cancellable preview build seam in the CAD backend (timeout, job id, process-tree kill) and an abort path from
   the capability context.
@@ -1019,7 +1067,8 @@ minimal profile skips it cleanly. Pure logic is covered by vitest and should kee
 
 ## Kill switch and rollback
 
-The seven slices remain opt-in behind `nukeCad.aiAuthoringEnabled`; script authoring additionally requires the
+The eight slices remain opt-in behind `nukeCad.aiAuthoringEnabled` (the template list itself stays read-only and
+ungated); script authoring additionally requires the
 workspace-scoped `nukeCad.scriptAuthoringEnabled`. The kill switch is the rollback surface:
 
 - `nukeCad.aiAuthoringEnabled = false` immediately hides/cancels previews and blocks new applies; undo remains available.
@@ -1031,7 +1080,7 @@ workspace-scoped `nukeCad.scriptAuthoringEnabled`. The kill switch is the rollba
 
 ## Non-goals
 
-- An eighth authoring surface beyond the seven shipped slices.
+- A ninth authoring surface beyond the eight shipped slices.
 - Unsandboxed `.py`/build123d/CadQuery execution, partial script edits, Python snippets, shell commands, or arbitrary
   expressions. The script slice accepts only a full-file replacement and runs it through `bwrap`.
 - New sketch entities, constraints, or dimensions, free-form sketch creation, document parameters not referenced by a
@@ -1042,8 +1091,8 @@ workspace-scoped `nukeCad.scriptAuthoringEnabled`. The kill switch is the rollba
   existing-import source replacement, appearance, materials, labels, units, suppression, reorder, add, or delete.
 - Raw JSON Patch, arbitrary document pointers, array-index paths, or model-supplied file paths.
 - A new geometry kernel, a new feature builder, or a second execution path.
-- New CAD widgets, menus, or a second ghost implementation; the review panel is shared by all seven slices, and the ghost
-  serves the four build-preview slices while import, drawing, and script show no ghost.
+- New CAD widgets, menus, or a second ghost implementation; the review panel is shared by the seven edit slices, creation
+  is card-only, and the ghost serves the four build-preview slices while import, drawing, and script show no ghost.
 - Automatic, background, batch, multi-document, or cross-workspace apply.
 - Persisting proposals or undo tokens across reload/restart.
 - MCP write exposure, external-agent authoring, or a generic "run this CAD change" endpoint.
@@ -1067,7 +1116,7 @@ workspace-scoped `nukeCad.scriptAuthoringEnabled`. The kill switch is the rollba
 
 ## Security checklist for future surfaces
 
-Use this checklist before widening the authoring surface. The seven shipped slices already meet the applicable items;
+Use this checklist before widening the authoring surface. The eight shipped slices already meet the applicable items;
 new surfaces must not ship until every item is checked and signed off:
 
 - [ ] The capability surface (ids, risks, confirmation, undo, and the Linux-only sandboxed script trio with its own

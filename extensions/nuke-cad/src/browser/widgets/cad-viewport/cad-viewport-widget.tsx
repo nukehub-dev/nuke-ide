@@ -89,6 +89,7 @@ import { documentRelativeAssemblyPart, importedPartStorage, projectPartPath } fr
 import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, computeDependsOn, getAssemblySection, uniqueFeatureId } from '../../document/cad-document-store';
 import type { DocumentMutationResult } from '../../document/cad-document-store';
+import { CadDocumentSaveService } from '../../document/cad-document-save-service';
 import {
     MemoryResultCache,
     PartialRebuildTracker,
@@ -108,6 +109,12 @@ import { CAD_COMMAND_IDS } from '../../cad-command-registry';
 import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
 import { QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
+import {
+    COMPONENT_TEMPLATES,
+    getComponentTemplate,
+    instantiateComponentTemplate,
+    type ComponentTemplate
+} from '../../../common/component-templates';
 import { SAMPLE_PROJECTS, getSampleProject, type SampleProject } from '../../../common/sample-projects';
 import {
     W7X_GEOMETRY_ASSET,
@@ -421,6 +428,9 @@ export class CadViewportWidget extends ReactWidget {
 
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
+
+    @inject(CadDocumentSaveService)
+    protected readonly documentSaveService: CadDocumentSaveService;
 
     @inject(NukeCadGhostPreviewService)
     protected readonly ghostPreviewService: NukeCadGhostPreviewService;
@@ -928,6 +938,58 @@ export class CadViewportWidget extends ReactWidget {
             this.startSketchSetup();
         }
     };
+
+    /**
+     * Create a new document from a parametric component template.
+     *
+     * The picker only supplies the template id; the user first chooses where
+     * the editable copy should live, so cancelling the save dialog leaves the
+     * current document untouched. A confirmed path installs the template body
+     * with its shipped defaults, writes it as JSON, and rebuilds it so the
+     * component renders immediately.
+     */
+    protected async handleCreateComponentTemplate(templateId: string): Promise<void> {
+        const template = getComponentTemplate(templateId);
+        if (template === undefined) {
+            this.messageService.error(`Unknown component template '${templateId}'.`);
+            return;
+        }
+        // The picker is a modal NukeDialog; close it before opening Theia's
+        // file dialog, otherwise the save dialog is blocked behind the modal.
+        this.templatePickerOpen = false;
+        this.update();
+        await this.workspaceService.ready;
+        const requested = await this.fileDialogService.showSaveDialog({
+            title: 'Save New CAD Document',
+            inputValue: `${template.name}.nuke-cad`,
+            filters: { 'CAD Document': ['nuke-cad'] }
+        });
+        if (requested === undefined) {
+            return;
+        }
+        const uri = requested.withPath(ensureNukeCadExtension(requested.path.toString()));
+        const documentName = uri.path.name.length > 0 ? uri.path.name : template.name;
+        this.clearViewportModel();
+        const result = this.documentStore.createTemplateDocument(documentName, instantiateComponentTemplate(template, documentName));
+        if (!result.success) {
+            this.messageService.error(result.error || `Failed to create the ${template.name} component.`);
+            return;
+        }
+        this.clearSaveRebuildTimer();
+        this.documentStore.setUri(uri.toString());
+        this.editingSketchId = undefined;
+        this.sketchSetupVisible = false;
+        this.buildStale = false;
+        this.rebuildTracker.reset();
+        this.update();
+        try {
+            await this.saveDocument(false);
+            await this.rebuildDocument();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to save the component template: ${message}`);
+        }
+    }
 
     /**
      * Create a new document from an example project.
@@ -3180,33 +3242,17 @@ export class CadViewportWidget extends ReactWidget {
 
     /** Save the active document, prompting for a path when needed. */
     async saveDocument(forceDialog = false): Promise<void> {
-        const doc = this.documentStore.document;
-        if (doc === undefined) {
+        const result = await this.documentSaveService.save({ forceDialog });
+        if (result.ok) {
+            this.unsavedSketchWarningShown = false;
+            this.messageService.info(`Saved ${new URI(result.uri).path.base}`);
+            return;
+        }
+        if (result.reason === 'no-document') {
             this.messageService.warn('No CAD document is active.');
-            return;
+        } else if (result.reason === 'error') {
+            this.messageService.error(result.message ?? 'Failed to save the CAD document.');
         }
-        let uri = this.documentStore.uri !== undefined && !forceDialog ? new URI(this.documentStore.uri) : undefined;
-        if (uri === undefined) {
-            const existingUri = this.documentStore.uri !== undefined ? new URI(this.documentStore.uri) : undefined;
-            uri = await this.fileDialogService.showSaveDialog({
-                title: 'Save CAD Document',
-                inputValue: existingUri?.path.base ?? `${doc.name}.nuke-cad`,
-                filters: { 'CAD Document': ['nuke-cad'] }
-            });
-            if (uri === undefined) {
-                return;
-            }
-            uri = uri.withPath(ensureNukeCadExtension(uri.path.toString()));
-        }
-        const json = this.documentStore.toJson();
-        if (json === undefined) {
-            return;
-        }
-        await this.fileService.write(uri, json);
-        this.documentStore.setUri(uri.toString());
-        this.documentStore.markSaved();
-        this.unsavedSketchWarningShown = false;
-        this.messageService.info(`Saved ${uri.path.base}`);
     }
 
     /** Open the feature creation dialog for the given feature type. */
@@ -4227,6 +4273,7 @@ export class CadViewportWidget extends ReactWidget {
                 onSketchSavePromptSave={this.handleSketchSavePromptSave}
                 onSketchSavePromptNotNow={this.handleSketchSavePromptNotNow}
                 templates={DOCUMENT_TEMPLATES}
+                componentTemplates={COMPONENT_TEMPLATES}
                 samples={SAMPLE_PROJECTS}
                 onDismissError={this.dismissBuildError}
                 onDismissWarnings={this.dismissBuildWarnings}
@@ -4256,6 +4303,7 @@ export class CadViewportWidget extends ReactWidget {
                 onCancelW7xShapeStudy={this.handleCancelW7xShapeStudy}
                 onNewDocument={this.handleNewDocument}
                 onCreateDocument={this.handleCreateDocument}
+                onCreateComponentTemplate={(id) => void this.handleCreateComponentTemplate(id)}
                 onSelectSample={(id) => void this.handleCreateSample(id)}
                 onDownloadSample={(id) => void this.handleDownloadSample(id)}
                 onCancelTemplatePicker={this.handleCancelTemplatePicker}
@@ -4402,6 +4450,8 @@ interface CadViewportComponentProps {
     readonly onSketchSavePromptSave: () => void;
     readonly onSketchSavePromptNotNow: () => void;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
+    /** Complete parametric component bodies offered under the blank presets. */
+    readonly componentTemplates: ReadonlyArray<ComponentTemplate>;
     /** Complete example-project documents offered under the blank presets. */
     readonly samples: ReadonlyArray<SampleProject>;
     readonly onDismissError: () => void;
@@ -4445,6 +4495,8 @@ interface CadViewportComponentProps {
     readonly onCancelW7xShapeStudy: () => void;
     readonly onNewDocument: () => void;
     readonly onCreateDocument: (templateId: string) => void;
+    /** Create and save a document from a parametric component template. */
+    readonly onCreateComponentTemplate: (templateId: string) => void;
     /** Create and save an editable copy of a built-in example project. */
     readonly onSelectSample: (sampleId: string) => void;
     /** Download an external example source into the project folder. */
@@ -5456,9 +5508,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const templatePicker = props.templatePickerOpen ? (
         <DocumentTemplatePicker
             templates={props.templates}
+            componentTemplates={props.componentTemplates}
             samples={props.samples}
             onSelect={(id) => {
                 props.onCreateDocument(id);
+                setShortcutBar(undefined);
+            }}
+            onCreateComponentTemplate={(id) => {
+                props.onCreateComponentTemplate(id);
                 setShortcutBar(undefined);
             }}
             onSelectSample={(id) => {

@@ -153,12 +153,11 @@ describe('CadDocumentStore', () => {
 
     it('creates a document from a template', () => {
         const store = new CadDocumentStore();
-        const result = store.createDocument('pincell', 'pincell');
+        const result = store.createDocument('tokamak', 'tokamak');
         expect(result.success).toBe(true);
         expect(store.document?.parameters).toEqual({
-            fuelRadius: 0.4,
-            cladRadius: 0.5,
-            pitch: 1.26
+            major_radius: 450,
+            minor_radius: 150
         });
         expect(store.document?.datums).toHaveLength(3);
     });
@@ -3801,5 +3800,73 @@ describe('CadDocumentStore example projects', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('missing');
         expect(store.document?.name).toBe('Keep me');
+    });
+});
+
+describe('CadDocumentStore template documents', () => {
+    it('installs a renamed, dirty, unsaved copy of the supplied body', () => {
+        const store = new CadDocumentStore();
+        const template = minimalDoc({
+            name: 'source template',
+            bodies: [{ id: 'body-1', name: 'Outer shell' }],
+            sketches: [sketch('sketch-1')]
+        });
+
+        const result = store.createTemplateDocument('My copy', template);
+
+        expect(result.success).toBe(true);
+        expect(store.document?.name).toBe('My copy');
+        expect(store.document?.bodies[0].name).toBe('Outer shell');
+        expect(store.dirty).toBe(true);
+        expect(store.uri).toBeUndefined();
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+    });
+
+    it('deep-clones the supplied body so later source mutations do not reach the store', () => {
+        const store = new CadDocumentStore();
+        const template = minimalDoc({
+            bodies: [{ id: 'body-1', name: 'Outer shell' }],
+            sketches: [sketch('sketch-1')]
+        });
+
+        expect(store.createTemplateDocument('My copy', template).success).toBe(true);
+        template.name = 'Renamed source';
+        template.bodies[0].name = 'Mutated body';
+        template.sketches[0].name = 'Mutated sketch';
+
+        expect(store.document?.name).toBe('My copy');
+        expect(store.document?.bodies[0].name).toBe('Outer shell');
+        expect(store.document?.sketches[0].name).toBe('sketch-1');
+    });
+
+    it('rejects an invalid body without replacing the active document', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('Keep me');
+
+        const result = store.createTemplateDocument('Bad units', minimalDoc({ units: 'parsec' as DocumentUnits }));
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('units');
+        expect(result.issues?.length).toBeGreaterThan(0);
+        expect(store.document?.name).toBe('Keep me');
+    });
+
+    it('resets history and bumps the document epoch like createDocument', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('Before');
+        const epochBefore = store.documentEpoch;
+        expect(store.addBody('Temporary').success).toBe(true);
+        expect(store.canUndo).toBe(true);
+        store.setUri('file:///work/project/before.nuke-cad');
+        const revisionBefore = store.revision;
+
+        const result = store.createTemplateDocument('From template', minimalDoc());
+
+        expect(result.success).toBe(true);
+        expect(store.documentEpoch).toBe(epochBefore + 1);
+        expect(store.canUndo).toBe(false);
+        expect(store.canRedo).toBe(false);
+        expect(store.uri).toBeUndefined();
+        expect(store.revision).toBe(revisionBefore + 1);
     });
 });

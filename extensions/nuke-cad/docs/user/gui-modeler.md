@@ -21,15 +21,24 @@ Studio the same way you would a script build.
 
 1. Run **New CAD Document** from the Command Palette or the Nuke Tools sidebar
    (`CAD Studio → Geometry`).
-2. Pick a starting point in the dialog. The **Start blank** section holds
-   parameter presets:
-   - **Empty document** — the default, no preset parameters.
-   - **Pincell starter (cm)** — pre-fills `fuelRadius`, `cladRadius`,
-     and `pitch` for a lattice pincell.
-   - **Tokamak starter (cm)** — pre-fills `major_radius` and `minor_radius`.
+2. Pick a starting point in the dialog. The picker has three sections:
+   - **Start blank** holds parameter presets that only pre-fill the document
+     parameter table:
+     - **Empty document** — the default, no preset parameters.
+     - **Tokamak starter (cm)** — pre-fills `major_radius` and `minor_radius`.
 
-   The **Example projects** section holds complete sample documents instead of
-   presets:
+   - **Parametric components** holds geometry-bearing templates. Selecting one
+     saves a new `.nuke-cad` document with the template defaults, opens it, and
+     starts the build:
+     - **Pincell** — a three-body PWR pin cell in `cm` with separate `fuel`
+       (UO2), `clad` (Zircaloy-4), and `moderator` (H2O) bodies. It starts at
+       `fuelRadius=0.4`, `cladRadius=0.5`, and `pitch=1.26`; the fuel and clad
+       sketches are driven by those document parameters, so editing them
+       reshapes the cell. Unlike the **Pincell demo** example project below, the
+       component starts from the shipped component template, not a saved sample
+       document.
+
+   - **Example projects** holds complete sample documents instead of presets:
 
    | Example project                 | What you get                                                                                                                                                           | Badge       |
    | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
@@ -39,7 +48,7 @@ Studio the same way you would a script build.
    | **W7-X generator (parametric)** | 15 editable imported bodies (10 exact coil shapes + 5 shells) placed as 55 assembly instances; needs the same external STEP and the validated five-module layout only. | External    |
    | **W7-X coil shape study**       | 10 editable native `coilSweep` bodies × 5 modules (50 instances) from committed centerlines; no STEP, approximate reference geometry, simulation export disabled.      | Fast        |
 
-   Choosing a bundled example first asks where to save the new `.nuke-cad`
+   A component or bundled example first asks where to save the new `.nuke-cad`
    file, writes an editable copy there, and opens it. The two external W7-X
    cards open a choice instead: **Download 47 MB** first asks where to save the
    `.nuke-cad` project, then fetches the STEP through the NukeIDE backend (so
@@ -63,9 +72,21 @@ Studio the same way you would a script build.
    the viewport read budget; export/FEM tolerances are unaffected. The
    generator's first build takes about 25 s.
 
-3. Save the new document with **Save CAD Document As...** to give it a name and
-   location (skipped for example projects, which are saved on creation).
-4. The empty document contains three canonical datum planes: XY, YZ, and XZ.
+3. Save a preset-based document with **Save CAD Document As...** to give it a
+   name and location (skipped for component templates and example projects,
+   which are saved when you pick them).
+4. A new empty document contains three canonical datum planes: XY, YZ, and XZ.
+
+With **Nuke CAD: AI Authoring** on, you can also ask NukeAI for a component,
+for example _make me a pin cell with a 0.45 cm fuel radius and a 1.3 cm pitch_.
+NukeAI resolves the template parameters, re-solves the affected sketches, and
+runs a real preview build, then shows the parameter rows and the build summary
+in the chat card. There is no **CAD Edit Review** panel and no viewport ghost
+because a new document has no before-model to diff or overlay. **Apply** asks
+for a destination, writes a new `.nuke-cad`, and offers **Undo**. It refuses
+while the active document has unsaved changes, and a clean open document needs
+the explicit `replaceExisting` confirmation. Undo deletes the created file only
+while it is still unchanged.
 
 The tokamak sample re-authors the Paramak
 `tokamak_with_pf_tf_magnets_divertor` reference model as GUI features and trims
@@ -1049,6 +1070,12 @@ parameters, the previous assembly instances, or (for an import) removes the adde
 current session.
 Open the panel manually with **Open CAD Edit Review** in the Command Palette, the CAD Studio menu, or the Nuke Tools
 sidebar.
+
+Creating a new document from a parametric component is the exception. It has no
+before-model, so it never opens **CAD Edit Review** and never draws a ghost.
+NukeAI shows the resolved parameter rows and the preview build in the chat
+card; **Apply** asks where to save the new `.nuke-cad`, writes it, and offers
+**Undo**.
 
 ### AI script authoring
 

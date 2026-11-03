@@ -113,12 +113,14 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - CAD AI capabilities live in `src/browser/capabilities/nuke-cad-capabilities.ts`, use the
   nuke-core capability contract, and delegate to existing CAD services; never expose raw
   commands. `nuke.cad.diagnoseModel` reports build, manifest, selection, and per-solid
-  findings without rebuilding. The seven gated authoring slices preview and apply scalar feature
+  findings without rebuilding. The eight authoring slices cover scalar feature
   edits, existing sketch driving dimensions or document parameters a sketch references, topology-impacting hole
   blind/through or linear/circular pattern counts, imported STEP/IGES/BREP bodies, placement-only actions on an
-  existing grounded assembly, presentation settings on existing drawing sheets, and Linux-only sandboxed full-file `.py`
-  replacements through the document store (the assembly and drawing summaries stay read-only); it is default-off
-  (`nukeCad.aiAuthoringEnabled`) and requires a saved model. Script authoring additionally needs workspace-scoped
+  existing grounded assembly, presentation settings on existing drawing sheets, Linux-only sandboxed full-file `.py`
+  replacements, and shipped-template document creation through the document store (the assembly and drawing summaries
+  stay read-only); it is default-off (`nukeCad.aiAuthoringEnabled`), template listing stays read-only and ungated, and
+  the edit slices require a saved model. Script
+  authoring additionally needs workspace-scoped
   `nukeCad.scriptAuthoringEnabled`, `bwrap` plus user namespaces and libseccomp, bounded text/hash inspection (source text reaches the
   model provider), a full-body preview with no network/workspace bind, no ghost, no chat Apply, and a panel-only approval
   nonce; apply overwrites with a hidden backup, rebuilds sandboxed, blocks DAGMC/FEM export for the sandboxed model, and
@@ -142,13 +144,18 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   stay listed but leave SVG/DXF, and the title block is fixed and read-only. Drawing apply is one `applyDrawingChanges`
   commit (`markDrawing`) with backup, sheet open/refresh, undo, and no `nuke.cad.rebuild`.
   Booleans, body/feature add/delete/reorder, lattices, new sketch entities/constraints/dimensions, partial or unsandboxed
-  scripts, assembly structure beyond placement, drawing creation/deletion or view placement, title-block edits, and MCP
-  stay excluded. A successful feature, sketch, topology, or assembly
+  scripts, assembly structure beyond placement, drawing creation/deletion or view placement, title-block edits,
+  free-form sketch/feature creation, model-authored or user-registered templates, overwriting an existing file, and MCP
+  stay excluded. Creation adds `nuke.cad.listDocumentTemplates` (read-only, ungated), parameter-only
+  `nuke.cad.prepareDocumentCreation` (private real build, no install), and `nuke.cad.createDocumentFromTemplate`
+  (write, confirmed, undoable; fresh `.nuke-cad` at a workspace path, dirty-document refusal, `replaceExisting` for a
+  clean open document, hash-guarded undo). A successful feature, sketch, topology, or assembly
   preview publishes the candidate tessellation to `NukeCadGhostPreviewService` and reveals the **CAD Edit Review**
   panel; the panel applies the same capability and the viewport renders the candidate in the scene-level `cad-ghost`
   group only. Import preview shows the plan without a ghost; drawing preview shows the sheet/view/dimension plan without
   a build or ghost; script preview shows the diff/sandbox/audit without a ghost; repeated-body assembly ghosts are
-  approximate. Script apply is reachable only from the panel, which keeps the approval nonce out of the view.
+  approximate. Creation is card-only: there is no before-model, so it never opens the review panel or publishes a ghost.
+  Script apply is reachable only from the panel, which keeps the approval nonce out of the view.
   See `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
@@ -241,6 +248,10 @@ npx vitest run extensions/nuke-cad/src/common/cad-feature-edit.test.ts \
   extensions/nuke-cad/src/browser/capabilities/import-source-policy.test.ts \
   extensions/nuke-cad/src/browser/capabilities/nuke-cad-authoring-capabilities.test.ts \
   extensions/nuke-cad/src/browser/capabilities/nuke-cad-proposal-service.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/nuke-cad-creation-capabilities.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/create-target-policy.test.ts \
+  extensions/nuke-cad/src/common/component-templates.test.ts \
+  extensions/nuke-cad/src/browser/document/cad-document-save-service.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-store.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-store-drawings.test.ts \
   extensions/nuke-cad/src/browser/widgets/drawing-sheet \

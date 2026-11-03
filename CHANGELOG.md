@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: NukeAI adds, removes, and repositions assembly instances with real-build preview, BOM delta, overlap warnings, region checks, and undo.
 - nuke-cad: NukeAI adjusts existing drawing-sheet size, view display, and dimension visibility with a plan-only review, backup, sheet refresh, and undo.
 - nuke-cad: NukeAI inspects and sandbox-previews full Python model scripts on Linux with bubblewrap plus a libseccomp denylist, panel-only nonce approval, backup/undo, and sandboxed rebuilds that block simulation export.
+- nuke-cad: New Document adds a parametric Pincell component; NukeAI creates component documents with preview, confirmation, and undo.
 - nuke-cad: sketch status shows selected/construction badges, warns on failed gestures, and disables selection transforms with reasons.
 - nuke-cad: sketch-local undo/redo (Ctrl/Cmd+Z, Shift+Z/Y, toolbar buttons) covers tools, drags, constraints, dimensions, parameters, transforms, and external-geometry edits with an immediate reprojection.
 - nuke-cad: finishing a sketch on an unsaved document prompts to Save… or defer the build instead of opening an unexplained file dialog.

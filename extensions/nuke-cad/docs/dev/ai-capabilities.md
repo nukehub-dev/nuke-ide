@@ -5,10 +5,10 @@ registry owned by `nuke-core`. AI consumers, MCP servers, and other extensions
 read the same `NukeCapability` objects without importing CAD widgets.
 
 The implementation lives in
-`src/browser/capabilities/nuke-cad-capabilities.ts` (read/export) and the gated
+`src/browser/capabilities/nuke-cad-capabilities.ts` (read/export), the gated
 authoring contributions under `src/browser/capabilities/` (the feature, sketch,
 topology, import, assembly-placement, drawing-settings, and sandboxed Python
-script slices):
+script slices), and the document-creation contribution:
 
 - `NukeCadCapabilities` implements `NukeCapabilityContribution` and registers
   the read/export capabilities below.
@@ -19,6 +19,9 @@ script slices):
   script inspect/preview/apply trio. All authoring capabilities are default-off
   behind `nukeCad.aiAuthoringEnabled`; script authoring also requires the
   workspace-scoped `nukeCad.scriptAuthoringEnabled`.
+- `NukeCadCreationCapabilities` registers the template list/prepare/create trio.
+  Listing is read-only and ungated; prepare and create are default-off behind
+  `nukeCad.aiAuthoringEnabled` and use their own one-shot proposal store.
 - `NukeCadContextContribution` publishes `activeCadDocument` from
   `NukeCadStateManager.scriptPath` and forwards `onModelChange`.
   `NukeCadAuthoringContextContribution` additionally refreshes the tool set when
@@ -43,31 +46,34 @@ backup, then builds through the sandbox.
 
 ## Capabilities
 
-| ID                               | Risk      | Active model required  | Purpose                                                               |
-| -------------------------------- | --------- | ---------------------- | --------------------------------------------------------------------- |
-| `nuke.cad.summarizeDocument`     | `read`    | Yes                    | Build counts, selection, manifest, and solid summaries                |
-| `nuke.cad.inspectSelection`      | `read`    | Yes                    | Primary solid, selected solids, and hidden solid ids                  |
-| `nuke.cad.diagnoseModel`         | `read`    | Yes                    | Build, manifest, selection, and per-solid geometry findings           |
-| `nuke.cad.listSketchDimensions`  | `read`    | Document only          | Document parameters and per-sketch dimensions, datums, consumers      |
-| `nuke.cad.previewFeatureChange`  | `read`    | Yes, saved             | Validate scalar feature edits with a real build and diff them         |
-| `nuke.cad.applyFeatureChange`    | `execute` | Yes, saved             | Apply a previewed proposal, rebuild, and register undo                |
-| `nuke.cad.previewSketchChange`   | `read`    | Yes, saved             | Validate sketch-dimension or parameter edits with a real build        |
-| `nuke.cad.applySketchChange`     | `execute` | Yes, saved             | Apply a sketch proposal atomically, rebuild, and register undo        |
-| `nuke.cad.previewTopologyChange` | `read`    | Yes, saved             | Preview hole depth-mode or pattern-count edits with region impact     |
-| `nuke.cad.applyTopologyChange`   | `execute` | Yes, saved             | Apply a topology proposal exactly, rebuild, and register undo         |
-| `nuke.cad.inspectImportSource`   | `read`    | Yes, saved             | Inspect a user-chosen STEP/IGES/BREP source without building          |
-| `nuke.cad.previewImportBodies`   | `read`    | Yes, saved             | Plan imported bodies and open review without a build or write         |
-| `nuke.cad.applyImportBodies`     | `execute` | Yes, saved             | Re-inspect the source, add import bodies, rebuild, and register undo  |
-| `nuke.cad.summarizeAssembly`     | `read`    | Document only          | Instances, parts, placements, grounding, selector ids, BOM, policy    |
-| `nuke.cad.previewAssemblyChange` | `read`    | Yes, grounded assembly | Preview add, remove, or placement actions with a real candidate build |
-| `nuke.cad.applyAssemblyChange`   | `execute` | Yes, saved             | Re-run the planner, commit one assembly batch, rebuild, and undo      |
-| `nuke.cad.summarizeDrawing`      | `read`    | Document only          | Sheets, views, dimensions, visibility, and fixed title-block fields   |
-| `nuke.cad.previewDrawingChange`  | `read`    | Yes, saved             | Plan sheet size, view display, or dimension visibility; no build      |
-| `nuke.cad.applyDrawingChange`    | `execute` | Yes, saved             | Commit one drawing batch, refresh the sheet, and register undo        |
-| `nuke.cad.inspectScriptSource`   | `read`    | Yes, saved `.py`       | Bounded script text, hash, imports, and model assignment              |
-| `nuke.cad.previewScriptChange`   | `execute` | Yes, saved `.py`       | Sandbox-build a full script replacement and return a diff; no write   |
-| `nuke.cad.applyScriptChange`     | `execute` | Yes, saved `.py`       | Apply a panel-approved script, back up, and rebuild in the sandbox    |
-| `nuke.cad.exportDagmc`           | `execute` | No                     | Build a source file and export DAGMC + region manifest                |
+| ID                                    | Risk      | Active model required        | Purpose                                                               |
+| ------------------------------------- | --------- | ---------------------------- | --------------------------------------------------------------------- |
+| `nuke.cad.summarizeDocument`          | `read`    | Yes                          | Build counts, selection, manifest, and solid summaries                |
+| `nuke.cad.inspectSelection`           | `read`    | Yes                          | Primary solid, selected solids, and hidden solid ids                  |
+| `nuke.cad.diagnoseModel`              | `read`    | Yes                          | Build, manifest, selection, and per-solid geometry findings           |
+| `nuke.cad.listSketchDimensions`       | `read`    | Document only                | Document parameters and per-sketch dimensions, datums, consumers      |
+| `nuke.cad.listDocumentTemplates`      | `read`    | No                           | Shipped component templates, units, and typed parameters              |
+| `nuke.cad.prepareDocumentCreation`    | `read`    | No, workspace root           | Resolve parameters, re-solve, and real-build a candidate; no write    |
+| `nuke.cad.createDocumentFromTemplate` | `write`   | No, active doc must be clean | Install and save a prepared document; undoable                        |
+| `nuke.cad.previewFeatureChange`       | `read`    | Yes, saved                   | Validate scalar feature edits with a real build and diff them         |
+| `nuke.cad.applyFeatureChange`         | `execute` | Yes, saved                   | Apply a previewed proposal, rebuild, and register undo                |
+| `nuke.cad.previewSketchChange`        | `read`    | Yes, saved                   | Validate sketch-dimension or parameter edits with a real build        |
+| `nuke.cad.applySketchChange`          | `execute` | Yes, saved                   | Apply a sketch proposal atomically, rebuild, and register undo        |
+| `nuke.cad.previewTopologyChange`      | `read`    | Yes, saved                   | Preview hole depth-mode or pattern-count edits with region impact     |
+| `nuke.cad.applyTopologyChange`        | `execute` | Yes, saved                   | Apply a topology proposal exactly, rebuild, and register undo         |
+| `nuke.cad.inspectImportSource`        | `read`    | Yes, saved                   | Inspect a user-chosen STEP/IGES/BREP source without building          |
+| `nuke.cad.previewImportBodies`        | `read`    | Yes, saved                   | Plan imported bodies and open review without a build or write         |
+| `nuke.cad.applyImportBodies`          | `execute` | Yes, saved                   | Re-inspect the source, add import bodies, rebuild, and register undo  |
+| `nuke.cad.summarizeAssembly`          | `read`    | Document only                | Instances, parts, placements, grounding, selector ids, BOM, policy    |
+| `nuke.cad.previewAssemblyChange`      | `read`    | Yes, grounded assembly       | Preview add, remove, or placement actions with a real candidate build |
+| `nuke.cad.applyAssemblyChange`        | `execute` | Yes, saved                   | Re-run the planner, commit one assembly batch, rebuild, and undo      |
+| `nuke.cad.summarizeDrawing`           | `read`    | Document only                | Sheets, views, dimensions, visibility, and fixed title-block fields   |
+| `nuke.cad.previewDrawingChange`       | `read`    | Yes, saved                   | Plan sheet size, view display, or dimension visibility; no build      |
+| `nuke.cad.applyDrawingChange`         | `execute` | Yes, saved                   | Commit one drawing batch, refresh the sheet, and register undo        |
+| `nuke.cad.inspectScriptSource`        | `read`    | Yes, saved `.py`             | Bounded script text, hash, imports, and model assignment              |
+| `nuke.cad.previewScriptChange`        | `execute` | Yes, saved `.py`             | Sandbox-build a full script replacement and return a diff; no write   |
+| `nuke.cad.applyScriptChange`          | `execute` | Yes, saved `.py`             | Apply a panel-approved script, back up, and rebuild in the sandbox    |
+| `nuke.cad.exportDagmc`                | `execute` | No                           | Build a source file and export DAGMC + region manifest                |
 
 ### `nuke.cad.summarizeDocument`
 
@@ -537,6 +543,116 @@ without libseccomp reports script authoring unavailable, with no unsandboxed fal
 None of the
 three script ids is on the external MCP read-only allowlist, and the chat card never exposes Apply.
 
+## Document creation (gated)
+
+Document creation starts a new `.nuke-cad` file from a shipped **component
+template**. `nukeCad.aiAuthoringEnabled` gates prepare and create;
+`nuke.cad.listDocumentTemplates` stays available while the switch is off. The
+model supplies only a template id, a document name, and numeric parameter
+values. It never supplies geometry, document JSON, or code, and it cannot
+register a template. The registries and the `ComponentTemplate` contract are
+documented in [Document templates](document-templates.md).
+
+### `nuke.cad.listDocumentTemplates`
+
+Read-only and ungated. Input is `{ "category"?: string, "query"?: string }`.
+`category` must match `primitives`, `mechanical`, `nuclear`, or `assembly`.
+`query` matches id, name, keywords, or description case-insensitively, ranked
+exact id first, then keyword/id substring, then name, then description; results
+cap at 50. The result reports `templateCount`, `totalTemplates`, and one row per
+template with `id`, `name`, `description`, `category`, `keywords`, `units`, and
+typed `parameters` (`name`, `label`, `kind`, `unit`, `default`, optional
+`min`/`max`/`step`/`description`/`pair`/`derivedFrom`).
+
+### `nuke.cad.prepareDocumentCreation`
+
+Input:
+
+```json
+{
+  "templateId": "pincell",
+  "name": "fuel pin",
+  "parameters": { "fuelRadius": 0.41, "cladDiameter": 0.95 },
+  "unit": "cm"
+}
+```
+
+`name` defaults to the template name. Parameter values are in each parameter's
+declared unit unless `unit` supplies a length unit (`mm`, `cm`, or `m`);
+`parameters` keys must be declared names. Resolution applies the typed
+contract: length conversion, inclusive `min`/`max`, positive-integer `count`,
+mutual radius/diameter `pair` consistency, and `derived` aliases such as
+`fuelDiameter` → `fuelRadius` with factor `0.5`. Unknown parameters, a
+non-finite value, an out-of-range value, a disagreeing pair, or a parameter the
+template does not hold reject the request with a stable message.
+
+For every changed document parameter, prepare resolves the affected sketches
+and parametric curves through
+`componentParameterSketchIds(document, name)` and runs the existing
+`NukeCadSketchEditService.prepare` transaction against the evolving candidate.
+That transaction re-solves every affected sketch with planegcs, resamples
+dependent curves, and cascades a parameter edit to all consumers. A failed or
+conflicting solve, a failed curve resample, an unreferenced parameter, or an
+invalid candidate document rejects the prepare.
+
+The candidate is then built for real in the private preview directory
+`<workspace>/.nuke-ide/ai/cad-previews/<uuid>` with `useCache: false`, a
+120-second timeout, a cancellable job, and at least one required solid. The
+transient document, manifest sidecar, and build artifacts are deleted in
+`finally`, including on failure or cancellation. Prepare never installs the
+candidate into `CadDocumentStore` and never writes a user document into the
+workspace.
+
+A successful prepare stores a one-shot proposal and returns `proposalId`,
+`templateId`, `templateName`, `documentName`, `units`, the complete resolved
+`parameters` list, the preview `build` summary, and a `changeSet`. The
+`changeSet` contains one `parameters.<name>` row per parameter (default before,
+resolved value after) and names `nuke.cad.createDocumentFromTemplate` as its
+apply capability. Creation uses the **AI tool card**, not the **CAD Edit
+Review** panel: there is no before-model, so there is no review diff against an
+existing document and no viewport ghost. The card shows the parameter rows and
+the build summary.
+
+### Proposal lifetime and apply
+
+`NukeCadCreationProposalService` is separate from the edit proposal store
+because creation has no active document to bind an epoch or revision to. It
+holds at most 20 deep-cloned proposals with a 10-minute TTL. Apply accepts only
+`{ "proposalId": string, "path"?: string, "replaceExisting"?: boolean }`.
+
+- **Active document.** A dirty active document always refuses creation. A
+  clean, open document refuses unless `replaceExisting: true`; the confirmation
+  then replaces the active view, not the file on disk. A document that was
+  never saved is clean enough for the same rule.
+- **Target path.** `path` is optional; when omitted, the native save dialog
+  opens and appends `.nuke-cad`. An explicit path is resolved against the first
+  workspace root when relative, must land inside any workspace root, must end
+  in `.nuke-cad` (case-insensitive), must be at most 1024 characters, must not
+  contain NUL or control characters, and must not already exist. Every parent
+  segment must already exist as a directory, and no segment may be a symlink or
+  report a different provider `realPath`. The workspace root itself cannot be
+  the target.
+- **Body and save.** Apply re-hashes the stored candidate against the prepare
+  hash, validates it again, installs it with
+  `CadDocumentStore.createTemplateDocument`, sets the new URI, and writes
+  through `CadDocumentSaveService.save({ targetPath })`. A failed save restores the previous document and URI when one was
+  open. A successful create consumes the proposal,
+  schedules `nuke.cad.rebuild`, and returns an undo token.
+- **Undo.** Undo reads the created file's current SHA-256. It deletes the file
+  only when the hash still matches what apply wrote (a missing file is already
+  the desired end state). When the created document is still active, it restores
+  the previous document, or a fresh `Untitled` when none was open, and schedules
+  the rebuild. If the file changed after creation, undo keeps
+  the file and says so.
+
+Templates are self-contained: they declare `units`, carry no `import`
+features, and every body has a label. Creation is limited to shipped templates
+and numeric inputs. Free-form sketch or feature creation in the new document,
+model-authored or user-registered templates, overwriting an existing file,
+batch or multi-document creation, and MCP exposure stay excluded. After
+creation the document is an ordinary editable `.nuke-cad` file; later edits use
+the normal GUI or authoring capabilities.
+
 ## Review panel and ghost preview
 
 A successful feature, sketch, topology, or assembly preview also publishes the candidate
@@ -549,11 +665,15 @@ picking, selection, explode, fit, or the document store. An import preview opens
 the same panel without a ghost because it builds no candidate geometry. A
 drawing preview also opens the panel without a ghost or build, because drawings
 are derived linework rather than candidate geometry. An
-assembly preview with repeated body ids labels the ghost approximate.
+assembly preview with repeated body ids labels the ghost approximate. Document
+creation never opens this panel and publishes no ghost: there is no before-model
+to diff or overlay, so its parameter rows and preview build stay in the AI tool
+card.
 
 The panel (`CadReviewPanelWidget`, command `nuke.cad.openReviewPanel`) lists the
 stored feature, sketch, topology, import, assembly, drawing, and script proposals with the same `changeSet`
-rows, the solid/face/triangle impact, and the build counts. A script proposal renders a **Script change** section
+rows, the solid/face/triangle impact, and the build counts. Creation proposals use
+a separate store and never appear here. A script proposal renders a **Script change** section
 instead of the generic diff: the script basename and path, a prominent executable-warning banner, the unified diff in a
 text-only `<pre>` with added/removed/hunk counts and a truncation notice, the imports list, a `model`-assignment
 advisory, sandbox engine/version/userns and limits, sandboxed build counts, duration/timeout/exit code, and the audit id.
@@ -619,6 +739,15 @@ Script authoring accepts no new path either. The target is always the active wor
 only that script plus its hidden backup. Preview staging and private sandbox output are harness-named, cleaned in
 `finally`, and never enter the workspace or the model-facing result.
 
+Document creation is the only CAD AI slice that writes a new path. Prepare writes
+only the transient candidate and build artifacts under
+`<workspace>/.nuke-ide/ai/cad-previews/<uuid>` and deletes them in `finally`.
+Apply accepts an optional target path with the rules above; a relative path is
+resolved against the first workspace root, and an explicit path outside every
+root, with a wrong extension, an existing file or folder, or a symlink segment
+is rejected before the store changes. When the path is omitted, the native save
+dialog chooses it and appends `.nuke-cad`.
+
 Paths are normalized with `path.resolve` after the scope check, so the backend
 and the manifest probe see the same canonical path. Manifest candidates are
 built with the platform `path` helpers, which keeps separator handling
@@ -650,5 +779,5 @@ merged sidecar there, so the source directory is the normal location.
    `nextActions`, or `undoToken` where applicable. Add an `outputSchema` when
    consumers need structured output.
 4. Register the capability in `NukeCadCapabilities.registerCapabilities` (or
-   the gated authoring contribution) and cover it with a plain-fake unit test.
+   the gated authoring or creation contribution) and cover it with a plain-fake unit test.
 5. Update this page and the capability table when the contract changes.

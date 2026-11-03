@@ -236,7 +236,7 @@
         {
           "difference": "pitch",
           "driving": true,
-          "id": "distance-17",
+          "id": "distance-16",
           "param1": {
             "o_id": "point-1",
             "prop": "x"
@@ -250,7 +250,7 @@
         {
           "difference": "pitch",
           "driving": true,
-          "id": "distance-19",
+          "id": "distance-18",
           "param1": {
             "o_id": "point-1",
             "prop": "y"
@@ -264,17 +264,25 @@
         {
           "c_id": "circle-14",
           "driving": true,
-          "id": "radius-21",
+          "id": "radius-20",
           "radius": "cladRadius",
           "type": "circle_radius"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-22",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "p_id": "point-13",
+          "type": "p2p_symmetric_ppp"
         }
       ],
       "datumId": "datum-xy",
       "dimensions": [
         {
-          "constraintId": "distance-17",
+          "constraintId": "distance-16",
           "driving": true,
-          "id": "dimension-18",
+          "id": "dimension-17",
           "kind": "distanceH",
           "parameter": "pitch",
           "targetIds": [
@@ -284,9 +292,9 @@
           "value": 1.26
         },
         {
-          "constraintId": "distance-19",
+          "constraintId": "distance-18",
           "driving": true,
-          "id": "dimension-20",
+          "id": "dimension-19",
           "kind": "distanceV",
           "parameter": "pitch",
           "targetIds": [
@@ -296,9 +304,9 @@
           "value": 1.26
         },
         {
-          "constraintId": "radius-21",
+          "constraintId": "radius-20",
           "driving": true,
-          "id": "dimension-22",
+          "id": "dimension-21",
           "kind": "radius",
           "parameter": "cladRadius",
           "targetIds": [
@@ -312,7 +320,6 @@
       "primitives": [
         {
           "construction": false,
-          "fixed": true,
           "id": "point-1",
           "type": "point",
           "x": -0.63,
