@@ -289,6 +289,7 @@ describe('NukeChatAgent', () => {
         const lines = promptTemplate().split('\n');
 
         expect(lines.length).toBeGreaterThanOrEqual(80);
-        expect(lines.length).toBeLessThanOrEqual(230);
+        // Raised from 230 for the OpenMC project-creation, Python-export, CSG, and DAGMC tool families.
+        expect(lines.length).toBeLessThanOrEqual(240);
     });
 });

@@ -158,7 +158,7 @@ delete `.nuke-ide/ai/previews` in the file explorer. See [Previews and the Galle
 NukeAI ships five skills that load only when a task needs them:
 
 - `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, preview/apply feature, sketch, topology, import, assembly-placement, or drawing-settings edits, and guide Linux sandboxed Python script review.
-- `/openmc-studio` — summarize, validate, import CAD, run, and poll an OpenMC project.
+- `/openmc-studio` — summarize, validate, create, edit settings/materials/tallies/CSG/DAGMC, export Python, import CAD, run, and poll an OpenMC project.
 - `/nuke-visualizer` — summarize or open a statepoint and capture a DAGMC viewport.
 - `/nuke-workflow` — the end-to-end CAD → DAGMC → OpenMC → statepoint → capture handoff.
 - `/nuke-diagnostics` — triage the active CAD model, OpenMC project or run, and loaded statepoint read-only.

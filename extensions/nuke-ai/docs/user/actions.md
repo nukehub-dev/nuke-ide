@@ -91,7 +91,7 @@ normal confirmation flow still applies.
 
 ## Safe OpenMC edits
 
-OpenMC run settings, materials, and tallies use a dedicated preview → apply → undo loop. NukeAI previews the change as
+OpenMC run settings, materials, tallies, CSG geometry, and DAGMC volume materials use a dedicated preview → apply → undo loop. Project creation and Python export are confirmed writes to new files and are not undoable. NukeAI previews the change as
 a **Changes** diff card, applies it only after explicit confirmation with **Apply with NukeAI**, and offers **Undo**
 for an applied change. See [Safe Edits](safe-edits.md) for the supported fields, the confirmation behavior, and
 the in-memory undo lifetime.

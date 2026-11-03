@@ -1,6 +1,6 @@
 ---
 name: openmc-studio
-description: Summarize, validate, edit settings, materials, and tallies, import CAD, run, and poll an OpenMC Studio project. Use when a user asks about the active model, wants to change the model safely, import a DAGMC model, or needs a simulation run and its status.
+description: Summarize, validate, create, edit settings/materials/tallies/CSG/DAGMC, export Python, import CAD, run, and poll an OpenMC Studio project. Use when a user asks about the active model, wants to change the model safely, import a DAGMC model, or needs a simulation run and its status.
 ---
 
 # OpenMC Studio
@@ -83,8 +83,8 @@ Supported paths:
 | `atomicRelaxation`        | boolean                                                   |
 | `sourceRejectionFraction` | number from 0 to 1                                        |
 
-Sources, geometry, and advanced settings are out of scope for this flow. Report the rejection message instead of
-trying another path.
+Source and advanced settings are out of scope for this flow. CSG geometry and DAGMC edits have their own flows
+below. Report the rejection message instead of trying another path.
 
 ## Preview, apply, and undo material edits
 
@@ -119,6 +119,51 @@ Read the active project first and never invent nuclides, densities, volumes, col
    rejected; preview again.
 
 3. **Undo** from the apply `undoToken`. Undo restores only the changed fields and fails if they changed again.
+
+## Create a project
+
+Call `nuke_openmc_createProject` with `name`, a workspace `path` ending in `.nuke-openmc`, and optionally `templateId`
+and `parameters`. The path must not exist; a dirty open project is refused, and a clean one needs `replaceExisting`.
+Creation writes a new file and is not undoable, so use it only when the user explicitly asks for a new project.
+
+## Export the Python script
+
+Call `nuke_openmc_exportPython` with an optional workspace `path`, `mode` (`single` or `separate`), and the
+`includeComments`/`includeShebang` flags. Single mode defaults to `model.py` beside the saved project; separate mode
+writes the split modules into the project directory or the given directory. An existing file needs `overwrite: true`.
+Export writes a new file and is not undoable.
+
+## Preview, apply, and undo CSG geometry edits
+
+Read the project summary first and never guess surface, cell, universe, or lattice ids.
+
+1. **Preview** with `nuke_openmc_previewGeometryChange` and 1 to 48 actions:
+   - `{ "action": "add", "kind": "surface" | "cell" | "universe" | "lattice", "value": { ... } }` - the id is optional
+     and receives the next free id; an explicit id must be unused.
+   - `{ "action": "update", "kind": ..., "id": N, "updates": { ... } }` - the id cannot change.
+   - `{ "action": "remove", "kind": ..., "id": N }`.
+
+   The preview rejects dangling references (a surface a cell region still uses, a cell a universe lists, a universe a
+   lattice or fill still uses, a fill pointing at a missing universe or lattice) and runs the same validation as the
+   CSG Builder. A project with a DAGMC file set must clear it before CSG authoring.
+
+2. **Apply** with `nuke_openmc_applyGeometryChange` and the preview id after explicit confirmation. A geometry change
+   made after the preview rejects the apply; preview again.
+
+3. **Undo** restores the previous geometry only while it still matches the applied result.
+
+## Preview, apply, and undo DAGMC volume assignments
+
+Requires a loaded `.h5m` model (`settings.dagmcFile` and `settings.dagmcInfo`). The material must already exist.
+
+1. **Preview** with `nuke_openmc_previewDagmcChange` and 1 to 32 actions:
+   - `{ "action": "assign", "volumeId": N, "material": "..." }` - an empty name unassigns.
+   - `{ "action": "setFlags", "autoGeomIds"?: boolean, "autoMatIds"?: boolean }`.
+
+2. **Apply** with `nuke_openmc_applyDagmcChange` after explicit confirmation. Apply writes the `.h5m` through the
+   backend, rolls back earlier writes if a later assignment fails, and only then updates project state.
+
+3. **Undo** restores both the file assignments and the project state; it fails if the values changed after apply.
 
 ## Import a NukeCAD DAGMC model
 

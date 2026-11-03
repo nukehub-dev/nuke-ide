@@ -57,6 +57,10 @@ import { OpenMCCapabilities, OpenMCContextContribution } from './capabilities/op
 import { OpenMCChangeProposalService } from './capabilities/openmc-change-proposal-service';
 import { OpenMCMaterialCapabilities } from './capabilities/openmc-material-capabilities';
 import { OpenMCTallyCapabilities } from './capabilities/openmc-tally-capabilities';
+import { OpenMCProjectCapabilities } from './capabilities/openmc-project-capabilities';
+import { OpenMCScriptCapabilities } from './capabilities/openmc-script-capabilities';
+import { OpenMCDagmcCapabilities } from './capabilities/openmc-dagmc-capabilities';
+import { OpenMCGeometryCapabilities } from './capabilities/openmc-geometry-capabilities';
 
 // New modular services
 import { OpenMCEnvironmentService, OpenMCHealthService, OpenMCInstallerService } from './services';
@@ -192,6 +196,18 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 
     bind(OpenMCTallyCapabilities).toSelf().inSingletonScope();
     bind(NukeCapabilityContribution).toService(OpenMCTallyCapabilities);
+
+    bind(OpenMCProjectCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCProjectCapabilities);
+
+    bind(OpenMCScriptCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCScriptCapabilities);
+
+    bind(OpenMCDagmcCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCDagmcCapabilities);
+
+    bind(OpenMCGeometryCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCGeometryCapabilities);
 
     bind(OpenMCContextContribution).toSelf().inSingletonScope();
     bind(NukeCapabilityContextContribution).toService(OpenMCContextContribution);

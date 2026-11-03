@@ -26,7 +26,8 @@ Optional extension for the AI runtime and its integration with NukeIDE capabilit
 - NukeAI chat with agents, skills (progressive disclosure), and a themed Welcome screen
 - Exposes every enabled Nuke capability as a typed AI chat tool
 - Read-only diagnostics agent for CAD model health, OpenMC project readiness and failed runs, and statepoint convergence and tally coverage
-- Preview/apply/undo OpenMC settings, material, and tally edits with a before/after diff and explicit confirmation
+- Preview/apply/undo OpenMC settings, material, tally, CSG geometry, and DAGMC volume-material edits with a before/after diff and explicit confirmation
+- Create OpenMC projects from templates and export the project as Python, both to validated workspace paths
 - Eight CAD authoring slices: scalar feature and sketch-dimension edits, topology-impacting changes, imported bodies, assembly placement, drawing-sheet presentation, Linux-only sandboxed Python scripts, and parameterized component-document creation (its template list is read-only and ungated)
 - Names, validates, and bounds tool arguments and results before they reach the model
 - Refreshes the tool set when capabilities or ambient context change

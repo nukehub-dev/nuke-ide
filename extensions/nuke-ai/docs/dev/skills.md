@@ -66,7 +66,9 @@ by name when a conversation needs progressive disclosure.
   `nuke_openmc_previewSettings`, `nuke_openmc_applySettings`, `nuke_openmc_previewMaterialChange`,
   `nuke_openmc_applyMaterialChange`, `nuke_openmc_previewTallyChange`, `nuke_openmc_applyTallyChange`,
   `nuke_openmc_importCad`, `nuke_openmc_runSimulation`, `nuke_openmc_getRunStatus`, `nuke_openmc_diagnoseProject`,
-  `nuke_openmc_diagnoseRun`, `nuke_viz_summarizeStatepoint`, `nuke_viz_openStatepoint`, `nuke_viz_captureView`,
+  `nuke_openmc_diagnoseRun`, `nuke_openmc_createProject`, `nuke_openmc_exportPython`, `nuke_openmc_previewGeometryChange`,
+  `nuke_openmc_applyGeometryChange`, `nuke_openmc_previewDagmcChange`, `nuke_openmc_applyDagmcChange`,
+  `nuke_viz_summarizeStatepoint`, `nuke_viz_openStatepoint`, `nuke_viz_captureView`,
   `nuke_viz_diagnoseStatepoint`, `nuke_viz_compareStatepoints`, `nuke_viz_analyzeTallySeries`.
   `nuke_viz_compareStatepoints` and `nuke_viz_analyzeTallySeries` are exposed only to the read-only Diagnostics agent.
 - Call instructions use the sanitized tool names. Each skill includes one short mapping note because the

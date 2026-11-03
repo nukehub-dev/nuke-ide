@@ -19,7 +19,7 @@ the model to ask before a write, execute, or destructive tool. Export, import, r
 Theia confirmation requirement. Never add a write or execute tool to the prompt without a matching confirmation path.
 
 The safe-edit section requires NukeAI to preview with `nuke_openmc_previewSettings`, `nuke_openmc_previewMaterialChange`,
-`nuke_openmc_previewTallyChange`, `nuke_cad_previewFeatureChange`, `nuke_cad_previewSketchChange`,
+`nuke_openmc_previewTallyChange`, `nuke_openmc_previewGeometryChange`, `nuke_openmc_previewDagmcChange`, `nuke_cad_previewFeatureChange`, `nuke_cad_previewSketchChange`,
 `nuke_cad_previewTopologyChange`, `nuke_cad_previewImportBodies`, `nuke_cad_previewAssemblyChange`,
 `nuke_cad_previewDrawingChange`, or `nuke_cad_previewScriptChange`, show the diff, plan, placement rows, or
 sheet/view/dimension rows, apply with the matching apply tool (including `nuke_cad_applyFeatureChange`,

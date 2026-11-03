@@ -1,6 +1,6 @@
 # Safe Edits
 
-NukeAI can change basic OpenMC run settings, materials, tallies, scalar CAD feature parameters, existing sketch
+NukeAI can change basic OpenMC run settings, materials, tallies, CSG surfaces/cells/universes/lattices, DAGMC volume materials, scalar CAD feature parameters, existing sketch
 dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
 STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, existing drawing-sheet presentation
 settings, parameterized component-document creation, and, on Linux only, sandboxed Python model scripts without writing
@@ -25,8 +25,8 @@ Only these paths are accepted. Any other path rejects the whole preview.
 | `atomicRelaxation`        | boolean                                                   |
 | `sourceRejectionFraction` | number from 0 to 1                                        |
 
-Sources, geometry, and advanced settings are not editable through this flow. Materials and tallies have their own
-flows below.
+Sources and advanced settings are not editable through this flow. Materials, tallies, CSG geometry, and DAGMC have
+their own flows below.
 
 ## Materials
 
@@ -56,6 +56,26 @@ Tally edits support add, update, and remove actions, one to twenty per preview.
 Scores must be catalog names or numeric `MT<n>` values. Existing filters, triggers, and derivatives are preserved and
 cannot be edited through this flow. Adding a tally with filters is supported; mesh authoring remains a dashboard task.
 NukeAI never invents tally results: run the model and inspect a statepoint for results.
+
+## CSG geometry
+
+Geometry edits add, update, or remove a `surface`, `cell`, `universe`, or `lattice`, one to forty-eight actions per
+preview. Ids are optional on add (the next free id is assigned) and cannot change on update. The preview rejects
+references that would dangle: a surface a cell region still uses, a cell a universe still lists, a universe a lattice or
+cell still fills, and a fill that points at a missing universe or lattice. It runs the same geometry validation as the
+CSG Builder before storing a proposal. A project with a DAGMC file set must clear it before CSG authoring.
+
+## DAGMC volumes
+
+DAGMC edits assign a material to a volume (an empty name unassigns) or toggle the `autoGeomIds`/`autoMatIds` flags. The
+material must already exist in the project. Apply writes the `.h5m` file through the same backend path as the DAGMC
+Editor, rolls back earlier volume writes if a later one fails, and undo restores both the file and the project state.
+
+## Project creation and Python export
+
+Creating a project from a template and exporting the project as Python write new files; they are confirmed but not
+undoable. The path must be inside the workspace, must not already exist, and project creation refuses a dirty open
+project. Export defaults to `model.py` beside the saved project.
 
 ## Preview
 

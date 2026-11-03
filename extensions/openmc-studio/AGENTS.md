@@ -55,9 +55,13 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   mesh metadata is loaded by the DAGMC Editor. `docs/user/coverage.md` is the user-facing support matrix; update it with each
   feature and keep `docs/user/index.md`/`simulation-dashboard.md` free of full-coverage claims. See `docs/dev/xml-generation.md`.
 - NukeAI capabilities live in `src/browser/capabilities/`: project/run/settings in `openmc-capabilities.ts`, material edits in
-  `openmc-material-capabilities.ts`, and tally edits in `openmc-tally-capabilities.ts`; they orchestrate existing state, XML,
-  environment, and runner services instead of reimplementing XML or run logic. See `docs/dev/ai-capabilities.md`.
+  `openmc-material-capabilities.ts`, tally edits in `openmc-tally-capabilities.ts`, project creation in
+  `openmc-project-capabilities.ts`, Python export in `openmc-script-capabilities.ts`, DAGMC volume-material edits in
+  `openmc-dagmc-capabilities.ts`, and CSG authoring in `openmc-geometry-capabilities.ts` (pure reducer in
+  `src/common/geometry-edit.ts`); they orchestrate existing state, XML, environment, and runner services instead of
+  reimplementing XML or run logic. See `docs/dev/ai-capabilities.md`.
 - `OpenMCChangeProposalService` (`src/browser/capabilities/openmc-change-proposal-service.ts`) stores scoped in-memory proposals
+  (`settings`, `materials`, `tallies`, `project`, `geometry`, `dagmc`); apply capabilities reject a proposal from another scope.
   (max 20, 10-minute TTL, cloned snapshots); `previewSettings`/`applySettings` use the `settings` scope, and apply registers a
   session undo that restores only the changed paths. See `docs/dev/ai-capabilities.md`.
 - `nuke.openmc.previewMaterialChange`/`applyMaterialChange` add, update, or remove materials through a `materials` proposal;

@@ -303,6 +303,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Testing: end-to-end layer running real OpenMC drivers and project-file fixtures, env-gated and skipping cleanly otherwise.
 - Testing: nuke-cad pincell DAGMC e2e (labeled pincell to imprinted h5m to real run asserting zero lost particles).
 
+- openmc-studio: NukeAI creates a project from any shipped template at a validated workspace path, refusing a dirty open project.
+- openmc-studio: NukeAI exports the saved project as a single `model.py` or split Python modules to a validated path.
+- openmc-studio: NukeAI adds, updates, and removes CSG surfaces, cells, universes, and lattices with geometry validation, preview, and undo.
+- openmc-studio: NukeAI reassigns DAGMC volume materials and auto-id flags with preview, backend `.h5m` writes, rollback, and undo.
+
 ### Changed
 
 - Platform: Theia 1.73.1 to 1.76.0; Electron shell moves to 43.8.5 and Node.js to >=24.
