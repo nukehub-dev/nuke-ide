@@ -27,6 +27,7 @@
     "@theia/debug": "1.76.0",
     "@theia/editor": "1.76.0",
     "@theia/filesystem": "1.76.0",
+    "@theia/getting-started": "1.76.0",
     "@theia/keymaps": "1.76.0",
     "@theia/monaco": "1.76.0",
     "@theia/test": "1.76.0",

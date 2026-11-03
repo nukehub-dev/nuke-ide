@@ -184,7 +184,7 @@ export class NukeCadCreationCapabilities implements NukeCapabilityContribution {
             category: CATEGORY,
             inputSchema: PREPARE_INPUT_SCHEMA,
             risk: 'read',
-            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
             tags: ['cad', 'templates', 'preview'],
             when: () => this.enabled(),
             invoke: (input, context) => this.prepareCreation(input, context)

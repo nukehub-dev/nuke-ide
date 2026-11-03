@@ -27,16 +27,22 @@
 
 import { codicon, CommonCommands, Key, KeyCode, LabelProvider, Message, ReactWidget } from '@theia/core/lib/browser';
 import { FrontendApplicationConfigProvider } from '@theia/core/lib/browser/frontend-application-config-provider';
+import { MarkdownRenderer } from '@theia/core/lib/browser/markdown-rendering/markdown-renderer';
+import { ThemeService } from '@theia/core/lib/browser/theming';
 import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { CommandRegistry, environment, isOSX, Path, PreferenceService } from '@theia/core/lib/common';
 import { ApplicationInfo, ApplicationServer } from '@theia/core/lib/common/application-protocol';
 import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
+import { ILogger } from '@theia/core/lib/common/logger';
 import { nls } from '@theia/core/lib/common/nls';
 import URI from '@theia/core/lib/common/uri';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import { KeymapsCommands } from '@theia/keymaps/lib/browser';
 import { WorkspaceCommands, WorkspaceService } from '@theia/workspace/lib/browser';
+import { WalkthroughCommands } from '@theia/getting-started/lib/common/walkthrough-commands';
+import { WalkthroughSection } from '@theia/getting-started/lib/browser/walkthrough-section';
+import { WalkthroughService } from '@theia/getting-started/lib/browser/walkthrough-service';
 import { QuoteService, Quote } from '../../common/quote-protocol';
 import { Logo } from '../../theme/browser/components';
 
@@ -126,6 +132,18 @@ export class GettingStartedWidget extends ReactWidget {
     @inject(QuoteService)
     protected readonly quoteService: QuoteService;
 
+    @inject(WalkthroughService)
+    protected readonly walkthroughService: WalkthroughService;
+
+    @inject(MarkdownRenderer)
+    protected readonly markdownRenderer: MarkdownRenderer;
+
+    @inject(ThemeService)
+    protected readonly themeService: ThemeService;
+
+    @inject(ILogger)
+    protected readonly logger: ILogger;
+
     constructor(options?: any) {
         super(options);
         this.scrollOptions = undefined;
@@ -133,17 +151,31 @@ export class GettingStartedWidget extends ReactWidget {
 
     @postConstruct()
     protected init(): void {
+        // Subscribe before the asynchronous initialization so a walkthrough
+        // selected right after construction (the `walkthrough.open` command)
+        // is not missed.
+        this.toDispose.push(this.walkthroughService.onDidChangeWalkthroughs(() => this.refreshWalkthrough()));
+        this.toDispose.push(this.walkthroughService.onDidChangeSelection(() => this.refreshWalkthrough()));
         this.doInit();
+    }
+
+    /** Re-render and retitle after the selected walkthrough changes. */
+    protected refreshWalkthrough(): void {
+        const walkthrough = this.walkthroughService.selectedWalkthrough;
+        this.title.label =
+            walkthrough === undefined ? GettingStartedWidget.LABEL : nls.localizeByDefault('Walkthrough: {0}', walkthrough.title);
+        this.title.caption = this.title.label;
+        this.update();
     }
 
     protected async doInit(): Promise<void> {
         this.id = GettingStartedWidget.ID;
-        this.title.label = GettingStartedWidget.LABEL;
-        this.title.caption = GettingStartedWidget.LABEL;
         this.title.closable = true;
         // Render the static shell immediately; application info, recent
-        // workspaces, and the quote hydrate asynchronously below.
-        this.update();
+        // workspaces, and the quote hydrate asynchronously below. The title
+        // follows a walkthrough that was already selected before this widget
+        // was constructed.
+        this.refreshWalkthrough();
         // The quote is independent of the slower extension/workspace lookups.
         // Start it now so it appears as soon as the backend responds.
         void this.loadQuote();
@@ -195,6 +227,9 @@ export class GettingStartedWidget extends ReactWidget {
      * Render the content of the widget.
      */
     protected render(): React.ReactNode {
+        if (this.walkthroughService.selectedWalkthrough !== undefined) {
+            return this.renderSelectedWalkthrough();
+        }
         return (
             <div className="gs-container">
                 <div className="gs-content-container">
@@ -202,6 +237,7 @@ export class GettingStartedWidget extends ReactWidget {
                         {this.renderHeader()}
                         <hr className="gs-hr" />
                         {this.renderStart()}
+                        {this.renderWalkthroughs()}
                         {this.renderRecentWorkspaces()}
                         {this.renderSettings()}
                         {this.renderHelp()}
@@ -230,6 +266,31 @@ export class GettingStartedWidget extends ReactWidget {
             </div>
         );
     }
+
+    /**
+     * Render the selected walkthrough on its own, taking over the whole view.
+     * The regular welcome content returns once the walkthrough is closed.
+     */
+    protected renderSelectedWalkthrough(): React.ReactNode {
+        return <div className="gs-container gs-walkthrough-container">{this.renderWalkthroughs()}</div>;
+    }
+
+    /** Render the contributed walkthroughs, or the selected one. */
+    protected renderWalkthroughs(): React.ReactNode {
+        return (
+            <WalkthroughSection
+                walkthroughService={this.walkthroughService}
+                markdownRenderer={this.markdownRenderer}
+                themeService={this.themeService}
+                logger={this.logger}
+                onShowAll={this.showAllWalkthroughs}
+            />
+        );
+    }
+
+    protected readonly showAllWalkthroughs = (): void => {
+        void this.commandRegistry.executeCommand(WalkthroughCommands.OPEN_WALKTHROUGH.id);
+    };
 
     /**
      * Render the widget header.
