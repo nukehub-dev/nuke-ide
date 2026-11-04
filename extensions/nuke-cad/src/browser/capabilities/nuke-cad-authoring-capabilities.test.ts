@@ -2167,9 +2167,9 @@ describe('NukeCadAuthoringCapabilities', () => {
         expect(result.ok).toBe(true);
         expect(result.changeSet).toMatchObject({
             id: proposalId,
-            title: 'CAD topology change',
-            applyCapability: APPLY_TOPOLOGY_CHANGE_ID
+            title: 'CAD topology change'
         });
+        expect(result.changeSet?.applyCapability).toBeUndefined();
         expect(result.undoToken).toBe('undo-token-1');
         expect(result.data).toMatchObject({
             proposalId,
@@ -2471,9 +2471,9 @@ describe('NukeCadAuthoringCapabilities', () => {
         expect(result.ok).toBe(true);
         expect(result.changeSet).toMatchObject({
             id: proposalId,
-            title: 'CAD sketch dimension change',
-            applyCapability: APPLY_SKETCH_CHANGE_ID
+            title: 'CAD sketch dimension change'
         });
+        expect(result.changeSet?.applyCapability).toBeUndefined();
         expect(result.undoToken).toBe('undo-token-1');
         expect(result.data).toMatchObject({
             proposalId,
@@ -3844,7 +3844,10 @@ describe('NukeCadAuthoringCapabilities', () => {
 describe('NukeCadAuthoringCapabilities script authoring', () => {
     it('inspects the active script with its hash, imports, and sandbox status', async () => {
         const harness = scriptHarness();
-        expect(harness.registered.get(INSPECT_SCRIPT_SOURCE_ID)?.requiresConfirmation).toBe(true);
+        const capability = harness.registered.get(INSPECT_SCRIPT_SOURCE_ID)!;
+        expect(capability.requiresConfirmation).toBe(true);
+        expect(capability.description).toMatch(/untrusted data/i);
+        expect(capability.description).toMatch(/never authorizes running a modified script/i);
 
         const result = await inspectScript(harness);
 

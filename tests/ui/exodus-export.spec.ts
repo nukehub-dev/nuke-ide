@@ -54,6 +54,21 @@ test('export dialog confirms the scope and the capture finishes honestly', async
 
     const container = await openExodusViewer(page);
 
+    // Orientation aid: the labeled ViewCube overlays the point cloud.
+    await expect(container.locator('.nuke-view-cube')).toBeVisible();
+
+    // Step controls use real codicon glyphs and disable at the series ends.
+    const firstStep = container.getByRole('button', { name: 'First step' });
+    const lastStep = container.getByRole('button', { name: 'Last step' });
+    await expect(firstStep).toBeVisible();
+    await expect(firstStep.locator('i')).toHaveClass(/codicon-arrow-left/);
+    await expect(lastStep.locator('i')).toHaveClass(/codicon-arrow-right/);
+    await expect(firstStep).toBeDisabled();
+    await expect(lastStep).toBeEnabled();
+    await lastStep.click();
+    await expect(firstStep).toBeEnabled();
+    await expect(container.getByRole('button', { name: 'Fit view' })).toBeVisible();
+
     // The header Export button opens the confirm dialog: step count plus the
     // WYSIWYG color-by scope (per-step re-ranging stays off by design).
     await container.getByRole('button', { name: 'Export animation as WebM' }).click();
@@ -68,6 +83,11 @@ test('export dialog confirms the scope and the capture finishes honestly', async
     await expect(doneNotice.or(exportError)).toBeVisible({ timeout: 120_000 });
     if (await exportError.isVisible()) {
         await expect(exportError).toContainText('MediaRecorder');
+    } else {
+        const notice = container.getByRole('status');
+        await expect(notice).toContainText('Animation saved');
+        await container.getByRole('button', { name: 'Dismiss animation export notice' }).click();
+        await expect(notice).toHaveCount(0);
     }
     await expect(container.locator('.openmc-output-viewer-viewarea canvas')).toBeVisible();
     const bad = severe(errors);

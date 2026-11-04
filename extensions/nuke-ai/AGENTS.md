@@ -32,7 +32,9 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
   and `ChatAgent`; an empty default-agent preference is set to NukeAI, and the welcome picker lists NukeAI and Nuke
   Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and
-  write/execute tools require explicit confirmation. The safe-edit section requires preview before apply for settings,
+  write/execute tools require explicit confirmation. `NUKE_CAPABILITY_TOOL_NAMES` and the prompt test's capability-id
+  list must stay aligned with the prompt: a new chat capability needs its tool line, dotted id, and both lists updated
+  together, or the model cannot call it. The safe-edit section requires preview before apply for settings,
   materials, tallies, and CAD feature/sketch/topology/import/assembly/drawing edits, a shown diff or plan, confirmation, and
   undo reporting; script preview is shown but its apply is panel-only, never from chat. See `docs/user/safe-edits.md`.
 - CAD authoring ships eight slices: the edit slices and creation apply follow `nukeCad.aiAuthoringEnabled` (default off) and

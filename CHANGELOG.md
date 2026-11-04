@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: NukeAI previews OpenMC settings edits as diffs, applies them with confirmation, and can undo the change in-session.
 - nuke-ai: NukeAI previews, applies, and undoes OpenMC material additions, updates, and removals.
 - nuke-ai: NukeAI previews, applies, and undoes OpenMC tally additions, updates, and removals.
+- nuke-ai: NukeAI reads OpenMC material, tally, and geometry inventories (including DAGMC volumes) before editing, and the read-only MCP catalog exposes the same tools.
+- nuke-ai: NukeAI and Nuke Diagnostics treat tool results, file and script text, logs, names, and labels as untrusted data; the MCP endpoint advertises the rule to external clients.
 - nuke-ai: the diagnostics agent can compare statepoints and analyze tally series.
 - nuke-ai: external MCP exposes a live read-only catalog of CAD, OpenMC, and Visualizer tools with resources, prompts, rate limits, and audit logging.
 - nuke-ai: NukeAI actions appear directly in the CAD viewport, OpenMC validation/run, DAGMC, and tally menus.
@@ -371,6 +373,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - app: startup splash tracks real loading progress and never blanks out on slow connections.
+- nuke-ai: NukeAI advertises its CAD template-creation and OpenMC project, export, CSG, and DAGMC tools, and the prompt describes template creation, so the agent can call capabilities that were already registered.
 - nuke-ai: script authoring tools refresh immediately when the workspace Script Authoring switch changes.
 - nuke-ai: script source inspection asks for confirmation before source text leaves the IDE; MCP resource reads share the session rate limit and audit ring.
 - nuke-ai: preview/log writes reject symlinked workspace paths, oversized previews fall back to bounded text, and diagnostic sessions reject non-diagnostic tools.
@@ -382,6 +385,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: NukeAI can run the CAD, OpenMC project/run, and statepoint diagnostic tools directly, so diagnosis prompts work in the general agent too.
 - nuke-ai: external MCP sessions and NukeAI skills resolve the packaged skill root instead of a missing `applications/skills` path.
 - nuke-ai: capability tools use one sanitized id and name, so AI confirmations, parameter labels, and result cards resolve the correct tool.
+- nuke-cad: applying a sketch or topology change no longer offers a second Apply action on the result card.
+- nuke-visualizer: Exodus and tally-series step controls show working first/last icons, compact buttons, end-of-series disabled states, a readable step label, a fit-view action, and larger points for small clouds.
+- nuke-visualizer: the Exodus viewer adds a labeled ViewCube and scale grid for orientation, and export completion uses one dismissible inline notice instead of a duplicate toast.
+- nuke-visualizer: the probe dialog reserves space above the viewer navigation bar so chart axes and the bottom bar no longer overlap.
+- openmc-studio: particle tally filters use the themed selector layout with title-case checkbox labels, themed custom-PDG fields, and no native number spinners.
+- openmc-studio: rectilinear mesh boundary inputs follow the active theme instead of the browser's default white field.
 - CI: vitest job compiles extensions first; conda pin no longer requests an unsatisfiable Python.
 - docker: image Python env ships working build123d with the OCP 7.9 shim and a CI version guard.
 - docs: GitHub-rendered guides use portable relative links, so extension and product pages no longer return 404.

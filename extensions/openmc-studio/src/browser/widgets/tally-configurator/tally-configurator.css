@@ -1058,7 +1058,30 @@
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border, var(--theia-panel-border));
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
     font-family: var(--theia-code-font-family);
+    font-size: 12px;
+    outline: none;
+    transition:
+        border-color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+.tally-configurator-container .mesh-grid-input::placeholder {
+    color: var(--theia-input-placeholderForeground);
+}
+
+.tally-configurator-container .mesh-grid-input:focus {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theia-focusBorder) 24%, transparent);
+}
+
+.tally-configurator-container .mesh-grid-input[aria-invalid='true'] {
+    border-color: var(--theia-inputValidation-errorBorder, var(--theia-errorForeground));
 }
 
 .tally-configurator-container .mesh-grid-tokens {

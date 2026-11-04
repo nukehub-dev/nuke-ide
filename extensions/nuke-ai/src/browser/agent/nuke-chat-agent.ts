@@ -30,7 +30,7 @@
  *
  * The dedicated `NukeAI` chat agent. It uses the standard streaming chat
  * pipeline with a nuclear-engineering system prompt, the `#nukeContext`
- * variable, and the forty capability tools published by the in-process bridge.
+ * variable, and the capability tools published by the in-process bridge.
  *
  * @module nuke-ai/browser/agent
  */
@@ -73,23 +73,35 @@ export const NUKE_CAPABILITY_TOOL_NAMES = [
     'nuke_cad_summarizeDrawing',
     'nuke_cad_previewDrawingChange',
     'nuke_cad_applyDrawingChange',
+    'nuke_cad_listDocumentTemplates',
+    'nuke_cad_prepareDocumentCreation',
+    'nuke_cad_createDocumentFromTemplate',
     'nuke_cad_inspectScriptSource',
     'nuke_cad_previewScriptChange',
     'nuke_cad_applyScriptChange',
     'nuke_cad_exportDagmc',
     'nuke_openmc_summarizeProject',
+    'nuke_openmc_summarizeMaterials',
+    'nuke_openmc_summarizeTallies',
+    'nuke_openmc_summarizeGeometry',
     'nuke_openmc_validateProject',
     'nuke_openmc_diagnoseProject',
-    'nuke_openmc_diagnoseRun',
+    'nuke_openmc_importCad',
+    'nuke_openmc_createProject',
+    'nuke_openmc_exportPython',
     'nuke_openmc_previewSettings',
     'nuke_openmc_applySettings',
     'nuke_openmc_previewMaterialChange',
     'nuke_openmc_applyMaterialChange',
     'nuke_openmc_previewTallyChange',
     'nuke_openmc_applyTallyChange',
-    'nuke_openmc_importCad',
+    'nuke_openmc_previewGeometryChange',
+    'nuke_openmc_applyGeometryChange',
+    'nuke_openmc_previewDagmcChange',
+    'nuke_openmc_applyDagmcChange',
     'nuke_openmc_runSimulation',
     'nuke_openmc_getRunStatus',
+    'nuke_openmc_diagnoseRun',
     'nuke_viz_summarizeStatepoint',
     'nuke_viz_diagnoseStatepoint',
     'nuke_viz_openStatepoint',

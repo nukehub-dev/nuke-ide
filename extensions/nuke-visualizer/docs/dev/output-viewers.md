@@ -58,7 +58,9 @@ triangle/segment/voxel raycast hits to dataset tuples through
 `viewer-core/probe-model.ts`, while line profiles call `runBaseCommand` only
 for file-backed viewers. Picked samples render as world-anchored scene
 markers (newest accented, older muted) outside the data group, so probe and
-measure raycasts never hit them.
+measure raycasts never hit them. The 430 px probe host reserves the bottom
+navigation band; its `max-height` must stay clear of `.nuke-viewer-nav-bar`
+so chart axes never run under the bar.
 
 Shading modes live in `viewer-core/shading-mode.ts`. `edges` draws every
 triangle edge; `feature-edges` passes a 30° threshold to `EdgesGeometry` and

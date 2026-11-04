@@ -302,11 +302,13 @@ dependency shows an error instead of a partial file.
 ## Exodus Time Series
 
 Opening a `.e` / `.exo*` file loads its steps into the **time-slider
-viewer**: first/prev/slider/next/last stepping plus an instant per-step
-array switch (no reload), with the same Color by / Map / legend /
-background controls as the other viewers and the step in the Viewer
-Settings Playback section. Extraction needs `netCDF4` (or `meshio` for
-the single-step fallback) in the Python environment.
+viewer**: first/prev/slider/next/last stepping (the end buttons disable at
+the series limits), a **Fit view** action, a labeled **ViewCube**, and a
+faint XZ grid for scale and orientation, plus an instant per-step array
+switch (no reload), with the same Color by / Map / legend / background
+controls as the other viewers and the step in the Viewer Settings Playback
+section. Extraction needs `netCDF4` (or `meshio` for the single-step
+fallback) in the Python environment.
 
 ### Animation Export
 
@@ -320,6 +322,9 @@ starting step.
 
 - The export is WYSIWYG: colors use the current global range and
   per-step re-ranging is off, so brightness may flicker between steps.
+- Completion and cancellation leave one dismissible status row in the
+  viewer instead of a duplicate notification; failures also raise an
+  error notification.
 - Shells without `MediaRecorder` (headless builds) cannot record — the
   export reports a clear error instead of silently doing nothing.
 

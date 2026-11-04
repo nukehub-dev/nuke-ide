@@ -26,6 +26,60 @@
     flex-wrap: wrap;
 }
 
+/* Time-series step controls: compact icon buttons and a slider that keeps
+   the step label readable without pushing it under the viewer chrome. */
+.openmc-output-viewer-step-row {
+    gap: 6px;
+}
+
+.openmc-output-viewer-step-row .openmc-output-viewer-step-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 26px;
+    padding: 0 6px;
+    margin: 0;
+}
+
+.openmc-output-viewer-step-row input[type='range'] {
+    flex: 1 1 180px;
+    min-width: 120px;
+    margin: 0;
+    accent-color: var(--theia-focusBorder);
+}
+
+.openmc-output-viewer-step-label {
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.openmc-output-viewer-notice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.openmc-output-viewer-notice.error {
+    color: var(--theia-errorForeground);
+}
+
+.openmc-output-viewer-header .openmc-output-viewer-notice-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 4px;
+    margin: 0;
+}
+
 .openmc-output-viewer-file {
     font-size: 13px;
     font-weight: 600;
@@ -691,7 +745,7 @@
     z-index: 30;
     width: 430px;
     max-width: calc(100% - 28px);
-    max-height: calc(100% - 80px);
+    max-height: calc(100% - 120px);
     min-height: 0;
     display: flex;
     overflow: hidden;

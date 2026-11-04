@@ -52,6 +52,11 @@ test('creates a rectilinear mesh with the token editor and bounds helper', async
     await expect(editor.locator('.mesh-summary')).toContainText('Rectilinear');
     await expect(editor.locator('.mesh-grid-editor')).toHaveCount(3);
 
+    // Grid inputs inherit the same Theia input colors as every other form field.
+    const gridBackground = await editor.getByLabel('X boundaries').evaluate((element) => getComputedStyle(element).backgroundColor);
+    const formBackground = await editor.getByLabel('X lower bound').evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(gridBackground).toBe(formBackground);
+
     // Default grids are 2×2×2; typing explicit boundaries updates cells.
     await editor.getByLabel('X boundaries').fill('0 0.5 1');
     await editor.getByLabel('Y boundaries').fill('0 0.5 1');
@@ -126,7 +131,7 @@ test('mesh filter transform controls round-trip through the filter editor', asyn
     await addMesh(page, widget);
 
     // Add a tally and a mesh filter.
-    await widget.locator('.tally-configurator-tabs .tab-button', { hasText: 'Tallies' }).click();
+    await widget.getByRole('button', { name: 'Tallies', exact: true }).click();
     await widget.locator('.tally-list-panel .add-button').click();
     const tallyEditor = widget.locator('.tally-editor');
     await expect(tallyEditor).toBeVisible();

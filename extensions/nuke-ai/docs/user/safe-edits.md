@@ -28,6 +28,13 @@ Only these paths are accepted. Any other path rejects the whole preview.
 Sources and advanced settings are not editable through this flow. Materials, tallies, CSG geometry, and DAGMC have
 their own flows below.
 
+## Finding ids
+
+Every material, tally, and geometry edit takes numeric ids. NukeAI resolves them with `summarizeMaterials`,
+`summarizeTallies`, or `summarizeGeometry` first and never invents an id. The geometry summary also returns DAGMC
+volume/material assignments. Material summaries report the nuclide count, not the list; tally filters report up to 20
+sample bins plus the full count.
+
 ## Materials
 
 Material edits support add, update, and remove actions, one to twenty per preview.
@@ -39,8 +46,8 @@ Material edits support add, update, and remove actions, one to twenty per previe
 
 Material ids, macroscopic data, and CAD provenance fields are read-only in this flow. NCrystal config cannot be
 combined with thermal scattering. A nuclide list uses `{ name, fraction, fractionType }` entries and must have a
-positive total fraction. NukeAI reads the current material first and does not invent nuclides, densities, volumes, or
-names.
+positive total fraction. NukeAI resolves the id with `summarizeMaterials`, reads the current material first, and does not
+invent nuclides, densities, volumes, or names.
 
 Removing a material does not rewrite references in cells or tallies. Validate the project after a removal.
 
@@ -55,21 +62,24 @@ Tally edits support add, update, and remove actions, one to twenty per preview.
 
 Scores must be catalog names or numeric `MT<n>` values. Existing filters, triggers, and derivatives are preserved and
 cannot be edited through this flow. Adding a tally with filters is supported; mesh authoring remains a dashboard task.
-NukeAI never invents tally results: run the model and inspect a statepoint for results.
+NukeAI resolves ids with `summarizeTallies` and never invents tally results: run the model and inspect a statepoint for
+results.
 
 ## CSG geometry
 
 Geometry edits add, update, or remove a `surface`, `cell`, `universe`, or `lattice`, one to forty-eight actions per
-preview. Ids are optional on add (the next free id is assigned) and cannot change on update. The preview rejects
+preview. Ids are optional on add (the next free id is assigned) and cannot change on update. NukeAI resolves existing ids
+with `summarizeGeometry`. The preview rejects
 references that would dangle: a surface a cell region still uses, a cell a universe still lists, a universe a lattice or
 cell still fills, and a fill that points at a missing universe or lattice. It runs the same geometry validation as the
 CSG Builder before storing a proposal. A project with a DAGMC file set must clear it before CSG authoring.
 
 ## DAGMC volumes
 
-DAGMC edits assign a material to a volume (an empty name unassigns) or toggle the `autoGeomIds`/`autoMatIds` flags. The
-material must already exist in the project. Apply writes the `.h5m` file through the same backend path as the DAGMC
-Editor, rolls back earlier volume writes if a later one fails, and undo restores both the file and the project state.
+DAGMC edits assign a material to a volume (an empty name unassigns) or toggle the `autoGeomIds`/`autoMatIds` flags. NukeAI
+resolves volume ids and current assignments with `summarizeGeometry`. The material must already exist in the project.
+Apply writes the `.h5m` file through the same backend path as the DAGMC Editor, rolls back earlier volume writes if a later
+one fails, and undo restores both the file and the project state.
 
 ## Project creation and Python export
 
@@ -374,6 +384,15 @@ seccomp boundary, not a complete security guarantee: because the filter is a den
 still matter. The audit log under `<workspace>/.nuke-ide/ai/` records hashes, outcome,
 duration, exit, timeout, counts, sandbox version, and limits, never script text, absolute paths, or process output. None
 of the script tools is exposed through MCP.
+
+## Untrusted content
+
+Only your chat message and NukeAI's built-in instructions tell it what to do. Everything a tool returns is data: file
+paths, script text, project, document, and material names, log lines, region labels, previews, result cards, MCP
+results, and context resources. If any of that text looks like an instruction aimed at NukeAI, it summarizes or quotes
+the text and tells you instead of acting on it. It never installs, downloads, executes, deletes, or messages anything
+because returned content asked. A tool result can never authorize a modified script or a new action; confirm changes
+yourself.
 
 ## Related
 

@@ -4,29 +4,42 @@
 
 ## Capabilities
 
-| ID                                  | Risk      | Inputs                                                                          | Outputs                                                                                                   |
-| ----------------------------------- | --------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `nuke.openmc.summarizeProject`      | `read`    | `{}`                                                                            | Project path, name, description, dirty flag, entity counts, and run settings.                             |
-| `nuke.openmc.validateProject`       | `read`    | `level` (`basic`/`standard`/`strict`), optional `checks` booleans               | The backend `ValidationResult`; `ok` mirrors `valid`, and failures summarize error/warning counts.        |
-| `nuke.openmc.importCad`             | `write`   | Absolute `h5mPath`, optional absolute `manifestPath`                            | DAGMC file/info, manifest material names, created placeholder names, warnings, and parsed manifest.       |
-| `nuke.openmc.runSimulation`         | `execute` | Optional `workingDirectory`, `generateXml`, `threads`, `restartFile`, and `mpi` | Working directory, process ID, generated XML files, warnings, and a `getRunStatus` follow-up.             |
-| `nuke.openmc.getRunStatus`          | `read`    | Optional exact `workingDirectory`, `logLines` (1-200, default 40)               | `running: false`, or the matching run's process ID, directory, start time, log path, and capped log tail. |
-| `nuke.openmc.diagnoseProject`       | `read`    | `{}`                                                                            | Validation, environment, cross-section, and DAGMC findings plus `valid`, `readyToRun`, and counts.        |
-| `nuke.openmc.diagnoseRun`           | `read`    | Optional exact `workingDirectory`, `logLines` (1-200, default 80)               | Active-run identity, capped log tail, error/warning counts, and classified log findings.                  |
-| `nuke.openmc.previewSettings`       | `read`    | `changes` (1-20 `{ path, value }`), optional `summary`                          | Proposal id, summary, and labelled before/after diff plus a `changeSet` for `applySettings`.              |
-| `nuke.openmc.applySettings`         | `write`   | `proposalId` from `previewSettings`                                             | Applied diff, a `changeSet` without `applyCapability`, an `undoToken`, and a diagnosis follow-up.         |
-| `nuke.openmc.previewMaterialChange` | `read`    | `actions` (1-20 update/add/remove), optional `summary`                          | Proposal id, summary, and labelled material diff plus a `changeSet` for `applyMaterialChange`.            |
-| `nuke.openmc.applyMaterialChange`   | `write`   | `proposalId` from `previewMaterialChange`                                       | Applied diff, a `changeSet` without `applyCapability`, an `undoToken`, and a diagnosis follow-up.         |
-| `nuke.openmc.previewTallyChange`    | `read`    | `actions` (1-20 update/add/remove), optional `summary`                          | Proposal id, summary, and labelled tally diff plus a `changeSet` for `applyTallyChange`.                  |
-| `nuke.openmc.applyTallyChange`      | `write`   | `proposalId` from `previewTallyChange`                                          | Applied diff, a `changeSet` without `applyCapability`, an `undoToken`, and a diagnosis follow-up.         |
-| `nuke.openmc.createProject`         | `write`   | `name`, workspace `path`, optional `templateId`/`parameters`, `replaceExisting` | Project path, template id, and entity counts. Builds and saves the project before installing it.          |
-| `nuke.openmc.exportPython`          | `write`   | Optional workspace `path`, `mode` (`single`/`separate`), comments/shebang flags | Written absolute paths and file count. Single mode defaults to `model.py` beside the project.             |
-| `nuke.openmc.previewGeometryChange` | `read`    | `actions` (1-48 add/update/remove surface, cell, universe, lattice), `summary`  | Proposal id, summary, labelled geometry diff, and counts plus a `changeSet` for `applyGeometryChange`.    |
-| `nuke.openmc.applyGeometryChange`   | `write`   | `proposalId` from `previewGeometryChange`                                       | Applied diff, an `undoToken`, and a diagnosis follow-up.                                                  |
-| `nuke.openmc.previewDagmcChange`    | `read`    | `actions` (1-32 `assign` volume material or `setFlags`), optional `summary`     | Proposal id, summary, and labelled volume/flag diff plus a `changeSet` for `applyDagmcChange`.            |
-| `nuke.openmc.applyDagmcChange`      | `write`   | `proposalId` from `previewDagmcChange`                                          | Applied diff, an `undoToken`, and a diagnosis follow-up.                                                  |
+| ID                                  | Risk      | Inputs                                                                          | Outputs                                                                                                                         |
+| ----------------------------------- | --------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `nuke.openmc.summarizeProject`      | `read`    | `{}`                                                                            | Project path, name, description, dirty flag, entity counts, and run settings.                                                   |
+| `nuke.openmc.summarizeMaterials`    | `read`    | `{}`                                                                            | Up to 200 materials with ids, names, density/unit, nuclide count (no list), depletion, volume, temperature, and CAD provenance. |
+| `nuke.openmc.summarizeTallies`      | `read`    | `{}`                                                                            | Up to 200 tallies with ids, names, scores, estimator, filter types with sample bins and counts, nuclides, and moment flags.     |
+| `nuke.openmc.summarizeGeometry`     | `read`    | Optional `includeDagmc` (default `true`)                                        | Counts and capped ids/types for surfaces, cells, universes, lattices, DAGMC volumes with materials, and up to 20 CSG findings.  |
+| `nuke.openmc.validateProject`       | `read`    | `level` (`basic`/`standard`/`strict`), optional `checks` booleans               | The backend `ValidationResult`; `ok` mirrors `valid`, and failures summarize error/warning counts.                              |
+| `nuke.openmc.importCad`             | `write`   | Absolute `h5mPath`, optional absolute `manifestPath`                            | DAGMC file/info, manifest material names, created placeholder names, warnings, and parsed manifest.                             |
+| `nuke.openmc.runSimulation`         | `execute` | Optional `workingDirectory`, `generateXml`, `threads`, `restartFile`, and `mpi` | Working directory, process ID, generated XML files, warnings, and a `getRunStatus` follow-up.                                   |
+| `nuke.openmc.getRunStatus`          | `read`    | Optional exact `workingDirectory`, `logLines` (1-200, default 40)               | `running: false`, or the matching run's process ID, directory, start time, log path, and capped log tail.                       |
+| `nuke.openmc.diagnoseProject`       | `read`    | `{}`                                                                            | Validation, environment, cross-section, and DAGMC findings plus `valid`, `readyToRun`, and counts.                              |
+| `nuke.openmc.diagnoseRun`           | `read`    | Optional exact `workingDirectory`, `logLines` (1-200, default 80)               | Active-run identity, capped log tail, error/warning counts, and classified log findings.                                        |
+| `nuke.openmc.previewSettings`       | `read`    | `changes` (1-20 `{ path, value }`), optional `summary`                          | Proposal id, summary, and labelled before/after diff plus a `changeSet` for `applySettings`.                                    |
+| `nuke.openmc.applySettings`         | `write`   | `proposalId` from `previewSettings`                                             | Applied diff, a `changeSet` without `applyCapability`, an `undoToken`, and a diagnosis follow-up.                               |
+| `nuke.openmc.previewMaterialChange` | `read`    | `actions` (1-20 update/add/remove), optional `summary`                          | Proposal id, summary, and labelled material diff plus a `changeSet` for `applyMaterialChange`.                                  |
+| `nuke.openmc.applyMaterialChange`   | `write`   | `proposalId` from `previewMaterialChange`                                       | Applied diff, a `changeSet` without `applyCapability`, an `undoToken`, and a diagnosis follow-up.                               |
+| `nuke.openmc.previewTallyChange`    | `read`    | `actions` (1-20 update/add/remove), optional `summary`                          | Proposal id, summary, and labelled tally diff plus a `changeSet` for `applyTallyChange`.                                        |
+| `nuke.openmc.applyTallyChange`      | `write`   | `proposalId` from `previewTallyChange`                                          | Applied diff, a `changeSet` without `applyCapability`, an `undoToken`, and a diagnosis follow-up.                               |
+| `nuke.openmc.createProject`         | `write`   | `name`, workspace `path`, optional `templateId`/`parameters`, `replaceExisting` | Project path, template id, and entity counts. Builds and saves the project before installing it.                                |
+| `nuke.openmc.exportPython`          | `write`   | Optional workspace `path`, `mode` (`single`/`separate`), comments/shebang flags | Written absolute paths and file count. Single mode defaults to `model.py` beside the project.                                   |
+| `nuke.openmc.previewGeometryChange` | `read`    | `actions` (1-48 add/update/remove surface, cell, universe, lattice), `summary`  | Proposal id, summary, labelled geometry diff, and counts plus a `changeSet` for `applyGeometryChange`.                          |
+| `nuke.openmc.applyGeometryChange`   | `write`   | `proposalId` from `previewGeometryChange`                                       | Applied diff, an `undoToken`, and a diagnosis follow-up.                                                                        |
+| `nuke.openmc.previewDagmcChange`    | `read`    | `actions` (1-32 `assign` volume material or `setFlags`), optional `summary`     | Proposal id, summary, and labelled volume/flag diff plus a `changeSet` for `applyDagmcChange`.                                  |
+| `nuke.openmc.applyDagmcChange`      | `write`   | `proposalId` from `previewDagmcChange`                                          | Applied diff, an `undoToken`, and a diagnosis follow-up.                                                                        |
 
 `importCad`, `runSimulation`, `createProject`, `exportPython`, and every apply capability require confirmation. Every capability is enabled regardless of whether a project is saved; handlers reject paths outside the workspace roots instead of hiding the action. The two diagnostics are read-only and never write files, change project state, or start/stop runs. Previews are read-only and never mutate project state; project creation and script export write new files and are not undoable.
+
+## Read inventories before an edit
+
+The edit flows take numeric ids. `summarizeMaterials`, `summarizeTallies`, and `summarizeGeometry` are the only legal way for a model to resolve them: each reads one `OpenMCStateManager` snapshot, never calls the backend or reads a file, and caps its rows with `truncated`.
+
+- Materials: 200 rows with `nuclideCount` but never the nuclide list.
+- Tallies: 200 rows; each filter reports its type, the first 20 numeric bins, and the full `binCount`.
+- Geometry: 100 surfaces, 100 cells, 100 universes, and 50 lattices, plus counts and the root universe id. Cells carry their `regionString` or a compact region-tree expression. Up to 100 DAGMC volumes report material assignments and triangle counts. `issues` carries the first 20 `validateGeometryModel` findings; CSG validation is skipped when a DAGMC file owns the geometry, matching run readiness.
+
+Use the summaries first and never invent ids.
 
 ## Change proposals
 
@@ -56,11 +69,11 @@ Source, output, random-ray, CMFD, and geometry settings paths are deliberately u
 
 ## Safe material edits
 
-`previewMaterialChange` accepts 1-20 actions: `{ action: 'update', materialId, updates }`, `{ action: 'add', material }`, or `{ action: 'remove', materialId }`. Updates are limited to `name`, `density`, `densityUnit`, `nuclides`, `thermalScattering`, `color`, `temperature`, `volume`, `isDepletable`, `ncrystalCfg`, and `isotropic`; ids, `macroscopic`, and CAD provenance are read-only. Adds receive `getNextMaterialId()` and require a unique name. The preview rejects duplicate actions, no-op sets, invalid density/unit/volume/temperature, malformed nuclides or thermal scattering, and NCrystal combined with thermal scattering. It stores a `materials` proposal with before/after material arrays and per-field `materials.<id>.<field>` changes plus full `materials.<id>` add/remove snapshots. Apply preflights every change against current materials, calls `updateMaterial` once per material, `addMaterial`, or `removeMaterial`, preserves unrelated materials, and registers a path-scoped undo. Removing a material does not rewrite cell or tally references.
+`previewMaterialChange` accepts 1-20 actions: `{ action: 'update', materialId, updates }`, `{ action: 'add', material }`, or `{ action: 'remove', materialId }`. Start with `summarizeMaterials` to resolve the id. Updates are limited to `name`, `density`, `densityUnit`, `nuclides`, `thermalScattering`, `color`, `temperature`, `volume`, `isDepletable`, `ncrystalCfg`, and `isotropic`; ids, `macroscopic`, and CAD provenance are read-only. Adds receive `getNextMaterialId()` and require a unique name. The preview rejects duplicate actions, no-op sets, invalid density/unit/volume/temperature, malformed nuclides or thermal scattering, and NCrystal combined with thermal scattering. It stores a `materials` proposal with before/after material arrays and per-field `materials.<id>.<field>` changes plus full `materials.<id>` add/remove snapshots. Apply preflights every change against current materials, calls `updateMaterial` once per material, `addMaterial`, or `removeMaterial`, preserves unrelated materials, and registers a path-scoped undo. Removing a material does not rewrite cell or tally references.
 
 ## Safe tally edits
 
-`previewTallyChange` accepts 1-20 actions: `{ action: 'update', tallyId, updates }`, `{ action: 'add', tally }`, or `{ action: 'remove', tallyId }`. Updates are limited to `name`, `scores`, `nuclides`, `estimator`, `multiplyDensity`, and `higherMoments`; filters, triggers, and derivatives are preserved and rejected as edits. Adds validate scores through `scores-catalog.ts` (`getScoreEntry` or numeric `MT<n>`), default `nuclides` to `['total']`, shallow-validate filters against `filters-catalog.ts`, reject caller ids, assign `getNextTallyId()`, and require a unique name when provided. The preview stores a `tallies` proposal with per-field `tallies.<id>.<field>` changes and full add/remove snapshots. Apply preflights every change against current tallies, calls `updateTally` once per tally, `addTally`, or `removeTally`, preserves unrelated tallies, and registers a path-scoped undo.
+`previewTallyChange` accepts 1-20 actions: `{ action: 'update', tallyId, updates }`, `{ action: 'add', tally }`, or `{ action: 'remove', tallyId }`. Start with `summarizeTallies` to resolve the id. Updates are limited to `name`, `scores`, `nuclides`, `estimator`, `multiplyDensity`, and `higherMoments`; filters, triggers, and derivatives are preserved and rejected as edits. Adds validate scores through `scores-catalog.ts` (`getScoreEntry` or numeric `MT<n>`), default `nuclides` to `['total']`, shallow-validate filters against `filters-catalog.ts`, reject caller ids, assign `getNextTallyId()`, and require a unique name when provided. The preview stores a `tallies` proposal with per-field `tallies.<id>.<field>` changes and full add/remove snapshots. Apply preflights every change against current tallies, calls `updateTally` once per tally, `addTally`, or `removeTally`, preserves unrelated tallies, and registers a path-scoped undo.
 
 ## Project creation and script export
 
@@ -70,7 +83,7 @@ Source, output, random-ray, CMFD, and geometry settings paths are deliberately u
 
 ## Safe CSG geometry edits
 
-`previewGeometryChange` accepts 1-48 actions over `surface`, `cell`, `universe`, and `lattice`:
+`previewGeometryChange` accepts 1-48 actions over `surface`, `cell`, `universe`, and `lattice`. Start with `summarizeGeometry` to resolve every id:
 
 - `{ action: 'add', kind, value }` — the id is optional and defaults to the next free id per kind; an explicit id must be unused. OpenMC ids are independent per entity type, so the same numeric id may exist as both a surface and a cell.
 - `{ action: 'update', kind, id, updates }` — `id` cannot change.
@@ -80,7 +93,7 @@ The pure reducer in `src/common/geometry-edit.ts` clones the geometry, applies t
 
 ## Safe DAGMC edits
 
-`previewDagmcChange` requires `settings.dagmcFile` and `settings.dagmcInfo` and accepts 1-32 actions:
+`previewDagmcChange` requires `settings.dagmcFile` and `settings.dagmcInfo` and accepts 1-32 actions. Start with `summarizeGeometry` to resolve volume ids:
 
 - `{ action: 'assign', volumeId, material }` — `material` must be an existing project material name, or an empty string to unassign; duplicate volume assignments are rejected; no-op assignments are skipped.
 - `{ action: 'setFlags', autoGeomIds?, autoMatIds? }` — at least one flag is required.

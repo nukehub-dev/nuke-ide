@@ -39,19 +39,22 @@ frontend has opened and the relevant capabilities are active.
 
 The endpoint may expose these read-only tools:
 
-| Tool                            | What it reads                                         |
-| ------------------------------- | ----------------------------------------------------- |
-| `nuke_cad_summarize_document`   | CAD build counts, selection, and manifest coverage    |
-| `nuke_cad_inspect_selection`    | Selected and hidden solids in the active CAD document |
-| `nuke_cad_diagnose_model`       | CAD build, manifest, selection, and geometry findings |
-| `nuke_openmc_summarize_project` | OpenMC project name, entity counts, and run settings  |
-| `nuke_openmc_validate_project`  | Geometry, materials, settings, and tally validation   |
-| `nuke_openmc_get_run_status`    | Active run state and log tail                         |
-| `nuke_openmc_diagnose_project`  | Project, environment, cross-section, and DAGMC triage |
-| `nuke_openmc_diagnose_run`      | Run log tail and classified lost-particle findings    |
-| `nuke_viz_summarize_statepoint` | Batches, k-effective, and tally metadata              |
-| `nuke_viz_diagnose_statepoint`  | Statepoint uncertainty and tally coverage findings    |
-| `nuke_viz_capture_view`         | A truthful image preview of the active DAGMC viewport |
+| Tool                              | What it reads                                             |
+| --------------------------------- | --------------------------------------------------------- |
+| `nuke_cad_summarize_document`     | CAD build counts, selection, and manifest coverage        |
+| `nuke_cad_inspect_selection`      | Selected and hidden solids in the active CAD document     |
+| `nuke_cad_diagnose_model`         | CAD build, manifest, selection, and geometry findings     |
+| `nuke_openmc_summarize_project`   | OpenMC project name, entity counts, and run settings      |
+| `nuke_openmc_summarize_materials` | Material ids, density, nuclide counts, and CAD provenance |
+| `nuke_openmc_summarize_tallies`   | Tally ids, scores, filters, and estimator settings        |
+| `nuke_openmc_summarize_geometry`  | CSG entity ids, DAGMC volumes, and geometry findings      |
+| `nuke_openmc_validate_project`    | Geometry, materials, settings, and tally validation       |
+| `nuke_openmc_get_run_status`      | Active run state and log tail                             |
+| `nuke_openmc_diagnose_project`    | Project, environment, cross-section, and DAGMC triage     |
+| `nuke_openmc_diagnose_run`        | Run log tail and classified lost-particle findings        |
+| `nuke_viz_summarize_statepoint`   | Batches, k-effective, and tally metadata                  |
+| `nuke_viz_diagnose_statepoint`    | Statepoint uncertainty and tally coverage findings        |
+| `nuke_viz_capture_view`           | A truthful image preview of the active DAGMC viewport     |
 
 Every tool advertises MCP annotations that mark it read-only, idempotent, and closed-world. The catalog is dynamic:
 write, execute, and destructive capabilities are never exposed, and each tool uses the live input schema and, when

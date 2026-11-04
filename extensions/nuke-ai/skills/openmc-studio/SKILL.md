@@ -33,6 +33,18 @@ inactive batches, batches, and the DAGMC file when set).
 
 Use the summary to answer questions about project contents and run settings without touching the backend.
 
+## Read inventories before an edit
+
+The edit flows take numeric ids. Resolve them with the read-only inventories first; never invent an id.
+
+- `nuke_openmc_summarizeMaterials` - up to 200 materials with id, name, density/unit, nuclide count (not the list),
+  depletion, volume, temperature, and CAD provenance.
+- `nuke_openmc_summarizeTallies` - up to 200 tallies with id, name, scores, estimator, filter types with the first 20
+  bins and the full count, nuclides, and moment flags.
+- `nuke_openmc_summarizeGeometry` - counts plus up to 100 surfaces, 100 cells, 100 universes, 50 lattices, and 100 DAGMC
+  volumes with material assignments; `issues` carries the first 20 CSG validation findings. Pass
+  `{ "includeDagmc": false }` to omit the DAGMC list.
+
 ## Validate before running
 
 Call `nuke_openmc_validateProject` with:
@@ -88,7 +100,8 @@ below. Report the rejection message instead of trying another path.
 
 ## Preview, apply, and undo material edits
 
-Read the active project first and never invent nuclides, densities, volumes, colors, or names.
+Read the active project first and never invent nuclides, densities, volumes, colors, or names. Call
+`nuke_openmc_summarizeMaterials` to resolve every `materialId`.
 
 1. **Preview** with `nuke_openmc_previewMaterialChange` and `actions` containing 1 to 20 objects:
    - `{ "action": "update", "materialId": N, "updates": { ... } }`
@@ -107,6 +120,8 @@ Read the active project first and never invent nuclides, densities, volumes, col
    again after apply.
 
 ## Preview, apply, and undo tally edits
+
+Call `nuke_openmc_summarizeTallies` to resolve every `tallyId`.
 
 1. **Preview** with `nuke_openmc_previewTallyChange` and 1 to 20 update/add/remove actions. Updatable fields are
    `name`, `scores`, `nuclides`, `estimator`, `multiplyDensity`, and `higherMoments`; filters, triggers, and derivatives
@@ -135,7 +150,7 @@ Export writes a new file and is not undoable.
 
 ## Preview, apply, and undo CSG geometry edits
 
-Read the project summary first and never guess surface, cell, universe, or lattice ids.
+Read the project summary first, then `nuke_openmc_summarizeGeometry`; never guess surface, cell, universe, or lattice ids.
 
 1. **Preview** with `nuke_openmc_previewGeometryChange` and 1 to 48 actions:
    - `{ "action": "add", "kind": "surface" | "cell" | "universe" | "lattice", "value": { ... } }` - the id is optional
@@ -154,7 +169,8 @@ Read the project summary first and never guess surface, cell, universe, or latti
 
 ## Preview, apply, and undo DAGMC volume assignments
 
-Requires a loaded `.h5m` model (`settings.dagmcFile` and `settings.dagmcInfo`). The material must already exist.
+Requires a loaded `.h5m` model (`settings.dagmcFile` and `settings.dagmcInfo`). The material must already exist. Call
+`nuke_openmc_summarizeGeometry` to resolve every `volumeId` and its current material.
 
 1. **Preview** with `nuke_openmc_previewDagmcChange` and 1 to 32 actions:
    - `{ "action": "assign", "volumeId": N, "material": "..." }` - an empty name unassigns.

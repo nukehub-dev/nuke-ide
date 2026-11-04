@@ -34,7 +34,8 @@ import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import URI from '@theia/core/lib/common/uri';
 import { MessageService } from '@theia/core/lib/common';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeSelect, Tooltip, ViewCube } from 'nuke-essentials/lib/theme/browser/components';
+import type { ViewCubeHandle } from 'nuke-essentials/lib/theme/browser/components';
 import { COLORMAP_NAMES, ColormapName, getColormap, isColormapName } from '../../../../viewer-core/colormaps';
 import { getPointSpriteTexture } from '../../../../viewer-core/point-sprite';
 import {
@@ -137,6 +138,8 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
     private scene: THREE.Scene | undefined;
     private camera: THREE.PerspectiveCamera | undefined;
     private points: THREE.Points | undefined;
+    private grid: THREE.GridHelper | undefined;
+    private gizmo: ViewCubeHandle | null = null;
     private orbitControls: OrbitControlsHandle | undefined;
     private resizeObserver: ResizeObserver | undefined;
     private renderedStep = -1;
@@ -392,7 +395,6 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         this.stopActiveRecorder();
         this.exportPhase = 'idle';
         this.exportNotice = 'Animation export cancelled — no file was saved.';
-        this.messageService.info('Animation export cancelled.');
         this.update();
     }
 
@@ -541,11 +543,9 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         this.exportPhase = 'idle';
         if (outcome === 'done') {
             this.exportNotice = `Animation saved as ${detail}.`;
-            this.messageService.info(`Animation export saved as ${detail}.`);
         } else if (outcome === 'cancelled') {
             controller.cancel();
             this.exportNotice = 'Animation export cancelled — no file was saved.';
-            this.messageService.info('Animation export cancelled.');
         } else {
             const message = detail ?? 'Unknown export error.';
             controller.fail(message);
@@ -741,12 +741,12 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         if (this.exportError) {
             return (
                 <div className="openmc-output-viewer-header">
-                    <span className="openmc-output-viewer-file" role="alert">
+                    <span className="openmc-output-viewer-notice error" role="alert">
                         Animation export failed: {this.exportError}
                     </span>
                     <Tooltip content="Dismiss" position="bottom">
                         <button
-                            className="theia-button secondary"
+                            className="theia-button secondary openmc-output-viewer-notice-dismiss"
                             aria-label="Dismiss animation export error"
                             onClick={() => {
                                 this.exportError = undefined;
@@ -762,7 +762,21 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         if (this.exportNotice) {
             return (
                 <div className="openmc-output-viewer-header">
-                    <span className="openmc-output-viewer-file">{this.exportNotice}</span>
+                    <span className="openmc-output-viewer-notice" role="status">
+                        {this.exportNotice}
+                    </span>
+                    <Tooltip content="Dismiss" position="bottom">
+                        <button
+                            className="theia-button secondary openmc-output-viewer-notice-dismiss"
+                            aria-label="Dismiss animation export notice"
+                            onClick={() => {
+                                this.exportNotice = undefined;
+                                this.update();
+                            }}
+                        >
+                            <i className={codicon('close')}></i>
+                        </button>
+                    </Tooltip>
                 </div>
             );
         }
@@ -843,7 +857,16 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                 <div className="openmc-output-viewer-hint nuke-viewer-status-line">
                     {this.describeScene()} Drag to orbit, wheel to zoom, right-drag to pan.
                 </div>
-                <div ref={this.attachHost} style={{ flex: '1', minHeight: '240px', position: 'relative' }} />
+                <div style={{ flex: '1', minHeight: '240px', position: 'relative' }}>
+                    <div ref={this.attachHost} style={{ position: 'absolute', inset: 0 }} />
+                    <ViewCube
+                        ref={(handle) => {
+                            this.gizmo = handle;
+                            this.updateGizmo();
+                        }}
+                        onSnap={(direction) => this.orbitControls?.setViewDirection(direction)}
+                    />
+                </div>
             </div>
         );
     }
@@ -854,7 +877,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         if (!series || !step) {
             return this.isLoading ? 'Loading…' : 'No series loaded';
         }
-        return `Points — ${step.mesh.nodes.length.toLocaleString()} nodes · ${formatStepLabel(series, this.stepIndex)}`;
+        return `Points — ${step.mesh.nodes.length.toLocaleString()} nodes · ${formatStepLabel(series, this.stepIndex)} ·`;
     }
 
     protected renderSlider(): React.ReactNode {
@@ -864,18 +887,26 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         }
         const exporting = this.exportPhase === 'recording';
         const steppingDisabled = this.isLoading || exporting;
+        const atFirst = this.stepIndex <= 0;
+        const atLast = this.stepIndex >= series.nSteps - 1;
         return (
-            <div className="openmc-output-viewer-header">
+            <div className="openmc-output-viewer-header openmc-output-viewer-step-row">
                 <Tooltip content="First step" position="bottom">
-                    <button className="theia-button secondary" onClick={() => this.setStepIndex(0)} disabled={steppingDisabled}>
-                        <i className={codicon('chevron-left-all')}></i>
+                    <button
+                        className="theia-button secondary openmc-output-viewer-step-button"
+                        aria-label="First step"
+                        onClick={() => this.setStepIndex(0)}
+                        disabled={steppingDisabled || atFirst}
+                    >
+                        <i className={codicon('arrow-left')}></i>
                     </button>
                 </Tooltip>
                 <Tooltip content="Previous step" position="bottom">
                     <button
-                        className="theia-button secondary"
+                        className="theia-button secondary openmc-output-viewer-step-button"
+                        aria-label="Previous step"
                         onClick={() => this.setStepIndex(previousStepIndex(this.stepIndex, series.nSteps))}
-                        disabled={steppingDisabled}
+                        disabled={steppingDisabled || atFirst}
                     >
                         <i className={codicon('chevron-left')}></i>
                     </button>
@@ -888,29 +919,40 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                     value={this.stepIndex}
                     onChange={(e) => this.setStepIndex(Number(e.target.value))}
                     disabled={steppingDisabled}
-                    style={{ flex: '1' }}
                     aria-label="Time step"
                 />
                 <Tooltip content="Next step" position="bottom">
                     <button
-                        className="theia-button secondary"
+                        className="theia-button secondary openmc-output-viewer-step-button"
+                        aria-label="Next step"
                         onClick={() => this.setStepIndex(nextStepIndex(this.stepIndex, series.nSteps))}
-                        disabled={steppingDisabled}
+                        disabled={steppingDisabled || atLast}
                     >
                         <i className={codicon('chevron-right')}></i>
                     </button>
                 </Tooltip>
                 <Tooltip content="Last step" position="bottom">
                     <button
-                        className="theia-button secondary"
+                        className="theia-button secondary openmc-output-viewer-step-button"
+                        aria-label="Last step"
                         onClick={() => this.setStepIndex(series.nSteps - 1)}
-                        disabled={steppingDisabled}
+                        disabled={steppingDisabled || atLast}
                     >
-                        <i className={codicon('chevron-right-all')}></i>
+                        <i className={codicon('arrow-right')}></i>
                     </button>
                 </Tooltip>
                 <Tooltip content="Time step (client-side index over the extracted series)" position="bottom">
-                    <span className="openmc-output-viewer-file">{formatStepLabel(series, this.stepIndex)}</span>
+                    <span className="openmc-output-viewer-step-label">{formatStepLabel(series, this.stepIndex)}</span>
+                </Tooltip>
+                <Tooltip content="Fit the view to the current step" position="bottom">
+                    <button
+                        className="theia-button secondary openmc-output-viewer-step-button"
+                        aria-label="Fit view"
+                        onClick={() => this.fitView()}
+                        disabled={steppingDisabled}
+                    >
+                        <i className={codicon('screen-full')}></i>
+                    </button>
                 </Tooltip>
             </div>
         );
@@ -1066,6 +1108,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         this.orbitControls?.dispose();
         this.orbitControls = undefined;
         this.clearPoints();
+        this.clearGrid();
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer.domElement.remove();
@@ -1085,6 +1128,15 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         }
     }
 
+    private clearGrid(): void {
+        if (this.grid && this.scene) {
+            this.scene.remove(this.grid);
+            this.grid.geometry.dispose();
+            (this.grid.material as THREE.Material).dispose();
+            this.grid = undefined;
+        }
+    }
+
     private resizeRenderer(): void {
         if (!this.renderer || !this.camera || !this.host) {
             return;
@@ -1101,6 +1153,18 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         if (this.renderer && this.scene && this.camera) {
             this.renderer.render(this.scene, this.camera);
         }
+        this.updateGizmo();
+    }
+
+    /** Push the camera orientation into the imperative ViewCube. */
+    private updateGizmo(): void {
+        const gizmo = this.gizmo;
+        const camera = this.camera;
+        if (!gizmo || !camera) {
+            return;
+        }
+        const quaternion = camera.quaternion;
+        gizmo.update({ quaternion: [quaternion.x, quaternion.y, quaternion.z, quaternion.w] });
     }
 
     /**
@@ -1115,6 +1179,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
             return;
         }
         this.clearPoints();
+        this.clearGrid();
         const positions = stepPositions(series, this.stepIndex);
         if (positions.length === 0) {
             this.renderedStep = this.stepIndex;
@@ -1124,20 +1189,61 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('color', new THREE.BufferAttribute(this.vertexColors(series, positions.length / 3), 3));
+        // Small clouds are hard to read at the dense-mesh default; enlarge
+        // them without turning large meshes into a solid sheet of points.
+        const pointSize = positions.length / 3 <= 256 ? 6 : 3;
         const material = new THREE.PointsMaterial({
-            size: 3,
+            size: pointSize,
             vertexColors: true,
             transparent: true,
             sizeAttenuation: false,
             map: getPointSpriteTexture() ?? null
         });
         this.points = new THREE.Points(geometry, material);
+        this.points.renderOrder = 1;
         this.scene.add(this.points);
+        this.buildGrid(positions);
         if (this.renderedStep === -1) {
             this.fitView();
         }
         this.renderedStep = this.stepIndex;
         this.renderScene();
+    }
+
+    /**
+     * A faint XZ grid at the step's lowest Y gives the point cloud scale and
+     * orientation. The ViewCube carries the labeled axes; the grid is part of
+     * the three.js scene so it also frames the exported animation.
+     */
+    private buildGrid(positions: Float32Array): void {
+        if (!this.scene) {
+            return;
+        }
+        const box = new THREE.Box3();
+        for (let i = 0; i < positions.length; i += 3) {
+            box.expandByPoint(new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]));
+        }
+        if (box.isEmpty()) {
+            return;
+        }
+        const size = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z, 1);
+        const style = this.host ? getComputedStyle(this.host) : undefined;
+        const lineColor = style?.getPropertyValue('--theia-panel-border').trim();
+        const centerColor = style?.getPropertyValue('--theia-descriptionForeground').trim();
+        const grid = new THREE.GridHelper(
+            size * 1.35,
+            10,
+            new THREE.Color(centerColor || '#888888'),
+            new THREE.Color(lineColor || '#555555')
+        );
+        grid.position.set((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2);
+        grid.renderOrder = -1;
+        const material = grid.material as THREE.LineBasicMaterial;
+        material.transparent = true;
+        material.opacity = 0.32;
+        material.depthWrite = false;
+        this.grid = grid;
+        this.scene.add(grid);
     }
 
     /**

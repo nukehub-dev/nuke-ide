@@ -70,4 +70,19 @@ Every invocation is recorded automatically in the local tool metrics, and a resu
 recorded in the applied-edit journal. Do not add logging of inputs, file contents, paths, or tokens for your capability;
 see [Local Metrics and the Edit Journal](metrics.md).
 
+## Chat exposure checklist
+
+Registering a capability makes it available to the bridge, but the NukeAI agent only calls tools named in its prompt.
+When the capability should be callable from chat, update all of these together:
+
+1. `extensions/nuke-ai/src/browser/agent/nuke-system-prompt.ts` — one title line with the tool name and one description
+   line with the dotted capability id and `~{<tool_name>}`. Keep the prompt within its 240-line budget.
+2. `NUKE_CAPABILITY_TOOL_NAMES` in `extensions/nuke-ai/src/browser/agent/nuke-chat-agent.ts` — the sanitized tool name,
+   in workflow order.
+3. `CAPABILITY_IDS` in `nuke-chat-agent.test.ts` — the dotted id at the same index.
+4. The owning domain skill under `extensions/nuke-ai/skills/` when the workflow needs guidance, and the dev/user docs plus
+   `CHANGELOG.md`.
+
+The test `references every capability tool by its sanitized name` fails when the prompt and both lists drift apart.
+
 See [Capability Registry](../../../nuke-core/docs/dev/capability-registry.md) for validation details, context contributions, workspace path checks, and the version contract.

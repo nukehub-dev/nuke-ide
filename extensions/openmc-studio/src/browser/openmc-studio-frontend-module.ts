@@ -61,6 +61,7 @@ import { OpenMCProjectCapabilities } from './capabilities/openmc-project-capabil
 import { OpenMCScriptCapabilities } from './capabilities/openmc-script-capabilities';
 import { OpenMCDagmcCapabilities } from './capabilities/openmc-dagmc-capabilities';
 import { OpenMCGeometryCapabilities } from './capabilities/openmc-geometry-capabilities';
+import { OpenMCCatalogCapabilities } from './capabilities/openmc-catalog-capabilities';
 
 // New modular services
 import { OpenMCEnvironmentService, OpenMCHealthService, OpenMCInstallerService } from './services';
@@ -208,6 +209,9 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 
     bind(OpenMCGeometryCapabilities).toSelf().inSingletonScope();
     bind(NukeCapabilityContribution).toService(OpenMCGeometryCapabilities);
+
+    bind(OpenMCCatalogCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCCatalogCapabilities);
 
     bind(OpenMCContextContribution).toSelf().inSingletonScope();
     bind(NukeCapabilityContextContribution).toService(OpenMCContextContribution);

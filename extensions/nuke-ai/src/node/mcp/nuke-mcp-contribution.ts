@@ -63,6 +63,7 @@ import {
     isReadOnlyMcpCapability,
     MCP_CONTEXT_RESOURCE_URI,
     MCP_MAX_RESOURCES,
+    MCP_SERVER_INSTRUCTIONS,
     stringifyMcpResult,
     NUKE_DIAGNOSTICS_PROMPT_NAME,
     NUKE_WORKFLOW_PROMPT_NAME,
@@ -275,7 +276,8 @@ export class NukeMcpContribution implements ExternalApiContribution {
         const server = new McpServer(MCP_SERVER_INFO, {
             // Declare the capability up front so `tools/list` still answers with
             // an empty catalog when the frontend is unavailable.
-            capabilities: { tools: {}, resources: {}, prompts: {} }
+            capabilities: { tools: {}, resources: {}, prompts: {} },
+            instructions: MCP_SERVER_INSTRUCTIONS
         });
         try {
             const catalog = await this.loadCatalog();
