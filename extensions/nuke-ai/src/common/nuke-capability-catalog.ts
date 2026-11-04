@@ -350,6 +350,29 @@ export const NUKE_CAPABILITY_CATALOG: readonly NukeCapabilityCatalogEntry[] = [
         diagnostics: true
     },
     {
+        id: 'nuke.openmc.summarizeSettings',
+        toolName: 'nuke_openmc_summarizeSettings',
+        title: 'OpenMC settings summary',
+        summary:
+            'Returns the run mode and the current value of every NukeAI-editable OpenMC settings path (null when unset); read it before previewing a settings change.',
+        domain: 'openmc',
+        risk: 'read',
+        chat: true,
+        mcpReadOnly: true,
+        mcpOrder: 15,
+        diagnostics: true
+    },
+    {
+        id: 'nuke.openmc.previewProjectMetadata',
+        toolName: 'nuke_openmc_previewProjectMetadata',
+        title: 'OpenMC project metadata preview',
+        summary:
+            'Validates proposed project name, description, and author edits and returns a `changeSet` diff without writing; preview before every metadata change.',
+        domain: 'openmc',
+        risk: 'read',
+        chat: true
+    },
+    {
         id: 'nuke.openmc.summarizeMaterials',
         toolName: 'nuke_openmc_summarizeMaterials',
         title: 'OpenMC material inventory',
@@ -423,6 +446,16 @@ export const NUKE_CAPABILITY_CATALOG: readonly NukeCapabilityCatalogEntry[] = [
         toolName: 'nuke_openmc_createProject',
         title: 'OpenMC project creation',
         summary: 'Creates a project from a template; requires explicit confirmation and must not overwrite.',
+        domain: 'openmc',
+        risk: 'write',
+        chat: true
+    },
+    {
+        id: 'nuke.openmc.applyProjectMetadata',
+        toolName: 'nuke_openmc_applyProjectMetadata',
+        title: 'OpenMC project metadata apply',
+        summary:
+            'Applies a previewed project metadata proposal by id; requires explicit confirmation and the id from the preview `changeSet`.',
         domain: 'openmc',
         risk: 'write',
         chat: true

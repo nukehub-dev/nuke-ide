@@ -64,8 +64,10 @@ import type {
     NukeCapabilityRegistry,
     NukeCapabilityResult
 } from 'nuke-core/lib/common/nuke-capability-protocol';
+import type { NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import type { OpenMCStudioBackendService, ProjectSaveRequest } from '../../common/openmc-studio-protocol';
 import { createDefaultState, OpenMCStateManager } from '../openmc-state-manager';
+import { OpenMCChangeProposalService } from './openmc-change-proposal-service';
 import { CREATE_PROJECT_CAPABILITY_ID, OpenMCProjectCapabilities } from './openmc-project-capabilities';
 
 const WORKSPACE = '/workspace';
@@ -154,7 +156,14 @@ function createHarness(): Harness {
     const capabilities = new OpenMCProjectCapabilities(
         stateManager,
         backend as unknown as OpenMCStudioBackendService,
-        fileService as unknown as FileService
+        fileService as unknown as FileService,
+        new OpenMCChangeProposalService(),
+        {
+            register: () => 'undo-token',
+            has: () => false,
+            undo: async () => ({ ok: false }),
+            onDidChange: Event.None
+        } as unknown as NukeUndoService
     );
     capabilities.registerCapabilities(registry);
     return {

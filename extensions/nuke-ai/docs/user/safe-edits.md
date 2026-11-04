@@ -1,6 +1,6 @@
 # Safe Edits
 
-NukeAI can change basic OpenMC run settings, materials, tallies, CSG surfaces/cells/universes/lattices, DAGMC volume materials, scalar CAD feature parameters, existing sketch
+NukeAI can change OpenMC run settings, including output, cutoff, and kinetics (IFP) options, project metadata (name, description, and author), materials, tallies, CSG surfaces/cells/universes/lattices, DAGMC volume materials, scalar CAD feature parameters, existing sketch
 dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
 STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, existing drawing-sheet presentation
 settings, parameterized component-document creation, and, on Linux only, sandboxed Python model scripts without writing
@@ -9,24 +9,42 @@ and an in-session undo; project creation and Python export are confirmed file wr
 
 ## Supported settings
 
-Only these paths are accepted. Any other path rejects the whole preview.
+NukeAI reads `nuke_openmc_summarizeSettings` first to get the run mode and the current value of every supported
+path. Unset optional values are returned as `null`. Any path outside this table rejects the whole preview.
 
-| Path                      | Rule                                                      |
-| ------------------------- | --------------------------------------------------------- |
-| `run.particles`           | integer >= 1                                              |
-| `run.inactive`            | integer >= 0; only when the current run mode has inactive |
-| `run.batches`             | integer >= 1                                              |
-| `seed`                    | integer >= 0                                              |
-| `threads`                 | integer >= 1                                              |
-| `verbosity`               | integer from 1 to 10                                      |
-| `energyMode`              | `continuous-energy` or `multigroup`                       |
-| `photonTransport`         | boolean                                                   |
-| `electronTreatment`       | `led` or `ttb`                                            |
-| `atomicRelaxation`        | boolean                                                   |
-| `sourceRejectionFraction` | number from 0 to 1                                        |
+| Path                          | Rule                                                                                                      |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `run.particles`               | integer >= 1                                                                                              |
+| `run.inactive`                | integer >= 0; only when the current run mode has inactive                                                 |
+| `run.batches`                 | integer >= 1                                                                                              |
+| `seed`                        | integer >= 0                                                                                              |
+| `threads`                     | integer >= 1                                                                                              |
+| `verbosity`                   | integer from 1 to 10                                                                                      |
+| `energyMode`                  | `continuous-energy` or `multigroup`                                                                       |
+| `photonTransport`             | boolean                                                                                                   |
+| `electronTreatment`           | `led` or `ttb`                                                                                            |
+| `atomicRelaxation`            | boolean                                                                                                   |
+| `sourceRejectionFraction`     | number from 0 to 1                                                                                        |
+| `output.summary`              | boolean                                                                                                   |
+| `output.tallies`              | boolean                                                                                                   |
+| `output.path`                 | non-empty string, no control characters, at most 255 characters; project-relative or inside the workspace |
+| `cutoff.energyNeutron`        | finite number greater than 0                                                                              |
+| `cutoff.energyPhoton`         | finite number greater than 0                                                                              |
+| `cutoff.time`                 | finite number greater than 0                                                                              |
+| `cutoff.timePhoton`           | finite number greater than 0                                                                              |
+| `cutoff.weight`               | finite number greater than 0                                                                              |
+| `cutoff.weightAvg`            | finite number greater than 0                                                                              |
+| `kinetics.enabled`            | boolean; the IFP tallies the dashboard generates must already exist                                       |
+| `kinetics.ifpNGenerations`    | integer greater than 0 and at most the inactive batches                                                   |
+| `kinetics.numPrecursorGroups` | integer from 1 to 8 (1 means total only)                                                                  |
+| `kinetics.computeBetaEff`     | boolean                                                                                                   |
 
-Sources and advanced settings are not editable through this flow. Materials, tallies, CSG geometry, and DAGMC have
-their own flows below.
+Output toggles and path, particle cutoffs, and kinetics (IFP) options are editable through this flow. Enabling
+kinetics requires the IFP tallies (`ifp-time-numerator`, `ifp-beta-numerator`, and `ifp-denominator`) to already
+exist in the project; NukeAI does not add tallies from a settings edit. IFP generations cannot exceed inactive
+batches, including when a later change lowers the inactive count. `output.path` must be project-relative or an
+absolute path inside the workspace; the directory is not created or deleted. Sources, random ray, CMFD, and geometry
+paths remain outside this flow. Materials, tallies, CSG geometry, and DAGMC have their own flows below.
 
 ## Finding ids
 
@@ -81,6 +99,17 @@ resolves volume ids and current assignments with `summarizeGeometry`. The materi
 Apply writes the `.h5m` file through the same backend path as the DAGMC Editor, rolls back earlier volume writes if a later
 one fails, and undo restores both the file and the project state.
 
+## Project metadata
+
+NukeAI can change the project name, description, and author. The name must be non-empty and at most 120
+characters, the description at most 500, and the author at most 120; an empty description or author clears
+the field. Version, creation and modification timestamps, and the multi-group backup are never editable.
+
+The preview rejects unknown fields, non-string values, a field set to its current value, and a request that
+changes nothing. Apply re-checks that the project metadata still matches the preview, updates only the changed
+fields, and offers **Undo**. Undo restores those fields only while they still hold the applied values; preview
+again after any other metadata edit.
+
 ## Project creation and Python export
 
 Creating a project from a template and exporting the project as Python write files; both are confirmed but not
@@ -112,14 +141,14 @@ Confirm only when the diff matches what you want. The apply tool call appears as
 diff, an **Undo** button, and no **Apply with NukeAI**.
 
 If the project changed between the preview and the apply, the apply is rejected with a message naming the changed
-setting, material, or tally. Run a fresh preview instead of retrying the old proposal.
+setting, material, tally, or metadata field. Run a fresh preview instead of retrying the old proposal.
 
 ## Undo
 
 An applied change shows **Undo**. Selecting it opens a warning notification with an **Undo** action; the reverse
 handler runs only after you choose that action. Cancelling the notification leaves the applied change in place.
 
-Undo restores only the settings, materials, tallies, CSG entities, or DAGMC assignments that the proposal changed and
+Undo restores only the settings, project metadata fields, materials, tallies, CSG entities, or DAGMC assignments that the proposal changed and
 verifies that the current values still match the applied result. A failed undo keeps the token so you can try again, and
 reports the failure instead of replacing the card.
 

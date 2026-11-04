@@ -70,7 +70,16 @@ import { OpenMCStateManager } from '../openmc-state-manager';
 import { OpenMCEnvironmentService, OpenMCEnvironmentStatus } from '../services/openmc-environment-service';
 import { OpenMCSimulationRunner } from '../widgets/simulation-dashboard/simulation-runner';
 import { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
-import { applySettingsChanges, OpenMCSettingsEdit, settingsChanges, settingsEqual, settingsValue } from './openmc-settings-edit';
+import {
+    applySettingsChanges,
+    OpenMCSettingsEdit,
+    settingsChanges,
+    settingsEqual,
+    settingsUpdatePatch,
+    settingsValue,
+    SUPPORTED_SETTINGS_PATHS,
+    validateSettingsChanges
+} from './openmc-settings-edit';
 import { OpenMCChangeProposal, OpenMCChangeProposalService, scopeError } from './openmc-change-proposal-service';
 
 /** Read the last `lines` lines of a log, capped at 16 KiB. */
@@ -384,6 +393,20 @@ const SETTINGS_CHANGE_OUTPUT_SCHEMA: NukeJsonSchema = {
     additionalProperties: false
 };
 
+const SUMMARIZE_SETTINGS_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        runMode: { type: 'string', description: 'Active run mode, or unknown when the settings do not declare one.' },
+        settings: {
+            type: 'object',
+            description: 'Current value for every supported settings path; null when the path is unset.',
+            additionalProperties: {}
+        }
+    },
+    required: ['runMode', 'settings'],
+    additionalProperties: false
+};
+
 /** Result of reading the preview `changes` input. */
 type SettingsChangesReadResult = { ok: true; changes: OpenMCSettingsEdit[] } | { ok: false; message: string };
 
@@ -415,6 +438,19 @@ function readSettingsChanges(value: unknown): SettingsChangesReadResult {
         changes.push({ path: record.path, value: record.value });
     }
     return { ok: true, changes };
+}
+
+/** Reject an absolute output path outside every workspace root. */
+function outputPathError(changes: readonly OpenMCSettingsEdit[], roots: readonly string[]): string | undefined {
+    for (const change of changes) {
+        if (change.path !== 'output.path' || typeof change.value !== 'string') {
+            continue;
+        }
+        if (path.isAbsolute(change.value) && !isWithinWorkspace(change.value, roots)) {
+            return 'output.path must be project-relative or an absolute path inside the workspace.';
+        }
+    }
+    return undefined;
 }
 
 /** Default summary when the preview request does not provide one. */
@@ -557,6 +593,23 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
         });
 
         registry.register({
+            id: 'nuke.openmc.summarizeSettings',
+            title: 'Summarize OpenMC settings',
+            description:
+                'Return every NukeAI-editable OpenMC settings path with its current value and the active run mode without contacting the backend.',
+            category: ['OpenMC', 'Settings'],
+            inputSchema: {
+                type: 'object',
+                properties: {}
+            },
+            outputSchema: SUMMARIZE_SETTINGS_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: deriveAnnotations('read'),
+            when: () => true,
+            invoke: async () => this.summarizeSettings()
+        });
+
+        registry.register({
             id: 'nuke.openmc.validateProject',
             title: 'Validate OpenMC project',
             description: 'Validate the active OpenMC model geometry, materials, settings, and tallies.',
@@ -684,21 +737,21 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
             id: 'nuke.openmc.previewSettings',
             title: 'Preview OpenMC settings change',
             description:
-                'Validate proposed basic run/settings edits, return a before/after diff, and store an in-memory proposal without changing project state.',
+                'Validate proposed run/settings edits, including output, cutoff, and kinetics paths, return a before/after diff, and store an in-memory proposal without changing project state.',
             category: ['OpenMC', 'Settings'],
             inputSchema: PREVIEW_SETTINGS_INPUT_SCHEMA,
             outputSchema: SETTINGS_CHANGE_OUTPUT_SCHEMA,
             risk: 'read',
             annotations: deriveAnnotations('read'),
             when: () => true,
-            invoke: async (input) => this.previewSettings(input)
+            invoke: async (input, context) => this.previewSettings(input, context)
         });
 
         registry.register({
             id: 'nuke.openmc.applySettings',
             title: 'Apply OpenMC settings change',
             description:
-                'Apply a previously previewed basic run/settings change, reject stale previews, and register an in-memory undo for the changed paths.',
+                'Apply a previously previewed run/settings change, reject stale or cross-field-invalid previews, and register an in-memory undo for the changed paths.',
             category: ['OpenMC', 'Settings'],
             inputSchema: APPLY_SETTINGS_INPUT_SCHEMA,
             outputSchema: SETTINGS_CHANGE_OUTPUT_SCHEMA,
@@ -728,6 +781,7 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
                 projectPath: this.stateManager.projectPath,
                 name: state.metadata.name,
                 description: state.metadata.description,
+                author: state.metadata.author,
                 dirty: this.stateManager.isDirty,
                 counts: {
                     surfaces: state.geometry.surfaces.length,
@@ -739,6 +793,22 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
                     meshes: state.meshes.length
                 },
                 settings
+            }
+        };
+    }
+
+    protected async summarizeSettings(): Promise<NukeCapabilityResult> {
+        const settings = this.stateManager.getState().settings;
+        const values: Record<string, unknown> = {};
+        for (const path of SUPPORTED_SETTINGS_PATHS) {
+            values[path] = settingsValue(settings, path) ?? null;
+        }
+        const run = settings.run as unknown as { mode?: string };
+        return {
+            ok: true,
+            data: {
+                runMode: run.mode ?? 'unknown',
+                settings: values
             }
         };
     }
@@ -1166,21 +1236,26 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
     }
 
     /**
-     * Validate and diff a proposed basic settings edit without touching state.
+     * Validate and diff a proposed settings edit without touching state.
      * The stored proposal pins the current settings so apply can detect a
      * stale preview.
      */
-    protected async previewSettings(input: unknown): Promise<NukeCapabilityResult> {
+    protected async previewSettings(input: unknown, context: NukeCapabilityContext): Promise<NukeCapabilityResult> {
         const record = readRecord(input);
         const parsed = readSettingsChanges(record.changes);
         if (!parsed.ok) {
             return { ok: false, message: parsed.message };
         }
+        const pathError = outputPathError(parsed.changes, context.workspaceRoots);
+        if (pathError) {
+            return { ok: false, message: pathError };
+        }
 
-        const settings = this.stateManager.getState().settings;
+        const state = this.stateManager.getState();
+        const settings = state.settings;
         let changes: NukeChange[];
         try {
-            changes = settingsChanges(settings, parsed.changes);
+            changes = settingsChanges(settings, parsed.changes, { tallies: state.tallies });
         } catch (error) {
             return { ok: false, message: errorMessage(error) };
         }
@@ -1236,10 +1311,15 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
 
         // Apply only the previewed paths to the current settings so an unrelated
         // edit made after the preview is not overwritten by the snapshot.
-        const updated = applySettingsChanges(
-            current,
-            proposal.changes.map((change) => ({ path: change.path, value: change.after }))
-        );
+        const appliedChanges = proposal.changes.map((change) => ({ path: change.path, value: change.after }));
+        const crossFieldError = validateSettingsChanges(current, appliedChanges, {
+            tallies: this.stateManager.getState().tallies,
+            requireKineticsTallies: false
+        });
+        if (crossFieldError) {
+            return { ok: false, message: crossFieldError };
+        }
+        const updated = applySettingsChanges(current, appliedChanges);
         this.stateManager.updateSettings(updated);
         this.proposalService.remove(proposal.id);
         const undoToken = this.undoService.register(this.createSettingsUndo(proposal, beforeSettings, afterSettings));
@@ -1269,22 +1349,8 @@ export class OpenMCCapabilities implements NukeCapabilityContribution {
                     return { ok: false, message: 'Settings changed since the edit; the change can no longer be undone.' };
                 }
 
-                const run = { ...(current.run as unknown as Record<string, unknown>) };
-                const updates: Record<string, unknown> = {};
-                let runChanged = false;
-                for (const change of proposal.changes) {
-                    const before = settingsValue(beforeSettings, change.path);
-                    if (change.path.startsWith('run.')) {
-                        run[change.path.slice('run.'.length)] = before;
-                        runChanged = true;
-                    } else {
-                        updates[change.path] = before;
-                    }
-                }
-                if (runChanged) {
-                    updates.run = run;
-                }
-                this.stateManager.updateSettings(updates as Partial<OpenMCSettings>);
+                const beforeChanges = proposal.changes.map((change) => ({ path: change.path, value: change.before }));
+                this.stateManager.updateSettings(settingsUpdatePatch(current, beforeChanges));
                 return { ok: true, message: 'Settings change undone.' };
             }
         };

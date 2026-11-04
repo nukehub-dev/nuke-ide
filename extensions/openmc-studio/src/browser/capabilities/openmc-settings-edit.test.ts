@@ -30,16 +30,20 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { OpenMCSettings } from '../../common/openmc-state-schema';
+import { IFP_SCORES } from '../../common/kinetics-ifp';
+import type { OpenMCSettings, OpenMCTally } from '../../common/openmc-state-schema';
 import {
     applySettingsChanges,
     isSettingsPath,
+    MAX_PRECURSOR_GROUPS,
     OpenMCSettingsPath,
     settingsChanges,
     settingsEqual,
+    settingsUpdatePatch,
     settingsValue,
     SUPPORTED_SETTINGS_PATHS,
-    validateSettingsChange
+    validateSettingsChange,
+    validateSettingsChanges
 } from './openmc-settings-edit';
 
 function buildSettings(): OpenMCSettings {
@@ -55,6 +59,27 @@ function buildSettings(): OpenMCSettings {
         atomicRelaxation: true,
         sourceRejectionFraction: 0.05
     };
+}
+
+function buildAdvancedSettings(): OpenMCSettings {
+    return {
+        ...buildSettings(),
+        output: { summary: false, tallies: true, path: 'runs/out' },
+        cutoff: { energyNeutron: 1e-5, time: 1 },
+        kinetics: { enabled: true, ifpNGenerations: 4, numPrecursorGroups: 6, computeBetaEff: true }
+    };
+}
+
+function ifpTally(id: number, score: string, bins: number[] = []): OpenMCTally {
+    return { id, scores: [score], nuclides: [], filters: bins.length > 0 ? [{ type: 'delayedgroup', bins }] : [] };
+}
+
+function ifpTallies(): OpenMCTally[] {
+    return [
+        ifpTally(1, IFP_SCORES.timeNumerator),
+        ifpTally(2, IFP_SCORES.betaNumerator, [1, 2, 3, 4, 5, 6]),
+        ifpTally(3, IFP_SCORES.denominator)
+    ];
 }
 
 interface SupportedCase {
@@ -79,7 +104,7 @@ const SUPPORTED_CASES: SupportedCase[] = [
 ];
 
 describe('OpenMC settings edit paths', () => {
-    it('lists exactly the supported basic run/settings paths', () => {
+    it('lists exactly the supported run/settings paths', () => {
         expect(SUPPORTED_SETTINGS_PATHS).toEqual([
             'run.particles',
             'run.inactive',
@@ -91,7 +116,20 @@ describe('OpenMC settings edit paths', () => {
             'photonTransport',
             'electronTreatment',
             'atomicRelaxation',
-            'sourceRejectionFraction'
+            'sourceRejectionFraction',
+            'output.summary',
+            'output.tallies',
+            'output.path',
+            'cutoff.energyNeutron',
+            'cutoff.energyPhoton',
+            'cutoff.time',
+            'cutoff.timePhoton',
+            'cutoff.weight',
+            'cutoff.weightAvg',
+            'kinetics.enabled',
+            'kinetics.ifpNGenerations',
+            'kinetics.numPrecursorGroups',
+            'kinetics.computeBetaEff'
         ]);
         expect(isSettingsPath('run.particles')).toBe(true);
         expect(isSettingsPath('sources')).toBe(false);
@@ -118,7 +156,9 @@ describe('OpenMC settings edit paths', () => {
         const settings = buildSettings();
         const paths = [
             'sources',
-            'output.path',
+            'output.statepoint',
+            'cutoff.electron',
+            'kinetics.computeGenerationTime',
             'randomRay.sourceShape',
             'cmfd.enabled',
             'geometry.cells',
@@ -131,6 +171,34 @@ describe('OpenMC settings edit paths', () => {
             expect(() => settingsChanges(settings, [{ path, value: 1 }])).toThrow('not a supported OpenMC settings path');
             expect(() => applySettingsChanges(settings, [{ path, value: 1 }])).toThrow('not a supported OpenMC settings path');
             expect(settingsValue(settings, path)).toBeUndefined();
+        }
+    });
+
+    it('accepts and diffs every advanced path', () => {
+        const settings = buildAdvancedSettings();
+        const cases: SupportedCase[] = [
+            { path: 'output.summary', value: true, before: false, label: 'Write summary.h5' },
+            { path: 'output.tallies', value: false, before: true, label: 'Write tallies.out' },
+            { path: 'output.path', value: 'runs/next', before: 'runs/out', label: 'Output path' },
+            { path: 'cutoff.energyNeutron', value: 1e-4, before: 1e-5, label: 'Neutron energy cutoff' },
+            { path: 'cutoff.energyPhoton', value: 1e-3, before: undefined, label: 'Photon energy cutoff' },
+            { path: 'cutoff.time', value: 2, before: 1, label: 'Neutron time cutoff' },
+            { path: 'cutoff.timePhoton', value: 3, before: undefined, label: 'Photon time cutoff' },
+            { path: 'cutoff.weight', value: 1e-38, before: undefined, label: 'Weight cutoff' },
+            { path: 'cutoff.weightAvg', value: 4e-38, before: undefined, label: 'Average survival weight' },
+            { path: 'kinetics.enabled', value: false, before: true, label: 'Kinetics (IFP)' },
+            { path: 'kinetics.ifpNGenerations', value: 5, before: 4, label: 'IFP generations' },
+            { path: 'kinetics.numPrecursorGroups', value: 8, before: 6, label: 'Precursor groups' },
+            { path: 'kinetics.computeBetaEff', value: false, before: true, label: 'Compute beta-effective' }
+        ];
+
+        for (const testCase of cases) {
+            const { path, value, before, label } = testCase;
+            expect(validateSettingsChange(path, value, settings, { tallies: ifpTallies() })).toBeUndefined();
+            expect(settingsValue(settings, path)).toEqual(before);
+            expect(settingsChanges(settings, [{ path, value }], { tallies: ifpTallies() })).toEqual([
+                { path, label, kind: 'update', before, after: value }
+            ]);
         }
     });
 });
@@ -225,6 +293,141 @@ describe('OpenMC settings edit validation', () => {
         expect(applied.run).toEqual({ mode: 'eigenvalue', particles: 1000, inactive: 10, batches: 80 });
         expect(applied.verbosity).toBe(2);
         expect(settings).toEqual(original);
+    });
+});
+
+describe('OpenMC advanced settings validation', () => {
+    it.each([
+        ['output.summary', 'true'],
+        ['output.tallies', 1],
+        ['output.path', ''],
+        ['output.path', '   '],
+        ['output.path', 42],
+        ['output.path', 'bad\u0000path'],
+        ['output.path', 'x'.repeat(256)],
+        ['cutoff.energyNeutron', 0],
+        ['cutoff.energyNeutron', -1],
+        ['cutoff.energyNeutron', Number.NaN],
+        ['cutoff.energyNeutron', '1e-5'],
+        ['cutoff.energyPhoton', 0],
+        ['cutoff.energyPhoton', -2],
+        ['cutoff.time', 0],
+        ['cutoff.timePhoton', -1],
+        ['cutoff.weight', 0],
+        ['cutoff.weightAvg', Number.NaN],
+        ['kinetics.enabled', 'true'],
+        ['kinetics.computeBetaEff', 1],
+        ['kinetics.ifpNGenerations', 0],
+        ['kinetics.ifpNGenerations', -1],
+        ['kinetics.ifpNGenerations', 1.5],
+        ['kinetics.ifpNGenerations', '4'],
+        ['kinetics.numPrecursorGroups', 0],
+        ['kinetics.numPrecursorGroups', -1],
+        ['kinetics.numPrecursorGroups', 1.5],
+        ['kinetics.numPrecursorGroups', MAX_PRECURSOR_GROUPS + 1],
+        ['kinetics.numPrecursorGroups', '6']
+    ])('rejects %s = %s', (path, value) => {
+        expect(validateSettingsChange(path, value, buildSettings(), { tallies: ifpTallies() })).toBeDefined();
+    });
+
+    it('accepts boundary values for advanced paths', () => {
+        const settings = buildSettings();
+        expect(validateSettingsChange('cutoff.energyNeutron', 1e-12, settings)).toBeUndefined();
+        expect(validateSettingsChange('kinetics.ifpNGenerations', 1, settings)).toBeUndefined();
+        expect(validateSettingsChange('kinetics.ifpNGenerations', 10, settings)).toBeUndefined();
+        expect(validateSettingsChange('kinetics.numPrecursorGroups', 1, settings)).toBeUndefined();
+        expect(validateSettingsChange('kinetics.numPrecursorGroups', MAX_PRECURSOR_GROUPS, settings)).toBeUndefined();
+        expect(validateSettingsChange('output.path', 'x'.repeat(255), settings)).toBeUndefined();
+        expect(validateSettingsChange('output.path', 'runs/summary', settings)).toBeUndefined();
+        expect(validateSettingsChange('kinetics.enabled', true, settings, { tallies: ifpTallies() })).toBeUndefined();
+    });
+
+    it('requires the IFP tallies the dashboard generates before enabling kinetics', () => {
+        const settings = buildSettings();
+        const missing = validateSettingsChange('kinetics.enabled', true, settings, { tallies: [] });
+        expect(missing).toContain('IFP tallies');
+        expect(missing).toContain(IFP_SCORES.timeNumerator);
+        expect(missing).toContain(IFP_SCORES.betaNumerator);
+        expect(missing).toContain(IFP_SCORES.denominator);
+
+        const timeOnly = validateSettingsChange('kinetics.enabled', true, settings, {
+            tallies: [ifpTally(1, IFP_SCORES.timeNumerator)]
+        });
+        expect(timeOnly).toContain(IFP_SCORES.betaNumerator);
+        expect(timeOnly).toContain(IFP_SCORES.denominator);
+
+        expect(() => settingsChanges(settings, [{ path: 'kinetics.enabled', value: true }], { tallies: [] })).toThrow(
+            'requires the IFP tallies'
+        );
+        expect(
+            settingsChanges(
+                settings,
+                [
+                    { path: 'kinetics.enabled', value: true },
+                    { path: 'kinetics.computeBetaEff', value: false }
+                ],
+                { tallies: [ifpTally(1, IFP_SCORES.timeNumerator), ifpTally(2, IFP_SCORES.denominator)] }
+            )
+        ).toHaveLength(2);
+    });
+
+    it('enforces ifpNGenerations at or below run.inactive in both directions', () => {
+        const settings = buildSettings();
+        expect(() => settingsChanges(settings, [{ path: 'kinetics.ifpNGenerations', value: 11 }])).toThrow('must not exceed run.inactive');
+        expect(() => settingsChanges(settings, [{ path: 'kinetics.ifpNGenerations', value: 10 }])).not.toThrow();
+
+        const enabled = buildAdvancedSettings();
+        expect(() => settingsChanges(enabled, [{ path: 'run.inactive', value: 3 }])).toThrow('must not exceed run.inactive');
+        expect(() => settingsChanges(enabled, [{ path: 'run.inactive', value: 4 }])).not.toThrow();
+
+        expect(
+            validateSettingsChanges(settings, [
+                { path: 'kinetics.ifpNGenerations', value: 8 },
+                { path: 'run.inactive', value: 5 }
+            ])
+        ).toContain('must not exceed run.inactive');
+    });
+
+    it('rejects a nested value that would not change anything', () => {
+        const settings = buildAdvancedSettings();
+        expect(() => settingsChanges(settings, [{ path: 'output.summary', value: false }])).toThrow('already set to the requested value');
+        expect(() => settingsChanges(settings, [{ path: 'cutoff.energyNeutron', value: 1e-5 }])).toThrow(
+            'already set to the requested value'
+        );
+        expect(() => settingsChanges(settings, [{ path: 'kinetics.enabled', value: true }], { tallies: ifpTallies() })).toThrow(
+            'already set to the requested value'
+        );
+    });
+
+    it('applies nested paths without replacing unrelated keys', () => {
+        const settings = buildAdvancedSettings();
+        const original = JSON.parse(JSON.stringify(settings)) as OpenMCSettings;
+        const applied = applySettingsChanges(settings, [
+            { path: 'output.summary', value: true },
+            { path: 'cutoff.energyNeutron', value: 1e-4 },
+            { path: 'kinetics.enabled', value: false }
+        ]);
+
+        expect(applied).not.toBe(settings);
+        expect(applied.output).toEqual({ summary: true, tallies: true, path: 'runs/out' });
+        expect(applied.output).not.toBe(settings.output);
+        expect(applied.cutoff).toEqual({ energyNeutron: 1e-4, time: 1 });
+        expect(applied.kinetics).toEqual({ enabled: false, ifpNGenerations: 4, numPrecursorGroups: 6, computeBetaEff: true });
+        expect(settings).toEqual(original);
+    });
+
+    it('builds a top-level patch that preserves unrelated nested keys for undo', () => {
+        const settings = buildAdvancedSettings();
+        const patch = settingsUpdatePatch(settings, [
+            { path: 'output.summary', value: false },
+            { path: 'cutoff.energyNeutron', value: 1e-6 },
+            { path: 'kinetics.enabled', value: true }
+        ]);
+
+        expect(Object.keys(patch).sort()).toEqual(['cutoff', 'kinetics', 'output']);
+        expect(patch.output).toEqual({ summary: false, tallies: true, path: 'runs/out' });
+        expect(patch.cutoff).toEqual({ energyNeutron: 1e-6, time: 1 });
+        expect(patch.kinetics).toEqual({ enabled: true, ifpNGenerations: 4, numPrecursorGroups: 6, computeBetaEff: true });
     });
 });
 
