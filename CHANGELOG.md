@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-essentials: the Welcome page scrolls vertically when walkthroughs and recent workspaces exceed the viewport.
+- nuke-essentials: recent-workspace rows keep a flat hover surface instead of underlining the path.
 - nuke-essentials: illustrated empty-state icons and CAD mask glyphs render at the intended size instead of Theia's 16px codicon default.
 - nuke-essentials: shared dialogs, color picker, viewer bar, ViewCube, and view badges expose screen-reader names and keyboard-focus tooltips.
 - nuke-ai: NukeAI action menus use an icon-only bot trigger with a tooltip, and dashboard groups use the bot icon and sentence-case labels.
