@@ -43,6 +43,38 @@ const COPIES = [
         target: 'extensions/nuke-cad/src/common/samples/gui_plate_with_hole.json'
     },
     {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_l_bracket.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_l_bracket.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_flange.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_flange.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_stepped_shaft.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_stepped_shaft.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_pipe_with_bore.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_pipe_with_bore.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_bolt_circle_plate.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_bolt_circle_plate.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_hex_cell.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_hex_cell.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_control_rod_guide_tube.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_control_rod_guide_tube.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_assembly_grid_plate.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_assembly_grid_plate.json'
+    },
+    {
         source: 'extensions/nuke-cad/tests/e2e/assets/tokamak_with_divertor.nuke-cad',
         target: 'extensions/nuke-cad/src/common/samples/tokamak_with_divertor.json'
     }

@@ -57,6 +57,15 @@ Studio the same way you would a script build.
      vocabulary; a plate hole is a diameter parameter because a circle profile
      carries a diameter dimension.
 
+     The **mechanical** starters add an L bracket, flange, stepped shaft, pipe
+     with bore, and bolt-circle plate. The **nuclear** starters add a three-body
+     hexagonal fuel cell, a Zircaloy control-rod guide tube, and a Zircaloy
+     assembly grid plate with a representative 3×3 cell array. Pattern counts
+     (`holeCount`, `boltCount`, `cellCount`) validate as parameters but the
+     shipped pattern keeps its default instance count until pattern-count
+     binding is supported; the guide-tube wall thickness must equal half the
+     difference between its outer and inner diameters.
+
    - **Example projects** holds complete sample documents instead of presets:
 
    | Example project                 | What you get                                                                                                                                                           | Badge       |

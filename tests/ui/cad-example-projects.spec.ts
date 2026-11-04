@@ -34,7 +34,7 @@ test('New CAD Document picker lists example projects and cancels cleanly', async
     await expect(blankItems).toHaveCount(2);
 
     const componentSection = picker.locator('.cad-template-section').filter({ hasText: 'Parametric components' });
-    await expect(componentSection.locator('.cad-template-item')).toHaveCount(7);
+    await expect(componentSection.locator('.cad-template-item')).toHaveCount(15);
     await expect(componentSection.locator('.cad-template-name')).toHaveText([
         'Box',
         'Cone',
@@ -42,6 +42,14 @@ test('New CAD Document picker lists example projects and cancels cleanly', async
         'Plate with hole',
         'Sphere',
         'Tube',
+        'L bracket',
+        'Flange',
+        'Stepped shaft',
+        'Pipe with bore',
+        'Bolt-circle plate',
+        'Hex cell',
+        'Control-rod guide tube',
+        'Assembly grid plate',
         'Pincell'
     ]);
 

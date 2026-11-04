@@ -1,0 +1,275 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "guide-tube",
+      "name": "guide-tube"
+    }
+  ],
+  "curves": [
+    {
+      "id": "guide-tube-length-path",
+      "name": "guide-tube length path",
+      "samples": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          4.2857142857
+        ],
+        [
+          0,
+          0,
+          8.5714285714
+        ],
+        [
+          0,
+          0,
+          12.8571428571
+        ],
+        [
+          0,
+          0,
+          17.1428571429
+        ],
+        [
+          0,
+          0,
+          21.4285714286
+        ],
+        [
+          0,
+          0,
+          25.7142857143
+        ],
+        [
+          0,
+          0,
+          30
+        ]
+      ],
+      "source": {
+        "kind": "parametric",
+        "sampleCount": 8,
+        "tEnd": 1,
+        "tStart": 0,
+        "x": "0",
+        "y": "0",
+        "z": "length*t"
+      }
+    }
+  ],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "guide-tube-sweep",
+      "name": "Guide tube",
+      "params": {
+        "binormal": [
+          1,
+          0,
+          0
+        ],
+        "orientation": "fixedBinormal",
+        "pathCurveId": "guide-tube-length-path"
+      },
+      "sketchId": "guide-tube-profile",
+      "suppressed": false,
+      "type": "sweep"
+    }
+  ],
+  "name": "control-rod-guide-tube",
+  "parameters": {
+    "innerRadius": 0.54,
+    "length": 30,
+    "outerRadius": 0.6,
+    "wallThickness": 0.06
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "c_id": "circle-inner",
+          "driving": true,
+          "id": "radius-inner",
+          "radius": "innerRadius",
+          "type": "circle_radius"
+        },
+        {
+          "c_id": "circle-outer",
+          "driving": true,
+          "id": "radius-outer",
+          "radius": "outerRadius",
+          "type": "circle_radius"
+        },
+        {
+          "driving": true,
+          "id": "profile-vertical-height",
+          "l_id": "profile-line-height",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "length",
+          "driving": true,
+          "id": "profile-distance-height",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "profile-point-height",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "driving": true,
+          "id": "wall-horizontal",
+          "l_id": "line-wall",
+          "type": "horizontal_l"
+        },
+        {
+          "difference": "wallThickness",
+          "driving": true,
+          "id": "distance-wall",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-wall",
+            "prop": "x"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "radius-inner",
+          "driving": true,
+          "id": "dimension-inner",
+          "kind": "radius",
+          "parameter": "innerRadius",
+          "targetIds": [
+            "circle-inner"
+          ],
+          "value": 0.54
+        },
+        {
+          "constraintId": "radius-outer",
+          "driving": true,
+          "id": "dimension-outer",
+          "kind": "radius",
+          "parameter": "outerRadius",
+          "targetIds": [
+            "circle-outer"
+          ],
+          "value": 0.6
+        },
+        {
+          "constraintId": "profile-distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "length",
+          "targetIds": [
+            "profile-point-height",
+            "point-center"
+          ],
+          "value": 30
+        },
+        {
+          "constraintId": "distance-wall",
+          "driving": true,
+          "id": "dimension-wall",
+          "kind": "distanceH",
+          "parameter": "wallThickness",
+          "targetIds": [
+            "point-wall",
+            "point-center"
+          ],
+          "value": 0.06
+        }
+      ],
+      "id": "guide-tube-profile",
+      "name": "guide-tube-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "profile-point-height",
+          "type": "point",
+          "x": 0,
+          "y": 30
+        },
+        {
+          "construction": true,
+          "id": "point-wall",
+          "type": "point",
+          "x": 0.06,
+          "y": 0
+        },
+        {
+          "c_id": "point-center",
+          "construction": false,
+          "id": "circle-inner",
+          "radius": 0.54,
+          "type": "circle"
+        },
+        {
+          "c_id": "point-center",
+          "construction": false,
+          "id": "circle-outer",
+          "radius": 0.6,
+          "type": "circle"
+        },
+        {
+          "construction": true,
+          "id": "profile-line-height",
+          "p1_id": "point-center",
+          "p2_id": "profile-point-height",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-wall",
+          "p1_id": "point-center",
+          "p2_id": "point-wall",
+          "type": "line"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

@@ -1,0 +1,523 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "l-bracket",
+      "name": "l-bracket"
+    }
+  ],
+  "curves": [
+    {
+      "id": "l-bracket-thickness-path",
+      "name": "l-bracket thickness path",
+      "samples": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0.0857142857
+        ],
+        [
+          0,
+          0,
+          0.1714285714
+        ],
+        [
+          0,
+          0,
+          0.2571428571
+        ],
+        [
+          0,
+          0,
+          0.3428571429
+        ],
+        [
+          0,
+          0,
+          0.4285714286
+        ],
+        [
+          0,
+          0,
+          0.5142857143
+        ],
+        [
+          0,
+          0,
+          0.6
+        ]
+      ],
+      "source": {
+        "kind": "parametric",
+        "sampleCount": 8,
+        "tEnd": 1,
+        "tStart": 0,
+        "x": "0",
+        "y": "0",
+        "z": "thickness*t"
+      }
+    }
+  ],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "l-bracket-sweep",
+      "name": "L bracket",
+      "params": {
+        "binormal": [
+          1,
+          0,
+          0
+        ],
+        "orientation": "fixedBinormal",
+        "pathCurveId": "l-bracket-thickness-path"
+      },
+      "sketchId": "l-bracket-profile",
+      "suppressed": false,
+      "type": "sweep"
+    }
+  ],
+  "name": "l-bracket",
+  "parameters": {
+    "holeCount": 2,
+    "holeDiameter": 0.8,
+    "legLength": 8,
+    "legWidth": 2.5,
+    "thickness": 0.6
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-13",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-14",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-15",
+          "l_id": "line-9",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-16",
+          "l_id": "line-10",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-17",
+          "l_id": "line-11",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-18",
+          "l_id": "line-12",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-height",
+          "l_id": "line-height",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "legLength",
+          "driving": true,
+          "id": "distance-length",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "legWidth",
+          "driving": true,
+          "id": "distance-width",
+          "param1": {
+            "o_id": "point-2",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-3",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "legWidth",
+          "driving": true,
+          "id": "distance-inner",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "legLength",
+          "driving": true,
+          "id": "distance-upper",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-6",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "thickness",
+          "driving": true,
+          "id": "distance-thickness",
+          "param1": {
+            "o_id": "point-6",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-height",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-hole-1",
+          "p1_id": "point-1",
+          "p2_id": "point-3",
+          "p_id": "point-hole-1",
+          "type": "p2p_symmetric_ppp"
+        },
+        {
+          "c_id": "circle-hole-1",
+          "diameter": "holeDiameter",
+          "driving": true,
+          "id": "diameter-hole-1",
+          "type": "circle_diameter"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-hole-2",
+          "p1_id": "point-4",
+          "p2_id": "point-2",
+          "p_id": "point-hole-2",
+          "type": "p2p_symmetric_ppp"
+        },
+        {
+          "c_id": "circle-hole-2",
+          "diameter": "holeDiameter",
+          "driving": true,
+          "id": "diameter-hole-2",
+          "type": "circle_diameter"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-count",
+          "l_id": "line-count",
+          "type": "horizontal_l"
+        },
+        {
+          "difference": "holeCount",
+          "driving": true,
+          "id": "distance-count",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-count",
+            "prop": "x"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "distance-length",
+          "driving": true,
+          "id": "dimension-length",
+          "kind": "distanceH",
+          "parameter": "legLength",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 8
+        },
+        {
+          "constraintId": "distance-width",
+          "driving": true,
+          "id": "dimension-width",
+          "kind": "distanceV",
+          "parameter": "legWidth",
+          "targetIds": [
+            "point-3",
+            "point-2"
+          ],
+          "value": 2.5
+        },
+        {
+          "constraintId": "distance-inner",
+          "driving": true,
+          "id": "dimension-inner",
+          "kind": "distanceH",
+          "parameter": "legWidth",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 2.5
+        },
+        {
+          "constraintId": "distance-upper",
+          "driving": true,
+          "id": "dimension-upper",
+          "kind": "distanceV",
+          "parameter": "legLength",
+          "targetIds": [
+            "point-6",
+            "point-1"
+          ],
+          "value": 8
+        },
+        {
+          "constraintId": "distance-thickness",
+          "driving": true,
+          "id": "dimension-thickness",
+          "kind": "distanceV",
+          "parameter": "thickness",
+          "targetIds": [
+            "point-height",
+            "point-6"
+          ],
+          "value": 0.6
+        },
+        {
+          "constraintId": "diameter-hole-1",
+          "driving": true,
+          "id": "dimension-hole-1",
+          "kind": "diameter",
+          "parameter": "holeDiameter",
+          "targetIds": [
+            "circle-hole-1"
+          ],
+          "value": 0.8
+        },
+        {
+          "constraintId": "diameter-hole-2",
+          "driving": true,
+          "id": "dimension-hole-2",
+          "kind": "diameter",
+          "parameter": "holeDiameter",
+          "targetIds": [
+            "circle-hole-2"
+          ],
+          "value": 0.8
+        },
+        {
+          "constraintId": "distance-count",
+          "driving": true,
+          "id": "dimension-count",
+          "kind": "distanceH",
+          "parameter": "holeCount",
+          "targetIds": [
+            "point-count",
+            "point-1"
+          ],
+          "value": 2
+        }
+      ],
+      "id": "l-bracket-profile",
+      "name": "l-bracket-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 8,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 8,
+          "y": 2.5
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": 2.5,
+          "y": 2.5
+        },
+        {
+          "construction": false,
+          "id": "point-5",
+          "type": "point",
+          "x": 2.5,
+          "y": 8
+        },
+        {
+          "construction": false,
+          "id": "point-6",
+          "type": "point",
+          "x": 0,
+          "y": 8
+        },
+        {
+          "construction": true,
+          "id": "point-height",
+          "type": "point",
+          "x": 0,
+          "y": 8.6
+        },
+        {
+          "construction": false,
+          "id": "point-hole-1",
+          "type": "point",
+          "x": 4,
+          "y": 1.25
+        },
+        {
+          "construction": false,
+          "id": "point-hole-2",
+          "type": "point",
+          "x": 5.25,
+          "y": 1.25
+        },
+        {
+          "construction": true,
+          "id": "point-count",
+          "type": "point",
+          "x": 2,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-9",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-10",
+          "p1_id": "point-4",
+          "p2_id": "point-5",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-11",
+          "p1_id": "point-5",
+          "p2_id": "point-6",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-12",
+          "p1_id": "point-6",
+          "p2_id": "point-1",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-height",
+          "p1_id": "point-6",
+          "p2_id": "point-height",
+          "type": "line"
+        },
+        {
+          "c_id": "point-hole-1",
+          "construction": false,
+          "id": "circle-hole-1",
+          "radius": 0.4,
+          "type": "circle"
+        },
+        {
+          "c_id": "point-hole-2",
+          "construction": false,
+          "id": "circle-hole-2",
+          "radius": 0.4,
+          "type": "circle"
+        },
+        {
+          "construction": true,
+          "id": "line-count",
+          "p1_id": "point-1",
+          "p2_id": "point-count",
+          "type": "line"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

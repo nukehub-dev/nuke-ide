@@ -1,0 +1,525 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "flange",
+      "name": "flange"
+    }
+  ],
+  "curves": [],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "flange-outer",
+      "name": "Flange outer",
+      "params": {
+        "angle": 360,
+        "axis": "z"
+      },
+      "sketchId": "flange-outer-profile",
+      "suppressed": false,
+      "type": "revolve"
+    },
+    {
+      "body": "body-1",
+      "dependsOn": [
+        "flange-outer"
+      ],
+      "id": "flange-bore",
+      "name": "Flange bore",
+      "params": {
+        "angle": 360,
+        "axis": "z"
+      },
+      "sketchId": "flange-bore-profile",
+      "suppressed": false,
+      "type": "groove"
+    },
+    {
+      "body": "body-1",
+      "dependsOn": [
+        "flange-bore"
+      ],
+      "id": "flange-bolt-hole",
+      "name": "Flange bolt hole",
+      "params": {
+        "axis": "z",
+        "length": 60
+      },
+      "sketchId": "flange-bolt-profile",
+      "suppressed": false,
+      "type": "pocket"
+    },
+    {
+      "body": "body-1",
+      "dependsOn": [
+        "flange-bolt-hole"
+      ],
+      "id": "flange-bolt-pattern",
+      "name": "Flange bolt pattern",
+      "params": {
+        "angle": 360,
+        "axis": "z",
+        "count": 6,
+        "source": "flange-bolt-hole"
+      },
+      "suppressed": false,
+      "type": "circularPattern"
+    }
+  ],
+  "name": "flange",
+  "parameters": {
+    "boltCircleRadius": 4.8,
+    "boltCount": 6,
+    "boltHoleDiameter": 1,
+    "innerRadius": 3.5,
+    "outerRadius": 6,
+    "thickness": 1
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-9",
+          "l_id": "line-5",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-10",
+          "l_id": "line-6",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-11",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-12",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "outerRadius",
+          "driving": true,
+          "id": "distance-radius",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "thickness",
+          "driving": true,
+          "id": "distance-height",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xz",
+      "dimensions": [
+        {
+          "constraintId": "distance-radius",
+          "driving": true,
+          "id": "dimension-radius",
+          "kind": "distanceH",
+          "parameter": "outerRadius",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 6
+        },
+        {
+          "constraintId": "distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "thickness",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 1
+        }
+      ],
+      "id": "flange-outer-profile",
+      "name": "flange-outer-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 6,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 6,
+          "y": 1
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": 0,
+          "y": 1
+        },
+        {
+          "construction": false,
+          "id": "line-5",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-6",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-4",
+          "p2_id": "point-1",
+          "type": "line"
+        }
+      ]
+    },
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-9",
+          "l_id": "line-5",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-10",
+          "l_id": "line-6",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-11",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-12",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "innerRadius",
+          "driving": true,
+          "id": "distance-radius",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "thickness",
+          "driving": true,
+          "id": "distance-height",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xz",
+      "dimensions": [
+        {
+          "constraintId": "distance-radius",
+          "driving": true,
+          "id": "dimension-radius",
+          "kind": "distanceH",
+          "parameter": "innerRadius",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 3.5
+        },
+        {
+          "constraintId": "distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "thickness",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 1
+        }
+      ],
+      "id": "flange-bore-profile",
+      "name": "flange-bore-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 3.5,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 3.5,
+          "y": 1
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": 0,
+          "y": 1
+        },
+        {
+          "construction": false,
+          "id": "line-5",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-6",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-4",
+          "p2_id": "point-1",
+          "type": "line"
+        }
+      ]
+    },
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-hole",
+          "l_id": "line-hole",
+          "type": "horizontal_l"
+        },
+        {
+          "difference": "boltCircleRadius",
+          "driving": true,
+          "id": "distance-radius",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole",
+          "diameter": "boltHoleDiameter",
+          "driving": true,
+          "id": "diameter-hole",
+          "type": "circle_diameter"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-count",
+          "l_id": "line-count",
+          "type": "horizontal_l"
+        },
+        {
+          "difference": "boltCount",
+          "driving": true,
+          "id": "distance-count",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-count",
+            "prop": "x"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "distance-radius",
+          "driving": true,
+          "id": "dimension-radius",
+          "kind": "distanceH",
+          "parameter": "boltCircleRadius",
+          "targetIds": [
+            "point-hole",
+            "point-center"
+          ],
+          "value": 4.8
+        },
+        {
+          "constraintId": "diameter-hole",
+          "driving": true,
+          "id": "dimension-hole",
+          "kind": "diameter",
+          "parameter": "boltHoleDiameter",
+          "targetIds": [
+            "circle-hole"
+          ],
+          "value": 1
+        },
+        {
+          "constraintId": "distance-count",
+          "driving": true,
+          "id": "dimension-count",
+          "kind": "distanceH",
+          "parameter": "boltCount",
+          "targetIds": [
+            "point-count",
+            "point-center"
+          ],
+          "value": 6
+        }
+      ],
+      "id": "flange-bolt-profile",
+      "name": "flange-bolt-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-hole",
+          "type": "point",
+          "x": 4.8,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "point-count",
+          "type": "point",
+          "x": 6,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "line-hole",
+          "p1_id": "point-center",
+          "p2_id": "point-hole",
+          "type": "line"
+        },
+        {
+          "c_id": "point-hole",
+          "construction": false,
+          "id": "circle-hole",
+          "radius": 0.5,
+          "type": "circle"
+        },
+        {
+          "construction": true,
+          "id": "line-count",
+          "p1_id": "point-center",
+          "p2_id": "point-count",
+          "type": "line"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

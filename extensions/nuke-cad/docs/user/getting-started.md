@@ -6,7 +6,10 @@ Nuke CAD has two authoring modes: script-based `.py` files and GUI-edited
 
 For a ready-made starting point, run **New CAD Document** and pick the
 **Pincell** parametric component, one of the six primitives (box, cylinder,
-tube, sphere, cone, or plate with hole), or one of the **Example projects** (the
+tube, sphere, cone, or plate with hole), one of the five mechanical starters
+(L bracket, flange, stepped shaft, pipe with bore, or bolt-circle plate), one of
+the three nuclear starters (hex cell, control-rod guide tube, or assembly grid
+plate), or one of the **Example projects** (the
 pincell demo, a tokamak, the full W7-X stellarator via its
 external STEP, the parametric W7-X generator, or the native W7-X coil shape
 study); each saves an editable copy you can modify. The external W7-X cards

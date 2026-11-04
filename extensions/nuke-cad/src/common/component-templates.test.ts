@@ -68,7 +68,26 @@ function pincell(): ComponentTemplate {
 }
 
 const PRIMITIVE_IDS = ['box', 'cone', 'cylinder', 'plate-with-hole', 'sphere', 'tube'] as const;
-const ALL_TEMPLATE_IDS = ['box', 'cone', 'cylinder', 'plate-with-hole', 'sphere', 'tube', 'pincell'];
+const MECHANICAL_IDS = ['l-bracket', 'flange', 'stepped-shaft', 'pipe-with-bore', 'bolt-circle-plate'] as const;
+const NUCLEAR_IDS = ['hex-cell', 'control-rod-guide-tube', 'assembly-grid-plate', 'pincell'] as const;
+const ALL_TEMPLATE_IDS = [...PRIMITIVE_IDS, ...MECHANICAL_IDS, ...NUCLEAR_IDS];
+const ALL_TEMPLATE_IDS_BY_NAME = [
+    'assembly-grid-plate',
+    'bolt-circle-plate',
+    'box',
+    'cone',
+    'control-rod-guide-tube',
+    'cylinder',
+    'flange',
+    'hex-cell',
+    'l-bracket',
+    'pincell',
+    'pipe-with-bore',
+    'plate-with-hole',
+    'sphere',
+    'stepped-shaft',
+    'tube'
+];
 
 function countTemplate(): ComponentTemplate {
     return {
@@ -126,24 +145,37 @@ describe('component template library', () => {
 
     it('lists and filters templates by category and query', () => {
         expect(listComponentTemplates()).toHaveLength(ALL_TEMPLATE_IDS.length);
-        expect(listComponentTemplates().map((template) => template.id)).toEqual([
-            'box',
-            'cone',
-            'cylinder',
-            'pincell',
-            'plate-with-hole',
-            'sphere',
-            'tube'
+        expect(listComponentTemplates().map((template) => template.id)).toEqual(ALL_TEMPLATE_IDS_BY_NAME);
+        expect(listComponentTemplates({ category: 'nuclear' }).map((template) => template.id)).toEqual([
+            'assembly-grid-plate',
+            'control-rod-guide-tube',
+            'hex-cell',
+            'pincell'
         ]);
-        expect(listComponentTemplates({ category: 'nuclear' }).map((template) => template.id)).toEqual(['pincell']);
         expect(listComponentTemplates({ category: 'primitives' }).map((template) => template.id)).toEqual([...PRIMITIVE_IDS]);
-        expect(listComponentTemplates({ category: 'mechanical' })).toEqual([]);
-        expect(listComponentTemplates({ query: 'PWR' }).map((template) => template.id)).toEqual(['pincell']);
+        expect(listComponentTemplates({ category: 'mechanical' }).map((template) => template.id)).toEqual([
+            'bolt-circle-plate',
+            'flange',
+            'l-bracket',
+            'pipe-with-bore',
+            'stepped-shaft'
+        ]);
+        expect(listComponentTemplates({ query: 'PWR' }).map((template) => template.id)).toEqual([
+            'assembly-grid-plate',
+            'control-rod-guide-tube',
+            'pincell'
+        ]);
         expect(listComponentTemplates({ query: 'pin cell' }).map((template) => template.id)).toEqual(['pincell']);
-        expect(listComponentTemplates({ query: 'three-body' }).map((template) => template.id)).toEqual(['pincell']);
+        expect(listComponentTemplates({ query: 'three-body' }).map((template) => template.id)).toEqual(['hex-cell', 'pincell']);
         expect(listComponentTemplates({ query: 'box' }).map((template) => template.id)).toEqual(['box']);
-        expect(listComponentTemplates({ query: 'hole' }).map((template) => template.id)).toEqual(['plate-with-hole']);
-        expect(listComponentTemplates({ query: 'cylinder' }).map((template) => template.id)).toEqual(['cylinder']);
+        expect(listComponentTemplates({ query: 'hole' }).map((template) => template.id)).toEqual([
+            'bolt-circle-plate',
+            'l-bracket',
+            'plate-with-hole',
+            'assembly-grid-plate',
+            'flange'
+        ]);
+        expect(listComponentTemplates({ query: 'cylinder' }).map((template) => template.id)).toEqual(['cylinder', 'pipe-with-bore']);
         expect(listComponentTemplates({ query: 'no-such-template' })).toEqual([]);
         expect(getComponentTemplate('missing')).toBeUndefined();
     });

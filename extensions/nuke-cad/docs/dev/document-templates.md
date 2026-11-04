@@ -4,10 +4,10 @@ Nuke CAD ships two separate starting-point registries for new documents. They
 share the New Document picker but have different contracts and different
 creation flows.
 
-| Registry            | Module                             | Shipped entries                                                           | What it supplies                                                          |
-| ------------------- | ---------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Parameter presets   | `src/common/document-templates.ts` | `empty`, `tokamak`                                                        | A shallow `parameters` map merged over an empty schema-v3 document.       |
-| Component templates | `src/common/component-templates/`  | `box`, `cylinder`, `tube`, `sphere`, `cone`, `plate-with-hole`, `pincell` | A complete validated document plus typed, bounded, unit-aware parameters. |
+| Registry            | Module                             | Shipped entries                                         | What it supplies                                                          |
+| ------------------- | ---------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Parameter presets   | `src/common/document-templates.ts` | `empty`, `tokamak`                                      | A shallow `parameters` map merged over an empty schema-v3 document.       |
+| Component templates | `src/common/component-templates/`  | 15 templates across primitives, mechanical, and nuclear | A complete validated document plus typed, bounded, unit-aware parameters. |
 
 Parameter presets carry no geometry and store no template metadata in the
 document. `applyDocumentTemplate` only merges the preset values into the empty
@@ -161,6 +161,42 @@ one solid at the shipped size:
 NUKE_TEST_PYTHON=$HOME/.conda/envs/nuke/bin/python \
   yarn test:python:full extensions/nuke-cad/tests/e2e/test_component_templates.py
 ```
+
+## Shipped entries: mechanical
+
+All five are category `mechanical`, document units `cm`, and carry one labelled,
+untagged body. Their canonical fixtures live under `tests/e2e/assets/` and are
+authored by `src/browser/document/gui-build-mechanical.test.ts`.
+
+| Id                  | Body                | Parameters (default; bounds in cm)                                                                                                                                                              | Shape features                       |
+| ------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `l-bracket`         | `l-bracket`         | `legLength` 8 (2–100), `legWidth` 2.5 (0.5–50), `thickness` 0.6 (0.1–20), `holeDiameter` 0.8 (0.2–20), `holeCount` 2 (1–12)                                                                     | L-profile sweep with two holes       |
+| `flange`            | `flange`            | `outerRadius` 6 (0.5–50), `innerRadius` 3.5 (0.25–49.5), `thickness` 1 (0.2–20), `boltCircleRadius` 4.8 (0.5–49.5), `boltHoleDiameter` 1 (0.2–10), `boltCount` 6 (1–24), three diameter aliases | Revolve, bore groove, 6-hole pattern |
+| `stepped-shaft`     | `stepped-shaft`     | `stepRadius` 1.2 (0.1–49.9), `shaftRadius` 2 (0.25–50), `stepLength` 3 (0.2–199), `totalLength` 12 (1–200), two diameter aliases                                                                | Two-diameter stepped revolve         |
+| `pipe-with-bore`    | `pipe-with-bore`    | `outerRadius` 3 (0.25–50), `boreRadius` 2.4 (0.1–49.9), `length` 10 (1–200), two diameter aliases                                                                                               | Revolve with bore groove             |
+| `bolt-circle-plate` | `bolt-circle-plate` | `radius` 5 (0.5–100), `thickness` 0.8 (0.05–50), `holeDiameter` 0.9 (0.1–20), `holeCount` 4 (1–24), `holeCircleRadius` 3.5 (0.2–99.9), two diameter aliases                                     | Revolve, bolt-hole pattern           |
+
+## Shipped entries: nuclear
+
+`hex-cell`, `control-rod-guide-tube`, and `assembly-grid-plate` are category
+`nuclear`, document units `cm`, and authored by
+`src/browser/document/gui-build-nuclear.test.ts`. The pincell is the fourth
+nuclear entry.
+
+| Id                       | Body                     | Parameters (default; bounds in cm)                                                                                                                             | Bodies / materials                             |
+| ------------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `hex-cell`               | `hex-cell`               | `pitch` 1.26 (0.02–20), `fuelRadius` 0.4 (0.01–10), `cladRadius` 0.47 (0.02–12), `height` 1 (0.1–200), two diameter aliases                                    | `fuel` UO2, `clad` Zircaloy-4, `moderator` H2O |
+| `control-rod-guide-tube` | `control-rod-guide-tube` | `outerRadius` 0.6 (0.05–100), `innerRadius` 0.54 (0.025–99.9), `length` 30 (0.5–200), `wallThickness` 0.06 (0.001–50), two diameter aliases                    | `guide-tube` Zircaloy-4                        |
+| `assembly-grid-plate`    | `assembly-grid-plate`    | `width` 4.2 (0.5–200), `height` 4.2 (0.5–200), `plateThickness` 0.3 (0.05–50), `cellPitch` 1.26 (0.05–20), `cellCount` 3 (1–17), `cellDiameter` 0.95 (0.05–10) | `grid-plate` Zircaloy-4                        |
+
+Pattern counts (`holeCount`, `boltCount`, `cellCount`) resolve and validate as
+template parameters, but the document schema stores a pattern count as a number
+rather than a parameter reference. The shipped patterns therefore stay at their
+default instance counts; overriding a count re-solves the seed sketch and is
+accepted by creation, but does not change the number of holes. The
+`control-rod-guide-tube` wall thickness must equal half the difference between
+its outer and inner diameters; `validateGuideTubeWall` exposes that check for
+callers, and the user docs state the relation.
 
 ## Shipped entry: `pincell`
 

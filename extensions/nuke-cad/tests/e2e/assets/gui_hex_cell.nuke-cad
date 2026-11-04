@@ -1,0 +1,707 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "fuel",
+      "name": "fuel"
+    },
+    {
+      "id": "body-2",
+      "label": "clad",
+      "name": "clad"
+    },
+    {
+      "id": "body-3",
+      "label": "moderator",
+      "name": "moderator"
+    }
+  ],
+  "curves": [
+    {
+      "id": "hex-cell-height-path",
+      "name": "hex-cell height path",
+      "samples": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0.1428571429
+        ],
+        [
+          0,
+          0,
+          0.2857142857
+        ],
+        [
+          0,
+          0,
+          0.4285714286
+        ],
+        [
+          0,
+          0,
+          0.5714285714
+        ],
+        [
+          0,
+          0,
+          0.7142857143
+        ],
+        [
+          0,
+          0,
+          0.8571428571
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "source": {
+        "kind": "parametric",
+        "sampleCount": 8,
+        "tEnd": 1,
+        "tStart": 0,
+        "x": "0",
+        "y": "0",
+        "z": "height*t"
+      }
+    }
+  ],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "hex-fuel-sweep",
+      "name": "Fuel",
+      "params": {
+        "binormal": [
+          1,
+          0,
+          0
+        ],
+        "orientation": "fixedBinormal",
+        "pathCurveId": "hex-cell-height-path"
+      },
+      "sketchId": "hex-fuel-profile",
+      "suppressed": false,
+      "type": "sweep"
+    },
+    {
+      "body": "body-2",
+      "dependsOn": [],
+      "id": "hex-clad-sweep",
+      "name": "Clad",
+      "params": {
+        "binormal": [
+          1,
+          0,
+          0
+        ],
+        "orientation": "fixedBinormal",
+        "pathCurveId": "hex-cell-height-path"
+      },
+      "sketchId": "hex-clad-profile",
+      "suppressed": false,
+      "type": "sweep"
+    },
+    {
+      "body": "body-3",
+      "dependsOn": [],
+      "id": "hex-moderator-sweep",
+      "name": "Moderator",
+      "params": {
+        "binormal": [
+          1,
+          0,
+          0
+        ],
+        "orientation": "fixedBinormal",
+        "pathCurveId": "hex-cell-height-path"
+      },
+      "sketchId": "hex-moderator-profile",
+      "suppressed": false,
+      "type": "sweep"
+    }
+  ],
+  "name": "hex-cell",
+  "parameters": {
+    "cladRadius": 0.47,
+    "fuelRadius": 0.4,
+    "height": 1,
+    "pitch": 1.26
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "c_id": "circle-profile",
+          "driving": true,
+          "id": "radius-profile",
+          "radius": "fuelRadius",
+          "type": "circle_radius"
+        },
+        {
+          "driving": true,
+          "id": "profile-vertical-height",
+          "l_id": "profile-line-height",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "height",
+          "driving": true,
+          "id": "profile-distance-height",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "profile-point-height",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "radius-profile",
+          "driving": true,
+          "id": "dimension-radius",
+          "kind": "radius",
+          "parameter": "fuelRadius",
+          "targetIds": [
+            "circle-profile"
+          ],
+          "value": 0.4
+        },
+        {
+          "constraintId": "profile-distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "height",
+          "targetIds": [
+            "profile-point-height",
+            "point-center"
+          ],
+          "value": 1
+        }
+      ],
+      "id": "hex-fuel-profile",
+      "name": "hex-fuel-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "profile-point-height",
+          "type": "point",
+          "x": 0,
+          "y": 1
+        },
+        {
+          "c_id": "point-center",
+          "construction": false,
+          "id": "circle-profile",
+          "radius": 0.4,
+          "type": "circle"
+        },
+        {
+          "construction": true,
+          "id": "profile-line-height",
+          "p1_id": "point-center",
+          "p2_id": "profile-point-height",
+          "type": "line"
+        }
+      ]
+    },
+    {
+      "constraints": [
+        {
+          "c_id": "circle-inner",
+          "driving": true,
+          "id": "radius-inner",
+          "radius": "fuelRadius",
+          "type": "circle_radius"
+        },
+        {
+          "c_id": "circle-outer",
+          "driving": true,
+          "id": "radius-outer",
+          "radius": "cladRadius",
+          "type": "circle_radius"
+        },
+        {
+          "driving": true,
+          "id": "profile-vertical-height",
+          "l_id": "profile-line-height",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "height",
+          "driving": true,
+          "id": "profile-distance-height",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "profile-point-height",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "radius-inner",
+          "driving": true,
+          "id": "dimension-inner",
+          "kind": "radius",
+          "parameter": "fuelRadius",
+          "targetIds": [
+            "circle-inner"
+          ],
+          "value": 0.4
+        },
+        {
+          "constraintId": "radius-outer",
+          "driving": true,
+          "id": "dimension-outer",
+          "kind": "radius",
+          "parameter": "cladRadius",
+          "targetIds": [
+            "circle-outer"
+          ],
+          "value": 0.47
+        },
+        {
+          "constraintId": "profile-distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "height",
+          "targetIds": [
+            "profile-point-height",
+            "point-center"
+          ],
+          "value": 1
+        }
+      ],
+      "id": "hex-clad-profile",
+      "name": "hex-clad-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "profile-point-height",
+          "type": "point",
+          "x": 0,
+          "y": 1
+        },
+        {
+          "c_id": "point-center",
+          "construction": false,
+          "id": "circle-inner",
+          "radius": 0.4,
+          "type": "circle"
+        },
+        {
+          "c_id": "point-center",
+          "construction": false,
+          "id": "circle-outer",
+          "radius": 0.47,
+          "type": "circle"
+        },
+        {
+          "construction": true,
+          "id": "profile-line-height",
+          "p1_id": "point-center",
+          "p2_id": "profile-point-height",
+          "type": "line"
+        }
+      ]
+    },
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "axis-h-horizontal",
+          "l_id": "line-axis-h",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "mid-top-vertical",
+          "l_id": "line-mid-top-axis",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "mid-bottom-vertical",
+          "l_id": "line-mid-bottom-axis",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "mid-top-on-flat",
+          "l_id": "line-2",
+          "p_id": "point-mid-top",
+          "type": "point_on_line_pl"
+        },
+        {
+          "driving": true,
+          "id": "mid-bottom-on-flat",
+          "l_id": "line-5",
+          "p_id": "point-mid-bottom",
+          "type": "point_on_line_pl"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-2-3",
+          "l_id": "line-axis-v",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "p2p_symmetric_ppl"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-5-6",
+          "l_id": "line-axis-v",
+          "p1_id": "point-5",
+          "p2_id": "point-6",
+          "type": "p2p_symmetric_ppl"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-1-4",
+          "p1_id": "point-1",
+          "p2_id": "point-4",
+          "p_id": "point-center",
+          "type": "p2p_symmetric_ppp"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-2-5",
+          "p1_id": "point-2",
+          "p2_id": "point-5",
+          "p_id": "point-center",
+          "type": "p2p_symmetric_ppp"
+        },
+        {
+          "driving": true,
+          "id": "equal-radius",
+          "l1_id": "line-radius-1",
+          "l2_id": "line-radius-2",
+          "type": "equal_length"
+        },
+        {
+          "driving": true,
+          "id": "equal-sides",
+          "l1_id": "line-1",
+          "l2_id": "line-2",
+          "type": "equal_length"
+        },
+        {
+          "difference": "pitch",
+          "driving": true,
+          "id": "pitch",
+          "param1": {
+            "o_id": "point-mid-bottom",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-mid-top",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "driving": true,
+          "id": "profile-vertical-height",
+          "l_id": "profile-line-height",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "height",
+          "driving": true,
+          "id": "profile-distance-height",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "profile-point-height",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole",
+          "driving": true,
+          "id": "radius-hole",
+          "radius": "cladRadius",
+          "type": "circle_radius"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "pitch",
+          "driving": true,
+          "id": "dimension-pitch",
+          "kind": "distanceV",
+          "parameter": "pitch",
+          "targetIds": [
+            "point-mid-top",
+            "point-mid-bottom"
+          ],
+          "value": 1.26
+        },
+        {
+          "constraintId": "profile-distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "height",
+          "targetIds": [
+            "profile-point-height",
+            "point-center"
+          ],
+          "value": 1
+        },
+        {
+          "constraintId": "radius-hole",
+          "driving": true,
+          "id": "dimension-hole",
+          "kind": "radius",
+          "parameter": "cladRadius",
+          "targetIds": [
+            "circle-hole"
+          ],
+          "value": 0.47
+        }
+      ],
+      "id": "hex-moderator-profile",
+      "name": "hex-moderator-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "id": "point-1",
+          "type": "point",
+          "x": 0.7274613392,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 0.3637306696,
+          "y": 0.63
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": -0.3637306696,
+          "y": 0.63
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": -0.7274613392,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-5",
+          "type": "point",
+          "x": -0.3637306696,
+          "y": -0.63
+        },
+        {
+          "construction": false,
+          "id": "point-6",
+          "type": "point",
+          "x": 0.3637306696,
+          "y": -0.63
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "fixed": true,
+          "id": "point-axis-top",
+          "type": "point",
+          "x": 0,
+          "y": 1
+        },
+        {
+          "construction": true,
+          "id": "point-mid-top",
+          "type": "point",
+          "x": 0,
+          "y": 0.63
+        },
+        {
+          "construction": true,
+          "id": "point-mid-bottom",
+          "type": "point",
+          "x": 0,
+          "y": -0.63
+        },
+        {
+          "construction": true,
+          "id": "profile-point-height",
+          "type": "point",
+          "x": 0,
+          "y": 1
+        },
+        {
+          "construction": false,
+          "id": "line-1",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-2",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-3",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-4",
+          "p1_id": "point-4",
+          "p2_id": "point-5",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-5",
+          "p1_id": "point-5",
+          "p2_id": "point-6",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-6",
+          "p1_id": "point-6",
+          "p2_id": "point-1",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-axis-v",
+          "p1_id": "point-center",
+          "p2_id": "point-axis-top",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-axis-h",
+          "p1_id": "point-center",
+          "p2_id": "point-1",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-radius-1",
+          "p1_id": "point-center",
+          "p2_id": "point-1",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-radius-2",
+          "p1_id": "point-center",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-mid-top-axis",
+          "p1_id": "point-center",
+          "p2_id": "point-mid-top",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-mid-bottom-axis",
+          "p1_id": "point-center",
+          "p2_id": "point-mid-bottom",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "profile-line-height",
+          "p1_id": "point-center",
+          "p2_id": "profile-point-height",
+          "type": "line"
+        },
+        {
+          "c_id": "point-center",
+          "construction": false,
+          "id": "circle-hole",
+          "radius": 0.47,
+          "type": "circle"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

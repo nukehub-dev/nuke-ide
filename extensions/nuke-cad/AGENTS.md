@@ -53,8 +53,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   fixtures by `scripts/copy-cad-samples.js` during `yarn build`; never edit the generated
   copies. The fixture remains the single source of truth.
 - Component templates: `src/common/component-templates/` (`index.ts` public API, family
-  modules; `component-templates.ts` re-exports). Primitives are fixture-backed from
-  `tests/e2e/assets/gui_<id>.nuke-cad`; see `docs/dev/document-templates.md`.
+  modules; `component-templates.ts` re-exports). Primitive, mechanical, and nuclear entries are
+  fixture-backed from `tests/e2e/assets/gui_<id>.nuke-cad`; see `docs/dev/document-templates.md`.
 - The sketch solver is client-side only: `sketch-solver.ts` is the sole planegcs
   importer (pinned exact, WASM fallback documented); curve-level constraints stay
   lines/circles/arcs, ellipses/B-splines take point-level ones; evaluation lives in
@@ -222,8 +222,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   `tests/e2e/test_w7x_generator.py` (`NUKE_E2E_W7X_STEP`: 55 solids / 55 selector keys,
   plus 45/65-solid 4/6-module studies with simulation export blocked),
   `tests/e2e/test_w7x_shape_study.py` (50 native solids, no STEP),
-  `tests/e2e/test_component_templates.py` (six primitives, one solid each), and
-  `tests/python/test_coil_sweep.py`. See `docs/dev/testing-e2e.md`.
+  `tests/e2e/test_component_templates.py` / `_mechanical.py` / `_nuclear.py`
+  (fourteen templates, one solid each), and `tests/python/test_coil_sweep.py`.
+  See `docs/dev/testing-e2e.md`.
 
 ## Work Guidance
 
@@ -257,7 +258,11 @@ npx vitest run extensions/nuke-cad/src/common/cad-feature-edit.test.ts \
   extensions/nuke-cad/src/browser/capabilities/nuke-cad-creation-capabilities.test.ts \
   extensions/nuke-cad/src/browser/capabilities/create-target-policy.test.ts \
   extensions/nuke-cad/src/common/component-templates.test.ts \
+  extensions/nuke-cad/src/common/component-templates/mechanical.test.ts \
+  extensions/nuke-cad/src/common/component-templates/nuclear.test.ts \
   extensions/nuke-cad/src/browser/document/gui-build-primitives.test.ts \
+  extensions/nuke-cad/src/browser/document/gui-build-mechanical.test.ts \
+  extensions/nuke-cad/src/browser/document/gui-build-nuclear.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-save-service.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-store.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-store-drawings.test.ts \

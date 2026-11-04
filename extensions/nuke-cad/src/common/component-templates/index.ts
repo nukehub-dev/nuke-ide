@@ -53,6 +53,8 @@ import {
     type SketchDef
 } from '../cad-document';
 import { parseExpression, type Expr } from '../expression';
+import { MECHANICAL_COMPONENT_TEMPLATES } from './mechanical';
+import { NUCLEAR_COMPONENT_TEMPLATES } from './nuclear';
 import { PINCELL_COMPONENT_TEMPLATE } from './pincell';
 import { PRIMITIVE_COMPONENT_TEMPLATES } from './primitives';
 import type {
@@ -287,10 +289,15 @@ function sketchReferencesParameter(sketch: SketchDef, parameterName: string): bo
 /**
  * Built-in component templates.
  *
- * Families are implemented in sibling modules; the catalogue contains the six
- * mechanical primitives plus the nuclear pincell.
+ * Families are implemented in sibling modules: six primitives, five mechanical
+ * parts, three nuclear starters, and the nuclear pincell.
  */
-export const COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [...PRIMITIVE_COMPONENT_TEMPLATES, PINCELL_COMPONENT_TEMPLATE];
+export const COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
+    ...PRIMITIVE_COMPONENT_TEMPLATES,
+    ...MECHANICAL_COMPONENT_TEMPLATES,
+    ...NUCLEAR_COMPONENT_TEMPLATES,
+    PINCELL_COMPONENT_TEMPLATE
+];
 
 /** Look up a component template by id. */
 export function getComponentTemplate(id: string): ComponentTemplate | undefined {
