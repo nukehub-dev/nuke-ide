@@ -40,6 +40,8 @@ test('empty right-area panels use the same illustrated card', async ({ page }) =
         await openEmptyPanel(page, testCase);
     }
 
+    await expect(page.locator('.nuke-visualizer-icon-csg').first()).toBeVisible();
+
     const featureTree = page.locator('.cad-feature-tree-panel .nuke-empty-state').first();
     await runCommand(page, 'Open Feature Tree');
     await expect(featureTree.getByRole('button', { name: 'New CAD Document' })).toBeVisible();

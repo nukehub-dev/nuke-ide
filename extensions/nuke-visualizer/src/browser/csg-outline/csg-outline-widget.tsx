@@ -95,7 +95,7 @@ export class CsgOutlineWidget extends ReactWidget {
         this.id = CsgOutlineWidget.ID;
         this.title.label = CsgOutlineWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = codicon('symbol-struct');
+        this.title.iconClass = 'nuke-visualizer-icon nuke-visualizer-icon-csg';
         this.toDispose.push(this.shell.onDidChangeActiveWidget(() => this.refreshActiveViewer()));
         this.toDispose.push(this.shell.onDidChangeCurrentWidget(() => this.refreshActiveViewer()));
         this.toDispose.push(Disposable.create(() => this.outlineListener?.dispose()));
@@ -293,7 +293,7 @@ export class CsgOutlineWidget extends ReactWidget {
         return (
             <div className="csg-outline-panel">
                 <div className="csg-outline-header">
-                    <i className={`${codicon('symbol-struct')} csg-outline-header-icon`}></i>
+                    <i className="nuke-visualizer-icon nuke-visualizer-icon-csg csg-outline-header-icon"></i>
                     <div className="csg-outline-header-text">
                         <span className="csg-outline-panel-name">CSG Outline</span>
                         <div className="csg-outline-title">
