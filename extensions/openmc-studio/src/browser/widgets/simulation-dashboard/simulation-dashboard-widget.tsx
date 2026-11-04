@@ -45,6 +45,7 @@ import { OpenMCHealthService } from '../../services/openmc-health-service';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './simulation-runner';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
+import { NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCSettings, OpenMCRunSettings } from '../../../common/openmc-state-schema';
 import { SimulationProgress, SimulationStatusEvent, ValidationIssue, XMLImportReport } from '../../../common/openmc-studio-protocol';
@@ -127,8 +128,12 @@ export class SimulationDashboardWidget extends ReactWidget {
     @inject(DashboardTabRegistry)
     protected readonly tabRegistry!: DashboardTabRegistry;
 
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions!: NukeContextActionRegistry;
+
     private activeTab: string = 'settings';
     private visibilityHandle?: { dispose: () => void };
+    private contextActionsHandle?: { dispose: () => void };
     public isRunning = false;
     public simulationProgress?: SimulationProgress;
     public validationIssues: ValidationIssue[] = [];
@@ -270,6 +275,8 @@ export class SimulationDashboardWidget extends ReactWidget {
             this.update();
         }) as EventListener);
 
+        this.contextActionsHandle = this.contextActions.onDidChange(() => this.update());
+
         this.updateTitle();
         this.update();
 
@@ -331,6 +338,7 @@ export class SimulationDashboardWidget extends ReactWidget {
     dispose(): void {
         this.stopLogPolling();
         this.visibilityHandle?.dispose();
+        this.contextActionsHandle?.dispose();
         super.dispose();
     }
 

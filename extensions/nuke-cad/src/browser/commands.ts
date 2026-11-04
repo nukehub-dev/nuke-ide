@@ -104,9 +104,24 @@ export namespace NukeCadCommands {
         label: nls.localize('nuke/cad/openBomPanel', 'Open BOM')
     };
 
+    export const OPEN_REVIEW_PANEL: Command = {
+        id: 'nuke.cad.openReviewPanel',
+        label: nls.localize('nuke/cad/openReviewPanel', 'Open CAD Edit Review')
+    };
+
     export const OPEN_DRAWING_SHEET: Command = {
         id: 'nuke.cad.openDrawingSheet',
         label: nls.localize('nuke/cad/openDrawingSheet', 'Open Drawing Sheet')
+    };
+
+    export const OPEN_ACTIVE_SCRIPT: Command = {
+        id: 'nuke.cad.openActiveScriptModel',
+        label: nls.localize('nuke/cad/openActiveScriptModel', 'Open Active Python Model in CAD')
+    };
+
+    export const REFRESH_DRAWING_SHEET: Command = {
+        id: 'nuke.cad.refreshDrawingSheet',
+        label: nls.localize('nuke/cad/refreshDrawingSheet', 'Refresh Drawing Sheet')
     };
 
     export const SAVE_NAMED_VIEW: Command = {

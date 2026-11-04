@@ -25,6 +25,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // *****************************************************************************
 
+import * as React from '@theia/core/shared/react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { URI } from '@theia/core/lib/common/uri';
 import type {
@@ -37,6 +39,8 @@ import type {
 } from '../../../common/nuke-cad-protocol';
 import type { NukeCadPreferences } from '../../nuke-cad-preferences';
 import { W7X_BODY_LABELS, W7X_GEOMETRY_ASSET, W7X_GROUNDED_INSTANCE_ID } from '../../../common/w7x-generator';
+import { COMPONENT_TEMPLATES } from '../../../common/component-templates';
+import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
 
 // The widget module pulls Theia browser/monaco modules (CSS imports, DOM at
 // import time) that the node test environment cannot load. Mock exactly those
@@ -252,6 +256,139 @@ function makeImportWidget(
         fileService
     };
 }
+
+/**
+ * Widget instance with only the collaborators the component-template flow
+ * needs. The real `clearViewportModel` runs (it tolerates a missing state
+ * manager); save/rebuild and the store are stubbed because the widget is never
+ * mounted here.
+ */
+function makeComponentTemplateWidget(
+    m: WidgetModule,
+    options: { save?: URI; createResult?: { success: boolean; error?: string } } = {}
+): {
+    widget: any;
+    showSaveDialog: ReturnType<typeof vi.fn>;
+    createTemplateDocument: ReturnType<typeof vi.fn>;
+    setUri: ReturnType<typeof vi.fn>;
+} {
+    const widget = Object.create(m.CadViewportWidget.prototype);
+    widget.update = vi.fn();
+    widget.templatePickerOpen = true;
+    const showSaveDialog = vi.fn().mockResolvedValue(options.save);
+    widget.fileDialogService = { showSaveDialog };
+    widget.workspaceService = { ready: Promise.resolve() };
+    const createTemplateDocument = vi.fn().mockReturnValue(options.createResult ?? { success: true });
+    const setUri = vi.fn();
+    widget.documentStore = {
+        document: { name: 'current', units: 'cm', bodies: [], features: [], curves: [] },
+        uri: 'file:///work/project/current.nuke-cad',
+        createTemplateDocument,
+        setUri
+    };
+    widget.messageService = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
+    widget.saveDocument = vi.fn().mockResolvedValue(undefined);
+    widget.rebuildDocument = vi.fn().mockResolvedValue(undefined);
+    widget.clearSaveRebuildTimer = vi.fn();
+    widget.rebuildTracker = { reset: vi.fn() };
+    return { widget, showSaveDialog, createTemplateDocument, setUri };
+}
+
+describe('CadViewportWidget parametric component templates', () => {
+    let widgetModule: WidgetModule;
+
+    beforeAll(async () => {
+        widgetModule = await loadWidget();
+    });
+
+    it('creates, saves, and rebuilds the selected component with its template defaults', async () => {
+        const { widget, showSaveDialog, createTemplateDocument, setUri } = makeComponentTemplateWidget(widgetModule, {
+            save: new URI('file:///work/project/pincell.nuke-cad')
+        });
+
+        await widget.handleCreateComponentTemplate('pincell');
+
+        expect(widget.templatePickerOpen).toBe(false);
+        expect(showSaveDialog).toHaveBeenCalledWith({
+            title: 'Save New CAD Document',
+            inputValue: 'Pincell.nuke-cad',
+            filters: { 'CAD Document': ['nuke-cad'] }
+        });
+        expect(createTemplateDocument).toHaveBeenCalledTimes(1);
+        const [documentName, document] = createTemplateDocument.mock.calls[0];
+        expect(documentName).toBe('pincell');
+        expect(document.name).toBe('pincell');
+        expect(document.units).toBe('cm');
+        expect(document.parameters).toMatchObject({ fuelRadius: 0.4, cladRadius: 0.5, pitch: 1.26 });
+        expect(document.bodies).toHaveLength(3);
+        expect(setUri).toHaveBeenCalledWith('file:///work/project/pincell.nuke-cad');
+        expect(widget.rebuildTracker.reset).toHaveBeenCalled();
+        expect(widget.saveDocument).toHaveBeenCalledWith(false);
+        expect(widget.rebuildDocument).toHaveBeenCalledWith();
+        expect(widget.messageService.error).not.toHaveBeenCalled();
+    });
+
+    it('leaves the active document untouched when the save dialog is dismissed', async () => {
+        const { widget, createTemplateDocument, setUri } = makeComponentTemplateWidget(widgetModule, { save: undefined });
+
+        await widget.handleCreateComponentTemplate('pincell');
+
+        expect(widget.templatePickerOpen).toBe(false);
+        expect(createTemplateDocument).not.toHaveBeenCalled();
+        expect(setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.error).not.toHaveBeenCalled();
+    });
+
+    it('reports an unknown template id without prompting or creating a document', async () => {
+        const { widget, showSaveDialog, createTemplateDocument } = makeComponentTemplateWidget(widgetModule, {
+            save: new URI('file:///work/project/pincell.nuke-cad')
+        });
+
+        await widget.handleCreateComponentTemplate('missing');
+
+        expect(widget.messageService.error).toHaveBeenCalledWith("Unknown component template 'missing'.");
+        expect(widget.templatePickerOpen).toBe(true);
+        expect(showSaveDialog).not.toHaveBeenCalled();
+        expect(createTemplateDocument).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+    });
+
+    it('does not save or rebuild when the store rejects the template document', async () => {
+        const { widget, setUri } = makeComponentTemplateWidget(widgetModule, {
+            save: new URI('file:///work/project/pincell.nuke-cad'),
+            createResult: { success: false, error: 'invalid document' }
+        });
+
+        await widget.handleCreateComponentTemplate('pincell');
+
+        expect(setUri).not.toHaveBeenCalled();
+        expect(widget.saveDocument).not.toHaveBeenCalled();
+        expect(widget.rebuildDocument).not.toHaveBeenCalled();
+        expect(widget.messageService.error).toHaveBeenCalledWith('invalid document');
+    });
+
+    it('lists every parametric component template with its description in the picker', async () => {
+        const { DocumentTemplatePicker } = await import('./cad-sketch-overlay.js');
+        const markup = renderToStaticMarkup(
+            React.createElement(DocumentTemplatePicker, {
+                templates: DOCUMENT_TEMPLATES,
+                componentTemplates: COMPONENT_TEMPLATES,
+                onSelect: () => undefined,
+                onCreateComponentTemplate: () => undefined,
+                onCancel: () => undefined
+            })
+        );
+
+        expect(markup).toContain('Parametric components');
+        for (const template of COMPONENT_TEMPLATES) {
+            expect(markup).toContain(template.name);
+            expect(markup).toContain(template.description);
+        }
+    });
+});
 
 describe('CadViewportWidget partial size-cap threading', () => {
     let widgetModule: WidgetModule;

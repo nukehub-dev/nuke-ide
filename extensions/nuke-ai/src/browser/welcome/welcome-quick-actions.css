@@ -1,0 +1,228 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ * **************************************************************************** */
+
+.nuke-welcome-quick-actions-frame {
+    width: 100%;
+    container-type: inline-size;
+}
+
+.nuke-welcome-quick-actions {
+    box-sizing: border-box;
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    max-width: 800px;
+    margin: 20px auto 8px;
+    padding: 0 24px;
+    color: var(--theia-foreground, #cccccc);
+    font-size: var(--theia-ui-font-size1, 13px);
+}
+
+.nuke-welcome-quick-actions-header {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.nuke-welcome-quick-actions-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.nuke-welcome-quick-actions-subtitle {
+    margin: 0;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    line-height: 1.45;
+}
+
+.nuke-welcome-quick-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.nuke-welcome-quick-actions-item {
+    display: flex;
+    min-width: 0;
+}
+
+.nuke-welcome-quick-action {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 10px;
+    align-items: flex-start;
+    min-width: 0;
+    padding: 10px 12px;
+    color: var(--theia-foreground, #cccccc);
+    background: var(--theia-editorWidget-background, rgba(127, 127, 127, 0.08));
+    border: 1px solid var(--theia-editorWidget-border, var(--theia-widget-border, #454545));
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.nuke-welcome-quick-action:hover {
+    background: var(--theia-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.nuke-welcome-quick-action:focus-visible,
+.nuke-welcome-quick-actions-setup-button:focus-visible {
+    outline: 1px solid var(--theia-focusBorder, #007fd4);
+    outline-offset: 1px;
+}
+
+.nuke-welcome-quick-action-icon {
+    flex: 0 0 auto;
+    margin-top: 1px;
+    color: var(--theia-textLink-foreground, #3794ff);
+    font-size: 16px;
+}
+
+.nuke-welcome-quick-action-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.nuke-welcome-quick-action-label {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.nuke-welcome-quick-action-description {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.nuke-welcome-quick-actions-setup {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--theia-inputValidation-warningBackground, rgba(204, 167, 0, 0.1));
+    border: 1px solid var(--theia-inputValidation-warningBorder, var(--theia-warningForeground, #cca700));
+    border-radius: 6px;
+}
+
+.nuke-welcome-quick-actions-setup-icon {
+    flex: 0 0 auto;
+    color: var(--theia-warningForeground, #cca700);
+    font-size: 16px;
+}
+
+.nuke-welcome-quick-actions-setup-body {
+    display: flex;
+    flex: 1 1 220px;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.nuke-welcome-quick-actions-setup-title {
+    font-weight: 600;
+}
+
+.nuke-welcome-quick-actions-setup-text {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.nuke-welcome-quick-actions-setup-button {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    max-width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+@container (max-width: 380px) {
+    .nuke-welcome-quick-actions {
+        padding: 0 14px;
+    }
+
+    .nuke-welcome-quick-actions-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .nuke-welcome-quick-action {
+        padding: 8px 10px;
+    }
+
+    .nuke-welcome-quick-actions-setup-button {
+        flex: 1 1 100%;
+        max-width: 100%;
+        width: auto;
+    }
+}
+
+/* A docked chat panel can be dragged far below the card's comfortable width.
+   Drop the decorative icon and the secondary line before the label starts to
+   break every word. */
+@container (max-width: 240px) {
+    .nuke-welcome-quick-action-icon {
+        display: none;
+    }
+
+    .nuke-welcome-quick-action-description {
+        display: none;
+    }
+
+    .nuke-welcome-quick-actions {
+        gap: 8px;
+        padding: 0 10px;
+        margin-top: 12px;
+    }
+
+    .nuke-welcome-quick-actions-header {
+        gap: 0;
+    }
+}
+
+@container (max-width: 180px) {
+    .nuke-welcome-quick-actions-subtitle {
+        display: none;
+    }
+
+    .nuke-welcome-quick-actions-title {
+        font-size: 13px;
+    }
+}

@@ -1,0 +1,148 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ * **************************************************************************** */
+
+.nuke-ai-bot {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    overflow: visible;
+    color: var(--theia-focusBorder, #007fd4);
+}
+
+.nuke-ai-bot-shadow {
+    fill: currentColor;
+    opacity: 0.1;
+    transform-origin: 48px 84px;
+    animation: nuke-ai-bot-shadow 5s ease-in-out infinite;
+}
+
+.nuke-ai-bot-float {
+    transform-origin: 48px 54px;
+    animation: nuke-ai-bot-float 5s ease-in-out infinite;
+}
+
+.nuke-ai-bot-tilt {
+    transform: translate(var(--nuke-ai-bot-drift-x, 0px), var(--nuke-ai-bot-drift-y, 0px)) rotate(var(--nuke-ai-bot-tilt, 0deg));
+    transform-origin: 48px 70px;
+    transition: transform 220ms ease-out;
+}
+
+.nuke-ai-bot-head,
+.nuke-ai-bot-ear {
+    fill: var(--theia-editorWidget-background, #252526);
+    stroke: currentColor;
+    stroke-width: 2.5;
+}
+
+.nuke-ai-bot-antenna-line {
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 2.5;
+}
+
+.nuke-ai-bot-antenna-tip {
+    fill: currentColor;
+    animation: nuke-ai-bot-pulse 2.8s ease-in-out infinite;
+}
+
+.nuke-ai-bot-blink {
+    transform-origin: 48px 48px;
+    transition: transform 90ms ease-in-out;
+}
+
+.nuke-ai-bot-blinking .nuke-ai-bot-blink {
+    transform: scaleY(0.08);
+}
+
+.nuke-ai-bot-look {
+    transform: translate(var(--nuke-ai-bot-look-x, 0px), var(--nuke-ai-bot-look-y, 0px));
+    transition: transform 120ms ease-out;
+}
+
+.nuke-ai-bot-eye {
+    fill: currentColor;
+}
+
+.nuke-ai-bot-eye-glow {
+    fill: currentColor;
+    opacity: 0.14;
+}
+
+.nuke-ai-bot-mouth {
+    fill: currentColor;
+    opacity: 0.55;
+}
+
+@keyframes nuke-ai-bot-float {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-2px);
+    }
+}
+
+@keyframes nuke-ai-bot-shadow {
+    0%,
+    100% {
+        opacity: 0.08;
+        transform: scaleX(0.9);
+    }
+    50% {
+        opacity: 0.12;
+        transform: scaleX(1.05);
+    }
+}
+
+@keyframes nuke-ai-bot-pulse {
+    0%,
+    100% {
+        opacity: 0.65;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nuke-ai-bot-float,
+    .nuke-ai-bot-antenna-tip,
+    .nuke-ai-bot-shadow {
+        animation: none;
+    }
+
+    .nuke-ai-bot-tilt,
+    .nuke-ai-bot-blink,
+    .nuke-ai-bot-look {
+        transition: none;
+    }
+
+    .nuke-ai-bot-blinking .nuke-ai-bot-blink {
+        transform: none;
+    }
+}

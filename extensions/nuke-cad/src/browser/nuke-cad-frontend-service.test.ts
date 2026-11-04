@@ -33,7 +33,8 @@ import type {
     GeometryBuildRequest,
     BuildDocumentRequest,
     BuildFeaturesPartialRequest,
-    InspectImportSourceRequest
+    InspectImportSourceRequest,
+    SandboxedScriptBuildRequest
 } from '../common/nuke-cad-protocol';
 import type { NukeCadPreferences } from './nuke-cad-preferences';
 
@@ -64,6 +65,11 @@ function makeProxy(capture: { requests: CapturedRequest[] }): NukeCadBackendServ
             return { ...result, scriptPath: request.scriptPath };
         },
         buildDrawing: async () => ({ success: false, error: 'not stubbed' }),
+        getScriptSandboxStatus: async () => ({ available: false, engine: 'bubblewrap', reason: 'not stubbed' }),
+        buildSandboxedScript: async (_request: SandboxedScriptBuildRequest) => ({
+            success: false,
+            error: 'not stubbed'
+        }),
         inspectImportSource: async (request: InspectImportSourceRequest) => ({
             success: true,
             sourcePath: request.sourcePath,
@@ -107,6 +113,24 @@ describe('NukeCadFrontendService', () => {
         const service = new NukeCadFrontendService(makeProxy(capture), makePreferences());
         await service.buildGeometry({ scriptPath: STEP_PATH, exportDagmc: false, exportMesh: false });
         expect(capture.requests[0].tolerance).toBe(0.01);
+    });
+
+    it('forwards a preview job id, timeout, and private output directory', async () => {
+        const capture: { requests: CapturedRequest[] } = { requests: [] };
+        const service = new NukeCadFrontendService(makeProxy(capture), makePreferences());
+        await service.buildDocument({
+            scriptPath: MODEL_PATH,
+            outputDirectory: '/tmp/preview',
+            useCache: false,
+            jobId: 'preview-1',
+            timeoutSeconds: 120
+        });
+        expect(capture.requests[0]).toMatchObject({
+            outputDirectory: '/tmp/preview',
+            useCache: false,
+            jobId: 'preview-1',
+            timeoutSeconds: 120
+        });
     });
 
     it('uses export tolerance for script builds', async () => {

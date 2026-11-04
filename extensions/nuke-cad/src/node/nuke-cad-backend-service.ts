@@ -66,7 +66,12 @@ import {
     InspectImportSourceRequest,
     InspectImportSourceResult,
     ImportSolidInfo,
-    ImportSourceFormat
+    ImportSourceFormat,
+    CadBoundingBox,
+    SandboxedScriptBuildRequest,
+    SandboxedScriptBuildResult,
+    ScriptSandboxLimits,
+    ScriptSandboxStatus
 } from '../common/nuke-cad-protocol';
 import { CAD_HEALTH_PACKAGES } from '../common/packages';
 import type { DrawingBuildRequest, DrawingBuildResult } from '../common/cad-drawing';
@@ -240,6 +245,358 @@ export function inspectImportArgs(request: InspectImportSourceRequest, scriptPat
         args.push('--max-solids', String(request.maxSolids));
     }
     return args;
+}
+
+/** True when ``candidate`` is ``parent`` or a path below it. */
+export function isPathWithin(parent: string, candidate: string): boolean {
+    const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/** Resolve a path through its nearest existing ancestor without following a missing tail. */
+function resolveThroughExistingAncestor(target: string): string {
+    let existing = path.resolve(target);
+    const suffix: string[] = [];
+    while (!fs.existsSync(existing)) {
+        const parent = path.dirname(existing);
+        if (parent === existing) {
+            break;
+        }
+        suffix.unshift(path.basename(existing));
+        existing = parent;
+    }
+    return path.join(fs.realpathSync(existing), ...suffix);
+}
+
+/** Validated filesystem boundary for one sandboxed script build. */
+export interface ValidatedSandboxedScriptPaths {
+    readonly scriptPath: string;
+    readonly workspaceRoot: string;
+    readonly outputDirectory: string;
+}
+
+/**
+ * Validate the sandbox filesystem contract in the backend before a request is
+ * written or a process is spawned.
+ *
+ * The Python service repeats every check; this pass keeps invalid calls from
+ * touching the filesystem and gives the RPC a fast, deterministic failure.
+ */
+export function validateSandboxedScriptPaths(request: SandboxedScriptBuildRequest): ValidatedSandboxedScriptPaths | { error: string } {
+    const fields: [string, unknown][] = [
+        ['scriptPath', request.scriptPath],
+        ['workspaceRoot', request.workspaceRoot],
+        ['outputDirectory', request.outputDirectory]
+    ];
+    for (const [field, value] of fields) {
+        if (typeof value !== 'string' || value.length === 0 || !path.isAbsolute(value)) {
+            return { error: `${field} must be an absolute path.` };
+        }
+    }
+
+    let workspaceStat: fs.Stats;
+    try {
+        workspaceStat = fs.statSync(request.workspaceRoot);
+    } catch {
+        return { error: 'workspaceRoot must be an existing directory.' };
+    }
+    if (!workspaceStat.isDirectory()) {
+        return { error: 'workspaceRoot must be a directory.' };
+    }
+    let workspaceReal: string;
+    try {
+        workspaceReal = fs.realpathSync(request.workspaceRoot);
+    } catch {
+        return { error: 'workspaceRoot is not accessible.' };
+    }
+
+    let scriptStat: fs.Stats;
+    try {
+        scriptStat = fs.lstatSync(request.scriptPath);
+    } catch {
+        return { error: 'scriptPath must be an existing .py file.' };
+    }
+    if (scriptStat.isSymbolicLink()) {
+        return { error: 'scriptPath must not be a symbolic link.' };
+    }
+    if (!scriptStat.isFile()) {
+        return { error: 'scriptPath must be a regular file.' };
+    }
+    let scriptReal: string;
+    try {
+        scriptReal = fs.realpathSync(request.scriptPath);
+    } catch {
+        return { error: 'scriptPath is not accessible.' };
+    }
+    if (path.extname(scriptReal).toLowerCase() !== '.py') {
+        return { error: 'scriptPath must point to a .py file.' };
+    }
+    if (!isPathWithin(workspaceReal, scriptReal) || scriptReal === workspaceReal) {
+        return { error: 'scriptPath must be inside workspaceRoot.' };
+    }
+
+    const stagingRoot = path.join(workspaceReal, '.nuke-ide', 'ai', 'cad-scripts');
+    try {
+        if (fs.lstatSync(stagingRoot).isSymbolicLink()) {
+            return { error: 'The workspace sandbox staging directory must not be a symbolic link.' };
+        }
+    } catch {
+        // Missing staging root: created below.
+    }
+    try {
+        fs.mkdirSync(stagingRoot, { recursive: true, mode: 0o700 });
+    } catch {
+        return { error: 'Cannot create the workspace sandbox staging directory.' };
+    }
+    let stagingReal: string;
+    try {
+        stagingReal = fs.realpathSync(stagingRoot);
+    } catch {
+        return { error: 'The workspace sandbox staging directory is not accessible.' };
+    }
+    if (!isPathWithin(workspaceReal, stagingReal)) {
+        return { error: 'The workspace sandbox staging directory must stay inside workspaceRoot.' };
+    }
+
+    const outputCandidate = path.resolve(request.outputDirectory);
+    let outputReal: string;
+    try {
+        const outputStat = fs.lstatSync(outputCandidate);
+        if (outputStat.isSymbolicLink()) {
+            return { error: 'outputDirectory must not be a symbolic link.' };
+        }
+        if (!outputStat.isDirectory()) {
+            return { error: 'outputDirectory must be a directory.' };
+        }
+        outputReal = fs.realpathSync(outputCandidate);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            return { error: 'outputDirectory is not accessible.' };
+        }
+        try {
+            outputReal = resolveThroughExistingAncestor(outputCandidate);
+        } catch {
+            return { error: 'outputDirectory is not accessible.' };
+        }
+    }
+    if (!isPathWithin(stagingReal, outputReal)) {
+        return { error: 'outputDirectory must be inside <workspace>/.nuke-ide/ai/cad-scripts/.' };
+    }
+
+    try {
+        fs.mkdirSync(outputReal, { recursive: true, mode: 0o700 });
+        const finalStat = fs.lstatSync(outputReal);
+        if (finalStat.isSymbolicLink() || !finalStat.isDirectory()) {
+            return { error: 'outputDirectory must be a real directory.' };
+        }
+        outputReal = fs.realpathSync(outputReal);
+    } catch {
+        return { error: 'Cannot create the sandbox output directory.' };
+    }
+    if (!isPathWithin(stagingReal, outputReal)) {
+        return { error: 'outputDirectory must be inside <workspace>/.nuke-ide/ai/cad-scripts/.' };
+    }
+
+    return { scriptPath: scriptReal, workspaceRoot: workspaceReal, outputDirectory: outputReal };
+}
+
+/** Strip host paths from a sandbox failure message before it reaches the UI. */
+export function sanitizeSandboxText(message: string, roots: readonly string[]): string {
+    let sanitized = message;
+    for (const root of roots) {
+        if (root.length > 1) {
+            sanitized = sanitized.split(root).join('<path>');
+        }
+    }
+    sanitized = sanitized.replace(/(?<![\w.])\/(?:home|root|Users|tmp|var|opt|srv|mnt|media)(?:\/[^\s:'"]*)?/g, '<path>');
+    return sanitized.trim().slice(0, 2000);
+}
+
+/** Normalize the Python ``--probe`` payload to the RPC shape. */
+export function normalizeScriptSandboxStatus(raw: unknown): ScriptSandboxStatus {
+    const record = asInspectRecord(raw);
+    if (!record || record.available !== true) {
+        const reason = (record ? pickString(record, 'reason', 'error') : undefined) ?? 'Sandboxed script builds are unavailable.';
+        return { available: false, engine: 'bubblewrap', reason };
+    }
+    const status: {
+        available: boolean;
+        engine: 'bubblewrap';
+        bwrapPath?: string;
+        version?: string;
+        userns?: boolean;
+        disableUserns?: boolean;
+        seccomp?: boolean;
+        seccompVersion?: string;
+        reason?: string;
+    } = { available: true, engine: 'bubblewrap' };
+    const bwrapPath = pickString(record, 'bwrapPath', 'bwrap_path');
+    const version = pickString(record, 'version');
+    if (bwrapPath !== undefined) {
+        status.bwrapPath = bwrapPath;
+    }
+    if (version !== undefined) {
+        status.version = version;
+    }
+    if (typeof record.userns === 'boolean') {
+        status.userns = record.userns;
+    }
+    if (typeof record.disableUserns === 'boolean') {
+        status.disableUserns = record.disableUserns;
+    }
+    if (typeof record.seccomp === 'boolean') {
+        status.seccomp = record.seccomp;
+    }
+    const seccompVersion = pickString(record, 'seccompVersion');
+    if (seccompVersion !== undefined) {
+        status.seccompVersion = seccompVersion;
+    }
+    const reason = pickString(record, 'reason');
+    if (reason !== undefined) {
+        status.reason = reason;
+    }
+    return status;
+}
+
+function asSandboxBoundingBox(value: unknown): CadBoundingBox | undefined {
+    const record = asInspectRecord(value);
+    if (!record) {
+        return undefined;
+    }
+    const min = pickNumberArray(record, 'min');
+    const max = pickNumberArray(record, 'max');
+    if (!min || !max || min.length !== 3 || max.length !== 3) {
+        return undefined;
+    }
+    return { min, max };
+}
+
+function asSandboxLimits(value: unknown): ScriptSandboxLimits {
+    const record = asInspectRecord(value) ?? {};
+    return {
+        timeoutSeconds: pickNumber(record, 'timeoutSeconds') ?? 120,
+        memoryLimitMb: pickNumber(record, 'memoryLimitMb') ?? 4096,
+        processLimit: pickNumber(record, 'processLimit') ?? 128,
+        fileSizeLimitMb: pickNumber(record, 'fileSizeLimitMb') ?? 512,
+        nofile: pickNumber(record, 'nofile') ?? 256,
+        core: pickNumber(record, 'core') ?? 0
+    };
+}
+
+function asSandboxInfo(value: unknown): SandboxedScriptBuildResult['sandbox'] | undefined {
+    const record = asInspectRecord(value);
+    if (!record) {
+        return undefined;
+    }
+    const version = pickString(record, 'version');
+    const seccompVersion = pickString(record, 'seccompVersion');
+    return {
+        available: record.available === true,
+        engine: 'bubblewrap',
+        ...(version !== undefined ? { version } : {}),
+        disableUserns: record.disableUserns === true,
+        ...(typeof record.seccomp === 'boolean' ? { seccomp: record.seccomp } : {}),
+        ...(seccompVersion !== undefined ? { seccompVersion } : {}),
+        network: 'none',
+        workspace: 'none',
+        writable: pickStringArray(record, 'writable') ?? [],
+        limits: asSandboxLimits(record.limits)
+    };
+}
+
+/**
+ * Normalize a Python sandbox result and enforce that every returned artifact
+ * stays inside the validated output directory.
+ */
+export function normalizeSandboxedScriptResult(raw: unknown, outputDirectory: string): SandboxedScriptBuildResult {
+    const record = asInspectRecord(raw);
+    if (!record) {
+        return { success: false, error: 'Sandboxed build returned an invalid response.' };
+    }
+    const success = record.success === true;
+    const result: {
+        success: boolean;
+        error?: string;
+        warnings?: readonly string[];
+        solidCount?: number;
+        faceCount?: number;
+        triangleCount?: number;
+        boundingBox?: CadBoundingBox;
+        tessPath?: string;
+        stepPath?: string;
+        durationMs?: number;
+        timedOut?: boolean;
+        exitCode?: number | null;
+        sandbox?: SandboxedScriptBuildResult['sandbox'];
+    } = { success };
+
+    const error = pickString(record, 'error');
+    if (error !== undefined) {
+        result.error = sanitizeSandboxText(error, [outputDirectory]);
+    }
+    if (!success) {
+        const warnings = pickStringArray(record, 'warnings');
+        if (warnings !== undefined) {
+            result.warnings = warnings.map((warning) => sanitizeSandboxText(warning, [outputDirectory]));
+        }
+        const sandbox = asSandboxInfo(record.sandbox);
+        if (sandbox !== undefined) {
+            result.sandbox = sandbox;
+        }
+        return result;
+    }
+
+    const stepPath = typeof record.stepPath === 'string' ? path.resolve(record.stepPath) : undefined;
+    const tessPath = typeof record.tessPath === 'string' ? path.resolve(record.tessPath) : undefined;
+    const outputRoot = path.resolve(outputDirectory);
+    if (
+        stepPath === undefined ||
+        tessPath === undefined ||
+        stepPath === outputRoot ||
+        tessPath === outputRoot ||
+        !isPathWithin(outputRoot, stepPath) ||
+        !isPathWithin(outputRoot, tessPath)
+    ) {
+        return { success: false, error: 'Sandboxed build returned an artifact outside its output directory.' };
+    }
+    result.stepPath = stepPath;
+    result.tessPath = tessPath;
+
+    const solidCount = pickNumber(record, 'solidCount');
+    const faceCount = pickNumber(record, 'faceCount');
+    const triangleCount = pickNumber(record, 'triangleCount');
+    if (solidCount !== undefined) {
+        result.solidCount = solidCount;
+    }
+    if (faceCount !== undefined) {
+        result.faceCount = faceCount;
+    }
+    if (triangleCount !== undefined) {
+        result.triangleCount = triangleCount;
+    }
+    const boundingBox = asSandboxBoundingBox(record.boundingBox);
+    if (boundingBox !== undefined) {
+        result.boundingBox = boundingBox;
+    }
+    const durationMs = pickNumber(record, 'durationMs');
+    if (durationMs !== undefined) {
+        result.durationMs = durationMs;
+    }
+    if (typeof record.timedOut === 'boolean') {
+        result.timedOut = record.timedOut;
+    }
+    if (record.exitCode === null || typeof record.exitCode === 'number') {
+        result.exitCode = record.exitCode as number | null;
+    }
+    const warnings = pickStringArray(record, 'warnings');
+    if (warnings !== undefined) {
+        result.warnings = warnings.map((warning) => sanitizeSandboxText(warning, [outputDirectory]));
+    }
+    const sandbox = asSandboxInfo(record.sandbox);
+    if (sandbox !== undefined) {
+        result.sandbox = sandbox;
+    }
+    return result;
 }
 
 /**
@@ -519,6 +876,18 @@ export function normalizeInspectImportResult(raw: unknown, fallbackSourcePath: s
     };
 }
 
+/**
+ * Why sandboxed script authoring is unavailable on this host, or ``undefined``
+ * on Linux. The browser capability and the Python service both fail closed;
+ * this guard avoids spawning Python or loading libseccomp on macOS/Windows.
+ */
+export function scriptSandboxPlatformReason(platform: string = process.platform): string | undefined {
+    if (platform === 'linux') {
+        return undefined;
+    }
+    return 'Sandboxed builds require Linux with bubblewrap and libseccomp; macOS and Windows are unsupported.';
+}
+
 @injectable()
 export class NukeCadBackendServiceImpl implements NukeCadBackendService {
     /** Default backend process timeout: one hour (ccx/gmsh runs can be long). */
@@ -529,6 +898,12 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
 
     /** Timeout for import-source inspection (reads and measures every source solid). */
     protected static readonly INSPECT_TIMEOUT_SECONDS = 300;
+
+    /** Timeout for the bubblewrap capability probe. */
+    protected static readonly SANDBOX_PROBE_TIMEOUT_SECONDS = 15;
+
+    /** Grace period before a cancelled POSIX process group is SIGKILLed. */
+    protected static readonly KILL_ESCALATION_MS = 1000;
 
     /** Disambiguates temp request files from concurrent calls. */
     private static tempFileCounter = 0;
@@ -590,7 +965,126 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
         }
 
         const args = buildDocumentArgs(request, scriptPath);
-        return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath);
+        return this._spawnJsonService<GeometryBuildResult>(pythonCommand, args, path.dirname(request.scriptPath), request.scriptPath, {
+            jobId: request.jobId,
+            timeoutSeconds: request.timeoutSeconds
+        });
+    }
+
+    /**
+     * Report whether this host can run user scripts inside bubblewrap.
+     *
+     * The probe is informational: an unavailable sandbox is reported as
+     * ``available: false`` with a reason. It never selects an unsandboxed path.
+     */
+    async getScriptSandboxStatus(): Promise<ScriptSandboxStatus> {
+        const platformReason = scriptSandboxPlatformReason();
+        if (platformReason !== undefined) {
+            return { available: false, engine: 'bubblewrap', reason: platformReason };
+        }
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'sandbox_service.py' });
+        if (!scriptPath) {
+            return { available: false, engine: 'bubblewrap', reason: 'Sandbox service script not found.' };
+        }
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                available: false,
+                engine: 'bubblewrap',
+                reason: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.'
+            };
+        }
+        try {
+            const result = await this._spawnJsonService<Record<string, unknown>>(
+                pythonCommand,
+                [scriptPath, '--probe'],
+                path.dirname(scriptPath),
+                undefined,
+                { timeoutSeconds: NukeCadBackendServiceImpl.SANDBOX_PROBE_TIMEOUT_SECONDS }
+            );
+            const status = normalizeScriptSandboxStatus(result);
+            if (status.available) {
+                return status;
+            }
+            return {
+                ...status,
+                reason: sanitizeSandboxText(status.reason ?? 'Sandboxed script builds are unavailable.', [
+                    path.dirname(pythonCommand),
+                    os.homedir()
+                ])
+            };
+        } catch {
+            return { available: false, engine: 'bubblewrap', reason: 'Sandbox probe failed.' };
+        }
+    }
+
+    /**
+     * Build a user-authored ``.py`` model inside bubblewrap.
+     *
+     * The request JSON travels through a private temp file; the Python service
+     * validates it again, binds only the script file, and writes artifacts to
+     * the validated private output directory.
+     */
+    async buildSandboxedScript(request: SandboxedScriptBuildRequest): Promise<SandboxedScriptBuildResult> {
+        const platformReason = scriptSandboxPlatformReason();
+        if (platformReason !== undefined) {
+            return { success: false, error: platformReason };
+        }
+        const paths = validateSandboxedScriptPaths(request);
+        if ('error' in paths) {
+            return { success: false, error: paths.error };
+        }
+        const scriptPath = resolvePythonScript({ packageName: 'nuke-cad', scriptName: 'sandbox_service.py' });
+        if (!scriptPath) {
+            return { success: false, error: 'Sandbox service script not found.' };
+        }
+        const pythonCommand = await this.nukeCoreService.getPythonCommand();
+        if (!pythonCommand) {
+            return {
+                success: false,
+                error: 'No Python interpreter configured. Set a Python environment in Settings → Nuke Utils.'
+            };
+        }
+
+        const requestPath = path.join(
+            os.tmpdir(),
+            `.nuke-cad-sandbox-request-${Date.now()}-${NukeCadBackendServiceImpl.tempFileCounter++}.json`
+        );
+        const payload: SandboxedScriptBuildRequest = {
+            ...request,
+            scriptPath: paths.scriptPath,
+            workspaceRoot: paths.workspaceRoot,
+            outputDirectory: paths.outputDirectory
+        };
+        const roots = [paths.workspaceRoot, paths.outputDirectory, path.dirname(pythonCommand), os.homedir()];
+        try {
+            fs.writeFileSync(requestPath, JSON.stringify(payload), { encoding: 'utf-8', mode: 0o600 });
+        } catch {
+            return { success: false, error: 'Could not create the sandbox request file.' };
+        }
+
+        const requestedTimeout =
+            typeof request.timeoutSeconds === 'number' && Number.isFinite(request.timeoutSeconds) ? request.timeoutSeconds : 120;
+        const processTimeoutSeconds = Math.min(Math.max(Math.trunc(requestedTimeout), 1), 300) + 10;
+        try {
+            const result = await this._spawnJsonService<SandboxedScriptBuildResult>(
+                pythonCommand,
+                [scriptPath, '--request', requestPath],
+                paths.outputDirectory,
+                undefined,
+                { jobId: request.jobId, timeoutSeconds: processTimeoutSeconds }
+            );
+            return normalizeSandboxedScriptResult(result, paths.outputDirectory);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { success: false, error: sanitizeSandboxText(message, roots) };
+        } finally {
+            try {
+                fs.unlinkSync(requestPath);
+            } catch {
+                // Temporary request file cleanup is best-effort.
+            }
+        }
     }
 
     /**
@@ -901,19 +1395,33 @@ export class NukeCadBackendServiceImpl implements NukeCadBackendService {
      */
     private killJob(job: RunningCadJob): void {
         const child = job.process;
-        try {
-            if (process.platform !== 'win32' && child.pid !== undefined) {
-                process.kill(-child.pid, 'SIGTERM');
-            } else {
-                child.kill();
-            }
-        } catch {
-            // Process group already gone; best-effort direct kill.
+        const signalTree = (signal: NodeJS.Signals): void => {
             try {
-                child.kill();
+                if (process.platform !== 'win32' && child.pid !== undefined) {
+                    process.kill(-child.pid, signal);
+                } else {
+                    child.kill(signal);
+                }
             } catch {
-                // Process already exited.
+                // Process group already gone; best-effort direct kill.
+                try {
+                    child.kill(signal);
+                } catch {
+                    // Process already exited.
+                }
             }
+        };
+
+        signalTree('SIGTERM');
+        if (process.platform !== 'win32' && child.pid !== undefined) {
+            // A sandboxed build may trap SIGTERM; escalate to SIGKILL so a
+            // cancelled preview can never keep running in the background.
+            const escalation = setTimeout(() => {
+                if (child.exitCode === null && child.signalCode === null) {
+                    signalTree('SIGKILL');
+                }
+            }, NukeCadBackendServiceImpl.KILL_ESCALATION_MS);
+            escalation.unref?.();
         }
     }
 

@@ -6,6 +6,21 @@ The **Nuke Tools** sidebar is a left-panel view that aggregates every Nuke comma
 
 Extensions contribute items to the sidebar through the `NukeToolsContribution` provider. Each item declares a label, Theia command id, category path, optional ordering hints, icon, description, search keywords, and optional state-aware enablement.
 
+### Section order
+
+`sectionOrder` sorts top-level sections lexicographically; sections without one sort by label after the ordered ones. The shipped order is:
+
+| Section              | `sectionOrder` |
+| -------------------- | -------------- |
+| NukeAI               | `0`            |
+| CAD Studio           | `a`            |
+| OpenMC Studio        | `b`            |
+| Visualizer           | `c`            |
+| Environment          | `d`            |
+| Health & Diagnostics | `e`            |
+
+New top-level sections should take the next free letter at the end, or renumber the table deliberately when the workflow changes. `categoryOrder` does the same for nested categories inside a section.
+
 ### Example
 
 ```typescript

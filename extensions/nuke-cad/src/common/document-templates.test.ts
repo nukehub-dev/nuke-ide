@@ -32,16 +32,12 @@ import { validateNukeCadDocument } from './cad-document';
 describe('document-templates', () => {
     it('ships the expected built-in templates', () => {
         const ids = DOCUMENT_TEMPLATES.map((t) => t.id);
-        expect(ids).toEqual(['empty', 'pincell', 'tokamak']);
+        expect(ids).toEqual(['empty', 'tokamak']);
     });
 
     it('looks up templates by id', () => {
         expect(getDocumentTemplate('empty')?.name).toBe('Empty document');
-        expect(getDocumentTemplate('pincell')?.parameters).toEqual({
-            fuelRadius: 0.4,
-            cladRadius: 0.5,
-            pitch: 1.26
-        });
+        expect(getDocumentTemplate('pincell')).toBeUndefined();
         expect(getDocumentTemplate('tokamak')?.parameters).toEqual({
             major_radius: 450,
             minor_radius: 150
@@ -49,7 +45,7 @@ describe('document-templates', () => {
         expect(getDocumentTemplate('missing')).toBeUndefined();
     });
 
-    it('creates a valid empty v2 document', () => {
+    it('creates a valid empty v3 document', () => {
         const doc = createEmptyNukeCadDocument('Test');
         const validation = validateNukeCadDocument(doc);
         expect(validation.valid).toBe(true);
@@ -66,18 +62,6 @@ describe('document-templates', () => {
         const applied = applyDocumentTemplate(doc, 'empty');
         expect(applied.parameters).toEqual({});
         expect(applied).not.toBe(doc);
-    });
-
-    it('merges pincell parameters over an empty document', () => {
-        const doc = createEmptyNukeCadDocument('Pincell');
-        const applied = applyDocumentTemplate(doc, 'pincell');
-        const validation = validateNukeCadDocument(applied);
-        expect(validation.valid).toBe(true);
-        expect(applied.parameters).toEqual({
-            fuelRadius: 0.4,
-            cladRadius: 0.5,
-            pitch: 1.26
-        });
     });
 
     it('merges tokamak parameters over an empty document', () => {

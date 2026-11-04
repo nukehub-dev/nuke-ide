@@ -228,6 +228,13 @@ test.describe('docs screenshots', () => {
 
         await capture(page, 'workbench');
         await capture(page, 'tools-sidebar', sidebar);
+
+        await expandCategory(sidebar, 'NukeAI');
+        await expect(sidebar.locator('.nuke-tools-item-label', { hasText: 'Check Active CAD Model' })).toBeVisible();
+        await expect(sidebar.locator('.nuke-tools-item-label', { hasText: 'Validate OpenMC Project' })).toBeVisible();
+        await expect(sidebar.locator('.nuke-tools-item-label', { hasText: 'Attach Active Context' })).toBeVisible();
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await capture(page, 'nuke-ai-actions', sidebar);
         expect(severeErrors(errors), `console/page errors:\n${errors.join('\n')}`).toEqual([]);
     });
 

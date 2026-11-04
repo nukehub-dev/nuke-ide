@@ -715,54 +715,54 @@
    Particle type selector (sources, tally filters, weight windows)
    ============================================================================ */
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-selector,
-:is(.simulation-dashboard, .openmc-widget) .particle-type-multi {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-selector,
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-multi {
     display: flex;
     flex-direction: column;
     gap: 6px;
     min-width: 0;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-label {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-label {
     font-size: 12px;
     font-weight: 500;
     color: var(--theia-foreground);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-select-wrap {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-select-wrap {
     min-width: 0;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-segments {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-segments {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-select-control {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-select-control {
     display: none;
     width: 100%;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-disabled-wrap {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-disabled-wrap {
     display: inline-flex;
     min-width: 0;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-segments .segment:disabled {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-segments .segment:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-custom,
-:is(.simulation-dashboard, .openmc-widget) .particle-type-add-custom {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom,
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-add-custom {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
     gap: 8px;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -770,17 +770,51 @@
     flex: 1 1 180px;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-label {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-label {
     font-size: 11px;
     color: var(--theia-descriptionForeground);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field input {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field input {
     width: 100%;
     box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition:
+        border-color 120ms ease,
+        box-shadow 120ms ease;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-preview {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theia-focusBorder) 24%, transparent);
+}
+
+.tally-configurator-container .particle-type-custom-field input {
+    border-radius: 6px;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container)
+    .particle-type-custom-field
+    input[type='number']::-webkit-outer-spin-button,
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container)
+    .particle-type-custom-field
+    input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-preview {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -789,21 +823,21 @@
     color: var(--theia-descriptionForeground);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-preview strong {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-preview strong {
     color: var(--theia-foreground);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-preview-error {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-preview-error {
     color: var(--theia-errorForeground);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-checks {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-checks {
     display: flex;
     flex-wrap: wrap;
     gap: 6px 12px;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-check {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-check {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -811,17 +845,39 @@
     color: var(--theia-foreground);
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-check.unsupported {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-check.unsupported {
     opacity: 0.6;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-chips {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-check input[type='checkbox'] {
+    margin: 0;
+    accent-color: var(--theia-focusBorder);
+}
+
+/* Tally form labels are uppercase by design; particle chips and checkbox
+   labels are prose and must not inherit that treatment. */
+.tally-configurator-container .form-group label.particle-type-check {
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--theia-foreground);
+}
+
+.tally-configurator-container .form-group .particle-type-custom-label {
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-chips {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-chip {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -833,13 +889,13 @@
     max-width: 100%;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-chip > span {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-chip > span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-chip-remove {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-chip-remove {
     display: inline-flex;
     border: none;
     background: transparent;
@@ -848,7 +904,7 @@
     padding: 0;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-warning {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-warning {
     display: flex;
     align-items: flex-start;
     gap: 6px;
@@ -860,45 +916,45 @@
     border-radius: 0 4px 4px 0;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-warning .codicon {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-warning .codicon {
     color: var(--theia-warningForeground);
     flex: 0 0 auto;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-warnings {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-warnings {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
 @container (max-width: 560px) {
-    :is(.simulation-dashboard, .openmc-widget) .particle-type-segments {
+    :is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-segments {
         display: none;
     }
 
-    :is(.simulation-dashboard, .openmc-widget) .particle-type-select-control {
+    :is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-select-control {
         display: block;
     }
 
-    :is(.simulation-dashboard, .openmc-widget) .particle-type-custom,
-    :is(.simulation-dashboard, .openmc-widget) .particle-type-add-custom {
+    :is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom,
+    :is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-add-custom {
         flex-direction: column;
         align-items: stretch;
     }
 
-    :is(.simulation-dashboard, .openmc-widget) .particle-type-custom-field {
+    :is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field {
         flex: 1 1 auto;
     }
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-label-row {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-label-row {
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
 }
 
-:is(.simulation-dashboard, .openmc-widget) .particle-type-info {
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-info {
     color: var(--theia-descriptionForeground);
     cursor: help;
     font-size: 13px;

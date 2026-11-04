@@ -20,7 +20,7 @@ To set up and run NukeIDE locally, follow these steps:
 
 ### Prerequisites
 
-- Node.js (>=22.13.0)
+- Node.js (>=24.0.0)
 - Yarn (>=1.7.0 <2)
 - Python 3.13 for the tested backend profile
 

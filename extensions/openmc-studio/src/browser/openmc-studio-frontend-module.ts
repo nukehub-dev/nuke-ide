@@ -45,6 +45,7 @@ import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar
 // Protocol imports
 import { OpenMCStudioBackendService, OpenMCStudioClient, OPENMC_STUDIO_BACKEND_PATH } from '../common/openmc-studio-protocol';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
+import { NukeCapabilityContribution, NukeCapabilityContextContribution } from 'nuke-core/lib/common/nuke-capability-protocol';
 
 // Service imports
 import { OpenMCStudioService } from './openmc-studio-service';
@@ -52,6 +53,15 @@ import { OpenMCStateManager } from './openmc-state-manager';
 import { OpenMCXMLGenerationService } from './xml-generator/xml-generation-service';
 import { OpenMCSimulationRunner } from './widgets/simulation-dashboard/simulation-runner';
 import { OpenMCPythonExporter } from './script-generator/python-exporter';
+import { OpenMCCapabilities, OpenMCContextContribution } from './capabilities/openmc-capabilities';
+import { OpenMCChangeProposalService } from './capabilities/openmc-change-proposal-service';
+import { OpenMCMaterialCapabilities } from './capabilities/openmc-material-capabilities';
+import { OpenMCTallyCapabilities } from './capabilities/openmc-tally-capabilities';
+import { OpenMCProjectCapabilities } from './capabilities/openmc-project-capabilities';
+import { OpenMCScriptCapabilities } from './capabilities/openmc-script-capabilities';
+import { OpenMCDagmcCapabilities } from './capabilities/openmc-dagmc-capabilities';
+import { OpenMCGeometryCapabilities } from './capabilities/openmc-geometry-capabilities';
+import { OpenMCCatalogCapabilities } from './capabilities/openmc-catalog-capabilities';
 
 // New modular services
 import { OpenMCEnvironmentService, OpenMCHealthService, OpenMCInstallerService } from './services';
@@ -166,6 +176,7 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCXMLGenerationService).toSelf().inSingletonScope();
     bind(OpenMCSimulationRunner).toSelf().inSingletonScope();
     bind(OpenMCPythonExporter).toSelf().inSingletonScope();
+    bind(OpenMCChangeProposalService).toSelf().inSingletonScope();
 
     // ============================================================================
     // Environment & Health Services
@@ -173,6 +184,37 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(OpenMCEnvironmentService).toSelf().inSingletonScope();
     bind(OpenMCHealthService).toSelf().inSingletonScope();
     bind(OpenMCInstallerService).toSelf().inSingletonScope();
+
+    // ============================================================================
+    // Nuke Capability Contributions
+    // ============================================================================
+    // The capability contribution providers are bound once by nuke-core.
+    bind(OpenMCCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCCapabilities);
+
+    bind(OpenMCMaterialCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCMaterialCapabilities);
+
+    bind(OpenMCTallyCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCTallyCapabilities);
+
+    bind(OpenMCProjectCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCProjectCapabilities);
+
+    bind(OpenMCScriptCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCScriptCapabilities);
+
+    bind(OpenMCDagmcCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCDagmcCapabilities);
+
+    bind(OpenMCGeometryCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCGeometryCapabilities);
+
+    bind(OpenMCCatalogCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(OpenMCCatalogCapabilities);
+
+    bind(OpenMCContextContribution).toSelf().inSingletonScope();
+    bind(NukeCapabilityContextContribution).toService(OpenMCContextContribution);
 
     // ============================================================================
     // Command Modules

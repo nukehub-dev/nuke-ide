@@ -30,9 +30,9 @@
  *
  * Thin shell over {@link parseTessellationText}: the text comes in, the parsed
  * payload goes back with its ArrayBuffers transferred (zero-copy). Must not
- * import `@theia/*` or three.js — the parse module is pure. Webpack 5 bundles
- * this entry natively via `new Worker(new URL('./tess-parse.worker.ts',
- * import.meta.url))`; no generated-file edits.
+ * import `@theia/*` or three.js — the parse module is pure. Both app bundles
+ * emit this file as an explicit esbuild entry (`tess-parse.worker.js`), and
+ * the client loads it from the page base URL.
  *
  * @module nuke-cad/browser/widgets
  */

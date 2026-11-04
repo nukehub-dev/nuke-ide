@@ -1,0 +1,132 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ * **************************************************************************** */
+
+.nuke-welcome-logo-frame {
+    container-type: inline-size;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.nuke-ai-bot.nuke-ai-bot-welcome {
+    width: 112px;
+    height: 112px;
+}
+
+@container (max-width: 340px) {
+    .nuke-ai-bot.nuke-ai-bot-welcome {
+        width: 88px;
+        height: 88px;
+    }
+}
+
+.nuke-welcome-configuration .theia-WelcomeMessage-Actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.nuke-welcome-configuration .theia-WelcomeMessage-Actions .theia-button {
+    flex: 1 1 130px;
+    min-width: 0;
+    text-align: center;
+    white-space: normal;
+}
+
+.nuke-welcome-configuration .theia-WelcomeMessage-Content {
+    overflow-wrap: anywhere;
+}
+
+.nuke-welcome-guide {
+    display: flex;
+    justify-content: center;
+    margin: 4px 0 10px;
+}
+
+.nuke-welcome-guide-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.2;
+}
+
+/* The docked chat panel can be dragged narrower than the welcome content's
+   natural width. Make the panel the container so the guide button and mascot
+   degrade instead of overflowing. */
+.theia-WelcomeMessage-Main[data-provider='nuke'] {
+    container-type: inline-size;
+    container-name: nuke-chat-welcome;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow-wrap: break-word;
+}
+
+@container nuke-chat-welcome (max-width: 260px) {
+    .nuke-welcome-guide-button {
+        width: 100%;
+        justify-content: center;
+        padding-inline: 6px;
+        white-space: normal;
+    }
+}
+
+@container nuke-chat-welcome (max-width: 200px) {
+    .nuke-welcome-guide-button .codicon {
+        display: none;
+    }
+}
+
+@container (max-width: 200px) {
+    .nuke-ai-bot.nuke-ai-bot-welcome {
+        width: 64px;
+        height: 64px;
+    }
+}
+
+/* Composer row: Theia keeps every option at its natural size, so in a very
+   narrow panel the left group overlaps the send button. Let the row wrap. */
+.chat-input-widget .theia-ChatInputOptions {
+    height: auto;
+    min-height: 25px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding-bottom: 2px;
+}
+
+.chat-input-widget .theia-ChatInputOptions-left {
+    flex-wrap: wrap;
+}
+
+.chat-input-widget .theia-ChatInputOptions-right {
+    margin-left: auto;
+}
+
+.chat-input-widget .theia-ChatInput-Editor-Box,
+.chat-input-widget .theia-ChatInput-Editor {
+    min-width: 0;
+}

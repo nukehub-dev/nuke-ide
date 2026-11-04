@@ -2,6 +2,8 @@
 
 The DAGMC Editor is a visual tool for inspecting and editing faceted CAD geometry stored in `.h5m` files. You can view volumes, assign materials, manage groups, preview the mesh in 3D, and re-facet from source CAD — all inside NukeIDE.
 
+NukeAI can reassign volume materials and toggle the auto-id flags with a preview, apply, and undo; the same backend writes the `.h5m` file. See [Safe Edits](../../../nuke-ai/docs/user/safe-edits.md).
+
 ---
 
 ## Opening the Editor

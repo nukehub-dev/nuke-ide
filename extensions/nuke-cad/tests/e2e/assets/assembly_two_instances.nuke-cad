@@ -1,0 +1,115 @@
+{
+  "version": 3,
+  "name": "assembly_two_instances",
+  "units": "mm",
+  "parameters": {},
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "bodies": [
+    {
+      "id": "body-base",
+      "name": "base",
+      "label": "base"
+    },
+    {
+      "id": "body-arm",
+      "name": "arm",
+      "label": "arm"
+    }
+  ],
+  "sketches": [
+    {
+      "id": "sketch-base",
+      "name": "base profile",
+      "datumId": "datum-xy",
+      "primitives": [
+        { "id": "p1", "type": "point", "x": 0, "y": 0 },
+        { "id": "p2", "type": "point", "x": 10, "y": 0 },
+        { "id": "p3", "type": "point", "x": 10, "y": 10 },
+        { "id": "p4", "type": "point", "x": 0, "y": 10 },
+        { "id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2" },
+        { "id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3" },
+        { "id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4" },
+        { "id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1" }
+      ],
+      "constraints": []
+    },
+    {
+      "id": "sketch-arm",
+      "name": "arm profile",
+      "datumId": "datum-xy",
+      "primitives": [
+        { "id": "p1", "type": "point", "x": 0, "y": 0 },
+        { "id": "p2", "type": "point", "x": 4, "y": 0 },
+        { "id": "p3", "type": "point", "x": 4, "y": 4 },
+        { "id": "p4", "type": "point", "x": 0, "y": 4 },
+        { "id": "l1", "type": "line", "p1_id": "p1", "p2_id": "p2" },
+        { "id": "l2", "type": "line", "p1_id": "p2", "p2_id": "p3" },
+        { "id": "l3", "type": "line", "p1_id": "p3", "p2_id": "p4" },
+        { "id": "l4", "type": "line", "p1_id": "p4", "p2_id": "p1" }
+      ],
+      "constraints": []
+    }
+  ],
+  "features": [
+    {
+      "id": "pad-base",
+      "name": "base pad",
+      "type": "pad",
+      "body": "body-base",
+      "sketchId": "sketch-base",
+      "params": { "length": 10 },
+      "suppressed": false,
+      "dependsOn": []
+    },
+    {
+      "id": "pad-arm",
+      "name": "arm pad",
+      "type": "pad",
+      "body": "body-arm",
+      "sketchId": "sketch-arm",
+      "params": { "length": 4 },
+      "suppressed": false,
+      "dependsOn": []
+    }
+  ],
+  "curves": [],
+  "assembly": {
+    "instances": [
+      {
+        "id": "base",
+        "part": "body:body-base",
+        "placement": {
+          "position": [0, 0, 0],
+          "orientation": [0, 0, 0, 1]
+        }
+      },
+      {
+        "id": "arm",
+        "part": "body:body-arm",
+        "placement": {
+          "position": [20, 0, 0],
+          "orientation": [0, 0, 0, 1]
+        }
+      }
+    ],
+    "connectors": [],
+    "mates": [],
+    "groundedInstanceId": "base"
+  }
+}

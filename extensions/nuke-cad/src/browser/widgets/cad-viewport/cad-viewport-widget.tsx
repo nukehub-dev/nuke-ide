@@ -46,7 +46,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, Message, WidgetManager } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { CommandService } from '@theia/core/lib/common/command';
+import { CommandRegistry, CommandService } from '@theia/core/lib/common/command';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { ThemeService } from '@theia/core/lib/browser/theming';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
@@ -55,6 +55,7 @@ import { URI } from '@theia/core/lib/common/uri';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
 import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model';
+import * as path from 'path';
 import * as THREE from 'three';
 
 import {
@@ -63,7 +64,7 @@ import {
     type InspectImportSourceRequest,
     type InspectImportSourceResult
 } from '../../../common/nuke-cad-protocol';
-import { NukeCadStateManager, CadModel, CadSelection } from '../../state/nuke-cad-state-manager';
+import { NukeCadStateManager, CadModel, CadSelection, sandboxedGeometryResult } from '../../state/nuke-cad-state-manager';
 import { buildSolidSummaries } from '../outline-panel/solid-summaries';
 import { addSolidsToSelection, selectionSolidIds, toggleSolidSelection } from '../outline-panel/outline-interactions';
 import { NukeCadCommands } from '../../commands';
@@ -88,6 +89,7 @@ import { documentRelativeAssemblyPart, importedPartStorage, projectPartPath } fr
 import { CadSketchOverlay, DocumentTemplatePicker, type DatumDraft } from './cad-sketch-overlay';
 import { CadDocumentStore, createSketchId, computeDependsOn, getAssemblySection, uniqueFeatureId } from '../../document/cad-document-store';
 import type { DocumentMutationResult } from '../../document/cad-document-store';
+import { CadDocumentSaveService } from '../../document/cad-document-save-service';
 import {
     MemoryResultCache,
     PartialRebuildTracker,
@@ -107,6 +109,12 @@ import { CAD_COMMAND_IDS } from '../../cad-command-registry';
 import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
 import { QuickInputService } from '@theia/core/lib/browser/quick-input';
 import { DOCUMENT_TEMPLATES } from '../../../common/document-templates';
+import {
+    COMPONENT_TEMPLATES,
+    getComponentTemplate,
+    instantiateComponentTemplate,
+    type ComponentTemplate
+} from '../../../common/component-templates';
 import { SAMPLE_PROJECTS, getSampleProject, type SampleProject } from '../../../common/sample-projects';
 import {
     W7X_GEOMETRY_ASSET,
@@ -255,8 +263,10 @@ import {
     type AppearancePreset
 } from './body-appearance';
 import { AssemblyInstanceList } from './assembly-instance-list';
+import { NukeCadGhostPreviewService, type NukeCadGhostPreviewState } from '../../preview/nuke-cad-ghost-preview-service';
 import { faceReuseKey, planFaceReuse, type ParsedTessCurve, type ParsedTessData } from './tess-reuse';
 import { parseTessellationAsync } from './tess-parse-client';
+import { NukeContextAction, NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { attributeBodyToFeature, buildViewportContextMenu, openContextMenu, openViewportContextMenu } from './viewport-context-menu';
 import { buildSketchContextMenu, type SketchContextMenuAction, type SketchContextTarget } from './sketch-context-menu';
 import { buildSelectOtherRows, openSelectOtherMenu } from './select-other-menu';
@@ -390,6 +400,9 @@ export class CadViewportWidget extends ReactWidget {
     @inject(CommandService)
     protected readonly commandService: CommandService;
 
+    @inject(CommandRegistry)
+    protected readonly commandRegistry: CommandRegistry;
+
     @inject(NukeCadStateManager)
     protected readonly stateManager: NukeCadStateManager;
 
@@ -416,6 +429,12 @@ export class CadViewportWidget extends ReactWidget {
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
 
+    @inject(CadDocumentSaveService)
+    protected readonly documentSaveService: CadDocumentSaveService;
+
+    @inject(NukeCadGhostPreviewService)
+    protected readonly ghostPreviewService: NukeCadGhostPreviewService;
+
     @inject(MonacoWorkspace)
     protected readonly monacoWorkspace: MonacoWorkspace;
 
@@ -433,6 +452,9 @@ export class CadViewportWidget extends ReactWidget {
 
     @inject(QuickInputService)
     protected readonly quickInput: QuickInputService;
+
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions: NukeContextActionRegistry;
 
     private tessData?: TessData;
     private loading = false;
@@ -538,6 +560,8 @@ export class CadViewportWidget extends ReactWidget {
     private matePreviewEnabled = false;
     /** Tessellation of the pending sweep/pipe draft (ghosted preview), if any. */
     private previewTessData?: TessData;
+    /** Candidate geometry from the current CAD authoring proposal, if any. */
+    private ghostPreview?: NukeCadGhostPreviewState;
     /** Monotonically increasing token; stale preview builds are dropped. */
     private featurePreviewToken = 0;
     /** True while the viewport section plane is engaged. */
@@ -914,6 +938,58 @@ export class CadViewportWidget extends ReactWidget {
             this.startSketchSetup();
         }
     };
+
+    /**
+     * Create a new document from a parametric component template.
+     *
+     * The picker only supplies the template id; the user first chooses where
+     * the editable copy should live, so cancelling the save dialog leaves the
+     * current document untouched. A confirmed path installs the template body
+     * with its shipped defaults, writes it as JSON, and rebuilds it so the
+     * component renders immediately.
+     */
+    protected async handleCreateComponentTemplate(templateId: string): Promise<void> {
+        const template = getComponentTemplate(templateId);
+        if (template === undefined) {
+            this.messageService.error(`Unknown component template '${templateId}'.`);
+            return;
+        }
+        // The picker is a modal NukeDialog; close it before opening Theia's
+        // file dialog, otherwise the save dialog is blocked behind the modal.
+        this.templatePickerOpen = false;
+        this.update();
+        await this.workspaceService.ready;
+        const requested = await this.fileDialogService.showSaveDialog({
+            title: 'Save New CAD Document',
+            inputValue: `${template.name}.nuke-cad`,
+            filters: { 'CAD Document': ['nuke-cad'] }
+        });
+        if (requested === undefined) {
+            return;
+        }
+        const uri = requested.withPath(ensureNukeCadExtension(requested.path.toString()));
+        const documentName = uri.path.name.length > 0 ? uri.path.name : template.name;
+        this.clearViewportModel();
+        const result = this.documentStore.createTemplateDocument(documentName, instantiateComponentTemplate(template, documentName));
+        if (!result.success) {
+            this.messageService.error(result.error || `Failed to create the ${template.name} component.`);
+            return;
+        }
+        this.clearSaveRebuildTimer();
+        this.documentStore.setUri(uri.toString());
+        this.editingSketchId = undefined;
+        this.sketchSetupVisible = false;
+        this.buildStale = false;
+        this.rebuildTracker.reset();
+        this.update();
+        try {
+            await this.saveDocument(false);
+            await this.rebuildDocument();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.messageService.error(`Failed to save the component template: ${message}`);
+        }
+    }
 
     /**
      * Create a new document from an example project.
@@ -2914,6 +2990,13 @@ export class CadViewportWidget extends ReactWidget {
         this.toDispose.push(this.monacoWorkspace.onDidSaveTextDocument((document) => this.onModelScriptSaved(document)));
         this.toDispose.push(Disposable.create(() => this.clearSaveRebuildTimer()));
         this.toDispose.push(Disposable.create(this.documentStore.onChange(() => this.onDocumentChange())));
+        this.toDispose.push(
+            this.ghostPreviewService.onDidChange((state) => {
+                this.ghostPreview = state;
+                this.update();
+            })
+        );
+        this.toDispose.push(this.contextActions.onDidChange(() => this.update()));
         // Display precision is a rendering-only preference: re-render the React
         // chrome (measure popover props) and let the mounted scene refresh its
         // overlay labels through `setMeasurementDecimals`. Ribbon labels/pins,
@@ -2931,7 +3014,9 @@ export class CadViewportWidget extends ReactWidget {
                     event.preferenceName === 'nukeCad.showOriginAxes' ||
                     event.preferenceName === 'nukeCad.showOriginX' ||
                     event.preferenceName === 'nukeCad.showOriginY' ||
-                    event.preferenceName === 'nukeCad.showOriginZ'
+                    event.preferenceName === 'nukeCad.showOriginZ' ||
+                    event.preferenceName === 'nukeCad.aiAuthoringEnabled' ||
+                    event.preferenceName === 'nukeCad.scriptAuthoringEnabled'
                 ) {
                     this.update();
                 }
@@ -3003,6 +3088,8 @@ export class CadViewportWidget extends ReactWidget {
         this.rebuildPromise = undefined;
         this.pendingPartialJobId = undefined;
         this.clearSaveRebuildTimer();
+        this.ghostPreview = undefined;
+        this.ghostPreviewService?.clear();
         // Partial test doubles may omit the state manager entirely; the real
         // singleton always provides both methods.
         this.stateManager?.setModel?.(undefined);
@@ -3155,33 +3242,17 @@ export class CadViewportWidget extends ReactWidget {
 
     /** Save the active document, prompting for a path when needed. */
     async saveDocument(forceDialog = false): Promise<void> {
-        const doc = this.documentStore.document;
-        if (doc === undefined) {
+        const result = await this.documentSaveService.save({ forceDialog });
+        if (result.ok) {
+            this.unsavedSketchWarningShown = false;
+            this.messageService.info(`Saved ${new URI(result.uri).path.base}`);
+            return;
+        }
+        if (result.reason === 'no-document') {
             this.messageService.warn('No CAD document is active.');
-            return;
+        } else if (result.reason === 'error') {
+            this.messageService.error(result.message ?? 'Failed to save the CAD document.');
         }
-        let uri = this.documentStore.uri !== undefined && !forceDialog ? new URI(this.documentStore.uri) : undefined;
-        if (uri === undefined) {
-            const existingUri = this.documentStore.uri !== undefined ? new URI(this.documentStore.uri) : undefined;
-            uri = await this.fileDialogService.showSaveDialog({
-                title: 'Save CAD Document',
-                inputValue: existingUri?.path.base ?? `${doc.name}.nuke-cad`,
-                filters: { 'CAD Document': ['nuke-cad'] }
-            });
-            if (uri === undefined) {
-                return;
-            }
-            uri = uri.withPath(ensureNukeCadExtension(uri.path.toString()));
-        }
-        const json = this.documentStore.toJson();
-        if (json === undefined) {
-            return;
-        }
-        await this.fileService.write(uri, json);
-        this.documentStore.setUri(uri.toString());
-        this.documentStore.markSaved();
-        this.unsavedSketchWarningShown = false;
-        this.messageService.info(`Saved ${uri.path.base}`);
     }
 
     /** Open the feature creation dialog for the given feature type. */
@@ -3312,6 +3383,8 @@ export class CadViewportWidget extends ReactWidget {
     }
 
     private async doRebuildDocument(restoreFromCache = false, loadingMessage?: string): Promise<void> {
+        // A real rebuild supersedes any candidate preview for the old model.
+        this.ghostPreviewService?.clear();
         const doc = this.documentStore.document;
         if (doc === undefined) {
             this.messageService.warn('No CAD document is active.');
@@ -3942,6 +4015,16 @@ export class CadViewportWidget extends ReactWidget {
             return;
         }
 
+        if (ext === '.py' && this.preferences['nukeCad.scriptAuthoringEnabled'] === true) {
+            this.setLoading(true, 'Building CAD geometry in the sandbox...');
+            try {
+                await this.openSandboxedScriptFromDialog(filePath);
+            } finally {
+                this.setLoading(false);
+            }
+            return;
+        }
+
         const sourceType: 'script' | 'step' = ext === '.py' ? 'script' : 'step';
 
         this.setLoading(true, sourceType === 'step' ? 'Importing STEP file...' : 'Building CAD geometry...');
@@ -3973,6 +4056,70 @@ export class CadViewportWidget extends ReactWidget {
             this.messageService.error(message);
         } finally {
             this.setLoading(false);
+        }
+    }
+
+    private async openSandboxedScriptFromDialog(filePath: string): Promise<void> {
+        let status: Awaited<ReturnType<NukeCadBackendService['getScriptSandboxStatus']>>;
+        try {
+            status = await this.backendService.getScriptSandboxStatus();
+        } catch (error) {
+            const message = `The bubblewrap script sandbox could not be probed: ${error instanceof Error ? error.message : String(error)}`;
+            this.buildError = message;
+            this.messageService.error(message);
+            return;
+        }
+        if (!status.available) {
+            const reason = status.reason !== undefined && status.reason.length > 0 ? ` ${status.reason}` : '';
+            const message = `Script authoring is enabled, but the bubblewrap sandbox is unavailable; this script cannot be opened unsandboxed.${reason}`;
+            this.buildError = message;
+            this.messageService.error(message);
+            return;
+        }
+        const roots = this.workspaceService.tryGetRoots().map((root) => root.resource.path.toString());
+        const workspaceRoot = roots
+            .filter((root) => path.isAbsolute(root) && (filePath === root || filePath.startsWith(`${root}${path.sep}`)))
+            .map((root) => path.resolve(root))
+            .sort((left, right) => right.length - left.length)[0];
+        if (workspaceRoot === undefined) {
+            const message = 'The CAD script is outside every workspace root.';
+            this.buildError = message;
+            this.messageService.error(message);
+            return;
+        }
+        const outputDirectory = path.join(workspaceRoot, '.nuke-ide', 'ai', 'cad-scripts', `open-${globalThis.crypto.randomUUID()}`, 'out');
+        try {
+            await this.fileService.createFolder(new URI(outputDirectory), { fromUserGesture: false }).catch(() => undefined);
+            const result = await this.backendService.buildSandboxedScript({
+                scriptPath: filePath,
+                workspaceRoot,
+                outputDirectory,
+                tolerance: 0.1,
+                timeoutSeconds: 120,
+                memoryLimitMb: 4096,
+                processLimit: 128,
+                fileSizeLimitMb: 512,
+                jobId: `cad-ai-script-open-${globalThis.crypto.randomUUID()}`
+            });
+            if (!result.success) {
+                const message = result.error || 'The sandboxed CAD script build failed.';
+                this.buildError = message;
+                this.messageService.error(message);
+                return;
+            }
+            const geometry = sandboxedGeometryResult(result);
+            this.stateManager.setModel({
+                scriptPath: filePath,
+                result: geometry,
+                manifest: geometry.regionManifest,
+                sandboxed: true
+            });
+            this.buildWarnings = geometry.warnings ?? [];
+            this.messageService.info(`Loaded ${geometry.solidCount ?? 0} solids, ${geometry.triangleCount ?? 0} triangles`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.buildError = message;
+            this.messageService.error(message);
         }
     }
 
@@ -4096,6 +4243,12 @@ export class CadViewportWidget extends ReactWidget {
                 dressUpPickMode={this.dressUpPickMode}
                 selectedCurveId={this.documentStore.selection.selectedCurveId}
                 documentStore={this.documentStore}
+                getNukeAiActions={() =>
+                    this.contextActions
+                        .getActions('cad.viewport')
+                        .filter((action) => this.commandRegistry.getCommand(action.commandId) !== undefined)
+                }
+                onExecuteContextAction={(commandId) => void this.commandService.executeCommand(commandId)}
                 templatePickerOpen={this.templatePickerOpen}
                 sketchAutoDimension={this.preferences['nukeCad.sketchAutoDimension']}
                 ribbonLabels={this.preferences['nukeCad.ribbonLabels']}
@@ -4112,10 +4265,15 @@ export class CadViewportWidget extends ReactWidget {
                 showOriginZ={this.preferences['nukeCad.showOriginZ']}
                 rebuildOnEdit={this.preferences['nukeCad.rebuildOnEdit']}
                 buildStale={this.buildStale}
+                aiScriptAuthoringEnabled={
+                    this.preferences['nukeCad.aiAuthoringEnabled'] === true && this.preferences['nukeCad.scriptAuthoringEnabled'] === true
+                }
+                activeModelPath={this.stateManager.scriptPath}
                 sketchSavePromptOpen={this.sketchSavePromptOpen}
                 onSketchSavePromptSave={this.handleSketchSavePromptSave}
                 onSketchSavePromptNotNow={this.handleSketchSavePromptNotNow}
                 templates={DOCUMENT_TEMPLATES}
+                componentTemplates={COMPONENT_TEMPLATES}
                 samples={SAMPLE_PROJECTS}
                 onDismissError={this.dismissBuildError}
                 onDismissWarnings={this.dismissBuildWarnings}
@@ -4145,6 +4303,7 @@ export class CadViewportWidget extends ReactWidget {
                 onCancelW7xShapeStudy={this.handleCancelW7xShapeStudy}
                 onNewDocument={this.handleNewDocument}
                 onCreateDocument={this.handleCreateDocument}
+                onCreateComponentTemplate={(id) => void this.handleCreateComponentTemplate(id)}
                 onSelectSample={(id) => void this.handleCreateSample(id)}
                 onDownloadSample={(id) => void this.handleDownloadSample(id)}
                 onCancelTemplatePicker={this.handleCancelTemplatePicker}
@@ -4200,6 +4359,7 @@ export class CadViewportWidget extends ReactWidget {
                 onRenameInstance={this.handleRenameInstance}
                 onSelectInstance={this.handleSelectInstance}
                 previewTessData={this.previewTessData}
+                ghostPreview={this.ghostPreview}
                 onPreviewChange={this.handleFeaturePreviewChange}
                 sectionActive={this.sectionActive}
                 onSetSectionActive={this.handleSetSectionActive}
@@ -4253,6 +4413,10 @@ interface CadViewportComponentProps {
     readonly selectedCurveId?: string;
     readonly sectionActive: boolean;
     readonly documentStore: CadDocumentStore;
+    /** Enabled `cad.viewport` context actions from the neutral nuke-core registry, read at menu time. */
+    readonly getNukeAiActions: () => readonly NukeContextAction[];
+    /** Execute one context action's Theia command. */
+    readonly onExecuteContextAction: (commandId: string) => void;
     readonly messageService: MessageService;
     readonly templatePickerOpen: boolean;
     readonly sketchAutoDimension: boolean;
@@ -4277,11 +4441,17 @@ interface CadViewportComponentProps {
     readonly showOriginZ: boolean;
     readonly rebuildOnEdit: 'auto' | 'manual';
     readonly buildStale: boolean;
+    /** Both AI authoring switches are on; shows the persistent script-authoring boundary banner. */
+    readonly aiScriptAuthoringEnabled: boolean;
+    /** Active model path; the script banner only applies to `.py` models. */
+    readonly activeModelPath?: string;
     /** True while the unsaved-document “sketch saved in memory” prompt is open. */
     readonly sketchSavePromptOpen: boolean;
     readonly onSketchSavePromptSave: () => void;
     readonly onSketchSavePromptNotNow: () => void;
     readonly templates: ReadonlyArray<import('../../../common/document-templates').DocumentTemplate>;
+    /** Complete parametric component bodies offered under the blank presets. */
+    readonly componentTemplates: ReadonlyArray<ComponentTemplate>;
     /** Complete example-project documents offered under the blank presets. */
     readonly samples: ReadonlyArray<SampleProject>;
     readonly onDismissError: () => void;
@@ -4325,6 +4495,8 @@ interface CadViewportComponentProps {
     readonly onCancelW7xShapeStudy: () => void;
     readonly onNewDocument: () => void;
     readonly onCreateDocument: (templateId: string) => void;
+    /** Create and save a document from a parametric component template. */
+    readonly onCreateComponentTemplate: (templateId: string) => void;
     /** Create and save an editable copy of a built-in example project. */
     readonly onSelectSample: (sampleId: string) => void;
     /** Download an external example source into the project folder. */
@@ -4389,6 +4561,7 @@ interface CadViewportComponentProps {
     readonly onRenameInstance: (instanceId: string, newId: string) => void;
     readonly onSelectInstance: (instanceId: string) => void;
     readonly previewTessData?: TessData;
+    readonly ghostPreview?: NukeCadGhostPreviewState;
     readonly onPreviewChange: (request: FeaturePreviewRequest | undefined) => void;
     readonly onSetSectionActive: (active: boolean) => void;
     readonly onExitSection: () => void;
@@ -4589,6 +4762,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         setConnectorPickMode?: (active: boolean) => void;
         setConnectorTriads?: (triads: readonly ConnectorTriad[]) => void;
         setPreviewTessellation?: (tessData?: TessData) => void;
+        setGhostTessellation?: (tessData?: TessData, changedSolidIds?: readonly number[]) => void;
         fitView?: () => void;
         zoomView?: (factor: number) => void;
         setStandardView?: (view: 'iso' | 'top' | 'front' | 'right') => void;
@@ -4906,6 +5080,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
                 props.onClearSelection,
                 props.onRevealFeature,
                 props.onOpenAppearance,
+                props.getNukeAiActions,
+                props.onExecuteContextAction,
                 handleViewCubeUpdate,
                 handleViewNameChange
             );
@@ -4924,6 +5100,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setConnectorPickMode = api.setConnectorPickMode;
             viewportApi.current.setConnectorTriads = api.setConnectorTriads;
             viewportApi.current.setPreviewTessellation = api.setPreviewTessellation;
+            viewportApi.current.setGhostTessellation = api.setGhostTessellation;
             viewportApi.current.fitView = api.fitView;
             viewportApi.current.zoomView = api.zoomView;
             viewportApi.current.setStandardView = api.setStandardView;
@@ -4946,6 +5123,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             api.setCurvePickMode(props.curvePickMode ?? false);
             api.setConnectorPickMode(props.connectorPickMode !== undefined);
             api.setPreviewTessellation(props.previewTessData);
+            api.setGhostTessellation(props.ghostPreview?.tessData, props.ghostPreview?.changedSolidIds);
             setController(api.controller);
         })().catch((err) => {
             console.error('[CadViewport] Failed to initialize viewport:', err);
@@ -4963,6 +5141,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             viewportApi.current.setConnectorPickMode = undefined;
             viewportApi.current.setConnectorTriads = undefined;
             viewportApi.current.setPreviewTessellation = undefined;
+            viewportApi.current.setGhostTessellation = undefined;
             viewportApi.current.fitView = undefined;
             viewportApi.current.zoomView = undefined;
             viewportApi.current.setStandardView = undefined;
@@ -5042,6 +5221,10 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     React.useEffect(() => {
         viewportApi.current.setPreviewTessellation?.(props.previewTessData);
     }, [props.previewTessData, controller]);
+
+    React.useEffect(() => {
+        viewportApi.current.setGhostTessellation?.(props.ghostPreview?.tessData, props.ghostPreview?.changedSolidIds);
+    }, [props.ghostPreview, controller]);
 
     React.useEffect(() => {
         viewportApi.current.updateSelectedCurve?.(props.selectedCurveId);
@@ -5213,11 +5396,27 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     const designStudy = props.documentStore.document?.designStudy;
     const designStudyBanner = designStudy !== undefined ? <W7xDesignStudyBanner study={designStudy} /> : undefined;
+    const scriptAuthoringBanner =
+        props.aiScriptAuthoringEnabled && props.activeModelPath?.toLowerCase().endsWith('.py') === true ? (
+            <div className="cad-viewport-warning-strip cad-viewport-script-authoring-banner">
+                <div className="cad-viewport-warning-header">
+                    <span className="codicon codicon-shield" />
+                    <span className="cad-viewport-error-message">
+                        AI script authoring is on: sandbox preview, no network/workspace; Apply overwrites the script with a backup.
+                    </span>
+                </div>
+            </div>
+        ) : undefined;
 
     const banners =
-        designStudyBanner !== undefined || errorBanner !== undefined || warningStrip !== undefined || staleBanner !== undefined ? (
+        designStudyBanner !== undefined ||
+        scriptAuthoringBanner !== undefined ||
+        errorBanner !== undefined ||
+        warningStrip !== undefined ||
+        staleBanner !== undefined ? (
             <div className="cad-viewport-banners">
                 {designStudyBanner}
+                {scriptAuthoringBanner}
                 {errorBanner}
                 {warningStrip}
                 {staleBanner}
@@ -5309,9 +5508,14 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const templatePicker = props.templatePickerOpen ? (
         <DocumentTemplatePicker
             templates={props.templates}
+            componentTemplates={props.componentTemplates}
             samples={props.samples}
             onSelect={(id) => {
                 props.onCreateDocument(id);
+                setShortcutBar(undefined);
+            }}
+            onCreateComponentTemplate={(id) => {
+                props.onCreateComponentTemplate(id);
                 setShortcutBar(undefined);
             }}
             onSelectSample={(id) => {
@@ -5384,6 +5588,7 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     const statusHints = [
         shadingMode === 'edgesOnly' ? 'Edges-only: face/solid picking disabled' : undefined,
         props.sectionActive ? `Section: ${sectionLabel} — Esc to exit` : undefined,
+        props.ghostPreview ? `Candidate preview: ${props.ghostPreview.changedSolidIds.length} changed solid(s)` : undefined,
         explodeFactor > 0 ? `Explode ${Math.round(explodeFactor * 100)}% — F to refit` : undefined,
         measureActive && activeMeasureTool !== 'radius' && shadingMode === 'edgesOnly' && measureMode === 'model3d'
             ? 'Measure: point picking disabled by edges-only shading'
@@ -5895,6 +6100,7 @@ interface ViewportApi {
     readonly setConnectorPickMode: (active: boolean) => void;
     readonly setConnectorTriads: (triads: readonly ConnectorTriad[]) => void;
     readonly setPreviewTessellation: (tessData?: TessData) => void;
+    readonly setGhostTessellation: (tessData?: TessData, changedSolidIds?: readonly number[]) => void;
     readonly setOriginAxes: (axes: OriginAxesVisibility, suppressed?: boolean) => void;
     readonly fitView: () => void;
     readonly zoomView: (factor: number) => void;
@@ -5981,6 +6187,8 @@ function initViewport(
     onClearSelection: () => void,
     onRevealFeature: (featureId: string) => void,
     onOpenBodyAppearance: (bodyId: string) => void,
+    getNukeAiActions: () => readonly NukeContextAction[],
+    onExecuteContextAction: (commandId: string) => void,
     onViewCubeUpdate: (quaternion: readonly [number, number, number, number]) => void,
     onViewNameChange: (name: string) => void
 ): ViewportApi {
@@ -6056,6 +6264,14 @@ function initViewport(
     previewGroup.name = 'cad-preview';
     scene.add(previewGroup);
     let previewMeshes: THREE.Mesh[] = [];
+
+    // Candidate geometry from the CAD authoring proposal. This group is
+    // scene-level like `cad-preview`, so a real model rebuild never disposes
+    // it; the ghost preview service owns its lifetime.
+    const ghostGroup = new THREE.Group();
+    ghostGroup.name = 'cad-ghost';
+    scene.add(ghostGroup);
+    let ghostMeshes: THREE.Mesh[] = [];
 
     // Connector-frame triads for mate authoring: one RGB triad per connector
     // at its solved assembly pose. Shown during connector-pick mode (hover
@@ -6137,6 +6353,8 @@ function initViewport(
     let curvePickHoverId: string | undefined;
     let lastCenter = new THREE.Vector3();
     let lastDiag = 10;
+    /** Candidate ghost diagonal, used to keep clip planes from cutting a larger preview. */
+    let ghostDiag = 0;
     // Display-only world-origin triad: three RGB lines at the scene origin,
     // each parented to `origin-axes` so per-axis visibility is one flag per
     // line. Scale follows the model diagonal so it stays legible at tokamak
@@ -6226,6 +6444,24 @@ function initViewport(
         side: THREE.DoubleSide,
         transparent: true,
         opacity: DEFAULT_GHOST_OPACITY,
+        depthWrite: false
+    });
+    const ghostCandidateMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#5ea0ff'),
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false
+    });
+    const ghostChangedMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#ffa94d'),
+        roughness: 0.6,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.34,
         depthWrite: false
     });
 
@@ -6693,13 +6929,14 @@ function initViewport(
         // or an empty/reset document with no tessellation) never shows it.
         const hasLoadedModel = currentTessData !== undefined && meshes.length > 0;
         originAxesGroup.visible = originAxesEnabled && hasLoadedModel && !controller.isActive && !originAxesSuppressed;
+        ghostGroup.visible = ghostMeshes.length > 0 && !controller.isActive;
         // Clip planes follow the scene scale on every render (build, fit,
         // dolly, orbit, zoom): a fixed far plane clips any model larger than
         // ~5.8 km (the tokamak's 6.4 km diagonal) and a fixed 1e6 near/far
         // ratio z-fights concentric shells. Sketch mode keeps its own ortho
         // frustum, so only the perspective model camera is re-fit.
         if (cam === camera) {
-            const clip = computeClipPlanes(camera.position.distanceTo(controls.target), lastDiag / 2);
+            const clip = computeClipPlanes(camera.position.distanceTo(controls.target), Math.max(lastDiag, ghostDiag) / 2);
             if (camera.near !== clip.near || camera.far !== clip.far) {
                 camera.near = clip.near;
                 camera.far = clip.far;
@@ -6790,6 +7027,10 @@ function initViewport(
             material.clippingPlanes = clippingPlanes;
             material.needsUpdate = true;
         }
+        ghostCandidateMaterial.clippingPlanes = clippingPlanes;
+        ghostChangedMaterial.clippingPlanes = clippingPlanes;
+        ghostCandidateMaterial.needsUpdate = true;
+        ghostChangedMaterial.needsUpdate = true;
         // Per-body appearance materials follow the same flags, except that a
         // body opacity applies in `shaded` mode only: x-ray/ghost opacity wins,
         // and shaded-wireframe/edges-only keep full opacity (edges stay
@@ -7257,6 +7498,38 @@ function initViewport(
             const mesh = new THREE.Mesh(geometry, previewGhostMaterial);
             previewGroup.add(mesh);
             previewMeshes.push(mesh);
+        }
+        renderScene();
+    };
+
+    /**
+     * Replace the candidate geometry overlay. Unchanged solids use the cool
+     * translucent material; changed solids use the warmer accent. Geometry is
+     * owned exclusively by this group and disposed on replacement/cleanup.
+     */
+    const setGhostTessellation = (data?: TessData, changedSolidIds: readonly number[] = []): void => {
+        for (const mesh of ghostMeshes) {
+            ghostGroup.remove(mesh);
+            mesh.geometry.dispose();
+        }
+        ghostMeshes = [];
+        if (data === undefined) {
+            ghostDiag = 0;
+            renderScene();
+            return;
+        }
+        const box = data.boundingBox;
+        ghostDiag = new THREE.Vector3(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]).length();
+        const changed = new Set(changedSolidIds);
+        for (const face of data.faces) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(face.positions, 3));
+            geometry.setIndex(new THREE.BufferAttribute(face.indices, 1));
+            geometry.computeVertexNormals();
+            const mesh = new THREE.Mesh(geometry, changed.has(face.solidId) ? ghostChangedMaterial : ghostCandidateMaterial);
+            mesh.userData = { ghost: true, solidId: face.solidId, bodyId: face.bodyId };
+            ghostGroup.add(mesh);
+            ghostMeshes.push(mesh);
         }
         renderScene();
     };
@@ -8118,7 +8391,8 @@ function initViewport(
                     sectionActive: isSectionActive(),
                     selectedIds: currentSelection.solidIds ?? (currentSelection.solidId !== undefined ? [currentSelection.solidId] : []),
                     hasSelection: hasViewportSelection(),
-                    selectOtherCount: candidates.length
+                    selectOtherCount: candidates.length,
+                    nukeAiActions: getNukeAiActions()
                 }),
                 anchor,
                 (action) => {
@@ -8179,6 +8453,9 @@ function initViewport(
                         }
                         case 'appearance':
                             onOpenBodyAppearance(action.bodyId);
+                            break;
+                        case 'contextAction':
+                            onExecuteContextAction(action.commandId);
                             break;
                         case 'noop':
                             break;
@@ -8745,6 +9022,7 @@ function initViewport(
         },
         setConnectorTriads,
         setPreviewTessellation,
+        setGhostTessellation,
         setOriginAxes,
         fitView,
         zoomView,
@@ -8858,14 +9136,21 @@ function initViewport(
             for (const mesh of previewMeshes) {
                 mesh.geometry.dispose();
             }
+            for (const mesh of ghostMeshes) {
+                mesh.geometry.dispose();
+            }
             bodyMaterial.dispose();
             highlightMaterial.dispose();
             edgeLineMaterial.dispose();
             curveLineMaterial.dispose();
             curveLineHighlightMaterial.dispose();
             previewGhostMaterial.dispose();
+            ghostCandidateMaterial.dispose();
+            ghostChangedMaterial.dispose();
             previewMeshes = [];
+            ghostMeshes = [];
             scene.remove(previewGroup);
+            scene.remove(ghostGroup);
             for (const line of originAxisLines) {
                 line.geometry.dispose();
                 (line.material as THREE.Material).dispose();

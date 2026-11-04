@@ -6,7 +6,7 @@ import MarkdownIt, { type MarkdownIt as MarkdownItType, type MarkdownItOptions, 
 import { SimpleLoadingSpinner, ErrorDisplay, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
 import { DocsSidebar } from './docs-sidebar';
 import { DocsToc, TocItem } from './docs-toc';
-import { resolveDocAsset, resolveDocPath, splitDocTarget } from './docs-links';
+import { isValidDocPath, resolveDocAsset, resolveDocPath, splitDocTarget } from './docs-links';
 
 export interface DocsNavItem {
     title: string;
@@ -55,6 +55,8 @@ export class DocsWidget extends ReactWidget {
     protected contentRef = React.createRef<HTMLDivElement>();
     protected containerRef = React.createRef<HTMLDivElement>();
     protected tocItemsBuffer: TocItem[] = [];
+    /** Monotonic token so a slower default load cannot overwrite an explicit page. */
+    protected loadGeneration = 0;
 
     constructor() {
         super();
@@ -190,13 +192,30 @@ export class DocsWidget extends ReactWidget {
         }
     }
 
+    /** Open a specific documentation page; unsafe paths are rejected. */
+    async openPath(path: string): Promise<boolean> {
+        if (!isValidDocPath(path)) {
+            return false;
+        }
+        // Set the target before loading so a concurrent onAfterAttach default
+        // load also targets this page, and bump the generation so an older
+        // in-flight response cannot overwrite it.
+        this.state.currentPath = path;
+        return this.loadContent(path);
+    }
+
     protected async loadContent(path: string): Promise<boolean> {
+        const generation = ++this.loadGeneration;
+        this.state.currentPath = path;
         this.state.loading = true;
         this.state.error = null;
         this.update();
         try {
             const url = this.getApiUrlWithQuery('docs-api/content', { path });
             const res = await fetch(url);
+            if (generation !== this.loadGeneration) {
+                return false;
+            }
             if (!res.ok) {
                 if (res.status === 404) {
                     throw new Error(`Page not found: ${path}`);
@@ -204,6 +223,9 @@ export class DocsWidget extends ReactWidget {
                 throw new Error(`HTTP ${res.status}`);
             }
             const text = await res.text();
+            if (generation !== this.loadGeneration) {
+                return false;
+            }
             this.state.currentPath = path;
             this.tocItemsBuffer = [];
             this.state.content = this.renderMarkdown(text);

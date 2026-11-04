@@ -36,6 +36,7 @@ const REQUIRED = ['nuke-core', 'nuke-essentials'];
 
 /** Optional extensions mapped to their local extension dependencies. */
 const OPTIONAL = {
+    'nuke-ai': [],
     'nuke-docs': [],
     'nuke-fileinfo': [],
     'nuke-sysmon': [],

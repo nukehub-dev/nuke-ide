@@ -29,7 +29,13 @@ import './icons/domain-icon-classes.css';
 import { CommandContribution, MenuContribution, MessageService } from '@theia/core/lib/common';
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { VisualizerWidget } from './visualizer-widget';
-import { WidgetFactory, FrontendApplicationContribution, OpenHandler, bindViewContribution } from '@theia/core/lib/browser';
+import {
+    WidgetFactory,
+    FrontendApplicationContribution,
+    OpenHandler,
+    ApplicationShell,
+    bindViewContribution
+} from '@theia/core/lib/browser';
 import { VisualizerViewContribution } from './contributions/visualizer-view-contribution';
 import { VisualizerOpenHandler } from './contributions/visualizer-open-handler';
 import { VisualizerCommandContribution } from './commands/visualizer-command-contribution';
@@ -105,6 +111,9 @@ import { DagmcOutlineWidget } from './dagmc-outline/dagmc-outline-widget';
 import { DagmcOutlineContribution } from './dagmc-outline/dagmc-outline-contribution';
 import { CsgOutlineWidget } from './csg-outline/csg-outline-widget';
 import { CsgOutlineContribution } from './csg-outline/csg-outline-contribution';
+import { NukeCapabilityContribution, NukeCapabilityContextContribution } from 'nuke-core/lib/common/nuke-capability-protocol';
+import { VisualizerCapabilities, VisualizerContextContribution } from './capabilities/visualizer-capabilities';
+import { VisualizerDiagnosticsCapabilities } from './capabilities/visualizer-diagnostics-capabilities';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     // Bind Plotly service
@@ -393,6 +402,35 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(FrontendApplicationContribution).toService(OpenMCContribution);
     bind(MenuContribution).toService(OpenMCMenuContribution);
     bind(OpenHandler).toService(OpenMCContribution);
+
+    // Visualizer AI capabilities (statepoint summary/open, DAGMC viewport
+    // capture) and the ambient statepoint context. Constructed explicitly so
+    // the capability module never imports the three.js widget chain. The
+    // capability contribution providers are bound once by nuke-core.
+    bind(VisualizerCapabilities)
+        .toDynamicValue(
+            ({ container }) =>
+                new VisualizerCapabilities(
+                    container.get(OpenMCService),
+                    container.get(OpenMCContribution),
+                    container.get(ApplicationShell),
+                    (widget): widget is DagmcViewerWidget => widget instanceof DagmcViewerWidget
+                )
+        )
+        .inSingletonScope();
+    bind(NukeCapabilityContribution).toService(VisualizerCapabilities);
+    // Read-only statepoint comparison and tally-series analysis. A separate
+    // contribution keeps the viewer-facing capabilities above untouched; it
+    // only receives the OpenMC backend, so it cannot change the loaded
+    // statepoint.
+    bind(VisualizerDiagnosticsCapabilities)
+        .toDynamicValue(({ container }) => new VisualizerDiagnosticsCapabilities(container.get(OpenMCBackendService)))
+        .inSingletonScope();
+    bind(NukeCapabilityContribution).toService(VisualizerDiagnosticsCapabilities);
+    bind(VisualizerContextContribution)
+        .toDynamicValue(({ container }) => new VisualizerContextContribution(container.get(OpenMCService)))
+        .inSingletonScope();
+    bind(NukeCapabilityContextContribution).toService(VisualizerContextContribution);
 
     // OpenMC plugin command contributions
     bind(OpenMCStatepointCommands).toSelf().inSingletonScope();

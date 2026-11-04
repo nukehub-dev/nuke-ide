@@ -5,10 +5,11 @@ import { closeAllEditors, collectErrors, runCommand, waitForWorkbench } from './
 
 /**
  * New Document picker sections: the existing blank-document presets stay under
- * "Start blank", and the ready-made example projects render under their own
- * heading with workload badges and the tokamak first-build warning. Cancelling
- * creates nothing. The save-copy flow is covered by the store/pure tests; this
- * spec deliberately does not drive the Theia save dialog.
+ * "Start blank", parametric component starters under "Parametric components",
+ * and the ready-made example projects render under their own heading with
+ * workload badges and the tokamak first-build warning. Cancelling creates
+ * nothing. The save-copy flow is covered by the store/pure tests; this spec
+ * deliberately does not drive the Theia save dialog.
  */
 
 test.setTimeout(120_000);
@@ -25,14 +26,19 @@ test('New CAD Document picker lists example projects and cancels cleanly', async
 
     const picker = page.locator('.cad-template-picker').first();
     await expect(picker).toBeVisible({ timeout: 10_000 });
-    await expect(picker.locator('.cad-template-section-title')).toHaveText(['Start blank', 'Example projects']);
+    await expect(picker.locator('.cad-template-section-title')).toHaveText(['Start blank', 'Parametric components', 'Example projects']);
 
     // Empty document stays the first/default blank preset.
     const blankItems = picker.locator('.cad-template-list').first().locator('.cad-template-item');
     await expect(blankItems.first()).toContainText('Empty document');
-    await expect(blankItems).toHaveCount(3);
+    await expect(blankItems).toHaveCount(2);
+
+    const componentSection = picker.locator('.cad-template-section').filter({ hasText: 'Parametric components' });
+    await expect(componentSection.locator('.cad-template-item')).toHaveCount(1);
+    await expect(componentSection.locator('.cad-template-name')).toHaveText('Pincell');
 
     const samples = picker.locator('.cad-template-sample');
+    const exampleSection = picker.locator('.cad-template-section').filter({ hasText: 'Example projects' });
     await expect(samples).toHaveCount(5);
     for (const [name, badge] of [
         ['Pincell demo', 'Fast'],
@@ -56,9 +62,9 @@ test('New CAD Document picker lists example projects and cancels cleanly', async
     await expect(shapeCard).toContainText('no external STEP');
     await expect(shapeCard.locator('.cad-template-warning')).toContainText('Approximate native sweeps, not the reference B-rep');
     await expect(shapeCard.locator('.cad-template-warning')).toContainText('simulation export disabled');
-    await expect(picker.locator('.cad-template-section-hint')).toContainText('editable copy');
-    await expect(picker.locator('.cad-template-section-hint')).toContainText('copy their STEP');
-    await expect(picker.locator('.cad-template-section-hint')).toContainText('ten editable coil sweeps without a STEP');
+    await expect(exampleSection.locator('.cad-template-section-hint')).toContainText('editable copy');
+    await expect(exampleSection.locator('.cad-template-section-hint')).toContainText('copy their STEP');
+    await expect(exampleSection.locator('.cad-template-section-hint')).toContainText('ten editable coil sweeps without a STEP');
     await page.screenshot({ path: 'test-results/cad-example-projects.png' });
 
     // The external W7-X card asks whether to download the MIT-licensed STEP

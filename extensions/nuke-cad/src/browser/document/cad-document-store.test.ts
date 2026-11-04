@@ -63,6 +63,7 @@ import {
     type CurveDef,
     type DocumentUnits,
     type FeatureDef,
+    type FeatureParams,
     type ImportParams,
     type SketchDef,
     type W7xCoilStudy,
@@ -152,12 +153,11 @@ describe('CadDocumentStore', () => {
 
     it('creates a document from a template', () => {
         const store = new CadDocumentStore();
-        const result = store.createDocument('pincell', 'pincell');
+        const result = store.createDocument('tokamak', 'tokamak');
         expect(result.success).toBe(true);
         expect(store.document?.parameters).toEqual({
-            fuelRadius: 0.4,
-            cladRadius: 0.5,
-            pitch: 1.26
+            major_radius: 450,
+            minor_radius: 150
         });
         expect(store.document?.datums).toHaveLength(3);
     });
@@ -278,6 +278,118 @@ describe('CadDocumentStore', () => {
         });
     });
 
+    describe('atomic sketch authoring edits', () => {
+        function parametricCurve(amp: number, x = 'amp*cos(t)', y = 'amp*sin(t)'): CurveDef {
+            return {
+                id: 'curve-1',
+                name: 'Curve 1',
+                source: {
+                    kind: 'parametric',
+                    x,
+                    y,
+                    z: '0',
+                    tStart: 0,
+                    tEnd: 2 * Math.PI,
+                    sampleCount: 16
+                },
+                samples: [
+                    [amp, 0, 0],
+                    [0, amp, 0],
+                    [-amp, 0, 0],
+                    [0, -amp, 0]
+                ]
+            };
+        }
+
+        it('replaces a sketch and a parameter with one revision, one undo entry, and one change event', () => {
+            const store = new CadDocumentStore();
+            expect(store.loadDocument(minimalDoc({ parameters: { width: 10 }, sketches: [sketch('s1')] })).success).toBe(true);
+            const revision = store.revision;
+            let events = 0;
+            store.onChange(() => events++);
+
+            const updated = sketch('s1');
+            updated.primitives = [{ id: 'p1', type: 'point', x: 0, y: 0 }];
+            const result = store.applySketchAuthoringEdit({ sketches: [updated], parameters: { width: 20 } });
+
+            expect(result.success).toBe(true);
+            expect(store.revision).toBe(revision + 1);
+            expect(events).toBe(1);
+            expect(store.document?.parameters.width).toBe(20);
+            expect(store.document?.sketches[0].primitives).toHaveLength(1);
+            expect(store.canUndo).toBe(true);
+
+            expect(store.undo().success).toBe(true);
+            expect(store.document?.parameters.width).toBe(10);
+            expect(store.document?.sketches[0].primitives).toHaveLength(0);
+            expect(store.canUndo).toBe(false);
+        });
+
+        it('resamples parametric curves that reference a changed parameter', () => {
+            const store = new CadDocumentStore();
+            expect(
+                store.loadDocument(minimalDoc({ parameters: { amp: 1 }, sketches: [sketch('s1')], curves: [parametricCurve(1)] })).success
+            ).toBe(true);
+
+            const result = store.applySketchAuthoringEdit({ sketches: [sketch('s1')], parameters: { amp: 2 } });
+            expect(result.success).toBe(true);
+            const samples = store.document!.curves[0].samples;
+            expect(samples[0][0]).toBeCloseTo(2, 8);
+            expect(samples[0][1]).toBeCloseTo(0, 8);
+        });
+
+        it('rejects unknown sketches and non-finite parameters without mutating', () => {
+            const store = new CadDocumentStore();
+            expect(store.loadDocument(minimalDoc({ parameters: { width: 10 }, sketches: [sketch('s1')] })).success).toBe(true);
+            store.markSaved();
+            const revision = store.revision;
+
+            const unknown = store.applySketchAuthoringEdit({ sketches: [sketch('missing')] });
+            expect(unknown.success).toBe(false);
+            expect(unknown.error).toContain('not found');
+            expect(store.document?.sketches.map((s) => s.id)).toEqual(['s1']);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+
+            const nonFinite = store.applySketchAuthoringEdit({
+                sketches: [sketch('s1')],
+                parameters: { width: Number.POSITIVE_INFINITY }
+            });
+            expect(nonFinite.success).toBe(false);
+            expect(store.document?.parameters.width).toBe(10);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+
+            const empty = store.applySketchAuthoringEdit({ sketches: [] });
+            expect(empty.success).toBe(false);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+        });
+
+        it('rejects a curve resample failure without mutating', () => {
+            const store = new CadDocumentStore();
+            expect(
+                store.loadDocument(
+                    minimalDoc({
+                        parameters: { amp: 1 },
+                        sketches: [sketch('s1')],
+                        curves: [parametricCurve(1, 'sqrt(amp - 100)', '0')]
+                    })
+                ).success
+            ).toBe(true);
+            store.markSaved();
+            const revision = store.revision;
+
+            const result = store.applySketchAuthoringEdit({ sketches: [sketch('s1')], parameters: { amp: 0 } });
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Could not resample');
+            expect(store.document?.parameters.amp).toBe(1);
+            expect(store.document?.curves[0].samples[0][0]).toBe(1);
+            expect(store.dirty).toBe(false);
+            expect(store.revision).toBe(revision);
+        });
+    });
+
     describe('feature operations', () => {
         it('adds, updates, renames, and deletes features', () => {
             const store = new CadDocumentStore();
@@ -294,6 +406,81 @@ describe('CadDocumentStore', () => {
 
             store.deleteFeature('pad1');
             expect(store.document?.features).toHaveLength(0);
+        });
+
+        it('updates multiple features atomically with one undo entry and one revision bump', () => {
+            const store = new CadDocumentStore();
+            store.createDocument('test');
+            store.addBody('Body 1');
+            store.addFeature({ ...feature('pad1', 'pad'), params: { length: 1 } });
+            store.addFeature({ ...feature('pad2', 'pad'), params: { length: 2 } });
+            const beforeRevision = store.revision;
+            let changes = 0;
+            store.onChange(() => changes++);
+
+            const result = store.updateFeatureParamsBatch([
+                { id: 'pad1', params: { length: 5 } },
+                { id: 'pad2', params: { length: 8 } }
+            ]);
+
+            expect(result.success).toBe(true);
+            expect(changes).toBe(1);
+            expect(store.revision).toBe(beforeRevision + 1);
+            expect(store.dirty).toBe(true);
+            expect(store.document?.features.map((f) => f.params)).toEqual([{ length: 5 }, { length: 8 }]);
+            expect(store.selection.selectedFeatureId).toBe('pad2');
+
+            expect(store.undo().success).toBe(true);
+            expect(store.document?.features.map((f) => f.params)).toEqual([{ length: 1 }, { length: 2 }]);
+        });
+
+        it('rejects empty, missing, and duplicate batch ids without mutation or history', () => {
+            const store = new CadDocumentStore();
+            expect(store.loadDocument(minimalDoc({ features: [feature('pad1', 'pad'), feature('pad2', 'pad')] })).success).toBe(true);
+            const beforeRevision = store.revision;
+            const before = JSON.stringify(store.document);
+            let changes = 0;
+            store.onChange(() => changes++);
+
+            const empty = store.updateFeatureParamsBatch([]);
+            expect(empty.success).toBe(false);
+            expect(empty.error).toContain('at least one');
+
+            const missing = store.updateFeatureParamsBatch([
+                { id: 'pad1', params: { length: 5 } },
+                { id: 'missing', params: { length: 2 } }
+            ]);
+            expect(missing.success).toBe(false);
+            expect(missing.error).toBe("Feature 'missing' not found");
+
+            const duplicate = store.updateFeatureParamsBatch([
+                { id: 'pad1', params: { length: 5 } },
+                { id: 'pad1', params: { length: 6 } }
+            ]);
+            expect(duplicate.success).toBe(false);
+            expect(duplicate.error).toContain("Duplicate feature id 'pad1'");
+
+            expect(JSON.stringify(store.document)).toBe(before);
+            expect(store.revision).toBe(beforeRevision);
+            expect(store.canUndo).toBe(false);
+            expect(changes).toBe(0);
+        });
+
+        it('keeps single-feature updates shallow-merged with one commit and selection', () => {
+            const store = new CadDocumentStore();
+            store.createDocument('test');
+            store.addBody('Body 1');
+            store.addFeature({ ...feature('pad1', 'pad'), params: { length: 1, symmetric: true } });
+            const beforeRevision = store.revision;
+
+            const result = store.updateFeatureParams('pad1', { length: 5 });
+
+            expect(result.success).toBe(true);
+            expect(store.document?.features[0].params).toEqual({ length: 5, symmetric: true });
+            expect(store.selection.selectedFeatureId).toBe('pad1');
+            expect(store.revision).toBe(beforeRevision + 1);
+            expect(store.undo().success).toBe(true);
+            expect(store.document?.features[0].params).toEqual({ length: 1, symmetric: true });
         });
 
         it('toggles feature suppression', () => {
@@ -443,6 +630,181 @@ describe('CadDocumentStore', () => {
             store.setParameter('height', 5);
             expect(calls).toHaveLength(2);
         });
+    });
+});
+
+describe('exact feature parameter replacement', () => {
+    function exactParamsDocument(): NukeCadDocument {
+        return minimalDoc({
+            features: [
+                { ...feature('pad1', 'pad'), params: { length: 5 } },
+                {
+                    id: 'hole1',
+                    name: 'Blind hole',
+                    type: 'hole',
+                    body: 'body-1',
+                    params: { face: faceRef('pad1'), center: [0, 0], diameter: 1, depth: 3 },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                },
+                {
+                    id: 'lin1',
+                    name: 'Bolt pattern',
+                    type: 'linearPattern',
+                    body: 'body-1',
+                    params: { source: 'pad1', count: 3, spacing: 2, axis: 'x' },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                }
+            ]
+        });
+    }
+
+    function paramsById(store: CadDocumentStore, id: string): Record<string, unknown> {
+        const feature = store.document!.features.find((candidate) => candidate.id === id);
+        if (feature === undefined) {
+            throw new Error(`Feature '${id}' missing from document`);
+        }
+        return feature.params as Record<string, unknown>;
+    }
+
+    it('replaces a count and removes a depth in one commit, revision, and undo entry', () => {
+        const store = new CadDocumentStore();
+        expect(store.loadDocument(exactParamsDocument()).success).toBe(true);
+        const beforeRevision = store.revision;
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const result = store.replaceFeatureParamsBatch([
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'lin1', params: { source: 'pad1', count: 4, spacing: 2, axis: 'x' } }
+        ]);
+
+        expect(result.success).toBe(true);
+        expect(changes).toBe(1);
+        expect(store.revision).toBe(beforeRevision + 1);
+        expect(store.dirty).toBe(true);
+        expect(store.canUndo).toBe(true);
+        expect('depth' in paramsById(store, 'hole1')).toBe(false);
+        expect(paramsById(store, 'lin1').count).toBe(4);
+
+        expect(store.undo().success).toBe(true);
+        expect(store.revision).toBe(beforeRevision + 2);
+        expect(paramsById(store, 'hole1').depth).toBe(3);
+        expect(paramsById(store, 'lin1').count).toBe(3);
+        expect(store.canUndo).toBe(false);
+    });
+
+    it('undo restores both a removed and an added depth exactly', () => {
+        const document = minimalDoc({
+            features: [
+                { ...feature('pad1', 'pad'), params: { length: 5 } },
+                {
+                    id: 'blind-hole',
+                    name: 'Blind hole',
+                    type: 'hole',
+                    body: 'body-1',
+                    params: { face: faceRef('pad1'), center: [0, 0], diameter: 1, depth: 3 },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                },
+                {
+                    id: 'through-hole',
+                    name: 'Through hole',
+                    type: 'hole',
+                    body: 'body-1',
+                    params: { face: faceRef('pad1'), center: [1, 1], diameter: 1 },
+                    suppressed: false,
+                    dependsOn: ['pad1']
+                }
+            ]
+        });
+        const store = new CadDocumentStore();
+        expect(store.loadDocument(document).success).toBe(true);
+
+        const result = store.replaceFeatureParamsBatch([
+            { id: 'blind-hole', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'through-hole', params: { face: faceRef('pad1'), center: [1, 1], diameter: 1, depth: 6 } }
+        ]);
+
+        expect(result.success).toBe(true);
+        expect('depth' in paramsById(store, 'blind-hole')).toBe(false);
+        expect(paramsById(store, 'through-hole').depth).toBe(6);
+
+        expect(store.undo().success).toBe(true);
+        expect(paramsById(store, 'blind-hole').depth).toBe(3);
+        expect('depth' in paramsById(store, 'through-hole')).toBe(false);
+    });
+
+    it('drops omitted keys instead of merging them', () => {
+        const store = new CadDocumentStore();
+        expect(
+            store.loadDocument(
+                minimalDoc({
+                    features: [{ ...feature('pad1', 'pad'), params: { length: 1, symmetric: true } }]
+                })
+            ).success
+        ).toBe(true);
+
+        expect(store.replaceFeatureParamsBatch([{ id: 'pad1', params: { length: 7 } }]).success).toBe(true);
+        expect(paramsById(store, 'pad1')).toEqual({ length: 7 });
+    });
+
+    it('rejects empty, duplicate, unknown, and non-object requests without mutation or history', () => {
+        const store = new CadDocumentStore();
+        expect(store.loadDocument(exactParamsDocument()).success).toBe(true);
+        store.markSaved();
+        const beforeRevision = store.revision;
+        const before = JSON.stringify(store.document);
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const empty = store.replaceFeatureParamsBatch([]);
+        expect(empty.success).toBe(false);
+        expect(empty.error).toContain('at least one');
+
+        const missing = store.replaceFeatureParamsBatch([
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'missing', params: { length: 2 } }
+        ]);
+        expect(missing.success).toBe(false);
+        expect(missing.error).toBe("Feature 'missing' not found");
+
+        const duplicate = store.replaceFeatureParamsBatch([
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1 } },
+            { id: 'hole1', params: { face: faceRef('pad1'), center: [0, 0], diameter: 1, depth: 4 } }
+        ]);
+        expect(duplicate.success).toBe(false);
+        expect(duplicate.error).toContain("Duplicate feature id 'hole1'");
+
+        const invalidParams: unknown[] = [null, [], 'nope', 42];
+        for (const params of invalidParams) {
+            const invalid = store.replaceFeatureParamsBatch([{ id: 'hole1', params: params as FeatureParams }]);
+            expect(invalid.success).toBe(false);
+            expect(invalid.error).toBe("Feature 'hole1' params must be an object");
+        }
+
+        expect(JSON.stringify(store.document)).toBe(before);
+        expect(store.revision).toBe(beforeRevision);
+        expect(store.canUndo).toBe(false);
+        expect(store.dirty).toBe(false);
+        expect(changes).toBe(0);
+    });
+
+    it('keeps updateFeatureParamsBatch shallow-merging as before', () => {
+        const store = new CadDocumentStore();
+        expect(
+            store.loadDocument(
+                minimalDoc({
+                    features: [{ ...feature('pad1', 'pad'), params: { length: 1, symmetric: true } }]
+                })
+            ).success
+        ).toBe(true);
+
+        const result = store.updateFeatureParamsBatch([{ id: 'pad1', params: { length: 5 } }]);
+
+        expect(result.success).toBe(true);
+        expect(paramsById(store, 'pad1')).toEqual({ length: 5, symmetric: true });
     });
 });
 
@@ -3232,6 +3594,173 @@ describe('undo/redo history', () => {
     });
 });
 
+describe('edit revision', () => {
+    it('starts at 0 and increments once per successful commit and install', () => {
+        const store = new CadDocumentStore();
+        expect(store.revision).toBe(0);
+
+        expect(store.createDocument('test').success).toBe(true);
+        expect(store.revision).toBe(1);
+
+        expect(store.addBody('Body 1').success).toBe(true);
+        expect(store.revision).toBe(2);
+
+        store.markSaved();
+        expect(store.revision).toBe(2);
+
+        expect(store.loadDocument(minimalDoc()).success).toBe(true);
+        expect(store.revision).toBe(3);
+
+        const failedLoad = store.loadDocument({ version: NUKE_CAD_SCHEMA_VERSION + 1, name: 'future' });
+        expect(failedLoad.success).toBe(false);
+        expect(store.revision).toBe(3);
+    });
+
+    it('does not increment on failed commit validation', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const before = store.revision;
+
+        const result = store.addFeature({ ...feature('bad', 'pad'), params: { length: -1 } });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('length');
+        expect(store.revision).toBe(before);
+    });
+
+    it('increments on successful undo and redo only', () => {
+        const empty = new CadDocumentStore();
+        expect(empty.undo().success).toBe(false);
+        expect(empty.redo().success).toBe(false);
+        expect(empty.revision).toBe(0);
+
+        const store = new CadDocumentStore();
+        store.createDocument('test');
+        store.addBody('Body 1');
+        const beforeUndo = store.revision;
+        expect(store.undo().success).toBe(true);
+        expect(store.revision).toBe(beforeUndo + 1);
+
+        const beforeRedo = store.revision;
+        expect(store.redo().success).toBe(true);
+        expect(store.revision).toBe(beforeRedo + 1);
+    });
+});
+
+describe('applyAssemblyChanges batch (atomic assembly edits)', () => {
+    function batchStore(): CadDocumentStore {
+        const store = new CadDocumentStore();
+        store.createDocument('assembly-batch');
+        return store;
+    }
+
+    function groundedPair(store: CadDocumentStore): void {
+        const baseBody = store.addBody('Base', 'base').value!;
+        const armBody = store.addBody('Arm', 'arm').value!;
+        store.addAssemblyInstances(
+            [
+                { id: 'base', part: `body:${baseBody}`, placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } },
+                { id: 'arm', part: `body:${armBody}`, placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] } }
+            ],
+            'base'
+        );
+    }
+
+    it('applies add/remove/place in one commit with one change event and one undo step', () => {
+        const store = batchStore();
+        const baseBody = store.addBody('Base', 'base').value!;
+        const armBody = store.addBody('Arm', 'arm').value!;
+        store.addAssemblyInstances(
+            [
+                { id: 'base', part: `body:${baseBody}`, placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } },
+                { id: 'arm', part: `body:${armBody}`, placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] } }
+            ],
+            'base'
+        );
+        const before = JSON.stringify(store.document);
+        const revision = store.revision;
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const result = store.applyAssemblyChanges({
+            actions: [
+                {
+                    action: 'addInstance',
+                    id: 'arm-2',
+                    part: `body:${armBody}`,
+                    placement: { position: [40, 0, 0], orientation: [0, 0, 0, 1] }
+                },
+                { action: 'removeInstance', instanceId: 'arm' },
+                { action: 'setPlacement', instanceId: 'base', placement: { position: [2, 0, 0], orientation: [0, 0, 0, 1] } }
+            ]
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.value).toEqual({
+            instanceIds: ['arm-2'],
+            removedInstanceIds: ['arm'],
+            groundedInstanceId: 'base'
+        });
+        expect(changes).toBe(1);
+        expect(store.revision).toBe(revision + 1);
+        const assembly = getAssemblySection(store.document!)!;
+        expect(assembly.instances.map((instance) => instance.id)).toEqual(['base', 'arm-2']);
+        expect(assembly.instances.find((instance) => instance.id === 'base')?.placement).toEqual({
+            position: [2, 0, 0],
+            orientation: [0, 0, 0, 1]
+        });
+        expect(assembly.instances.find((instance) => instance.id === 'arm-2')?.placement).toEqual({
+            position: [40, 0, 0],
+            orientation: [0, 0, 0, 1]
+        });
+        expect(assembly.groundedInstanceId).toBe('base');
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+
+        expect(store.undo().success).toBe(true);
+        expect(JSON.stringify(store.document)).toBe(before);
+    });
+
+    it('rejects the whole batch without mutating the document or history', () => {
+        const store = batchStore();
+        const baseBody = store.addBody('Base', 'base').value!;
+        const armBody = store.addBody('Arm', 'arm').value!;
+        store.addAssemblyInstances(
+            [
+                { id: 'base', part: `body:${baseBody}`, placement: { position: [0, 0, 0], orientation: [0, 0, 0, 1] } },
+                { id: 'arm', part: `body:${armBody}`, placement: { position: [20, 0, 0], orientation: [0, 0, 0, 1] } }
+            ],
+            'base'
+        );
+        const before = JSON.stringify(store.document);
+        const revision = store.revision;
+        let changes = 0;
+        store.onChange(() => changes++);
+
+        const result = store.applyAssemblyChanges({ actions: [{ action: 'removeInstance', instanceId: 'base' }] });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('grounded');
+        expect(changes).toBe(0);
+        expect(store.revision).toBe(revision);
+        expect(JSON.stringify(store.document)).toBe(before);
+        expect(store.undo().success).toBe(true);
+        expect(JSON.stringify(store.document)).not.toBe(before);
+    });
+
+    it('rejects an empty action list', () => {
+        const store = batchStore();
+        groundedPair(store);
+        const before = JSON.stringify(store.document);
+
+        const result = store.applyAssemblyChanges({ actions: [] });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No assembly edit actions');
+        expect(JSON.stringify(store.document)).toBe(before);
+    });
+});
+
 describe('CadDocumentStore example projects', () => {
     it('installs a sample as a dirty, unsaved document that validates', () => {
         const store = new CadDocumentStore();
@@ -3271,5 +3800,73 @@ describe('CadDocumentStore example projects', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('missing');
         expect(store.document?.name).toBe('Keep me');
+    });
+});
+
+describe('CadDocumentStore template documents', () => {
+    it('installs a renamed, dirty, unsaved copy of the supplied body', () => {
+        const store = new CadDocumentStore();
+        const template = minimalDoc({
+            name: 'source template',
+            bodies: [{ id: 'body-1', name: 'Outer shell' }],
+            sketches: [sketch('sketch-1')]
+        });
+
+        const result = store.createTemplateDocument('My copy', template);
+
+        expect(result.success).toBe(true);
+        expect(store.document?.name).toBe('My copy');
+        expect(store.document?.bodies[0].name).toBe('Outer shell');
+        expect(store.dirty).toBe(true);
+        expect(store.uri).toBeUndefined();
+        expect(validateNukeCadDocument(store.document!).valid).toBe(true);
+    });
+
+    it('deep-clones the supplied body so later source mutations do not reach the store', () => {
+        const store = new CadDocumentStore();
+        const template = minimalDoc({
+            bodies: [{ id: 'body-1', name: 'Outer shell' }],
+            sketches: [sketch('sketch-1')]
+        });
+
+        expect(store.createTemplateDocument('My copy', template).success).toBe(true);
+        template.name = 'Renamed source';
+        template.bodies[0].name = 'Mutated body';
+        template.sketches[0].name = 'Mutated sketch';
+
+        expect(store.document?.name).toBe('My copy');
+        expect(store.document?.bodies[0].name).toBe('Outer shell');
+        expect(store.document?.sketches[0].name).toBe('sketch-1');
+    });
+
+    it('rejects an invalid body without replacing the active document', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('Keep me');
+
+        const result = store.createTemplateDocument('Bad units', minimalDoc({ units: 'parsec' as DocumentUnits }));
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('units');
+        expect(result.issues?.length).toBeGreaterThan(0);
+        expect(store.document?.name).toBe('Keep me');
+    });
+
+    it('resets history and bumps the document epoch like createDocument', () => {
+        const store = new CadDocumentStore();
+        store.createDocument('Before');
+        const epochBefore = store.documentEpoch;
+        expect(store.addBody('Temporary').success).toBe(true);
+        expect(store.canUndo).toBe(true);
+        store.setUri('file:///work/project/before.nuke-cad');
+        const revisionBefore = store.revision;
+
+        const result = store.createTemplateDocument('From template', minimalDoc());
+
+        expect(result.success).toBe(true);
+        expect(store.documentEpoch).toBe(epochBefore + 1);
+        expect(store.canUndo).toBe(false);
+        expect(store.canRedo).toBe(false);
+        expect(store.uri).toBeUndefined();
+        expect(store.revision).toBe(revisionBefore + 1);
     });
 });

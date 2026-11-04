@@ -36,12 +36,23 @@ import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { OpenHandler, WidgetFactory } from '@theia/core/lib/browser';
 import { NukeToolsContribution } from 'nuke-core/lib/common/nuke-tools-protocol';
+import { NukeCapabilityContribution, NukeCapabilityContextContribution } from 'nuke-core/lib/common/nuke-capability-protocol';
 
 import { NukeCadBackendService, NukeCadBackendServicePath } from '../common/nuke-cad-protocol';
 import { NukeCadFrontendService } from './nuke-cad-frontend-service';
+import { NukeCadCapabilities, NukeCadContextContribution } from './capabilities/nuke-cad-capabilities';
+import { NukeCadAuthoringCapabilities } from './capabilities/nuke-cad-authoring-capabilities';
+import { NukeCadCreationCapabilities } from './capabilities/nuke-cad-creation-capabilities';
+import { NukeCadCreationProposalService } from './capabilities/nuke-cad-creation-proposals';
+import { NukeCadAuthoringContextContribution } from './capabilities/nuke-cad-authoring-context';
+import { NukeCadProposalService } from './capabilities/nuke-cad-proposal-service';
+import { NukeCadGhostPreviewService } from './preview/nuke-cad-ghost-preview-service';
+import { NukeCadSketchEditService } from './sketch/sketch-edit-service';
+import { CadReviewPanelWidget } from './widgets/review-panel/review-panel-widget';
 import { bindNukeCadPreferences, NukeCadPreferences } from './nuke-cad-preferences';
 import { NukeCadStateManager } from './state/nuke-cad-state-manager';
 import { CadDocumentStore } from './document/cad-document-store';
+import { CadDocumentSaveService } from './document/cad-document-save-service';
 import { NukeCadCommandContribution } from './contributions/nuke-cad-command-contribution';
 import { NukeCadToolsContribution } from './contributions/nuke-cad-tools-contribution';
 import { NukeCadMenuContribution } from './contributions/nuke-cad-menu-contribution';
@@ -59,6 +70,7 @@ export default new ContainerModule((bind) => {
 
     bind(NukeCadStateManager).toSelf().inSingletonScope();
     bind(CadDocumentStore).toSelf().inSingletonScope();
+    bind(CadDocumentSaveService).toSelf().inSingletonScope();
 
     bind(NukeCadFrontendService)
         .toDynamicValue((ctx) => {
@@ -68,6 +80,23 @@ export default new ContainerModule((bind) => {
         })
         .inSingletonScope();
     bind(NukeCadBackendService).toService(NukeCadFrontendService);
+
+    bind(NukeCadCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(NukeCadCapabilities);
+    bind(NukeCadProposalService).toSelf().inSingletonScope();
+    bind(NukeCadGhostPreviewService).toSelf().inSingletonScope();
+    bind(NukeCadSketchEditService)
+        .toDynamicValue(() => new NukeCadSketchEditService())
+        .inSingletonScope();
+    bind(NukeCadAuthoringCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(NukeCadAuthoringCapabilities);
+    bind(NukeCadCreationProposalService).toSelf().inSingletonScope();
+    bind(NukeCadCreationCapabilities).toSelf().inSingletonScope();
+    bind(NukeCapabilityContribution).toService(NukeCadCreationCapabilities);
+    bind(NukeCadContextContribution).toSelf().inSingletonScope();
+    bind(NukeCapabilityContextContribution).toService(NukeCadContextContribution);
+    bind(NukeCadAuthoringContextContribution).toSelf().inSingletonScope();
+    bind(NukeCapabilityContextContribution).toService(NukeCadAuthoringContextContribution);
 
     bind(NukeCadCommandContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(NukeCadCommandContribution);
@@ -88,6 +117,14 @@ export default new ContainerModule((bind) => {
         }))
         .inSingletonScope();
     bind(CadViewportWidget).toSelf();
+
+    bind(WidgetFactory)
+        .toDynamicValue((ctx) => ({
+            id: CadReviewPanelWidget.ID,
+            createWidget: () => ctx.container.get(CadReviewPanelWidget)
+        }))
+        .inSingletonScope();
+    bind(CadReviewPanelWidget).toSelf();
 
     bind(WidgetFactory)
         .toDynamicValue((ctx) => ({

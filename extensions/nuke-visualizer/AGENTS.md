@@ -45,6 +45,16 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   props-only `viewer-export-menu.tsx`; keep the one-click PNG path and never resize the canvas CSS permanently. The
   same menu's Dataset CSV/VTK actions call `VisualizerBackendService.runBaseCommand('base.export', …)` and download the
   returned temp file; both require `vtk` in the active environment.
+- Visualizer AI capabilities live in `src/browser/capabilities/visualizer-capabilities.ts`; previews capture the
+  real DAGMC viewport, never the window; see `docs/dev/ai-capabilities.md`.
+- `nuke.viz.diagnoseStatepoint` triages loaded statepoint metadata only (k-effective uncertainty, batch counts, tally
+  coverage); it never reads raw tally values or replaces the loaded file. See `docs/dev/ai-capabilities.md`.
+- DAGMC and tally context menus append `visualizer.dagmc` / `visualizer.tally` actions from nuke-core's neutral registry;
+  missing commands are omitted and the tally group needs a loaded dataset. See `nuke-core/docs/dev/context-actions.md`.
+- `nuke.viz.compareStatepoints` / `nuke.viz.analyzeTallySeries` live in `visualizer-diagnostics-capabilities.ts` with
+  pure thresholds in `visualizer-diagnostics.ts`; both use `OpenMCBackendService` only, never `OpenMCService.loadStatepoint`.
+- Diagnostic paths stay absolute and inside a workspace root; series reads cap at 50 files and report aggregate steps
+  only (no per-bin RPC). See `docs/dev/ai-capabilities.md`.
 - Color legend title/vertical-label settings are native-viewer fields (`scalarBarTitle`/`scalarBarVertical`); keep the
   legend as the single source of truth and do not duplicate the title in the viewer header.
 - Mesh quality (`viewer-quality-menu.tsx`) runs `base.mesh-quality` through `runBaseCommand`, then opens the returned
@@ -69,7 +79,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `python/plugins/base/commands/analysis.py` (pure numpy in `lib/analysis.py`, lazy VTK); `base.export` lives in
   `commands/export.py` + `lib/export.py` (CSV/VTK/glTF). Register both in `base/plugin.py`.
 - Exodus series (`python/plugins/base/lib/exodus_series.py`, `base.exodus-series` → `ExodusTimeSliderWidget` for
-  `*.e`/`*.exo*`) and headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
+  `*.e`/`*.exo*`) uses the shared ViewCube, a Fit view action, an XZ grid, and one dismissible animation-export
+  notice; see `docs/dev/output-viewers.md`.
+- Headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
   `openmc.geometry-slice-vtk` into `widgets/geometry-native/` and `widgets/tally-native/`); see `docs/dev/python-backends.md`.
 - Tally series (`openmc.tally-series` in `commands/tally_series.py` + `lib/tally_series.py`) reads sibling
   statepoints through `widgets/statepoint/tally-series-widget.tsx`; preload no per-step mesh, and pass the

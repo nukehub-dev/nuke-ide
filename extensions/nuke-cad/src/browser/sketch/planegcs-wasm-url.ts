@@ -28,8 +28,8 @@
 /**
  * Browser-side URL resolution for the planegcs WASM asset.
  *
- * The browser app webpack config treats `.wasm` as `asset/resource`, so
- * `require` of the wasm file returns the emitted public URL. This module is
+ * The browser app bundles `.wasm` through esbuild's `dataurl` loader, so
+ * `require` of the wasm file returns the emitted URL. This module is
  * only loaded in the browser; vitest runs in Node and uses the default Node
  * wasm resolution in {@link PlanegcsSketchSolver.create}.
  *
@@ -38,8 +38,8 @@
 
 /** Return the public URL of the emitted planegcs WASM asset. */
 export function getPlanegcsWasmUrl(): string {
-    // Webpack's asset/resource rule turns a .wasm require() into the emitted
-    // public URL. The eslint-disable comment avoids false positives for dynamic
+    // The bundler turns a .wasm require() into the emitted URL. The
+    // eslint-disable comment avoids false positives for dynamic
     // require usage in browser code.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require('@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm') as string;

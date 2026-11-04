@@ -39,14 +39,11 @@ React components available for import by other extensions:
 A welcome panel shown on first launch with:
 
 - Quick links to common actions
+- Contributed walkthroughs (for example **Get started with AI**), rendered inline and opened full-view from **Help → Open Walkthrough…**
 - NukeIDE tips and quotes
 - Recent projects
 
-Re-open it anytime via **Help → Getting Started**.
-
-### 💬 AI Chat Welcome
-
-Custom welcome message provider for the Theia AI chat panel.
+Re-open it anytime via **Help → Welcome**.
 
 ### 🧹 View Filter
 

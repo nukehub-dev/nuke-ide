@@ -15,7 +15,7 @@
 ###############################################################################
 # Stage 1 — build the Theia browser bundle
 ###############################################################################
-FROM docker.io/library/node:22-bookworm AS build
+FROM docker.io/library/node:24-bookworm AS build
 
 # Extension selection for `yarn build:browser` (scripts/with-extension-set.js).
 ARG NUKE_EXTENSIONS
@@ -62,7 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libosmesa6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Python backend environment (OpenMC, headless VTK converters, CAD toolchain, Node 22).
+# Python backend environment (OpenMC, headless VTK converters, CAD toolchain, Node 24).
 # Node comes from conda so no separate Node installation is needed.
 COPY applications/docker/environment.yml /tmp/environment.yml
 # Large wheels (VTK, OCCT, MOAB) can hit flaky connections; be generous

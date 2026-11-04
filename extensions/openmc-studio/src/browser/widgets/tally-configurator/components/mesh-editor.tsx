@@ -504,6 +504,7 @@ const BoundsDivisionsHelper: React.FC<{
                         <label>
                             Lower
                             <input
+                                className="mesh-grid-input"
                                 type="number"
                                 step="any"
                                 aria-label={`${axis.toUpperCase()} lower bound`}
@@ -514,6 +515,7 @@ const BoundsDivisionsHelper: React.FC<{
                         <label>
                             Upper
                             <input
+                                className="mesh-grid-input"
                                 type="number"
                                 step="any"
                                 aria-label={`${axis.toUpperCase()} upper bound`}
@@ -524,6 +526,7 @@ const BoundsDivisionsHelper: React.FC<{
                         <label>
                             Divisions
                             <input
+                                className="mesh-grid-input"
                                 type="number"
                                 min={1}
                                 step={1}

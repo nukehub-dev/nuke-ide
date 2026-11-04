@@ -20,10 +20,18 @@ All files under `extensions/nuke-core/` except generated artifacts (`lib/`, `nod
   - `nuke-tools-sidebar-contribution.ts` registers the view at rank 400 in the left area, between Source Control and Extensions.
   - `nuke-core-tools-contribution.ts` registers Nuke Core's own Environment and Health & Diagnostics commands.
   - CSS is copied to `lib/` by the `copy-css` build step.
-- Items are grouped by their `category` path. The first element becomes a top-level section (e.g., `Environment`, `OpenMC Studio`, `Visualizer`). Use `categoryOrder` to order sections logically; without it, sections sort alphabetically.
+- Items are grouped by their `category` path. The first element becomes a top-level section (e.g., `Environment`, `OpenMC Studio`, `Visualizer`). Use `sectionOrder` (`0`, `a`–`e`) to order top-level sections and `categoryOrder` for nested categories; without a hint, sections sort by label. See `docs/dev/tools-sidebar.md` for the canonical order.
 - Items may declare `enabled` and `onDidChangeEnabled` so the sidebar dims rows that require state (e.g., an opened OpenMC Studio project) and refreshes when that state changes.
 - Items may set `iconClass` to a full theme-aware icon class list; it takes precedence over the codicon `icon` name.
 - Commands must already exist in the Theia `CommandRegistry`; the sidebar only invokes them.
+- `src/browser/capabilities/` owns the cross-extension capability contract. Capabilities carry an optional positive
+  `version` (default `1`); the registry rejects invalid versions and logs the first duplicate id collision once.
+  See `docs/dev/capability-registry.md`.
+- `src/browser/context-actions/` owns the neutral context-action registry (scopes, dedup, stable order, synchronous `when`, `onDidChange`);
+  domain menus render command-backed rows without importing the contributor. See `docs/dev/context-actions.md`.
+- Write capabilities preview edits as a `changeSet` and return an `undoToken` after apply; register the reverse handler with the
+  singleton `NukeUndoService`. Undo is in-memory and session-scoped; nuke-ai's edit journal is an audit trail, not an undo
+  source. See `docs/dev/capability-registry.md`.
 
 ## Work Guidance
 

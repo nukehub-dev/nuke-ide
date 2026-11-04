@@ -254,6 +254,12 @@ body {
     background-color: var(--theia-list-hoverBackground);
 }
 
+/* Theia underlines every link inside a section on hover. The action rows
+   already show a hover background, so keep them underline-free. */
+.gs-section .gs-link:hover {
+    text-decoration: none;
+}
+
 .gs-link-icon {
     font-size: 14px;
 }

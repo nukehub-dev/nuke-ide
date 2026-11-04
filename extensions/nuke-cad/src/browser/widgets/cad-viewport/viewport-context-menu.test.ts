@@ -26,9 +26,17 @@
 // *****************************************************************************
 
 import { describe, expect, it } from 'vitest';
+import type { NukeContextAction } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { attributeBodyToFeature, buildViewportContextMenu, type FeatureBodyRef } from './viewport-context-menu';
 
 const feature = (id: string, body: string, suppressed = false): FeatureBodyRef => ({ id, body, suppressed });
+
+const nukeAiAction = (id: string, label: string, commandId: string): NukeContextAction => ({
+    id,
+    scope: 'cad.viewport',
+    label,
+    commandId
+});
 
 describe('attributeBodyToFeature', () => {
     it('resolves to the latest non-suppressed feature writing the body', () => {
@@ -314,5 +322,62 @@ describe('buildViewportContextMenu', () => {
         const active = buildViewportContextMenu({ solid: undefined, explodeFactor: 0, sectionActive: true });
         expect(active[3].label).toBe('Hide Section View');
         expect(active[3].action).toEqual({ kind: 'toggleSection' });
+    });
+
+    it('appends the NukeAI group after the solid menu without changing existing rows', () => {
+        const actions = [
+            nukeAiAction('nuke-ai.cad.viewport.ask', 'Ask About Context', 'nuke.ai.ask'),
+            nukeAiAction('nuke-ai.cad.viewport.diagnose', 'Diagnose CAD Model', 'nuke.ai.diagnoseCad')
+        ];
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            nukeAiActions: actions
+        });
+
+        expect(labels(items)).toEqual([
+            'Edit Feature…',
+            'Find in Feature Tree',
+            'Measure Distance',
+            'Measure Angle',
+            'Measure Radius',
+            'Fit to Solid',
+            'Hide Solid',
+            'Isolate Solid',
+            'Ask About Context',
+            'Diagnose CAD Model'
+        ]);
+        expect(items[8].separatorAbove).toBe(true);
+        expect(items[8].icon).toBe('codicon-beaker');
+        expect(items[8].action).toEqual({ kind: 'contextAction', commandId: 'nuke.ai.ask' });
+        expect(items[9].separatorAbove).toBeUndefined();
+        expect(items[9].action).toEqual({ kind: 'contextAction', commandId: 'nuke.ai.diagnoseCad' });
+        // The existing group boundaries stay exactly where they were.
+        expect(items[1].separatorAbove).toBe(true);
+        expect(items[2].separatorAbove).toBe(true);
+        expect(items[5].separatorAbove).toBe(true);
+        expect(items[6].separatorAbove).toBe(true);
+    });
+
+    it('appends the NukeAI group to the empty-space menu', () => {
+        const items = buildViewportContextMenu({
+            solid: undefined,
+            explodeFactor: 0,
+            nukeAiActions: [nukeAiAction('nuke-ai.cad.viewport.checkModel', 'Check Active CAD Model', 'nuke.ai.checkCad')]
+        });
+
+        expect(labels(items)).toEqual(['Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View', 'Check Active CAD Model']);
+        expect(items[4].separatorAbove).toBe(true);
+        expect(items[4].action).toEqual({ kind: 'contextAction', commandId: 'nuke.ai.checkCad' });
+    });
+
+    it('renders no NukeAI group when no action is enabled', () => {
+        const items = buildViewportContextMenu({
+            solid: { solidId: 3, featureId: 'pad-1' },
+            explodeFactor: 0,
+            nukeAiActions: []
+        });
+        expect(labels(items)).not.toContain('Ask About Context');
+        expect(items).toHaveLength(8);
     });
 });

@@ -21,15 +21,24 @@ Studio the same way you would a script build.
 
 1. Run **New CAD Document** from the Command Palette or the Nuke Tools sidebar
    (`CAD Studio → Geometry`).
-2. Pick a starting point in the dialog. The **Start blank** section holds
-   parameter presets:
-   - **Empty document** — the default, no preset parameters.
-   - **Pincell starter (cm)** — pre-fills `fuelRadius`, `cladRadius`,
-     and `pitch` for a lattice pincell.
-   - **Tokamak starter (cm)** — pre-fills `major_radius` and `minor_radius`.
+2. Pick a starting point in the dialog. The picker has three sections:
+   - **Start blank** holds parameter presets that only pre-fill the document
+     parameter table:
+     - **Empty document** — the default, no preset parameters.
+     - **Tokamak starter (cm)** — pre-fills `major_radius` and `minor_radius`.
 
-   The **Example projects** section holds complete sample documents instead of
-   presets:
+   - **Parametric components** holds geometry-bearing templates. Selecting one
+     saves a new `.nuke-cad` document with the template defaults, opens it, and
+     starts the build:
+     - **Pincell** — a three-body PWR pin cell in `cm` with separate `fuel`
+       (UO2), `clad` (Zircaloy-4), and `moderator` (H2O) bodies. It starts at
+       `fuelRadius=0.4`, `cladRadius=0.5`, and `pitch=1.26`; the fuel and clad
+       sketches are driven by those document parameters, so editing them
+       reshapes the cell. Unlike the **Pincell demo** example project below, the
+       component starts from the shipped component template, not a saved sample
+       document.
+
+   - **Example projects** holds complete sample documents instead of presets:
 
    | Example project                 | What you get                                                                                                                                                           | Badge       |
    | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
@@ -39,7 +48,7 @@ Studio the same way you would a script build.
    | **W7-X generator (parametric)** | 15 editable imported bodies (10 exact coil shapes + 5 shells) placed as 55 assembly instances; needs the same external STEP and the validated five-module layout only. | External    |
    | **W7-X coil shape study**       | 10 editable native `coilSweep` bodies × 5 modules (50 instances) from committed centerlines; no STEP, approximate reference geometry, simulation export disabled.      | Fast        |
 
-   Choosing a bundled example first asks where to save the new `.nuke-cad`
+   A component or bundled example first asks where to save the new `.nuke-cad`
    file, writes an editable copy there, and opens it. The two external W7-X
    cards open a choice instead: **Download 47 MB** first asks where to save the
    `.nuke-cad` project, then fetches the STEP through the NukeIDE backend (so
@@ -63,9 +72,21 @@ Studio the same way you would a script build.
    the viewport read budget; export/FEM tolerances are unaffected. The
    generator's first build takes about 25 s.
 
-3. Save the new document with **Save CAD Document As...** to give it a name and
-   location (skipped for example projects, which are saved on creation).
-4. The empty document contains three canonical datum planes: XY, YZ, and XZ.
+3. Save a preset-based document with **Save CAD Document As...** to give it a
+   name and location (skipped for component templates and example projects,
+   which are saved when you pick them).
+4. A new empty document contains three canonical datum planes: XY, YZ, and XZ.
+
+With **Nuke CAD: AI Authoring** on, you can also ask NukeAI for a component,
+for example _make me a pin cell with a 0.45 cm fuel radius and a 1.3 cm pitch_.
+NukeAI resolves the template parameters, re-solves the affected sketches, and
+runs a real preview build, then shows the parameter rows and the build summary
+in the chat card. There is no **CAD Edit Review** panel and no viewport ghost
+because a new document has no before-model to diff or overlay. **Apply** asks
+for a destination, writes a new `.nuke-cad`, and offers **Undo**. It refuses
+while the active document has unsaved changes, and a clean open document needs
+the explicit `replaceExisting` confirmation. Undo deletes the created file only
+while it is still unchanged.
 
 The tokamak sample re-authors the Paramak
 `tokamak_with_pf_tf_magnets_divertor` reference model as GUI features and trims
@@ -549,6 +570,18 @@ updates every feature sharing one source in one commit per source. Export
 Python emits a runnable source reader that verifies the hash/size, selects the
 same solids, and applies the import placement.
 
+NukeAI can run the same import when **Nuke CAD: AI Authoring** is on. You still
+choose the STEP/STP, IGES/IGS, or BREP file in the native picker: a path in the
+chat is only a hint, and only a file already inside `<document-stem>.parts/`
+can be inspected directly. The AI preview is a plan, not a ghost: it lists the
+source format, size, hash, units, selected solids, one-body or per-solid choice,
+label, and material in the **CAD Edit Review** panel, then apply re-inspects the
+source, writes a backup, adds the bodies in one commit, rebuilds, and offers
+**Undo**. The AI flow never downloads or copies the source; a file outside the
+document folder makes the document non-self-contained, and NukeAI warns about
+that. The interactive import above still has no ghost preview and no
+parameter-edit dialog for imported features.
+
 ### Appearance
 
 Right-click a solid and choose **Appearance…** to override that body's display
@@ -1002,6 +1035,75 @@ stale. Deleting a feature with dependents prompts you to either cancel or
 pattern/mirror `source` references). Reordering with the up/down arrows preserves
 the `dependsOn` precedence rule; invalid moves are rejected with a clear error.
 
+### AI edit review
+
+When NukeAI proposes a feature-parameter change, a sketch-dimension change, a topology-impact change, an import, or an
+assembly placement and **Nuke CAD: AI Authoring** is enabled, the **CAD Edit Review** panel opens beside the viewport.
+It shows the target document, the before/after values, and the solid/face/triangle/bounding-box impact.
+A sketch proposal also names the target sketch, the affected-sketch count, every parameter/dimension row, and the solver
+status (DOF, conflicting and redundant constraints). A dimension bound to a document parameter cascades, so one row
+updates the parameter and the panel lists every affected dimension; a literal dimension edits only its sketch.
+
+A topology proposal adds a **Region impact** section with added, removed, and changed solids, named regions, and the
+status of references from the saved active OpenMC project. Region impact follows DAGMC group and material identity, so
+review it even when the build succeeds. Tick **I understand the solid and region impact** to enable **Apply**; a
+removed region still referenced by OpenMC shows **Blocked by OpenMC** and keeps Apply disabled, and an unsaved project
+is shown as not checked and still requires the acknowledgement. Apply changes only the CAD document and never rewrites
+the OpenMC project.
+
+An import proposal shows the source path, format, hash, size, units, selected solids, one-body or per-solid strategy,
+label, material, and self-contained warning. It builds no candidate geometry, so there is no ghost for an import; the
+plan is the review. Apply re-inspects the source, rejects a stale hash, size, selection, or plan, and adds the bodies in
+one commit.
+
+An assembly placement proposal lists each instance action (add, remove, or set placement) with its before and after
+position, orientation, and matrix, plus the BOM count delta and exact overlap warnings. When the document sets
+`overlapCheck: false`, the panel says overlap checks are disabled instead of reporting a clean result. A removal that
+loses the last instance of a labeled embedded body adds the **Region impact** section and the acknowledgement checkbox;
+a saved OpenMC reference to the removed group or material shows **Blocked by OpenMC**. Adding an instance or changing a
+placement never requires acknowledgement. Repeated body ids make the ghost approximate, and the panel says so.
+
+The viewport overlays a feature, sketch, topology, or assembly candidate as a translucent ghost; changed solids use a
+warmer accent, and the real model is untouched. **Apply** confirms and writes the change, **Dismiss** discards it, and
+**Undo** restores the previous parameters, the parameter plus all affected sketches, the exact previous feature
+parameters, the previous assembly instances, or (for an import) removes the added bodies and import features for the
+current session.
+Open the panel manually with **Open CAD Edit Review** in the Command Palette, the CAD Studio menu, or the Nuke Tools
+sidebar.
+
+Creating a new document from a parametric component is the exception. It has no
+before-model, so it never opens **CAD Edit Review** and never draws a ghost.
+NukeAI shows the resolved parameter rows and the preview build in the chat
+card; **Apply** asks where to save the new `.nuke-cad`, writes it, and offers
+**Undo**.
+
+### AI script authoring
+
+AI script authoring edits the active **saved `.py` model** and is default-off. Open the script in the editor and run
+**Open Active Python Model in CAD** to load it into the viewport. NukeAI chat and the non-script CAD tools remain
+cross-platform; this sandboxed script flow is Linux-only. It needs both **Nuke CAD: AI Authoring**
+and the workspace setting **Nuke CAD: Script Authoring**, and it runs only on Linux with bubblewrap and libseccomp; macOS,
+Windows, and environments without a working user namespace or libseccomp report script authoring unavailable. There is no
+unsandboxed fallback.
+
+1. NukeAI inspects the script first. Inspecting asks for confirmation and returns the text, hash, imports, and whether
+   the script assigns a top-level `model`; the script text is sent to the configured model provider.
+2. The preview sends the exact base hash and the complete replacement script. It runs in a sandbox with no network and
+   no workspace access, a read-only source, and time, memory, process, and file-size limits. The **CAD Edit Review** panel
+   shows the unified diff, imports, sandbox engine/version/userns/seccomp and limits, build counts, duration, exit code, and audit id. The
+   preview publishes no ghost, writes nothing, and discards its sandbox artifacts. The chat card has no Apply action.
+3. Apply is panel-only: the panel holds a hidden approval nonce, confirms that the script file will be overwritten, and
+   keeps a hidden backup for **Undo**. NukeAI cannot apply a script from chat.
+
+While both switches are on and a `.py` model is active, the viewport shows a persistent banner that preview is sandboxed
+with no network or workspace access and that Apply overwrites the script with a backup.
+
+After apply, the model is marked sandboxed: later `.py` rebuilds use the same sandbox, and DAGMC/FEM export stays blocked
+until a later review removes the marking. Every build loads a libseccomp BPF denylist inside bubblewrap that blocks
+network, namespace/mount, tracing, BPF, keyring, module, io_uring, process-memory, and `seccomp` syscalls, and forces
+`clone3` to `ENOSYS`; a host without libseccomp reports script authoring unavailable. The filter is a denylist, so kernel
+and bubblewrap correctness still matter. See [Safe Edits](../../../nuke-ai/docs/user/safe-edits.md) for the full warning list.
+
 ### Reference repair
 
 Topological references sometimes become ambiguous or unmatched after a parametric
@@ -1163,6 +1265,20 @@ viewport. Rows are keyboard-selectable with Enter or Space. Assembly STEP
 export keeps one product per instance; DAGMC export imprints the placed solids
 (overlap stays a warning — assemblies overlap intentionally).
 
+With **Nuke CAD: AI Authoring** on, NukeAI can place existing instances without
+touching the assembly structure. On a saved, grounded assembly it can add an
+instance from an existing `body:<id>` or reuse an existing part, remove a
+non-grounded embedded instance that has no connector or mate while keeping at
+least one instance, or set the position and unit quaternion of a grounded or
+unmated instance. It cannot create an assembly from a single part, change
+grounding, add or edit mates and connectors, add a new external source, replace
+a part, change an existing instance's scale, or rename an instance. The preview
+runs a real candidate build and reports placement rows, the BOM count delta,
+exact overlap warnings, and the `overlapCheck: false` disclosure. Only removing
+the last instance of a labeled embedded body requires a region acknowledgement,
+and a saved OpenMC reference to its group or material blocks Apply. Apply commits
+one assembly batch, rebuilds, and offers **Undo**; see [AI edit review](#ai-edit-review).
+
 ### W7-X generator (parametric)
 
 The **W7-X generator (parametric)** example card and the **Create W7-X
@@ -1239,7 +1355,10 @@ for the current document:
    left-drag to pan; **Fit sheet** resets the view. Grid and 5 mm snapping have
    their own toggles.
 4. The right inspector lists the sheet, the selected view, its scale,
-   hidden-line toggle, delete actions, all views, and all dimensions. **Fit**
+   hidden-line toggle, delete actions, all views, and all dimensions. Each
+   dimension row has a show/hide eye: hiding keeps the dimension in the list and
+   in the document but omits its annotation from SVG and DXF output, so it is
+   never a delete. The title block is a fixed template and is read-only. **Fit**
    chooses a standard scale for the selected view from its linework; a new
    base view that would sit as a dot at 1:1 auto-fits once. The status bar
    shows the selected view's kind, scale, and linework extent.
@@ -1259,6 +1378,16 @@ changed, the build reports the import hash error; use **Refresh imports** in the
 error notice (or run **Refresh Import Sources**) before rebuilding the sheet.
 Export SVG (native) or DXF (visible/hidden/section/dimension layers) from the
 sheet. PDF export is not in this release.
+
+NukeAI can adjust an existing sheet when **Nuke CAD: AI Authoring** is on:
+switch the sheet between A4 and A3, change a view's scale or hidden-line
+display, or hide/show a dimension. It never adds or deletes a sheet, view, or
+dimension, never moves a view, never edits the title block, and never changes
+geometry. Shrinking A3 to A4 is refused when a view would fall outside A4. The
+preview is a plan in the **CAD Edit Review** panel, not a ghost; apply writes a
+backup, commits one drawing batch, opens and refreshes this sheet, and offers
+**Undo**. Hidden dimensions stay in the inspector list; both apply and undo
+refresh the drawing without rebuilding the model.
 
 ## Undo and redo
 

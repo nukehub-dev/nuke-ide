@@ -38,6 +38,7 @@
  * @module openmc-studio/browser
  */
 
+import * as path from 'path';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { FileDialogService, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
@@ -105,6 +106,12 @@ export interface PythonExportOptions {
     mode: 'single' | 'separate';
     /** Output directory for separate files mode. */
     outputDirectory?: string;
+    /**
+     * Absolute target path for a single-file export. When set, the save dialog
+     * is skipped and the script is written directly to this `.py` file.
+     * Separate-files mode rejects this option; use `outputDirectory` instead.
+     */
+    readonly targetPath?: string;
     /** Include comments in generated code. */
     includeComments?: boolean;
     /** Include shebang line (`#!/usr/bin/env python3`). */
@@ -124,7 +131,10 @@ export interface PythonExportOptions {
 export interface PythonExportResult {
     /** Whether the export completed successfully. */
     success: boolean;
-    /** List of file URIs that were written. */
+    /**
+     * List of written files: file URIs for the dialog flow, or absolute paths
+     * when {@link PythonExportOptions.targetPath} was used.
+     */
     files: string[];
     /** Error message if `success` is `false`. */
     error?: string;
@@ -153,8 +163,8 @@ export class OpenMCPythonExporter {
     /**
      * Export the current simulation state to Python script(s).
      *
-     * Prompts the user for a save location, then generates and writes the
-     * script(s) according to the provided options.
+     * Prompts the user for a save location unless a path is provided, then
+     * generates and writes the script(s) according to the provided options.
      *
      * @param options - Partial export options merged with defaults.
      * @returns A promise resolving to the {@link PythonExportResult}.
@@ -169,6 +179,13 @@ export class OpenMCPythonExporter {
         };
 
         try {
+            if (defaultOptions.mode === 'separate' && defaultOptions.targetPath !== undefined) {
+                return {
+                    success: false,
+                    files: [],
+                    error: 'targetPath is only supported for single-file exports; use outputDirectory for separate files.'
+                };
+            }
             if (!defaultOptions.compat) {
                 defaultOptions.compat = await this.backendService.getOpenMCCompat().catch(() => DEFAULT_OPENMC_COMPAT);
             }
@@ -187,11 +204,31 @@ export class OpenMCPythonExporter {
     /**
      * Export the simulation as a single `model.py` file.
      *
+     * Writes directly to {@link PythonExportOptions.targetPath} when provided;
+     * otherwise prompts for a destination with the save dialog.
+     *
      * @param state - The current {@link OpenMCState} to export.
      * @param options - Fully resolved export options.
      * @returns A promise resolving to the {@link PythonExportResult}.
      */
     private async exportSingleFile(state: OpenMCState, options: PythonExportOptions): Promise<PythonExportResult> {
+        const targetPath = options.targetPath;
+        if (targetPath !== undefined) {
+            if (!path.isAbsolute(targetPath)) {
+                return { success: false, files: [], error: 'The Python export target path must be absolute.' };
+            }
+            if (path.extname(targetPath).toLowerCase() !== '.py') {
+                return { success: false, files: [], error: 'The Python export target must use the .py file extension.' };
+            }
+
+            const absolutePath = path.resolve(targetPath);
+            const pythonCode = this.generateModelScript(state, options);
+            await this.writeFile(new URI(absolutePath), pythonCode);
+
+            this.messageService.info(`Exported Python script: ${path.basename(absolutePath)}`);
+            return { success: true, files: [absolutePath] };
+        }
+
         const props: SaveFileDialogProps = {
             title: 'Export OpenMC Python Script',
             inputValue: 'model.py',
@@ -219,26 +256,37 @@ export class OpenMCPythonExporter {
      * Export the simulation as separate files (`materials.py`, `geometry.py`,
      * `settings.py`, `tallies.py`, `plots.py`, and `model.py`).
      *
+     * Writes into {@link PythonExportOptions.outputDirectory} when provided;
+     * otherwise prompts for a destination with the save dialog.
+     *
      * @param state - The current {@link OpenMCState} to export.
      * @param options - Fully resolved export options.
      * @returns A promise resolving to the {@link PythonExportResult}.
      */
     private async exportSeparateFiles(state: OpenMCState, options: PythonExportOptions): Promise<PythonExportResult> {
-        const props: SaveFileDialogProps = {
-            title: 'Select Directory for Python Scripts',
-            inputValue: 'openmc_model',
-            filters: {
-                'All Files': ['*']
-            }
-        };
-
-        const uri = await this.fileDialogService.showSaveDialog(props);
-        if (!uri) {
-            return { success: false, files: [] };
-        }
-
         const files: string[] = [];
-        const baseUri = uri.parent;
+        let baseUri: URI | undefined;
+
+        if (options.outputDirectory !== undefined) {
+            if (!path.isAbsolute(options.outputDirectory)) {
+                return { success: false, files: [], error: 'The separate-file export directory must be absolute.' };
+            }
+            baseUri = new URI(path.resolve(options.outputDirectory));
+        } else {
+            const props: SaveFileDialogProps = {
+                title: 'Select Directory for Python Scripts',
+                inputValue: 'openmc_model',
+                filters: {
+                    'All Files': ['*']
+                }
+            };
+
+            const uri = await this.fileDialogService.showSaveDialog(props);
+            if (!uri) {
+                return { success: false, files: [] };
+            }
+            baseUri = uri.parent;
+        }
 
         if (!baseUri) {
             return { success: false, files: [], error: 'Invalid directory' };

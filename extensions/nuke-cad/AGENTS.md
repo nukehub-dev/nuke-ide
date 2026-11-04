@@ -92,7 +92,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   an outline **Fuse** auto-fix, and document `overlapCheck: false` skips cross-body +
   assembly-instance warnings for a validated large assembly (warnings only; the W7-X
   generator sets it). See `docs/dev/features-patterns.md`.
-- Backend builds (`geometry_service.py` script isolation at 120s, `feature_builder.py`
+- Backend builds (`geometry_service.py` script child process at 120s — resource control, not a security sandbox;
+  `sandbox_service.py` bwrap/prlimit/libseccomp path for AI script authoring with no fallback; `feature_builder.py`
   topological bodies, `curve_builder.py` wires, datums `XY`–`line2Point`, the result cache
   (`<stem>.nuke-cache.zip` sidecar with TS and Python content keys and doc-hash tess blob); display builds
   prime it, one batch load/commit serves a build, and per-body overlap verdicts are reused for
@@ -109,6 +110,53 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - Package requirements live in `src/common/packages.json` (single source of truth;
   `health` group → `CAD_HEALTH_PACKAGES` for `checkCadEnvironment`, rest reference
   data; shared specs must match nuke-core's registry). See `docs/dev/backend-pipeline.md`.
+- CAD AI capabilities live in `src/browser/capabilities/nuke-cad-capabilities.ts`, use the
+  nuke-core capability contract, and delegate to existing CAD services; never expose raw
+  commands. `nuke.cad.diagnoseModel` reports build, manifest, selection, and per-solid
+  findings without rebuilding. The eight authoring slices cover scalar feature
+  edits, existing sketch driving dimensions or document parameters a sketch references, topology-impacting hole
+  blind/through or linear/circular pattern counts, imported STEP/IGES/BREP bodies, placement-only actions on an
+  existing grounded assembly, presentation settings on existing drawing sheets, Linux-only sandboxed full-file `.py`
+  replacements, and shipped-template document creation through the document store (the assembly and drawing summaries
+  stay read-only); it is default-off (`nukeCad.aiAuthoringEnabled`), template listing stays read-only and ungated, and
+  the edit slices require a saved model. Script
+  authoring additionally needs workspace-scoped
+  `nukeCad.scriptAuthoringEnabled`, `bwrap` plus user namespaces and libseccomp, bounded text/hash inspection (source text reaches the
+  model provider), a full-body preview with no network/workspace bind, no ghost, no chat Apply, and a panel-only approval
+  nonce; apply overwrites with a hidden backup, rebuilds sandboxed, blocks DAGMC/FEM export for the sandboxed model, and
+  has no unsandboxed fallback. Parameter-bound dimensions cascade to every affected sketch and curve, a sketch apply commits the
+  parameter and all sketches atomically, and a topology apply replaces exact params in one commit (removing a blind
+  hole's `depth` key), reports solid/region impact, and checks the saved active OpenMC project's DAGMC references and
+  requires region acknowledgement. Imports use a user-chosen source: `inspectImportSource` returns
+  format/size/hash/units/solids, `previewImportBodies` is plan-only (no build or ghost) and opens the review panel with a
+  one-to-N-body plan, and `applyImportBodies` re-inspects the source, rejects stale hash/size/selection/plan, writes a
+  backup, and commits one `addImportBodies`; the source must be in a workspace root, a regular file (no symlink), a
+  supported extension, and at most 256 MiB, and the AI flow never downloads or copies it. Assembly authoring summarizes
+  instances/parts/placements/grounding/selector ids/BOM/overlap policy, previews 1-16 add/remove/setPlacement actions with
+  a real candidate build, placement rows, BOM delta, exact overlap warnings, and `overlapCheck:false`, and applies one
+  `applyAssemblyChanges` batch; it adds only an existing `body:<id>` or reuses an existing instance part, removes only a
+  non-grounded connector-free embedded instance (final count >= 1), sets pos+quat only on a grounded/unmated instance,
+  requires acknowledgement only when a removal loses the last instance of a labeled embedded body, blocks on a saved
+  OpenMC reference, and never changes mates, connectors, grounding, sources, parts, names, or an existing instance's
+  scale. Drawing authoring summarizes sheets/views/dimensions and previews one sheet with 1-16 `setSheetSize`,
+  `setViewDisplay`, or `setDimensionVisibility` actions that change only existing presentation settings; preview is
+  plan-only (no build or ghost), A3→A4 is rejected when a view is outside A4 and views never move, hidden dimensions
+  stay listed but leave SVG/DXF, and the title block is fixed and read-only. Drawing apply is one `applyDrawingChanges`
+  commit (`markDrawing`) with backup, sheet open/refresh, undo, and no `nuke.cad.rebuild`.
+  Booleans, body/feature add/delete/reorder, lattices, new sketch entities/constraints/dimensions, partial or unsandboxed
+  scripts, assembly structure beyond placement, drawing creation/deletion or view placement, title-block edits,
+  free-form sketch/feature creation, model-authored or user-registered templates, overwriting an existing file, and MCP
+  stay excluded. Creation adds `nuke.cad.listDocumentTemplates` (read-only, ungated), parameter-only
+  `nuke.cad.prepareDocumentCreation` (private real build, no install), and `nuke.cad.createDocumentFromTemplate`
+  (write, confirmed, undoable; fresh `.nuke-cad` at a workspace path, dirty-document refusal, `replaceExisting` for a
+  clean open document, hash-guarded undo). A successful feature, sketch, topology, or assembly
+  preview publishes the candidate tessellation to `NukeCadGhostPreviewService` and reveals the **CAD Edit Review**
+  panel; the panel applies the same capability and the viewport renders the candidate in the scene-level `cad-ghost`
+  group only. Import preview shows the plan without a ghost; drawing preview shows the sheet/view/dimension plan without
+  a build or ghost; script preview shows the diff/sandbox/audit without a ghost; repeated-body assembly ghosts are
+  approximate. Creation is card-only: there is no before-model, so it never opens the review panel or publishes a ghost.
+  Script apply is reachable only from the panel, which keeps the approval nonce out of the view.
+  See `docs/dev/ai-capabilities.md`.
 - Viewport: purpose-built three.js widget (active-camera rule, scene-scaled
   `clip-planes.ts` near/far, `ViewerNavBar` children, scoped keys with capture phase,
   floating bottom-left command-search launcher (`/`) over the shared `cad-command-registry.ts` table
@@ -125,6 +173,8 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   a saved document from cache) in `onAfterAttach`; the empty-document card must never
   cover an active document. The same hook re-reveals Feature Tree + Model Outline, and
   New Document clears the old model/tokens before installing (no background restore).
+- The viewport context menu appends the neutral `cad.viewport` context-action group; existing
+  rows/separators stay fixed and missing commands are omitted. See `nuke-core/docs/dev/context-actions.md`.
 - Document opens are generation-guarded: a slower file read, rebuild, or cached-fast-path
   parse is discarded after a newer `.nuke-cad` open, and the Drawing Sheet clears per-document
   linework/results via `CadDocumentStore.documentEpoch` before refreshing the new document.
@@ -186,6 +236,29 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 
 ```bash
 npx lerna run build --scope nuke-cad
+npx vitest run extensions/nuke-cad/src/common/cad-feature-edit.test.ts \
+  extensions/nuke-cad/src/common/cad-topology-edit.test.ts \
+  extensions/nuke-cad/src/common/topology-impact.test.ts \
+  extensions/nuke-cad/src/common/cad-assembly-edit.test.ts \
+  extensions/nuke-cad/src/common/assembly-bom.test.ts \
+  extensions/nuke-cad/src/common/cad-drawing.test.ts \
+  extensions/nuke-cad/src/common/cad-drawing-edit.test.ts \
+  extensions/nuke-cad/src/common/openmc-region-references.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/openmc-region-reference-reader.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/import-source-policy.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/nuke-cad-authoring-capabilities.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/nuke-cad-proposal-service.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/nuke-cad-creation-capabilities.test.ts \
+  extensions/nuke-cad/src/browser/capabilities/create-target-policy.test.ts \
+  extensions/nuke-cad/src/common/component-templates.test.ts \
+  extensions/nuke-cad/src/browser/document/cad-document-save-service.test.ts \
+  extensions/nuke-cad/src/browser/document/cad-document-store.test.ts \
+  extensions/nuke-cad/src/browser/document/cad-document-store-drawings.test.ts \
+  extensions/nuke-cad/src/browser/widgets/drawing-sheet \
+  extensions/nuke-cad/src/browser/sketch/sketch-session.test.ts \
+  extensions/nuke-cad/src/browser/sketch/sketch-edit-service.test.ts \
+  extensions/nuke-cad/src/browser/preview \
+  extensions/nuke-cad/src/browser/widgets/review-panel
 yarn test:python   # includes nuke-cad tests/python and tests/e2e (e2e skips without env gates)
 yarn lint
 ```

@@ -21,10 +21,10 @@ yarn docker:up
 
 ## What's inside
 
-- **Stage 1 (build)** — `node:22-bookworm`: `yarn install`, `yarn build:browser`,
+- **Stage 1 (build)** — `node:24-bookworm`: `yarn install`, `yarn build:browser`,
   `yarn download:plugins`.
 - **Stage 2 (runtime)** — `condaforge/miniforge3` with the `ide` conda env
-  (`environment.yml`): Python 3.13, Node 22, OpenMC, VTK,
+  (`environment.yml`): Python 3.13, Node 24, OpenMC, VTK,
   gmsh, OCP, `pythonocc-core` (`OCC`), pydagmc/moab, and
   build123d (pip-installed `--no-deps` by the Dockerfile with nuke-cad's OCP
   7.9 alias shim — see the CAD comment in `environment.yml` for why it is

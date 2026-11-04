@@ -44,6 +44,7 @@ import { interfaces } from '@theia/core/shared/inversify';
 import {
     createPreferenceProxy,
     PreferenceProxy,
+    PreferenceScope,
     PreferenceService,
     PreferenceSchema,
     PreferenceContribution
@@ -192,6 +193,25 @@ export const NukeCadPreferenceSchema: PreferenceSchema = {
             type: 'boolean',
             default: true,
             description: 'Show the world-origin Z axis in the CAD viewport.'
+        },
+        'nukeCad.aiAuthoringEnabled': {
+            type: 'boolean',
+            default: false,
+            scope: PreferenceScope.User,
+            description:
+                'Allow NukeAI to propose and apply scalar feature-parameter edits (length, angle, radius, thickness), ' +
+                'sketch dimensions, topology changes, imported bodies, and assembly instance placements to saved .nuke-cad ' +
+                'documents. Every edit is previewed with a real build, shown as a diff, applied only after confirmation, ' +
+                'and can be undone. Script authoring additionally requires nukeCad.scriptAuthoringEnabled; assembly mate ' +
+                'authoring stays disabled.'
+        },
+        'nukeCad.scriptAuthoringEnabled': {
+            type: 'boolean',
+            default: false,
+            scope: PreferenceScope.Workspace,
+            description:
+                'Allow NukeAI to inspect, sandbox-preview, and apply Python model scripts. Linux+bubblewrap only; preview ' +
+                'has no network/workspace. Apply overwrites the script with a backup and undo.'
         }
     }
 };
@@ -234,6 +254,10 @@ export interface NukeCadConfiguration {
     'nukeCad.showOriginY': boolean;
     /** Show the world-origin Z axis in the CAD viewport. */
     'nukeCad.showOriginZ': boolean;
+    /** Allow NukeAI to preview and apply scalar feature-parameter edits to saved .nuke-cad documents. */
+    'nukeCad.aiAuthoringEnabled': boolean;
+    /** Allow NukeAI to inspect, sandbox-preview, and apply Python model scripts. */
+    'nukeCad.scriptAuthoringEnabled': boolean;
 }
 
 /** Symbol used to bind the {@link PreferenceContribution} for Nuke CAD. */

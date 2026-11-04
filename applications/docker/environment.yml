@@ -8,7 +8,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.13
-  - nodejs=22
+  - nodejs=24
   - pip
   # Core scientific stack
   - numpy

@@ -6,7 +6,7 @@ This page covers how to install NukeIDE from source.
 
 | Tool    | Version      | Purpose                                                 |
 | ------- | ------------ | ------------------------------------------------------- |
-| Node.js | >= 22.13.0   | Theia frontend and build tooling                        |
+| Node.js | >= 24.0.0    | Theia frontend and build tooling                        |
 | Yarn    | >= 1.7.0 < 2 | Package manager (monorepo hoisting)                     |
 | Python  | 3.13         | Tested backend profile; OpenMC 0.16 needs 3.12 or newer |
 | Git     | any          | Cloning the repository                                  |
@@ -203,7 +203,7 @@ The selection only affects the bundled IDE; it does not change the Docker Python
 
 **`yarn` fails with engine errors**
 
-> Make sure you're using Yarn classic (`1.x`) and Node.js >= 22.13.0.
+> Make sure you're using Yarn classic (`1.x`) and Node.js >= 24.0.0.
 
 **Plugins fail to download**
 

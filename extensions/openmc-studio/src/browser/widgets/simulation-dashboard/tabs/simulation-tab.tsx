@@ -26,8 +26,10 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
-import { injectable } from '@theia/core/shared/inversify';
+import { injectable, inject } from '@theia/core/shared/inversify';
+import { CommandRegistry } from '@theia/core/lib/common/command';
 import { OpenFileDialogProps } from '@theia/filesystem/lib/browser';
+import { NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
 import { OpenMCState, OpenMCEigenvalueSettings, OpenMCFixedSourceSettings } from '../../../../common/openmc-state-schema';
 import { computeSetupChecklist, computeReadiness, ChecklistStatus } from '../../../../common/run-readiness';
@@ -40,6 +42,7 @@ import {
 } from '../../../../common/depletion-config';
 import { deriveTrackCaptureSettings, isParticleRestartFile, parseParticleRestartFileName } from '../../../../common/particle-restart';
 import type { SimulationDashboardWidget } from '../simulation-dashboard-widget';
+import { buildOpenMcNukeAiGroups } from '../nuke-ai-actions';
 import { DashboardTabContribution } from './tab-registry';
 
 /**
@@ -51,6 +54,12 @@ export class SimulationTabContribution implements DashboardTabContribution {
     readonly label = 'Simulation';
     readonly icon = 'openmc-run';
     readonly order = 6;
+
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions!: NukeContextActionRegistry;
+
+    @inject(CommandRegistry)
+    protected readonly commands!: CommandRegistry;
 
     /** Setup checklist collapse override (undefined = auto: collapsed when ready). */
     private checklistCollapsed?: boolean;
@@ -218,6 +227,8 @@ export class SimulationTabContribution implements DashboardTabContribution {
                         </button>
                     </Tooltip>
                 </div>
+
+                {this.renderNukeAiActions()}
 
                 {state.settings.restartFile && (
                     <span className="restart-file restart-chip">
@@ -566,6 +577,41 @@ export class SimulationTabContribution implements DashboardTabContribution {
                         )}
                     </div>
                 </div>
+            </div>
+        );
+    }
+
+    /**
+     * NukeAI toolbar group for the validation and run surfaces. Actions come
+     * from the neutral nuke-core registry; a missing command (NukeAI excluded
+     * from the build) removes the action, and an empty group renders nothing.
+     * @returns The NukeAI action toolbar, or null when no action is available.
+     */
+    private renderNukeAiActions(): React.ReactNode {
+        const groups = buildOpenMcNukeAiGroups(this.contextActions, this.commands);
+        if (groups.length === 0) {
+            return null;
+        }
+        return (
+            <div className="nuke-ai-actions" role="group" aria-label="NukeAI actions">
+                {groups.map((group) => (
+                    <div className="nuke-ai-action-group" key={group.id}>
+                        <span className="nuke-ai-action-group-label">
+                            <i className="codicon codicon-beaker" aria-hidden="true"></i>
+                            {group.label}
+                        </span>
+                        {group.actions.map((action) => (
+                            <Tooltip key={action.id} content={action.description ?? action.label} position="top">
+                                <button
+                                    className="theia-button secondary small"
+                                    onClick={() => void this.commands.executeCommand(action.commandId)}
+                                >
+                                    {action.label}
+                                </button>
+                            </Tooltip>
+                        ))}
+                    </div>
+                ))}
             </div>
         );
     }

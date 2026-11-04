@@ -1,0 +1,236 @@
+/* *****************************************************************************
+ * Copyright (C) 2026 NukeHub and others.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ * **************************************************************************** */
+
+.nuke-preview-gallery-widget {
+    height: 100%;
+}
+
+.nuke-preview-gallery {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    height: 100%;
+    padding: 16px;
+    overflow: auto;
+    color: var(--theia-foreground, #cccccc);
+    background: var(--theia-editor-background, #1e1e1e);
+    font-size: var(--theia-ui-font-size1, 13px);
+}
+
+.nuke-preview-gallery-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.nuke-preview-gallery-heading {
+    display: flex;
+    flex: 1 1 240px;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.nuke-preview-gallery-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.nuke-preview-gallery-subtitle {
+    margin: 0;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    line-height: 1.45;
+}
+
+.nuke-preview-gallery-refresh {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+}
+
+.nuke-preview-gallery-refresh:disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
+.nuke-preview-gallery-error {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    color: var(--theia-errorForeground, #f48771);
+    background: var(--theia-inputValidation-errorBackground, rgba(244, 135, 113, 0.1));
+    border: 1px solid var(--theia-inputValidation-errorBorder, var(--theia-errorForeground, #f48771));
+    border-radius: 6px;
+}
+
+.nuke-preview-gallery-loading {
+    margin: 0;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+}
+
+.nuke-preview-gallery-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    max-width: 520px;
+    margin: 32px auto;
+    padding: 28px 24px;
+    text-align: center;
+    background: var(--theia-editorWidget-background, rgba(127, 127, 127, 0.08));
+    border: 1px dashed var(--theia-editorWidget-border, var(--theia-widget-border, #454545));
+    border-radius: 8px;
+}
+
+.nuke-preview-gallery-empty-icon {
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 28px;
+}
+
+.nuke-preview-gallery-empty-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.nuke-preview-gallery-empty-text {
+    margin: 0;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    line-height: 1.5;
+}
+
+.nuke-preview-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.nuke-preview-gallery-item {
+    display: flex;
+    min-width: 0;
+}
+
+.nuke-preview-gallery-card {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    color: var(--theia-foreground, #cccccc);
+    background: var(--theia-editorWidget-background, rgba(127, 127, 127, 0.08));
+    border: 1px solid var(--theia-editorWidget-border, var(--theia-widget-border, #454545));
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.nuke-preview-gallery-card:hover {
+    border-color: var(--theia-focusBorder, #007fd4);
+}
+
+.nuke-preview-gallery-card:focus-visible {
+    outline: 1px solid var(--theia-focusBorder, #007fd4);
+    outline-offset: 1px;
+}
+
+.nuke-preview-gallery-thumbnail {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 16 / 9;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    background: var(--theia-textCodeBlock-background, rgba(0, 0, 0, 0.18));
+    border-bottom: 1px solid var(--theia-editorWidget-border, var(--theia-widget-border, #454545));
+    font-size: 28px;
+}
+
+.nuke-preview-gallery-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 10px 12px 12px;
+}
+
+.nuke-preview-gallery-card-title {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-preview-gallery-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 11px;
+}
+
+.nuke-preview-gallery-card-file {
+    overflow: hidden;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: var(--theia-code-font-size, 12px);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nuke-preview-gallery-note {
+    margin: auto 0 0;
+    color: var(--theia-descriptionForeground, #9d9d9d);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.nuke-preview-gallery-note code {
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: var(--theia-code-font-size, 12px);
+}
+
+@container (max-width: 520px) {
+    .nuke-preview-gallery-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .nuke-preview-gallery-refresh {
+        width: 100%;
+        justify-content: center;
+    }
+}

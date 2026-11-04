@@ -6,18 +6,19 @@ The Base Visualizer renders 3D geometry and scientific datasets with **native in
 
 ## Supported File Formats
 
-| Format     | Extension                                                | Notes                                                 |
-| ---------- | -------------------------------------------------------- | ----------------------------------------------------- |
-| VTK legacy | `.vtk`                                                   | Structured and unstructured grids                     |
-| VTK XML    | `.vtu`, `.vtp`, `.vts`, `.vtr`, `.vti`, `.pvtu`, `.pvtp` | Parallel and serial XML formats, including image data |
-| DAGMC      | `.h5m`                                                   | Nuclear CAD geometry; auto-converted to VTK           |
-| STEP       | `.step`, `.stp`                                          | CAD exchange format; auto-converted to VTK            |
-| BREP       | `.brep`                                                  | OpenCASCADE native; auto-converted to VTK             |
-| Gmsh mesh  | `.msh`                                                   | Imported as-is; auto-converted to ASCII VTK           |
-| STL        | `.stl`                                                   | Stereolithography meshes                              |
-| PLY        | `.ply`                                                   | Polygon file format                                   |
-| OBJ        | `.obj`                                                   | Wavefront OBJ                                         |
-| ExodusII   | `.e`, `.exo*`                                            | Time series; opens in the time-slider viewer          |
+| Format           | Extension                                                | Notes                                                 |
+| ---------------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| VTK legacy       | `.vtk`                                                   | Structured and unstructured grids                     |
+| VTK XML          | `.vtu`, `.vtp`, `.vts`, `.vtr`, `.vti`, `.pvtu`, `.pvtp` | Parallel and serial XML formats, including image data |
+| DAGMC            | `.h5m`                                                   | Nuclear CAD geometry; auto-converted to VTK           |
+| DAGMC multiblock | `.vtm`                                                   | Converted volume manifest; opens in the DAGMC viewer  |
+| STEP             | `.step`, `.stp`                                          | CAD exchange format; auto-converted to VTK            |
+| BREP             | `.brep`                                                  | OpenCASCADE native; auto-converted to VTK             |
+| Gmsh mesh        | `.msh`                                                   | Imported as-is; auto-converted to ASCII VTK           |
+| STL              | `.stl`                                                   | Stereolithography meshes                              |
+| PLY              | `.ply`                                                   | Polygon file format                                   |
+| OBJ              | `.obj`                                                   | Wavefront OBJ                                         |
+| ExodusII         | `.e`, `.exo*`                                            | Time series; opens in the time-slider viewer          |
 
 > **Priority:** `.h5m` files open with the highest priority. If a statepoint exists in the same folder, NukeIDE may offer to overlay tally results instead.
 >
@@ -68,7 +69,7 @@ _Four viewers split into a 2×2 A/B/C/D workspace; cameras and the color range a
 | ---------------------- | ----------------------------------------------------------------------- |
 | **Link cameras**       | Sync the orbit direction across panes; each pane keeps its own distance |
 | **Shared color range** | Map every pane on the union of active-array data ranges                 |
-| **Show pane labels**   | Show the A/B/C badge on each canvas                                     |
+| **Show pane labels**   | Show each pane's A/B/C/D badge                                          |
 | **Leave comparison**   | Unlink this pane and restore its previous camera link and range mode    |
 
 Shared color range unions the active arrays' data ranges; it does not change
@@ -222,7 +223,9 @@ cleared when the dataset reloads.
 
 ### Probe
 
-The pulse button on the native viewer bottom bar opens **Probe**:
+The pulse button on the native viewer bottom bar opens **Probe** as a floating card in the canvas's
+upper-right. The card scrolls internally and keeps its point history and line chart clear of the
+bottom navigation bar:
 
 - **Point** tab: click **Pick points**, then click the canvas. Each sample
   records X/Y/Z, the active array, and its value; **Clear** resets the list and
@@ -266,10 +269,9 @@ preference, keyed by the viewer tab.
 
 ### Camera
 
-| Control          | What It Does                                     |
-| ---------------- | ------------------------------------------------ |
-| **Reset Camera** | Center and fit the view to the data              |
-| **Preset Views** | Isometric, Front, Back, Left, Right, Top, Bottom |
+Drag to orbit, use the wheel to zoom, and right-drag to pan. The labeled **ViewCube** snaps to a standard
+orientation when you click a face or knob, and the bottom bar offers **ISO**, **T**, **F**, **R**, **Fit view**, and
+zoom. Viewer Settings → **View** adds explicit X/Y/Z axis snaps.
 
 ### Background
 
@@ -290,7 +292,7 @@ viewport) and an **Export** menu for the rest:
   `ClipboardItem`; otherwise a warning suggests downloading instead
 
 Files download with the dataset name and a timestamp, e.g.
-`native-image-20261028-120000.png`.
+`fuel_pin.vtk-20261028-120000.png`.
 
 The same menu has a **Dataset** section with **CSV** and **VTK** buttons. They
 run the headless `base.export` command on the loaded dataset and download the
@@ -302,11 +304,13 @@ dependency shows an error instead of a partial file.
 ## Exodus Time Series
 
 Opening a `.e` / `.exo*` file loads its steps into the **time-slider
-viewer**: first/prev/slider/next/last stepping plus an instant per-step
-array switch (no reload), with the same Color by / Map / legend /
-background controls as the other viewers and the step in the Viewer
-Settings Playback section. Extraction needs `netCDF4` (or `meshio` for
-the single-step fallback) in the Python environment.
+viewer**: first/prev/slider/next/last stepping (the end buttons disable at
+the series limits), a **Fit view** action that frames the current step, a
+labeled, clickable **ViewCube**, and a faint XZ grid for scale and
+orientation, plus an instant per-step array switch (no reload), with the same
+Color by / Map / legend / background controls as the other viewers and the
+step in the Viewer Settings Playback section. Extraction needs `netCDF4` (or
+`meshio` for the single-step fallback) in the Python environment.
 
 ### Animation Export
 
@@ -320,6 +324,9 @@ starting step.
 
 - The export is WYSIWYG: colors use the current global range and
   per-step re-ranging is off, so brightness may flicker between steps.
+- Completion and cancellation leave one dismissible status row in the
+  viewer instead of a duplicate notification; failures also raise an
+  error notification.
 - Shells without `MediaRecorder` (headless builds) cannot record — the
   export reports a clear error instead of silently doing nothing.
 
@@ -383,9 +390,10 @@ When you open a `.h5m` file:
 
 This path needs **pydagmc** and the **moab** package (which provides `pymoab`), plus `vtk`, in the active Python environment. The health check's install action sets both up.
 
-### Volume Extraction
+### Volume Visibility
 
-If you select a specific volume ID (e.g., from the Geometry Hierarchy), only that volume is extracted and visualized.
+Select a volume in the canvas or the DAGMC Outline, then hide, isolate, or frame it. The viewer still loads the full
+multiblock model; visibility changes never re-run the conversion. See **DAGMC Outline Sidebar** below.
 
 ### Color by Material, Volume, and Group
 

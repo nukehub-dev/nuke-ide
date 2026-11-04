@@ -294,8 +294,8 @@ describe('GUI build flow', () => {
             await modSession.click({ x: 0, y: 0 });
             await modSession.click({ x: cladRadius, y: 0 });
             const modCorner = pointAt(modSession, -pitch / 2, -pitch / 2);
+            const modOpposite = pointAt(modSession, pitch / 2, pitch / 2);
             const modCenter = pointAt(modSession, 0, 0);
-            await modSession.addConstraint('fix', [modCorner.id]);
             await modSession.addConstraint('fix', [modCenter.id]);
             const widthDim = await modSession.addDimension(
                 'distanceH',
@@ -314,8 +314,24 @@ describe('GUI build flow', () => {
             const holeDim = await modSession.addDimension('radius', [circleAt(modSession, 0, 0).id], cladRadius);
             expect(holeDim.success).toBe(true);
             await addParametricDimension(modSession, holeDim.dimensionId!, 'cladRadius', cladRadius);
-            expect(modSession.getStatus().dof).toBe(0);
             const modSketch = modSession.toSketchDef();
+            // Keep the box centred on the fuel pin when `pitch` changes: the
+            // fixed origin is the midpoint of the corner diagonal, so the cell
+            // grows symmetrically instead of shifting to one side.
+            const cornerPrimitive = modSketch.primitives.find((primitive) => primitive.id === modCorner.id);
+            if (cornerPrimitive !== undefined) {
+                delete cornerPrimitive.fixed;
+            }
+            modSketch.constraints.push({
+                id: 'symmetric-22',
+                type: 'p2p_symmetric_ppp',
+                p1_id: modCorner.id,
+                p2_id: modOpposite.id,
+                p_id: modCenter.id,
+                driving: true
+            });
+            const solvedModerator = await SketchSession.fromSketchDef(modSketch, await PlanegcsSketchSolver.create());
+            expect(solvedModerator.getStatus().dof).toBe(0);
             expect(store.upsertSketch(modSketch).success).toBe(true);
 
             // Create bodies in the order that preserves the v1 selector map

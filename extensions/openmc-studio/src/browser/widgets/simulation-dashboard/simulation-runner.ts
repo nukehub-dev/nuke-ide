@@ -45,6 +45,7 @@ import {
     SimulationProgress,
     SimulationStatusEvent,
     SimulationLogResult,
+    StartSimulationResponse,
     OpenMCStudioBackendService
 } from '../../../common/openmc-studio-protocol';
 import { OpenMCStateManager } from '../../openmc-state-manager';
@@ -151,12 +152,12 @@ export class OpenMCSimulationRunner {
      * Listen to {@link onStatusChange} and {@link onSimulationComplete} events for updates.
      *
      * @param request - The simulation run request payload.
-     * @returns A promise that resolves when the start handshake completes.
+     * @returns The backend start response; `success` is false when the run was rejected or crashed while starting.
      */
-    async runSimulation(request: SimulationRunRequest): Promise<void> {
+    async runSimulation(request: SimulationRunRequest): Promise<StartSimulationResponse> {
         if (this._isRunning) {
             this.messageService.warn('A simulation is already running.');
-            return;
+            return { success: false, error: 'A simulation is already running.' } as StartSimulationResponse;
         }
 
         this._isRunning = true;
@@ -217,7 +218,7 @@ export class OpenMCSimulationRunner {
                         }
                     }
                 });
-                return;
+                return { success: false, error: errorMsg } as StartSimulationResponse;
             }
 
             // Store processId for cancellation
@@ -228,6 +229,7 @@ export class OpenMCSimulationRunner {
                 processId: response.processId,
                 status: 'running'
             });
+            return response;
         } catch (error) {
             this._isRunning = false;
             this._currentProcessId = undefined;
@@ -245,6 +247,7 @@ export class OpenMCSimulationRunner {
                     duration: 0
                 }
             });
+            return { success: false, error: msg } as StartSimulationResponse;
         }
     }
 

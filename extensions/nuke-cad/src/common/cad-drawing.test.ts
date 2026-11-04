@@ -38,6 +38,7 @@ import {
     sheetMmToSvg,
     snapDrawingPosition,
     validateDrawingSheet,
+    type DrawingDimensionOutput,
     type DrawingSheet,
     type DrawingValidationSink
 } from './cad-drawing';
@@ -180,6 +181,29 @@ describe('validateDrawingSheet', () => {
         const sheet = validSheet();
         sheet.views.push({ id: 'view-base', kind: 'projected', orientation: 'top', scale: 1, position: [100, 160], parentId: 'view-base' });
         expect(collectIssues(sheet).some((i) => i.message.includes('duplicate id'))).toBe(true);
+    });
+
+    it('defaults dimensions to shown and round-trips the hidden flag', () => {
+        const sheet = validSheet();
+        expect(sheet.dimensions[0].hidden).toBeUndefined();
+        expect(collectIssues(sheet)).toEqual([]);
+
+        sheet.dimensions[0].hidden = true;
+        expect(collectIssues(sheet)).toEqual([]);
+        const roundTripped = JSON.parse(JSON.stringify(sheet)) as DrawingSheet;
+        expect(roundTripped.dimensions[0].hidden).toBe(true);
+    });
+
+    it('rejects non-boolean dimension hidden flags', () => {
+        const sheet = validSheet();
+        (sheet.dimensions[0] as unknown as Record<string, unknown>).hidden = 'yes';
+        const issues = collectIssues(sheet);
+        expect(issues.some((i) => i.path === 'drawings[0].dimensions[0].hidden')).toBe(true);
+    });
+
+    it('carries the hidden flag through drawing output', () => {
+        const output: DrawingDimensionOutput = { id: 'dim-1', stale: false, hidden: true };
+        expect(output.hidden).toBe(true);
     });
 });
 

@@ -32,6 +32,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import { URI } from '@theia/core/lib/common/uri';
 
 // Mock the browser-only modules in the exporter's import chain before import.
 vi.mock('@theia/filesystem/lib/browser', () => ({ FileDialogService: class {}, SaveFileDialogProps: {} }));
@@ -39,6 +40,7 @@ vi.mock('@theia/filesystem/lib/browser/file-service', () => ({ FileService: clas
 vi.mock('@theia/workspace/lib/browser/workspace-service', () => ({ WorkspaceService: class {} }));
 
 import { OpenMCPythonExporter } from './python-exporter';
+import { DEFAULT_OPENMC_COMPAT } from '../../common/openmc-studio-protocol';
 import { OpenMCState } from '../../common/openmc-state-schema';
 import { NEUTRON_PARTICLE } from '../../common/particle-types';
 
@@ -173,5 +175,146 @@ describe('python exporter mesh authoring', () => {
         expect(script).toContain('openmc.UnstructuredMesh("/data/meshes/core.h5m", library="moab"');
         expect(script).not.toContain('import os');
         expect(script).not.toContain('_script_dir');
+    });
+});
+
+/**
+ * Build an exporter with fake injected services so path-based exports can be
+ * exercised without Theia boot or a real save dialog.
+ *
+ * @returns The exporter plus the recorded writes and mocks.
+ */
+function createExportHarness(): {
+    exporter: OpenMCPythonExporter;
+    writtenPaths: string[];
+    showSaveDialog: ReturnType<typeof vi.fn>;
+    info: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+} {
+    const exporter = new OpenMCPythonExporter();
+    const writtenPaths: string[] = [];
+    const showSaveDialog = vi.fn(async (_props: unknown): Promise<URI | undefined> => undefined);
+    const info = vi.fn();
+    const error = vi.fn();
+    const internals = exporter as unknown as {
+        stateManager: { getState(): OpenMCState };
+        backendService: { getOpenMCCompat(): Promise<typeof DEFAULT_OPENMC_COMPAT> };
+        fileDialogService: { showSaveDialog: typeof showSaveDialog };
+        fileService: {
+            writeFile(uri: URI, data: unknown): Promise<void>;
+            createFile(uri: URI, data: unknown): Promise<void>;
+        };
+        messageService: { info: typeof info; error: typeof error };
+    };
+    internals.stateManager = { getState: () => buildState() };
+    internals.backendService = { getOpenMCCompat: async () => DEFAULT_OPENMC_COMPAT };
+    internals.fileDialogService = { showSaveDialog };
+    internals.fileService = {
+        writeFile: async (uri: URI): Promise<void> => {
+            writtenPaths.push(uri.path.toString());
+        },
+        createFile: async (uri: URI): Promise<void> => {
+            writtenPaths.push(uri.path.toString());
+        }
+    };
+    internals.messageService = { info, error };
+    return { exporter, writtenPaths, showSaveDialog, info, error };
+}
+
+describe('python exporter path mode', () => {
+    it('writes an absolute target path without opening the save dialog', async () => {
+        const harness = createExportHarness();
+
+        const result = await harness.exporter.exportToPython({
+            mode: 'single',
+            targetPath: '/workspace/export/model.py',
+            includeComments: false,
+            includeShebang: false,
+            compat: DEFAULT_OPENMC_COMPAT
+        });
+
+        expect(result).toEqual({ success: true, files: ['/workspace/export/model.py'] });
+        expect(harness.showSaveDialog).not.toHaveBeenCalled();
+        expect(harness.writtenPaths).toEqual(['/workspace/export/model.py']);
+        expect(harness.info).toHaveBeenCalledWith('Exported Python script: model.py');
+    });
+
+    it('rejects a non-.py target path before writing', async () => {
+        const harness = createExportHarness();
+
+        const result = await harness.exporter.exportToPython({
+            mode: 'single',
+            targetPath: '/workspace/export/model.txt',
+            compat: DEFAULT_OPENMC_COMPAT
+        });
+
+        expect(result).toEqual({
+            success: false,
+            files: [],
+            error: 'The Python export target must use the .py file extension.'
+        });
+        expect(harness.showSaveDialog).not.toHaveBeenCalled();
+        expect(harness.writtenPaths).toEqual([]);
+    });
+
+    it('rejects a relative target path', async () => {
+        const harness = createExportHarness();
+
+        const result = await harness.exporter.exportToPython({
+            mode: 'single',
+            targetPath: 'model.py',
+            compat: DEFAULT_OPENMC_COMPAT
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/absolute/);
+        expect(harness.writtenPaths).toEqual([]);
+    });
+
+    it('rejects targetPath in separate-files mode', async () => {
+        const harness = createExportHarness();
+
+        const result = await harness.exporter.exportToPython({
+            mode: 'separate',
+            targetPath: '/workspace/scripts',
+            compat: DEFAULT_OPENMC_COMPAT
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/targetPath/);
+        expect(harness.showSaveDialog).not.toHaveBeenCalled();
+        expect(harness.writtenPaths).toEqual([]);
+    });
+
+    it('keeps the save-dialog flow when no target path is provided', async () => {
+        const harness = createExportHarness();
+        harness.showSaveDialog.mockResolvedValue(new URI('/workspace/model.py'));
+
+        const result = await harness.exporter.exportToPython({ mode: 'single', compat: DEFAULT_OPENMC_COMPAT });
+
+        expect(result).toEqual({ success: true, files: ['file:///workspace/model.py'] });
+        expect(harness.showSaveDialog).toHaveBeenCalledTimes(1);
+        expect(harness.writtenPaths).toEqual(['/workspace/model.py']);
+    });
+
+    it('writes separate files into an explicit output directory', async () => {
+        const harness = createExportHarness();
+
+        const result = await harness.exporter.exportToPython({
+            mode: 'separate',
+            outputDirectory: '/workspace/scripts',
+            compat: DEFAULT_OPENMC_COMPAT
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.files).toHaveLength(5);
+        expect(harness.showSaveDialog).not.toHaveBeenCalled();
+        expect(harness.writtenPaths).toEqual([
+            '/workspace/scripts/materials.py',
+            '/workspace/scripts/geometry.py',
+            '/workspace/scripts/settings.py',
+            '/workspace/scripts/tallies.py',
+            '/workspace/scripts/model.py'
+        ]);
     });
 });

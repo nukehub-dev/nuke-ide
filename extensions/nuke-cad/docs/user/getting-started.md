@@ -4,8 +4,9 @@ Nuke CAD has two authoring modes: script-based `.py` files and GUI-edited
 `.nuke-cad` documents. This guide covers scripts and STEP imports; the
 [GUI parametric modeler guide](gui-modeler.md) covers the document workflow.
 
-For a ready-made starting point, run **New CAD Document** and pick one of the
-**Example projects** (a pincell, a tokamak, the full W7-X stellarator via its
+For a ready-made starting point, run **New CAD Document** and pick the
+**Pincell** parametric component or one of the **Example projects** (the
+pincell demo, a tokamak, the full W7-X stellarator via its
 external STEP, the parametric W7-X generator, or the native W7-X coil shape
 study); each saves an editable copy you can modify. The external W7-X cards
 download the MIT-licensed STEP (or take a local copy) and store it in a

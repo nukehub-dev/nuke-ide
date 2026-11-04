@@ -350,7 +350,7 @@ export class OpenMCTallySeriesWidget extends ReactWidget {
                             onClick={() => this.setStepIndex(0)}
                             disabled={this.loading || atFirst}
                         >
-                            <i className={codicon('debug-step-back')}></i>
+                            <i className={codicon('arrow-left')}></i>
                         </button>
                     </Tooltip>
                     <Tooltip content="Previous step" position="bottom">
@@ -391,7 +391,7 @@ export class OpenMCTallySeriesWidget extends ReactWidget {
                             onClick={() => this.setStepIndex(lastIndex)}
                             disabled={this.loading || atLast}
                         >
-                            <i className={codicon('debug-step-forward')}></i>
+                            <i className={codicon('arrow-right')}></i>
                         </button>
                     </Tooltip>
                 </div>

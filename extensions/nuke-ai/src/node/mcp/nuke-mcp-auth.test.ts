@@ -1,0 +1,73 @@
+// *****************************************************************************
+// Copyright (C) 2026 NukeHub and others.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice,
+//    this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-2-Clause
+// *****************************************************************************
+
+import { describe, expect, it } from 'vitest';
+import { hasOrigin, isAuthorizedBearer, isLoopbackAddress, MCP_DISABLED_MESSAGE, timingSafeEqualText } from './nuke-mcp-auth';
+
+describe('nuke-mcp-auth', () => {
+    it('keeps the disabled message exact', () => {
+        expect(MCP_DISABLED_MESSAGE).toBe('MCP is disabled until a token is configured.');
+    });
+
+    it('detects any Origin header', () => {
+        expect(hasOrigin({ origin: 'https://example.com' })).toBe(true);
+        expect(hasOrigin({ origin: '' })).toBe(true);
+        expect(hasOrigin({})).toBe(false);
+    });
+
+    it('accepts only loopback peers', () => {
+        expect(isLoopbackAddress('127.0.0.1')).toBe(true);
+        expect(isLoopbackAddress('127.42.0.7')).toBe(true);
+        expect(isLoopbackAddress('::1')).toBe(true);
+        expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true);
+        expect(isLoopbackAddress('::ffff:127.2.3.4')).toBe(true);
+        expect(isLoopbackAddress('10.0.0.7')).toBe(false);
+        expect(isLoopbackAddress('::ffff:10.0.0.7')).toBe(false);
+        expect(isLoopbackAddress(undefined)).toBe(false);
+        expect(isLoopbackAddress('')).toBe(false);
+    });
+
+    it('accepts only the exact bearer scheme and token', () => {
+        expect(isAuthorizedBearer('Bearer secret-token', 'secret-token')).toBe(true);
+        expect(isAuthorizedBearer(undefined, 'secret-token')).toBe(false);
+        expect(isAuthorizedBearer('bearer secret-token', 'secret-token')).toBe(false);
+        expect(isAuthorizedBearer('Bearer wrong', 'secret-token')).toBe(false);
+        expect(isAuthorizedBearer('Bearer secret-token ', 'secret-token')).toBe(false);
+        expect(isAuthorizedBearer('Bearer ', 'secret-token')).toBe(false);
+    });
+
+    it('never authorizes an empty configured token', () => {
+        expect(isAuthorizedBearer('Bearer ', '')).toBe(false);
+        expect(isAuthorizedBearer('Bearer secret-token', '')).toBe(false);
+    });
+
+    it('compares arbitrary strings without relying on equality shortcuts', () => {
+        expect(timingSafeEqualText('same', 'same')).toBe(true);
+        expect(timingSafeEqualText('same', 'different')).toBe(false);
+        expect(timingSafeEqualText('', '')).toBe(true);
+    });
+});

@@ -13,12 +13,16 @@ The sidebar appears in the left panel, replacing the current view.
 
 ## Browsing tools
 
-Commands are grouped into collapsible sections:
+Commands are grouped into collapsible sections, in workflow order:
 
+- **NukeAI** — chat actions, diagnostics, run/export helpers, and external MCP.
+- **CAD Studio** — geometry, sketches and features, drawings, BOM, FEM, CFD, and AI edit review.
+- **OpenMC Studio** — project, geometry, simulation, XML configuration, and advanced actions (only enabled when a project is open).
+- **Visualizer** — viewers, datasets, and OpenMC result browsers.
 - **Environment** — switch Python environments, install packages, run health checks.
 - **Health & Diagnostics** — validate configuration and show diagnostics.
-- **OpenMC Studio** — project, geometry, simulation, and XML actions (only enabled when a project is open).
-- **Visualizer** — open viewers and data browsers.
+
+The order follows the design → simulate → inspect workflow; environment setup and diagnostics stay at the end as support sections.
 
 Each section can contain nested subcategories. Click the chevron next to a section or category to expand or collapse it. Your expansion state is remembered across sessions.
 

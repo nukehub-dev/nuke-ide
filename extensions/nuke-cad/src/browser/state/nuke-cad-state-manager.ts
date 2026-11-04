@@ -37,12 +37,46 @@
 
 import { injectable } from '@theia/core/shared/inversify';
 import { Emitter, Event } from '@theia/core/lib/common/event';
-import { GeometryBuildResult, RegionManifestData } from '../../common/nuke-cad-protocol';
+import { GeometryBuildResult, RegionManifestData, SandboxedScriptBuildResult } from '../../common/nuke-cad-protocol';
 
 export interface CadModel {
     readonly scriptPath: string;
     readonly result: GeometryBuildResult;
     readonly manifest?: RegionManifestData;
+    /**
+     * True when the model was built from an AI-authored script inside the
+     * bubblewrap sandbox. Sandboxed models must never be rebuilt or exported
+     * through the unsandboxed geometry path.
+     */
+    readonly sandboxed?: boolean;
+}
+
+/**
+ * Adapt a sandboxed script build result to the viewport's geometry result.
+ *
+ * The sandbox returns display artifacts only (no DAGMC/FEM exports or region
+ * manifest), so the model carries the sandbox flag and metadata explicitly.
+ */
+export function sandboxedGeometryResult(result: SandboxedScriptBuildResult): GeometryBuildResult {
+    return {
+        success: result.success,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+        ...(result.tessPath !== undefined ? { tessPath: result.tessPath } : {}),
+        ...(result.stepPath !== undefined ? { stepPath: result.stepPath } : {}),
+        ...(result.solidCount !== undefined ? { solidCount: result.solidCount } : {}),
+        ...(result.faceCount !== undefined ? { faceCount: result.faceCount } : {}),
+        ...(result.triangleCount !== undefined ? { triangleCount: result.triangleCount } : {}),
+        ...(result.boundingBox !== undefined ? { boundingBox: result.boundingBox } : {}),
+        ...(result.warnings !== undefined ? { warnings: [...result.warnings] } : {}),
+        ...(result.sandbox !== undefined ? { sandbox: result.sandbox } : {}),
+        ...(sandboxedRegionManifest(result) !== undefined ? { regionManifest: sandboxedRegionManifest(result) } : {}),
+        sandboxed: true
+    };
+}
+
+/** Region manifest when the sandbox backend reports one (it normally does not). */
+export function sandboxedRegionManifest(result: SandboxedScriptBuildResult): RegionManifestData | undefined {
+    return (result as SandboxedScriptBuildResult & { readonly regionManifest?: RegionManifestData }).regionManifest;
 }
 
 export interface CadSelection {

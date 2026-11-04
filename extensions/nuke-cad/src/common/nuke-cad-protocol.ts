@@ -350,6 +350,113 @@ export interface GeometryBuildResult {
     readonly meshReport?: MeshQualityReport;
     /** Captured stderr/stdout from the geometry service. */
     output?: string;
+    /**
+     * Bubblewrap sandbox metadata when the build ran through
+     * {@link NukeCadBackendService.buildSandboxedScript}.
+     */
+    readonly sandbox?: SandboxedScriptBuildResult['sandbox'];
+    /** Whether the build executed inside the bubblewrap script sandbox. */
+    readonly sandboxed?: boolean;
+}
+
+/** Resource limits applied inside the bubblewrap script sandbox. */
+export interface ScriptSandboxLimits {
+    /** Script execution timeout in seconds. */
+    readonly timeoutSeconds: number;
+    /** Address-space limit in MiB (``prlimit --as``). */
+    readonly memoryLimitMb: number;
+    /** Process/thread limit (``prlimit --nproc``). */
+    readonly processLimit: number;
+    /** Maximum size of one artifact file in MiB (``prlimit --fsize``). */
+    readonly fileSizeLimitMb: number;
+    /** Open-file descriptor limit. */
+    readonly nofile: number;
+    /** Core-dump size limit (always 0). */
+    readonly core: number;
+}
+
+/** Host capability report for bubblewrap-backed script builds. */
+export interface ScriptSandboxStatus {
+    /** Whether sandboxed script builds can run on this host. */
+    readonly available: boolean;
+    /** Sandbox engine; only bubblewrap is supported. */
+    readonly engine: 'bubblewrap';
+    /** Absolute path to the ``bwrap`` executable. */
+    readonly bwrapPath?: string;
+    /** Reported bubblewrap version string. */
+    readonly version?: string;
+    /** Whether unprivileged user namespaces are available. */
+    readonly userns?: boolean;
+    /** Whether user namespaces can be disabled inside the sandbox. */
+    readonly disableUserns?: boolean;
+    /** Whether every sandboxed build loads a libseccomp BPF filter inside bwrap. */
+    readonly seccomp?: boolean;
+    /** Reported libseccomp version when the filter is available. */
+    readonly seccompVersion?: string;
+    /** Why sandboxed builds are unavailable. */
+    readonly reason?: string;
+}
+
+/**
+ * Build a user-authored ``.py`` model inside the bubblewrap sandbox.
+ *
+ * The script is bound read-only at ``/source/model.py``; the workspace itself
+ * is never mounted. Only the private output directory is writable.
+ */
+export interface SandboxedScriptBuildRequest {
+    /** Absolute path to the active or staging ``.py`` script. */
+    readonly scriptPath: string;
+    /** Absolute workspace root that must contain the script. */
+    readonly workspaceRoot: string;
+    /** Absolute output directory inside ``<workspace>/.nuke-ide/ai/cad-scripts``. */
+    readonly outputDirectory: string;
+    /** BRepMesh faceting tolerance. */
+    readonly tolerance?: number;
+    /** Script execution timeout in seconds (1..300, default 120). */
+    readonly timeoutSeconds?: number;
+    /** Address-space limit in MiB (256..8192, default 4096). */
+    readonly memoryLimitMb?: number;
+    /** Process/thread limit (16..512, default 128). */
+    readonly processLimit?: number;
+    /** Maximum artifact file size in MiB (16..1024, default 512). */
+    readonly fileSizeLimitMb?: number;
+    /** Optional caller-chosen job id for cancellation via {@link NukeCadBackendService.cancelJob}. */
+    readonly jobId?: string;
+}
+
+/** Result of a sandboxed script build. */
+export interface SandboxedScriptBuildResult {
+    readonly success: boolean;
+    readonly error?: string;
+    readonly warnings?: readonly string[];
+    readonly solidCount?: number;
+    readonly faceCount?: number;
+    readonly triangleCount?: number;
+    readonly boundingBox?: CadBoundingBox;
+    /** Absolute host path to the validated tessellation stream. */
+    readonly tessPath?: string;
+    /** Absolute host path to the validated STEP file. */
+    readonly stepPath?: string;
+    readonly durationMs?: number;
+    readonly timedOut?: boolean;
+    readonly exitCode?: number | null;
+    readonly sandbox?: {
+        readonly available: boolean;
+        readonly engine: 'bubblewrap';
+        readonly version?: string;
+        readonly disableUserns?: boolean;
+        /** Whether the build loaded the libseccomp denylist inside bwrap. */
+        readonly seccomp?: boolean;
+        /** Reported libseccomp version when the filter was loaded. */
+        readonly seccompVersion?: string;
+        /** Network isolation is always ``none``. */
+        readonly network: 'none';
+        /** The workspace root is never mounted; only the source file is bound. */
+        readonly workspace: 'none';
+        /** Sandbox paths writable by the user script. */
+        readonly writable: readonly string[];
+        readonly limits: ScriptSandboxLimits;
+    };
 }
 
 /** Request to build/update geometry from a script or STEP file. */
@@ -424,6 +531,10 @@ export interface BuildDocumentRequest {
      * transport solvers that expect meters.
      */
     readonly lengthScale?: number;
+    /** Caller-chosen process id, so a long preview build can be cancelled before it returns. */
+    readonly jobId?: string;
+    /** Process timeout in seconds; the backend default applies when omitted. */
+    readonly timeoutSeconds?: number;
 }
 
 /** Single volume entry in the region manifest. */
@@ -434,6 +545,12 @@ export interface RegionManifestVolume {
     readonly tags?: string[];
     /** Optional per-region target element size for meshing. */
     readonly meshSize?: number;
+    /** Stable physical-model material UUID; never used for DAGMC naming. */
+    readonly materialId?: string;
+    /** Parent selector/UUID when this entry was copied from another region. */
+    readonly parentId?: string;
+    /** Per-body default entry inherited by selectors without an explicit entry. */
+    readonly default?: boolean;
 }
 
 /** Single surface entry in the region manifest. */
@@ -581,6 +698,21 @@ export interface NukeCadBackendService {
      * backend passes ``--from-document`` to the geometry service.
      */
     buildDocument(request: BuildDocumentRequest): Promise<GeometryBuildResult>;
+
+    /**
+     * Report whether host bubblewrap/user-namespace support allows sandboxed
+     * script builds. Never falls back to an unsandboxed execution path.
+     */
+    getScriptSandboxStatus(): Promise<ScriptSandboxStatus>;
+
+    /**
+     * Build a user-authored ``.py`` script inside bubblewrap.
+     *
+     * The script file is bound read-only; the workspace root is not mounted and
+     * no host environment variables are forwarded. Only the private output
+     * directory is writable. DAGMC and FEM mesh export are unavailable.
+     */
+    buildSandboxedScript(request: SandboxedScriptBuildRequest): Promise<SandboxedScriptBuildResult>;
 
     /**
      * Rebuild only ``featureIds`` of a ``.nuke-cad`` document against the

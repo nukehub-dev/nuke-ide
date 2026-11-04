@@ -103,6 +103,8 @@ export interface DrawingDimension {
     labelOffset?: [number, number];
     value?: number;
     stale?: boolean;
+    /** True hides the annotation from the sheet and exports; the dimension is never deleted. */
+    hidden?: boolean;
 }
 
 /** Sheet dimensions in mm for the fixed landscape templates. */
@@ -376,6 +378,8 @@ export interface DrawingDimensionOutput {
     readonly value?: number;
     /** Unmatched/ambiguous refs keep last-good text and set `stale: true`. */
     readonly stale: boolean;
+    /** True when the stored dimension is hidden from the sheet and exports. */
+    readonly hidden?: boolean;
     readonly text?: string;
     /** Projected 2D anchors in absolute sheet-mm for extension lines. */
     readonly anchors?: [number, number][];
@@ -537,6 +541,9 @@ function validateDrawingDimension(sink: DrawingValidationSink, path: string, dim
     }
     if (dimension.stale !== undefined && typeof dimension.stale !== 'boolean') {
         sink.issue(`${path}.stale`, 'stale must be a boolean when present');
+    }
+    if (dimension.hidden !== undefined && typeof dimension.hidden !== 'boolean') {
+        sink.issue(`${path}.hidden`, 'hidden must be a boolean when present');
     }
 }
 

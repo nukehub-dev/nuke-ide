@@ -41,13 +41,14 @@ test.describe('nuke tools sidebar', () => {
 
         const widget = page.locator('#nuke-tools-sidebar');
         await expect(widget).toBeVisible();
+        await expect(widget.locator('.nuke-tools-category-label', { hasText: 'NukeAI' })).toBeVisible();
         await expect(widget.locator('.nuke-tools-category-label', { hasText: 'Environment' })).toBeVisible();
         await expect(widget.locator('.nuke-tools-category-label', { hasText: 'Health & Diagnostics' })).toBeVisible();
 
         const topLevelLabels = await widget
             .locator('.nuke-tools-content > .nuke-tools-category > .nuke-tools-category-header > .nuke-tools-category-label')
             .allTextContents();
-        expect(topLevelLabels).toEqual(['Environment', 'CAD Studio', 'Health & Diagnostics', 'OpenMC Studio', 'Visualizer']);
+        expect(topLevelLabels).toEqual(['NukeAI', 'CAD Studio', 'OpenMC Studio', 'Visualizer', 'Environment', 'Health & Diagnostics']);
 
         expect(errors, `console/page errors while opening sidebar:\n${errors.join('\n')}`).toEqual([]);
     });

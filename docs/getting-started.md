@@ -4,7 +4,7 @@ Welcome to NukeIDE! This guide will help you get up and running quickly.
 
 ## What You'll Need
 
-- **Node.js** >= 22.13.0
+- **Node.js** >= 24.0.0
 - **Yarn** >= 1.7.0 and < 2
 - **Python** 3.13 for the tested backend profile (OpenMC 0.16 also runs on Python 3.12; OpenMC 0.15.3 supports older interpreters)
 
@@ -56,6 +56,7 @@ yarn start:electron
 - **Configure Python**: Use the status bar or command palette (`Nuke: Switch Environment`) to select your Python environment.
 - **Run a Health Check**: Press `Ctrl+Shift+P` (or `Cmd+Shift+P`) and type `Nuke: Run Health Check`.
 - **Open Nuke Tools**: Click the tools icon in the left activity bar (or run `Nuke: Focus Tools Sidebar`) to browse and search every NukeIDE command.
+- **Take a walkthrough**: open **Help → NukeAI Walkthrough...** for the NukeAI getting-started guide (the Welcome page lists it too). It walks through enabling AI, choosing a model, and asking a first question.
 - **Explore Extensions**: Open the Explorer sidebar and look for the NukeIDE panels contributed by your installed extensions.
 
 ## Learn More

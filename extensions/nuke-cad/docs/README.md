@@ -44,6 +44,7 @@ build123d (CadQuery opt.)  GUI sketcher + feature tree
 - [GUI modeler architecture](dev/gui-modeler-architecture.md)
 - [Backend pipeline](dev/backend-pipeline.md)
 - [Document schema](dev/document-schema.md)
+- [Document templates and components](dev/document-templates.md)
 - [Drawings and assemblies](dev/drawings-assemblies.md)
 - [Features and patterns](dev/features-patterns.md)
 - [FEM, meshing, and OpenFOAM](dev/fem-mesh-foam.md)

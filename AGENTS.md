@@ -96,6 +96,7 @@ Default section order:
 
 When the user requests a durable behavior change, record it here or in the relevant child `AGENTS.md`.
 
+- Do not commit or push changes unless the user explicitly asks; leave completed work uncommitted for review.
 - Never reference `.planning/`, Wave/phase IDs, planning briefs, or roadmap labels in tracked source,
   tests, docs, or comments. Describe the stable technical contract instead; planning material stays local
   and gitignored.
@@ -114,7 +115,7 @@ When the user requests a durable behavior change, record it here or in the relev
 
 Install once before making changes:
 
-- **Node.js** >= 22.13.0 and **Yarn** 1.x (`>=1.7.0 <2`). Dependencies install with `yarn` (yarn workspaces + lerna 10).
+- **Node.js** >= 24.0.0 and **Yarn** 1.x (`>=1.7.0 <2`). Dependencies install with `yarn` (yarn workspaces + lerna 10).
 - **Python** 3.13 with `pip install -r requirements-dev.txt` (pytest, numpy, ruff). Only needed for the extension Python backends and their tests; the TypeScript build does not need it.
 - **Docker** (optional) for the containerized browser deployment in `applications/docker/`.
 
@@ -132,13 +133,14 @@ Notes:
 
 - `yarn format` and `yarn format:python` auto-fix formatting (prettier --write, ruff check --fix + ruff format).
 - Formatter configs: `.prettierrc.json` (Theia style: 4-space, single quotes, no trailing commas, width 140), `ruff.toml` (py313, width 100), `.editorconfig` mirrors both.
-- Full application bundles are heavy: `yarn build:browser` / `yarn build:electron` run webpack. Prefer `npx lerna run build` for a fast compile check.
+- Full application bundles are heavy: `yarn build:browser` / `yarn build:electron` run the Theia esbuild bundler. Prefer `npx lerna run build` for a fast compile check.
 
 ## UI smoke tests (Playwright)
 
 - `tests/ui/` holds the Playwright GUI smoke suite (`playwright.config.ts` at root). Run it with `yarn test:ui`; it starts the built browser app itself via the config's `webServer` (`yarn --cwd applications/browser start ../..` — repo root as workspace, on 127.0.0.1:3000, `reuseExistingServer` locally) and tears it down afterwards. Quick Open file search needs the workspace open, and the first search warms the index — specs opening files must tolerate a slow first query.
 - Prerequisites: `yarn build:browser` first (the suite tests the bundled app), and `npx playwright install chromium` once to download the browser (the npm package `@playwright/test` does not include it).
 - Suite conventions: no testing-only hooks in the app — selectors use Theia/lumino ids and widget classes (`#theia-app-shell`, `.simulation-dashboard`, widget root classes); the Command Palette is driven with `Ctrl+Shift+P` plus the `>` command prefix (F1 is a browser help shortcut in headless Chromium and the quick-open searches files without `>`); every spec collects console severity-`error` + pageerror messages and asserts zero. Tiny committed fixtures live in `tests/ui/fixtures/`. Artifacts (`test-results/`, screenshots/traces on failure) are gitignored.
+- `yarn test:mcp` runs the opt-in MCP enable → real-client → disable smoke (`NUKE_MCP_E2E=1`). It changes local IDE user settings, so it is not part of `yarn test:ui`.
 - CI runs it weekly via `.github/workflows/ui-smoke.yml` (build → boot → tests → artifact on failure); it is not part of per-PR CI because the browser bundle is heavy.
 
 ## CI/CD
@@ -148,7 +150,7 @@ GitHub Actions workflows under `.github/workflows/`:
 - `ci.yml` — fast checks on every push/PR: prettier + ruff (`yarn lint`), docs screenshot manifest (`yarn docs:screenshots:check`), extension compile (`npx lerna run build`), pytest with coverage in the full CAD/OpenMC conda env (the 94% gate runs there), and vitest. This must stay green.
 - `build.yml` — Electron packaging for Linux/Windows/macOS and draft GitHub Releases on `v*` tags.
 - `docker.yml` — all-in-one container build + smoke test; runs on changes to `applications/docker/` or dependency manifests, weekly, and on manual dispatch. Smoke coverage: Python env import check, the extension pytest suite in-image, a functional converter check (`applications/docker/render_smoke_test.py` — the headless VTK converter seam the unit tests skip), and an IDE boot check. Green builds archive a dependency snapshot (`conda list` + `pip freeze`); a failed weekly run opens/updates an `upstream-regression` issue.
-- `ui-smoke.yml` — weekly Playwright GUI smoke (`yarn test:ui`): bundles the browser app, boots it in headless Chromium, and runs `tests/ui/` (boot console errors, dashboard tabs, dedicated windows, controlled selects). Uploads `test-results/` on failure; node_modules cache uses the `ui-smoke-yarn-` prefix (never `ci-yarn-`/`build-yarn-` — scriptless installs must not collide, see pitfalls). The scriptless install skips the lerna prepare build, so the workflow compiles explicitly (`npx lerna run build`) and rebuilds native modules (cpu-features/keytar/drivelist/@theia/ffmpeg) before bundling — without both, webpack fails on `*/lib/...` and `*.node` resolves.
+- `ui-smoke.yml` — weekly Playwright GUI smoke (`yarn test:ui`): bundles the browser app, boots it in headless Chromium, and runs `tests/ui/` (boot console errors, dashboard tabs, dedicated windows, controlled selects). Uploads `test-results/` on failure; node_modules cache uses the `ui-smoke-yarn-` prefix (never `ci-yarn-`/`build-yarn-` — scriptless installs must not collide, see pitfalls). The scriptless install skips the lerna prepare build, so the workflow compiles explicitly (`npx lerna run build`) and rebuilds native modules (cpu-features/keytar/drivelist/@theia/ffmpeg) before bundling — without both, the bundle fails on `*/lib/...` and `*.node` resolves.
 - `upstream-latest.yml` — weekly early-warning job: builds the backend conda env straight from `environment.yml` (everything floats except deliberate pins) and runs pytest + the converter smoke test headless on the runner. Catches a breaking upstream release before it reaches a pin bump; failures open/update an `upstream-regression` issue.
 - `openmc-dev.yml` — weekly early-warning job against the _development_ OpenMC: checks out `openmc-dev/openmc@develop` (its default branch), builds libopenmc from source (cached by upstream SHA — skipped when develop hasn't moved, incremental on a new SHA), `pip install .` (openmc's own deps incl. `endf` come from PyPI; plus `pytest` + `vtk` wheels), downloads the NNDC HDF5 / ENDF-B-VII.1 / ENDF-B-VII.1-PWR-chain data (same tarballs OpenMC's own CI uses, cached), then runs `yarn test:python:full` and the openmc-studio vitest e2e with the same env gates we use locally. Failures open/update an `upstream-regression` issue.
 
@@ -184,14 +186,14 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 
 ## Common pitfalls
 
-- **Never edit generated artifacts**: `extensions/*/lib/`, `applications/*/lib/`, `**/src-gen/`, `gen-webpack*.js`, `*.tsbuildinfo`, `plugins/`, `resources/preload.html` (from `resources/preload.template.html`), and `extensions/nuke-cad/src/common/samples/*.json` (from the canonical e2e fixtures; see `extensions/nuke-cad/AGENTS.md`).
+- **Never edit generated artifacts**: `extensions/*/lib/`, `applications/*/lib/`, `**/src-gen/`, `gen-esbuild*.mjs`, `*.tsbuildinfo`, `plugins/`, `resources/preload.html` (from `resources/preload.template.html`), and `extensions/nuke-cad/src/common/samples/*.json` (from the canonical e2e fixtures; see `extensions/nuke-cad/AGENTS.md`).
 - **New extensions must be registered** as dependencies in both `applications/browser/package.json` and `applications/electron/package.json`, and in the `REQUIRED`/`OPTIONAL` registry of `scripts/with-extension-set.js` (with their local extension dependencies), or they will not ship.
 - **Optional extensions are selectable at build time**: `NUKE_EXTENSIONS=<allow-list|all>` / `NUKE_EXCLUDE_EXTENSIONS=<deny-list>` prune optional extensions from `yarn build:browser` / `yarn build:electron(:prod)` and the docker image (build args, passed through by `compose.yml`); unset variables bundle everything except `nukelab-integration`, which only applies to NukeLab deployments and is opt-in (`NUKE_EXTENSIONS=all`). `nuke-core`/`nuke-essentials` are always required; local dependency closure is automatic. Preview the resolved set with `yarn ext:list`.
 - **Extension Python code is not pip-installed**; tests put `extensions/<name>/python/` on `sys.path` via `tests/python/conftest.py`. Keep imports package-relative to that layout (`nuke_viz.*`, `plugins.*`, top-level service modules).
 - **Do not remove "unused" Python imports blindly**: some top-level imports are deliberate dependency probes that must fail fast (e.g. `import vtk` in `dagmc_viz.py`). These carry `# noqa: F401` comments.
 - **`yarn install` runs `lerna run prepare`** (full extension rebuild) via the root `prepare` script; use `yarn install --ignore-scripts` when only the lockfile/node_modules must change.
-- **`--ignore-scripts` also skips native module builds** (`keytar`, `cpu-features`, `@theia/ffmpeg`, `ssh2`, etc.); a following webpack build then fails with `Can't resolve '../build/Release/keytar.node'` (or `cpufeatures.node`), and `theia build` for Electron crashes in `checkFfmpeg` with `Cannot find module '../build/Debug/ffmpeg.node'`. Repair with `(cd node_modules/<mod> && npm run install)`, or `npx node-gyp rebuild` for `@theia/ffmpeg` (no install script — npm/yarn normally compile its `binding.gyp` via the implicit node-gyp install). In CI, `ci.yml` caches use the `ci-yarn-` prefix precisely so `build.yml`'s `${{ runner.os }}-yarn-` restore-keys cannot pick up scriptless node_modules; `build.yml`'s Linux job additionally rebuilds `cpu-features`/`keytar`/`@theia/ffmpeg` after install.
-- **Keep `**/ssh2` pinned in root `resolutions`**: multiple ssh2 copies (hoisted + nested under `@theia/remote`) each build `sshcrypto.node`, and webpack fails with `Conflict: Multiple assets emit different content to the same filename native/sshcrypto.node`.
+- **`--ignore-scripts` also skips native module builds** (`keytar`, `cpu-features`, `@theia/ffmpeg`, `ssh2`, etc.); a following app bundle then fails with `Can't resolve '../build/Release/keytar.node'` (or `cpufeatures.node`), and `theia build` for Electron crashes in `checkFfmpeg` with `Cannot find module '../build/Debug/ffmpeg.node'`. Repair with `(cd node_modules/<mod> && npm run install)`, or `npx node-gyp rebuild` for `@theia/ffmpeg` (no install script — npm/yarn normally compile its `binding.gyp` via the implicit node-gyp install). In CI, `ci.yml` caches use the `ci-yarn-` prefix precisely so `build.yml`'s `${{ runner.os }}-yarn-` restore-keys cannot pick up scriptless node_modules; `build.yml`'s Linux job additionally rebuilds `cpu-features`/`keytar`/`@theia/ffmpeg` after install.
+- **Keep `**/ssh2` pinned in root `resolutions`**: multiple ssh2 copies (hoisted + nested under `@theia/remote`) each build `sshcrypto.node`, and the bundler fails with `Conflict: Multiple assets emit different content to the same filename native/sshcrypto.node`.
 - **Theia does not read VS Code's `button.secondary*` theme keys**: `.theia-button.secondary` is styled from Theia-native `secondaryButton.background/foreground/hoverBackground`. Themes must define both key families or secondary buttons fall back to Theia's slate-navy default.
 - **Theia CSS variables preserve case**: `--theia-<colorId>` only replaces dots with dashes (`focusBorder` → `--theia-focusBorder`). Kebab-case guesses like `--theia-focus-border` or `--theia-input-placeholder-foreground` resolve to nothing.
 
@@ -201,6 +203,7 @@ High-level layout; see the Child NAD Index below for domain-specific details.
 - `docs/AGENTS.md` — product documentation conventions and the in-IDE docs widget contract.
 - `extensions/AGENTS.md` — shared Theia extension conventions (layout, DI, RPC, build, docs).
   - `extensions/nuke-core/AGENTS.md` — shared services, environment subsystem, and the Nuke Tools sidebar.
+  - `extensions/nuke-ai/AGENTS.md` — AI runtime integration and the capability tool bridge.
   - `extensions/nuke-visualizer/AGENTS.md` — visualization plugin framework and its Python backend.
   - `extensions/openmc-studio/AGENTS.md` — OpenMC workspace extension and its Python backend.
   - `extensions/nuke-cad/AGENTS.md` — parametric CAD / meshing / FEM extension and its Python backend.

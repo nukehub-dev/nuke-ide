@@ -99,6 +99,8 @@ import {
     type Vec3
 } from '../../common/assembly-document';
 import { countAssemblyDof } from '../../common/assembly-placement';
+import { prepareAssemblyEdit, type AssemblyChangeInput } from '../../common/cad-assembly-edit';
+import { prepareDrawingEdit, type DrawingChangeAction } from '../../common/cad-drawing-edit';
 
 /** Listener invoked after any mutation that changes the store state. */
 export type DocumentStoreListener = () => void;
@@ -127,6 +129,20 @@ export interface DocumentSelection {
     readonly selectedCurveId?: string;
 }
 
+/** One atomic sketch-authoring transaction. */
+export interface SketchAuthoringEdit {
+    /** Full replacement definitions for existing sketches. */
+    readonly sketches: readonly SketchDef[];
+    /** Document parameter values changed by the edit. */
+    readonly parameters?: Readonly<Record<string, number>>;
+}
+
+/** One exact feature-parameter replacement for {@link CadDocumentStore.replaceFeatureParamsBatch}. */
+export interface FeatureParamsReplacement {
+    readonly id: string;
+    readonly params: FeatureParams;
+}
+
 /** One body + import feature pair created by {@link CadDocumentStore.addImportBodies}. */
 export interface ImportBodyDraft {
     /** Body name shown in the feature tree. */
@@ -145,6 +161,26 @@ export interface ImportBodiesRequest {
     readonly bodies: readonly ImportBodyDraft[];
     /** Optional shared feature-name prefix; defaults to each draft's body name. */
     readonly featureNamePrefix?: string;
+}
+
+/** One atomic assembly edit applied through {@link CadDocumentStore.applyAssemblyChanges}. */
+export interface AssemblyChangeRequest {
+    /** Add/remove/placement actions; the pure engine validates 1–16 actions. */
+    readonly actions: readonly AssemblyChangeInput[];
+}
+
+/** One atomic drawing-sheet settings edit applied through {@link CadDocumentStore.applyDrawingChanges}. */
+export interface DrawingChangeRequest {
+    /** Sheet-size, view-display, and dimension-visibility actions; the pure planner validates 1–16 actions. */
+    readonly actions: readonly DrawingChangeAction[];
+}
+
+/** Summary returned by {@link CadDocumentStore.applyDrawingChanges} after one drawing commit. */
+export interface DrawingChangeResult {
+    readonly sheetId: string;
+    readonly viewCount: number;
+    readonly dimensionCount: number;
+    readonly drawingVersion: number;
 }
 
 /** One instance appended by {@link CadDocumentStore.addAssemblyInstances}. */
@@ -195,6 +231,13 @@ interface StoreState {
      * never trigger a full geometry rebuild.
      */
     drawingVersion: number;
+    /**
+     * Monotonic edit revision: incremented by every successful commit,
+     * document install, and undo/redo restore. Failed mutations leave it
+     * unchanged. Unlike {@link CadDocumentStore.documentEpoch}, it changes on
+     * edits as well as document identity changes.
+     */
+    revision: number;
 }
 
 let idCounter = 0;
@@ -443,6 +486,10 @@ function formatIssues(issues: ValidationIssue[]): string {
     return issues.map((i) => `${i.path || 'document'}: ${i.message}`).join('; ');
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function fingerprintsEqual(
     a: import('../../common/topology-refs').FaceFingerprint | import('../../common/topology-refs').EdgeFingerprint,
     b: import('../../common/topology-refs').FaceFingerprint | import('../../common/topology-refs').EdgeFingerprint
@@ -532,7 +579,7 @@ export function sampleParametricWithUnits(
     return points;
 }
 
-function buildCurveSamples(
+export function buildCurveSamples(
     source: CurveSource,
     parameters: Record<string, number>,
     units?: DocumentUnits
@@ -981,7 +1028,8 @@ export class CadDocumentStore {
         featureResults: new Map<string, FeatureResult>(),
         projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
         referenceResults: [],
-        drawingVersion: 0
+        drawingVersion: 0,
+        revision: 0
     };
 
     /** Monotonic identity bumped whenever a different document is installed. */
@@ -1040,6 +1088,19 @@ export class CadDocumentStore {
      */
     get documentEpoch(): number {
         return this.documentEpochCounter;
+    }
+
+    /**
+     * Monotonic edit revision.
+     *
+     * Incremented by every successful commit, document install, and
+     * undo/redo restore; failed validations and read-only operations
+     * (`markSaved`, selection changes) leave it unchanged. Consumers can use it
+     * to detect any document change, including edits that `documentEpoch`
+     * intentionally ignores.
+     */
+    get revision(): number {
+        return this.state.revision;
     }
 
     /** Whether the document has unsaved changes. */
@@ -1123,6 +1184,16 @@ export class CadDocumentStore {
     }
 
     /**
+     * Install a supplied document body as the active document, marked dirty.
+     * The body is deep-cloned, renamed, and validated through the same install path as samples.
+     */
+    createTemplateDocument(name: string, document: NukeCadDocument): DocumentMutationResult {
+        const clone = JSON.parse(JSON.stringify(document)) as NukeCadDocument;
+        clone.name = name;
+        return this.installDocument(clone, true);
+    }
+
+    /**
      * Validate and install a fresh document, resetting per-document derived
      * state (history, selection, build outputs, drawing counter) and emitting
      * one change event.
@@ -1143,7 +1214,8 @@ export class CadDocumentStore {
             featureResults: new Map<string, FeatureResult>(),
             projectedPrimitives: new Map<string, Record<string, unknown>[]>(),
             referenceResults: [],
-            drawingVersion: 0
+            drawingVersion: 0,
+            revision: this.state.revision + 1
         };
         this.emitChange();
         return { success: true };
@@ -1244,7 +1316,13 @@ export class CadDocumentStore {
         if (!validation.valid) {
             return { success: false, error: formatIssues(validation.issues), issues: validation.issues };
         }
-        this.state = { ...this.state, document: cloneDocument(entry.document), dirty: true, drawingVersion: entry.drawingVersion };
+        this.state = {
+            ...this.state,
+            document: cloneDocument(entry.document),
+            dirty: true,
+            drawingVersion: entry.drawingVersion,
+            revision: this.state.revision + 1
+        };
         this.emitChange();
         return { success: true };
     }
@@ -1303,6 +1381,91 @@ export class CadDocumentStore {
     }
 
     /**
+     * Apply a cross-sketch sketch-authoring edit atomically.
+     *
+     * Replaces existing sketches and updates document parameters in one
+     * validated commit, so a parameter shared by several sketches produces one
+     * undo entry, one revision bump, and one change event. Parametric curves
+     * referencing a changed parameter are re-sampled against the candidate
+     * parameter table. {@link upsertSketch} cannot express this transaction: it
+     * replaces one sketch at a time and would commit each dependent sketch as a
+     * separate history entry.
+     */
+    applySketchAuthoringEdit(edit: SketchAuthoringEdit): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (!Array.isArray(edit.sketches) || edit.sketches.length === 0) {
+            return { success: false, error: 'Sketch authoring edit requires at least one sketch' };
+        }
+        const original = check.value!;
+
+        for (const sketchDef of edit.sketches) {
+            if (!original.sketches.some((s) => s.id === sketchDef.id)) {
+                return { success: false, error: `Sketch '${sketchDef.id}' not found` };
+            }
+        }
+
+        const explicitParameters = edit.parameters ?? {};
+        for (const [name, value] of Object.entries(explicitParameters)) {
+            if (!Number.isFinite(value)) {
+                return { success: false, error: `Parameter '${name}' must be a finite number` };
+            }
+        }
+
+        const doc = cloneDocument(original);
+        const changedParameterNames = new Set<string>();
+        for (const sketchDef of edit.sketches) {
+            const index = doc.sketches.findIndex((s) => s.id === sketchDef.id);
+            const localParameters: Record<string, number> = sketchDef.parameters ?? {};
+            for (const [name, value] of Object.entries(localParameters)) {
+                doc.parameters[name] = value;
+                changedParameterNames.add(name);
+            }
+            doc.sketches[index] = { ...sketchDef, parameters: undefined };
+        }
+        for (const [name, value] of Object.entries(explicitParameters)) {
+            doc.parameters[name] = value;
+            changedParameterNames.add(name);
+        }
+
+        if (changedParameterNames.size > 0) {
+            const curveIds = new Set<string>();
+            for (const usage of collectParameterUsages(original)) {
+                if (!changedParameterNames.has(usage.name)) {
+                    continue;
+                }
+                for (const referrer of usage.usedBy) {
+                    if (referrer.kind === 'curve') {
+                        curveIds.add(referrer.id);
+                    }
+                }
+            }
+            for (const curveId of curveIds) {
+                const index = doc.curves.findIndex((c) => c.id === curveId);
+                if (index < 0) {
+                    continue;
+                }
+                const curve = doc.curves[index];
+                if (curve.source.kind === 'points') {
+                    continue;
+                }
+                const result = buildCurveSamples(curve.source, doc.parameters, doc.units);
+                if (result.error !== undefined) {
+                    return { success: false, error: `Could not resample curve '${curve.name}': ${result.error}` };
+                }
+                if (result.samples.length < 4) {
+                    return { success: false, error: `Curve '${curve.name}' resampled to fewer than 4 points` };
+                }
+                doc.curves[index] = { ...curve, samples: result.samples };
+            }
+        }
+
+        return this.commit(doc);
+    }
+
+    /**
      * Delete a sketch from the document.
      *
      * Rejects when any feature references the sketch, listing the referencing
@@ -1354,6 +1517,94 @@ export class CadDocumentStore {
         }
         feature.params = { ...feature.params, ...(params as Record<string, unknown>) };
         return this.commit(doc, { selectFeature: id });
+    }
+
+    /**
+     * Apply parameter updates to multiple features atomically.
+     *
+     * Every edit is resolved before any mutation: an empty batch, a duplicate
+     * id, or a missing feature rejects the whole batch with no document change,
+     * no undo entry, and no change event. Supplied parameters are shallow-merged
+     * into each feature's existing parameters exactly like
+     * {@link updateFeatureParams}. The merged document is committed once, so the
+     * batch produces one undo entry and one change event. Selection is left
+     * unchanged (the batch never removes features).
+     */
+    updateFeatureParamsBatch(edits: readonly { id: string; params: FeatureParams }[]): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (edits.length === 0) {
+            return { success: false, error: 'Select at least one feature edit' };
+        }
+        const seen = new Set<string>();
+        for (const edit of edits) {
+            if (seen.has(edit.id)) {
+                return { success: false, error: `Duplicate feature id '${edit.id}' in batch` };
+            }
+            seen.add(edit.id);
+        }
+        const doc = cloneDocument(check.value!);
+        const features = new Map(doc.features.map((f) => [f.id, f] as const));
+        for (const edit of edits) {
+            if (!features.has(edit.id)) {
+                return { success: false, error: `Feature '${edit.id}' not found` };
+            }
+        }
+        for (const edit of edits) {
+            const feature = features.get(edit.id)!;
+            feature.params = { ...feature.params, ...(edit.params as Record<string, unknown>) };
+        }
+        return this.commit(doc);
+    }
+
+    /**
+     * Replace feature parameters exactly in one atomic commit.
+     *
+     * A shallow merge cannot express a blind-to-through hole change: going
+     * through requires the `depth` key to be deleted, and merging can only add
+     * or overwrite keys. This method exists separately from
+     * {@link updateFeatureParamsBatch} so the strict sketch/scalar paths keep
+     * their merge semantics while topology edits can install an exact params
+     * object (including dropping optional keys).
+     *
+     * The batch validates exactly like {@link updateFeatureParamsBatch} —
+     * non-empty array, unique ids, existing features, object params — and
+     * commits once, producing one undo entry, one revision bump, and one
+     * change event. Every supplied params object is copied; the caller's
+     * object is never retained.
+     */
+    replaceFeatureParamsBatch(replacements: readonly FeatureParamsReplacement[]): DocumentMutationResult {
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        if (!Array.isArray(replacements) || replacements.length === 0) {
+            return { success: false, error: 'Select at least one feature replacement' };
+        }
+        const seen = new Set<string>();
+        for (const replacement of replacements) {
+            if (seen.has(replacement.id)) {
+                return { success: false, error: `Duplicate feature id '${replacement.id}' in batch` };
+            }
+            seen.add(replacement.id);
+            if (!isRecord(replacement.params)) {
+                return { success: false, error: `Feature '${replacement.id}' params must be an object` };
+            }
+        }
+        const doc = cloneDocument(check.value!);
+        const features = new Map(doc.features.map((f) => [f.id, f] as const));
+        for (const replacement of replacements) {
+            if (!features.has(replacement.id)) {
+                return { success: false, error: `Feature '${replacement.id}' not found` };
+            }
+        }
+        for (const replacement of replacements) {
+            const feature = features.get(replacement.id)!;
+            feature.params = { ...replacement.params };
+        }
+        return this.commit(doc);
     }
 
     /** Rename an existing feature. */
@@ -2302,6 +2553,46 @@ export class CadDocumentStore {
     }
 
     /**
+     * Apply an atomic drawing-sheet settings edit.
+     *
+     * `prepareDrawingEdit` validates the complete request against the live
+     * document and produces the candidate with only sheet size, view display,
+     * and dimension visibility changed. Committing once keeps the batch as one
+     * undo entry and one drawing refresh; a rejected plan leaves the document,
+     * history, and `drawingVersion` untouched.
+     */
+    applyDrawingChanges(request: DrawingChangeRequest): DocumentMutationResult<DrawingChangeResult> {
+        if (request === null || typeof request !== 'object' || !Array.isArray(request.actions)) {
+            return { success: false, error: 'Drawing change request must carry an actions array' };
+        }
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const prepared = prepareDrawingEdit(check.value!, request.actions);
+        if (!prepared.ok) {
+            return { success: false, error: prepared.message };
+        }
+        const sheet = (prepared.result.afterDocument.drawings ?? []).find((candidate) => candidate.id === prepared.result.sheetId);
+        if (sheet === undefined) {
+            return { success: false, error: `Drawing sheet '${prepared.result.sheetId}' disappeared while applying changes` };
+        }
+        const committed = this.commit(prepared.result.afterDocument, { markDrawing: true });
+        if (!committed.success) {
+            return { success: false, error: committed.error, issues: committed.issues };
+        }
+        return {
+            success: true,
+            value: {
+                sheetId: sheet.id,
+                viewCount: sheet.views.length,
+                dimensionCount: sheet.dimensions.length,
+                drawingVersion: this.state.drawingVersion
+            }
+        };
+    }
+
+    /**
      * Delete one view and every view/dimension that depends on it.
      *
      * Deleting a base view cascades through its projected, section, and
@@ -2702,6 +2993,44 @@ export class CadDocumentStore {
             return { success: false, error: result.error, issues: result.issues };
         }
         return { success: true, value: ids };
+    }
+
+    /**
+     * Apply an atomic add/remove/placement assembly edit.
+     *
+     * The pure `prepareAssemblyEdit` engine validates the complete request and
+     * produces the candidate document; this method commits it once, so the
+     * batch is one undo entry and one change event. A rejected request leaves
+     * the live document and history untouched. Grounding never changes.
+     */
+    applyAssemblyChanges(request: AssemblyChangeRequest): DocumentMutationResult<{
+        readonly instanceIds: readonly string[];
+        readonly removedInstanceIds: readonly string[];
+        readonly groundedInstanceId: string;
+    }> {
+        if (request === null || typeof request !== 'object' || !Array.isArray(request.actions)) {
+            return { success: false, error: 'Assembly change request must carry an actions array' };
+        }
+        const check = this.requireDocument();
+        if (!check.success) {
+            return { success: false, error: check.error, issues: check.issues };
+        }
+        const prepared = prepareAssemblyEdit(check.value!, request.actions);
+        if (!prepared.ok) {
+            return { success: false, error: prepared.message };
+        }
+        const committed = this.commit(prepared.result.afterDocument);
+        if (!committed.success) {
+            return { success: false, error: committed.error, issues: committed.issues };
+        }
+        return {
+            success: true,
+            value: {
+                instanceIds: prepared.result.addedInstanceIds,
+                removedInstanceIds: prepared.result.removedInstanceIds,
+                groundedInstanceId: prepared.result.afterSection.groundedInstanceId
+            }
+        };
     }
 
     /**
@@ -3193,7 +3522,14 @@ export class CadDocumentStore {
             selection = { ...selection, selectedCurveId: options.selectCurve };
         }
         const drawingVersion = this.state.drawingVersion + (options?.markDrawing === true ? 1 : 0);
-        this.state = { ...this.state, document: doc, dirty: true, selection, drawingVersion };
+        this.state = {
+            ...this.state,
+            document: doc,
+            dirty: true,
+            selection,
+            drawingVersion,
+            revision: this.state.revision + 1
+        };
         this.emitChange();
         return { success: true };
     }

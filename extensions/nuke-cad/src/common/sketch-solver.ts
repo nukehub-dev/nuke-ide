@@ -741,7 +741,7 @@ function constraintReferencesId(pg: PgConstraint | PgConstraint[], id: string): 
 
 function resolveWasmPath(path: string): string {
     try {
-        // Keep the import traceless for webpack: create the require dynamically.
+        // Keep the import traceless for the bundler: create the require dynamically.
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require('module') as typeof import('module');
         const req = mod.createRequire(__filename);

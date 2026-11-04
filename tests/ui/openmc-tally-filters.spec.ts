@@ -41,7 +41,7 @@ async function addMesh(page: Page, widget: ReturnType<Page['locator']>) {
     await widget.locator('.tally-configurator-tabs .tab-button', { hasText: 'Meshes' }).click();
     await widget.locator('.mesh-list-panel .add-button').click();
     await expect(widget.locator('.mesh-editor')).toBeVisible();
-    await widget.locator('.tally-configurator-tabs .tab-button', { hasText: 'Tallies' }).click();
+    await widget.getByRole('button', { name: 'Tallies', exact: true }).click();
 }
 
 test('creates a cell-instance filter with a pair and keeps it editable', async ({ page }) => {
@@ -108,6 +108,46 @@ test('creates a reaction filter from the pinned and searchable MT/name picker', 
     await card.getByLabel('Search reactions').fill('(n,unicorn)');
     await card.getByRole('button', { name: '+ Add', exact: true }).click();
     await expect(card.locator('.validation-error')).toContainText('not a known OpenMC reaction');
+
+    expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('particle filter uses the themed selector and custom PDG field', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForShell(page);
+
+    const widget = await openConfigurator(page);
+    const editor = await addTally(page, widget);
+    await editor.getByRole('button', { name: '+ Particle', exact: true }).click();
+
+    const card = editor.locator('.filter-item[data-filter-type="particle"]');
+    await expect(card).toBeVisible();
+    const checks = card.locator('.particle-type-checks');
+    await expect(checks).toBeVisible();
+    expect(await checks.evaluate((element) => getComputedStyle(element).display)).toBe('flex');
+
+    // Checkbox labels are prose, not the uppercase tally form-label treatment.
+    const checkboxLabel = card.locator('label.particle-type-check').first();
+    expect(await checkboxLabel.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
+
+    const custom = card.locator('.particle-type-custom-field');
+    await expect(custom).toBeVisible();
+    expect(await custom.evaluate((element) => getComputedStyle(element).flexDirection)).toBe('column');
+
+    const input = custom.locator('input');
+    const styles = await input.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, border: style.borderColor, radius: style.borderRadius, fontSize: style.fontSize };
+    });
+    const formStyles = await editor
+        .locator('.form-group input[type="text"]')
+        .first()
+        .evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, border: style.borderColor, radius: style.borderRadius, fontSize: style.fontSize };
+        });
+    expect(styles).toEqual(formStyles);
 
     expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
 });

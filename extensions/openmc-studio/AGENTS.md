@@ -54,6 +54,26 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   into it; unsupported constructs are reported, never silently dropped. DAGMC `<dagmc_universe>` preserves the filename only;
   mesh metadata is loaded by the DAGMC Editor. `docs/user/coverage.md` is the user-facing support matrix; update it with each
   feature and keep `docs/user/index.md`/`simulation-dashboard.md` free of full-coverage claims. See `docs/dev/xml-generation.md`.
+- NukeAI capabilities live in `src/browser/capabilities/`: project/run/settings in `openmc-capabilities.ts`, material edits in
+  `openmc-material-capabilities.ts`, tally edits in `openmc-tally-capabilities.ts`, project creation in
+  `openmc-project-capabilities.ts`, Python export in `openmc-script-capabilities.ts`, DAGMC volume-material edits in
+  `openmc-dagmc-capabilities.ts`, CSG authoring in `openmc-geometry-capabilities.ts` (pure reducer in
+  `src/common/geometry-edit.ts`), and read inventories in `openmc-catalog-capabilities.ts`; they orchestrate existing
+  state, XML, environment, and runner services instead of reimplementing XML or run logic. The material, tally, and
+  geometry summaries are the read side of the edit flows: they expose the ids, DAGMC volume assignments, and CSG issues
+  and never call the backend. See `docs/dev/ai-capabilities.md`.
+- `OpenMCChangeProposalService` (`src/browser/capabilities/openmc-change-proposal-service.ts`) stores scoped in-memory proposals
+  (`settings`, `materials`, `tallies`, `project`, `geometry`, `dagmc`); apply capabilities reject a proposal from another scope.
+  (max 20, 10-minute TTL, cloned snapshots); `previewSettings`/`applySettings` use the `settings` scope, and apply registers a
+  session undo that restores only the changed paths. See `docs/dev/ai-capabilities.md`.
+- `nuke.openmc.previewMaterialChange`/`applyMaterialChange` add, update, or remove materials through a `materials` proposal;
+  ids/macroscopic/CAD provenance are read-only, adds need unique names, and undo restores only changed materials.
+- `nuke.openmc.previewTallyChange`/`applyTallyChange` add, update, or remove tallies through a `tallies` proposal; scores must be
+  catalog names or numeric MT values, and filters/triggers/derivatives are preserved and not editable.
+- `nuke.openmc.diagnoseProject` / `diagnoseRun` are read-only: project diagnosis aggregates validation, environment, cross-section,
+  and DAGMC findings; run diagnosis triages an active run's log tail. Findings cap at 20 with `findings-truncated`.
+- The Simulation dashboard validation/run toolbar renders `openmc.validation` / `openmc.run` actions from nuke-core's neutral
+  context-action registry; missing commands are omitted. See `nuke-core/docs/dev/context-actions.md`.
 
 ## Work Guidance
 
@@ -78,8 +98,10 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   bins, and weight windows; XML/Python emit canonical names, import accepts names/GNDS/`pdg:<n>`, and particles beyond the 0.15.3 set
   are gated by `OpenMCCompat.generalizedParticles`. See `docs/dev/state-model.md`.
 - Shared widget CSS: `widgets/shared/openmc-widget.css` is the opt-in design system (root gets `openmc-widget` class, accent
-  `--theia-focusBorder`, Theia vars only). Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the
-  Advanced section (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.
+  `--theia-focusBorder`, Theia vars only). The particle selector styles, including the custom-PDG field, additionally cover
+  `.tally-configurator-container` because that widget does not opt into `.openmc-widget`; keep that scope when reusing
+  them. Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the Advanced section
+  (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.
 - Domain chrome uses `codicon-openmc-*` masks from `src/browser/icons/openmc-icon-classes.css`; generic codicons stay for
   utility actions. Project identity uses the theme-aware `openmc-brand-openmc` mask; DAGMC keeps the mesh icon because
   upstream has no theme-safe standalone mark. Hover labels use the shared nuke-essentials `Tooltip`, never native

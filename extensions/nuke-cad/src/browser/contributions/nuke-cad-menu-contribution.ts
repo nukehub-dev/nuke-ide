@@ -96,6 +96,11 @@ export class NukeCadMenuContribution implements MenuContribution {
             order: 'b'
         });
         menus.registerMenuAction(NukeCadMenus.CAD_PANELS, {
+            commandId: NukeCadCommands.OPEN_REVIEW_PANEL.id,
+            label: 'CAD Edit Review',
+            order: 'b1'
+        });
+        menus.registerMenuAction(NukeCadMenus.CAD_PANELS, {
             commandId: NukeCadCommands.OPEN_BOM_PANEL.id,
             label: 'BOM',
             order: 'c'

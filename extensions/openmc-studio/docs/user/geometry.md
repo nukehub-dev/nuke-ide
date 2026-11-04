@@ -2,6 +2,8 @@
 
 OpenMC Studio supports two geometry workflows: **CSG Builder** for constructive solid geometry defined by surfaces and regions, and **DAGMC Editor** for CAD-based `.h5m` geometries. Both integrate with the 3D preview provided by nuke-visualizer.
 
+NukeAI can add, update, and remove CSG surfaces, cells, universes, and lattices with the same validation as the builder: preview the geometry diff, apply after confirmation, and undo in-session. See [Safe Edits](../../../nuke-ai/docs/user/safe-edits.md).
+
 XML import reconstructs CSG surfaces, cells, universes, rectangular/hexagonal lattices, cell transforms, periodic pairs, and albedo. DAGMC import keeps the `<dagmc_universe>` filename and asks you to open the mesh in the DAGMC Editor for volume metadata. Import results appear in the dashboard's XML import report.
 
 ---

@@ -24,7 +24,12 @@ export class DocsContribution extends AbstractViewContribution<DocsWidget> {
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(NukeDocsCommands.OPEN_DOCS, {
-            execute: () => this.openView({ activate: true })
+            execute: async (path?: unknown) => {
+                const widget = await this.openView({ activate: true });
+                if (widget && typeof path === 'string') {
+                    await widget.openPath(path);
+                }
+            }
         });
     }
 
@@ -32,7 +37,7 @@ export class DocsContribution extends AbstractViewContribution<DocsWidget> {
         menus.registerMenuAction(CommonMenus.HELP, {
             commandId: NukeDocsCommands.OPEN_DOCS.id,
             label: NukeDocsCommands.OPEN_DOCS.label,
-            order: 'a05'
+            order: 'a11'
         });
     }
 }

@@ -87,6 +87,15 @@ test('probe dialog picks a point value and runs an X-axis line profile with CSV 
     const dialog = container.locator('.probe-dialog');
     await expect(dialog).toBeVisible({ timeout: 30_000 });
 
+    // On a short viewport the dialog must not run under the bottom nav bar.
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await page.waitForTimeout(300);
+    const [dialogBox, navBox] = await Promise.all([dialog.boundingBox(), container.locator('.nuke-viewer-nav-bar').boundingBox()]);
+    expect(dialogBox).not.toBeNull();
+    expect(navBox).not.toBeNull();
+    expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(navBox!.y + 1);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // --- Point tab: arm picking, click the canvas center, read the sample. ---
     await dialog.locator('.probe-pick-toggle').click();
     const box = await canvas.boundingBox();

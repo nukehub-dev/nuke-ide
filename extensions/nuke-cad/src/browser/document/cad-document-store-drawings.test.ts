@@ -26,7 +26,7 @@
 // *****************************************************************************
 
 import { describe, it, expect } from 'vitest';
-import { CadDocumentStore } from './cad-document-store';
+import { CadDocumentStore, type DrawingChangeRequest } from './cad-document-store';
 import { NUKE_CAD_SCHEMA_VERSION, type NukeCadDocument } from '../../common/cad-document';
 import { type TopologyRef } from '../../common/topology-refs';
 
@@ -56,6 +56,14 @@ function storeWithDoc(): CadDocumentStore {
     const loaded = store.loadDocument(minimalDoc());
     expect(loaded.success).toBe(true);
     return store;
+}
+
+function storeWithDrawing(): { store: CadDocumentStore; sheetId: string; viewId: string; dimensionId: string } {
+    const store = storeWithDoc();
+    const sheetId = store.addSheet('A4').value!;
+    const viewId = store.addView(sheetId, { kind: 'base', orientation: 'front', scale: 1, position: [100, 100] }).value!;
+    const dimensionId = store.addDimension(sheetId, { kind: 'radius', targets: [edgeRef()], viewId }).value!;
+    return { store, sheetId, viewId, dimensionId };
 }
 
 describe('drawing-sheet store mutations', () => {
@@ -202,5 +210,95 @@ describe('drawing-sheet store mutations', () => {
         const result = store.loadDocument(doc);
         expect(result.success).toBe(false);
         expect(store.document).toBeUndefined();
+    });
+});
+
+describe('atomic drawing setting changes', () => {
+    it('commits sheet size, view display, and dimension visibility as one undo entry', () => {
+        const { store, sheetId, viewId, dimensionId } = storeWithDrawing();
+        const version = store.drawingVersion;
+        const revision = store.revision;
+
+        const result = store.applyDrawingChanges({
+            actions: [
+                { action: 'setSheetSize', sheetId, size: 'A3' },
+                { action: 'setViewDisplay', sheetId, viewId, scale: 0.5, showHidden: true },
+                { action: 'setDimensionVisibility', sheetId, dimensionId, visible: false }
+            ]
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.value).toEqual({ sheetId, viewCount: 1, dimensionCount: 1, drawingVersion: version + 1 });
+        expect(store.drawingVersion).toBe(version + 1);
+        expect(store.revision).toBe(revision + 1);
+        const sheet = store.document!.drawings![0];
+        expect(sheet.size).toBe('A3');
+        expect(sheet.views[0].scale).toBe(0.5);
+        expect(sheet.views[0].showHidden).toBe(true);
+        expect(sheet.dimensions[0].hidden).toBe(true);
+
+        expect(store.undo().success).toBe(true);
+        const restored = store.document!.drawings![0];
+        expect(store.drawingVersion).toBe(version);
+        expect(restored.size).toBe('A4');
+        expect(restored.views[0].scale).toBe(1);
+        expect(restored.views[0].showHidden).toBeUndefined();
+        expect(restored.dimensions[0].hidden).toBeUndefined();
+
+        expect(store.redo().success).toBe(true);
+        const redone = store.document!.drawings![0];
+        expect(store.drawingVersion).toBe(version + 1);
+        expect(redone.size).toBe('A3');
+        expect(redone.dimensions[0].hidden).toBe(true);
+    });
+
+    it('hides a dimension reversibly without deleting it', () => {
+        const { store, sheetId, dimensionId } = storeWithDrawing();
+        const version = store.drawingVersion;
+        expect(
+            store.applyDrawingChanges({
+                actions: [{ action: 'setDimensionVisibility', sheetId, dimensionId, visible: false }]
+            }).success
+        ).toBe(true);
+        expect(store.document!.drawings![0].dimensions).toHaveLength(1);
+        expect(store.document!.drawings![0].dimensions[0].hidden).toBe(true);
+
+        expect(store.undo().success).toBe(true);
+        expect(store.drawingVersion).toBe(version);
+        expect(store.document!.drawings![0].dimensions).toHaveLength(1);
+        expect(store.document!.drawings![0].dimensions[0].hidden).toBeUndefined();
+
+        expect(store.redo().success).toBe(true);
+        expect(store.document!.drawings![0].dimensions).toHaveLength(1);
+        expect(store.document!.drawings![0].dimensions[0].hidden).toBe(true);
+    });
+
+    it('leaves the document, history, and drawingVersion untouched when the plan fails', () => {
+        const { store, sheetId, dimensionId } = storeWithDrawing();
+        const beforeDocument = store.document;
+        const version = store.drawingVersion;
+        const revision = store.revision;
+        const canUndo = store.canUndo;
+
+        const result = store.applyDrawingChanges({
+            actions: [{ action: 'setDimensionVisibility', sheetId, dimensionId: `${dimensionId}-missing`, visible: false }]
+        });
+
+        expect(result.success).toBe(false);
+        expect(store.document).toBe(beforeDocument);
+        expect(store.drawingVersion).toBe(version);
+        expect(store.revision).toBe(revision);
+        expect(store.canUndo).toBe(canUndo);
+    });
+
+    it('rejects malformed requests before touching the document', () => {
+        const { store } = storeWithDrawing();
+        const beforeDocument = store.document;
+        const version = store.drawingVersion;
+        const malformed = { actions: 'not-an-array' } as unknown as DrawingChangeRequest;
+        expect(store.applyDrawingChanges(malformed).success).toBe(false);
+        expect(store.document).toBe(beforeDocument);
+        expect(store.drawingVersion).toBe(version);
+        expect(store.applyDrawingChanges({ actions: [] }).success).toBe(false);
     });
 });
