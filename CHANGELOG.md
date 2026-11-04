@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - nuke-ai: the chat prompt, chat tool list, Diagnostics tool list, skill allowlists, and MCP read-only allowlist are generated from one capability catalog, so enabled capabilities cannot silently disappear.
 - nuke-cad: component-template count parameters rebuild the requested pattern or hole array at creation time instead of staying at the shipped count.
+- nuke-cad: NukeAI actions move beside the floating CAD search launcher and open upward, keeping the ribbon uncluttered and the menu clear of dialogs.
 
 ### Removed
 

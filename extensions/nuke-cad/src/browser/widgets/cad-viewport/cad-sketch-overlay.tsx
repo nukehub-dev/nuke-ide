@@ -1755,16 +1755,19 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                             />
                         ))}
                     </NukeRibbon>
-                    <NukeActionMenu
-                        className="cad-document-toolbar-nuke-ai-actions"
-                        actions={toNukeActionDescriptors(props.getNukeAiActions())}
-                        onExecute={(action) => props.onExecuteContextAction(action.id)}
-                        label="NukeAI actions"
-                        iconClass="codicon-hubot"
-                    />
                 </div>
             </div>
-            <CadCommandSearchLauncher actions={searchActions} blocked={props.searchShortcutBlocked} />
+            <CadCommandSearchLauncher actions={searchActions} blocked={props.searchShortcutBlocked}>
+                <NukeActionMenu
+                    className="cad-command-search-nuke-ai-actions"
+                    actions={toNukeActionDescriptors(props.getNukeAiActions())}
+                    onExecute={(action) => props.onExecuteContextAction(action.id)}
+                    label="NukeAI actions"
+                    iconClass="codicon-hubot"
+                    placement="top"
+                    align="start"
+                />
+            </CadCommandSearchLauncher>
         </>
     );
 }

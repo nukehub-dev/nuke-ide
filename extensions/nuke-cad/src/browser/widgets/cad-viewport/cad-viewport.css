@@ -1844,8 +1844,32 @@
     container-type: inline-size;
 }
 
-.cad-document-toolbar-nuke-ai-actions {
+.cad-command-search-nuke-ai-actions {
     flex: 0 0 auto;
+}
+
+/* The NukeAI trigger mirrors the Search pill beside it instead of using the
+   heavier global secondary-button treatment. */
+.cad-viewport .cad-command-search-launcher .nuke-action-menu-trigger {
+    height: 28px;
+    padding: 0 9px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    font-weight: 500;
+    box-shadow: var(--nuke-shadow-sm);
+}
+
+.cad-viewport .cad-command-search-launcher .nuke-action-menu-trigger:hover,
+.cad-viewport .cad-command-search-launcher .nuke-action-menu-trigger[aria-expanded='true'] {
+    border-color: var(--theia-focusBorder);
+    color: var(--theia-foreground);
+}
+
+.cad-viewport .cad-command-search-launcher .nuke-action-menu-icon {
+    font-size: 14px;
 }
 
 /*
@@ -1871,6 +1895,7 @@
     z-index: 15;
     display: flex;
     align-items: center;
+    gap: 6px;
 }
 
 .cad-command-search-trigger {

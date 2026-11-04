@@ -37,17 +37,17 @@ that context is missing, NukeAI shows a warning naming the prerequisite and does
 
 NukeAI actions also appear beside the work, in the menu or toolbar owned by the active domain:
 
-| Surface                                   | NukeAI actions                                                                                                                                                   |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CAD viewport toolbar and right-click menu | **Ask About Context**, **Diagnose CAD Model**, **Explain Selection**, **Check Active CAD Model**                                                                 |
-| OpenMC Studio Simulation tab toolbar      | **Diagnose Project**, **Validate and Explain**, **Diagnose CSG Geometry**, and **Diagnose DAGMC Model** (validation); **Diagnose Run** and **Explain Run** (run) |
-| DAGMC editor header                       | **Capture View**, **Diagnose Statepoint** (after a statepoint loads), **Ask About Context**                                                                      |
-| DAGMC viewer right-click menu             | **Capture View**, **Diagnose Statepoint**, **Ask About Context**                                                                                                 |
-| Statepoint viewer header and loader       | **Ask About Context**, **Explain Statepoint**, **Diagnose Statepoint**                                                                                           |
-| Tally viewer right-click menu             | **Ask About Context**, **Explain Statepoint**, **Diagnose Statepoint** (only with a loaded tally)                                                                |
+| Surface                                           | NukeAI actions                                                                                                                                                   |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CAD viewport search launcher and right-click menu | **Ask About Context**, **Diagnose CAD Model**, **Explain Selection**, **Check Active CAD Model**                                                                 |
+| OpenMC Studio Simulation tab toolbar              | **Diagnose Project**, **Validate and Explain**, **Diagnose CSG Geometry**, and **Diagnose DAGMC Model** (validation); **Diagnose Run** and **Explain Run** (run) |
+| DAGMC editor header                               | **Capture View**, **Diagnose Statepoint** (after a statepoint loads), **Ask About Context**                                                                      |
+| DAGMC viewer right-click menu                     | **Capture View**, **Diagnose Statepoint**, **Ask About Context**                                                                                                 |
+| Statepoint viewer header and loader               | **Ask About Context**, **Explain Statepoint**, **Diagnose Statepoint**                                                                                           |
+| Tally viewer right-click menu                     | **Ask About Context**, **Explain Statepoint**, **Diagnose Statepoint** (only with a loaded tally)                                                                |
 
-The statepoint header, CAD document toolbar, and DAGMC editor header open a compact **NukeAI actions**
-menu with the NukeAI bot icon. The trigger keeps its label on wide panels and collapses to the bot icon on
+The statepoint header, the CAD viewport's floating Search launcher, and the DAGMC editor header open a
+compact **NukeAI actions** menu with the NukeAI bot icon. The trigger keeps its label on wide panels and collapses to the bot icon on
 narrow ones; the accessible name and tooltip stay available either way. `Esc` closes the menu and returns
 focus to the trigger, and the rows stay in registry order. The context menus keep their existing rows, and
 the OpenMC Simulation tab keeps its inline validation and run groups with the same bot icon and sentence-case

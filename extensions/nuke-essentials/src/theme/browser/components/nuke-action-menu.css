@@ -68,6 +68,11 @@
     left: 0;
 }
 
+.nuke-action-menu-popup-top {
+    top: auto;
+    bottom: calc(100% + 4px);
+}
+
 .nuke-action-menu-item {
     display: flex;
     flex-direction: column;

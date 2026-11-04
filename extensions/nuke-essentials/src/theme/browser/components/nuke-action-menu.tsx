@@ -50,6 +50,8 @@ export interface NukeActionMenuProps {
     readonly iconClass?: string;
     /** Extra class on the root (spacing for the host toolbar). */
     readonly className?: string;
+    /** Menu opens below or above the trigger; defaults to `bottom`. */
+    readonly placement?: 'top' | 'bottom';
     /** Menu alignment relative to the trigger; defaults to `end`. */
     readonly align?: 'start' | 'end';
 }
@@ -72,6 +74,7 @@ export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({
     label = 'Actions',
     iconClass = 'codicon-ellipsis',
     className,
+    placement = 'bottom',
     align = 'end'
 }) => {
     const [state, setState] = React.useState<NukeActionMenuState>(CLOSED_NUKE_ACTION_MENU);
@@ -193,7 +196,12 @@ export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({
                 </button>
             </Tooltip>
             {state.open && (
-                <div id={menuId} className={`nuke-action-menu-popup nuke-action-menu-popup-${align}`} role="menu" aria-label={label}>
+                <div
+                    id={menuId}
+                    className={`nuke-action-menu-popup nuke-action-menu-popup-${align} nuke-action-menu-popup-${placement}`}
+                    role="menu"
+                    aria-label={label}
+                >
                     {actions.map((action, index) => (
                         <button
                             key={action.id}
