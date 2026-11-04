@@ -173,7 +173,7 @@ For large models, use **"View in 3D"** from a volume modal to load only the sele
 
 ## NukeAI Actions
 
-The editor header also carries a **NukeAI actions** menu (the ellipsis button):
+The editor header also carries a **NukeAI actions** menu (the bot-icon button):
 
 - **Capture View** — capture the active DAGMC viewport and describe the preview.
 - **Diagnose Statepoint** — appears after a statepoint is loaded in the Visualizer; triages its metadata.

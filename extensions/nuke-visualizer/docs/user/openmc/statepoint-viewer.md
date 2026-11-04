@@ -41,7 +41,7 @@ The Statepoint Viewer is organized into tabs: **Overview** (run configuration), 
 
 ### NukeAI Actions
 
-The statepoint header carries a compact **NukeAI actions** menu (the ellipsis
+The statepoint header carries a compact **NukeAI actions** menu (the bot-icon
 button), and the empty loader offers the same menu beside **Browse Statepoint
 File**. It lists **Ask About Context**, **Explain Statepoint**, and **Diagnose
 Statepoint** in that order. Choose a row to run the same read-only command as

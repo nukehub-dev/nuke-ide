@@ -172,7 +172,7 @@ Pins persist in `nukeCad.ribbonPins`; a section renders at most eight inline
 buttons, defaults included.
 
 The document toolbar also carries a compact **NukeAI actions** menu at its right
-edge (the ellipsis button). It lists **Ask About Context**, **Diagnose CAD
+edge (the bot-icon button). It lists **Ask About Context**, **Diagnose CAD
 Model**, **Explain Selection**, and **Check Active CAD Model**; the same rows
 remain in the canvas right-click menu and the NukeAI sidebar. On narrow panels
 the trigger collapses to its icon while keeping its accessible name and tooltip.
