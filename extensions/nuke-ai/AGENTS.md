@@ -31,7 +31,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   opening and closing slides to NukeAI guide/NukeHub links. Help lists it as **NukeAI Walkthrough...**.
 - `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`), bound as both `Agent` and `ChatAgent`.
   Its prompt and `functions` list generate from `src/common/nuke-capability-catalog.ts`; add a capability there,
-  never in a per-consumer list. See `docs/dev/adding-a-capability.md`.
+  never in a per-consumer list. See `docs/dev/adding-a-capability.md` and
+  `docs/dev/domain-extension-integration.md`.
 - NukeAI's safe-edit section requires preview, a shown diff or plan, confirmation, and undo reporting for OpenMC
   settings/materials/tallies/CSG/DAGMC and CAD feature/sketch/topology/import/assembly/drawing edits; script apply is
   panel-only. See `docs/user/safe-edits.md`.
@@ -141,7 +142,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - Add AI-facing actions as `NukeCapability` contributions in the owning domain extension, not as private tools here.
 - Keep schema, result, and bridge helpers pure and testable with fake registries; tests must not boot Theia or call an LLM.
 - A capability that fails conversion or registration is logged and skipped; never let it abort the rest of a refresh.
-- Update `docs/dev/architecture.md` and `docs/dev/adding-a-capability.md` when the bridge contract changes.
+- Update `docs/dev/architecture.md`, `docs/dev/adding-a-capability.md`, and `docs/dev/domain-extension-integration.md`
+  when the bridge or new-extension contract changes.
 
 ## Verification
 

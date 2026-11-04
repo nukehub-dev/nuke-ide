@@ -2,6 +2,8 @@
 
 Any extension can make an action available to the AI chat by registering a `NukeCapability` with the registry owned by `nuke-core`. No dependency on `nuke-ai` and no tool-specific registration are required.
 
+For a complete new-extension walkthrough — dependency direction, context, catalog entries, UI actions, testing, and anti-patterns — see [Integrating a New Domain Extension](domain-extension-integration.md).
+
 ## Minimal contribution
 
 ```typescript

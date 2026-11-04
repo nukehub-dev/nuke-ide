@@ -60,7 +60,7 @@ Studio the same way you would a script build.
      The **mechanical** starters add an L bracket, flange, stepped shaft, pipe
      with bore, and bolt-circle plate. The **nuclear** starters add a three-body
      hexagonal fuel cell, a Zircaloy control-rod guide tube, and a Zircaloy
-     assembly grid plate with a representative 3×3 cell array. Pattern counts
+     assembly grid plate with a default 3×3 cell array. Pattern counts
      (`holeCount`, `boltCount`, `cellCount`) are creation-time parameters: the
      New Document picker ships the default count, and an AI creation request
      with a different count rebuilds the pattern or hole array before the

@@ -171,3 +171,7 @@ bind(NukeCapabilityContextContribution).toService(MyContextContribution);
 ```
 
 The context fields are `workspaceRoots`, `activeCadDocument`, `activeOpenmcProject`, `activeDataset`, `hasDagmcViewer`, and `signal`. `NukeCapabilityContextService.getContext()` awaits async contributions, merges their partials in contribution order, always adds the absolute workspace roots from `WorkspaceService`, and returns a frozen snapshot. A failing contribution is logged and skipped. `onDidChangeContext` fires when any contribution event or the workspace roots change, debounced by one microtask.
+
+## Related
+
+- [Integrating a New Domain Extension](../../../nuke-ai/docs/dev/domain-extension-integration.md) — the end-to-end AI exposure checklist for a new solver or domain extension.
