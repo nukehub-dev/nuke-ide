@@ -44,6 +44,7 @@ test('statepoint viewer exposes the statepoint action menu and closes it with Es
 
     const trigger = viewer.getByRole('button', { name: 'NukeAI actions' });
     await expect(trigger).toBeVisible();
+    await expect(trigger.locator('.codicon-hubot')).toHaveCount(1);
     await trigger.click();
     const menu = viewer.locator('.nuke-action-menu-popup');
     await expect(menu).toBeVisible();
@@ -78,6 +79,7 @@ test('DAGMC editor action menu keeps actions enabled and the command preflight w
 
     const trigger = editor.getByRole('button', { name: 'NukeAI actions' });
     await expect(trigger).toBeVisible();
+    await expect(trigger.locator('.codicon-hubot')).toHaveCount(1);
     await trigger.click();
     const menu = editor.locator('.nuke-action-menu-popup');
     await expect(menu).toBeVisible();
@@ -111,6 +113,8 @@ test('simulation dashboard keeps the validation and run action groups visible', 
 
     const actions = dashboard.locator('.nuke-ai-actions');
     await expect(actions).toBeVisible();
+    await expect(actions.locator('.nuke-ai-action-group-label .codicon-hubot').first()).toBeVisible();
+    await expect(actions.locator('.nuke-ai-action-group-label').first()).toHaveCSS('text-transform', 'none');
     for (const label of ['Diagnose Project', 'Validate and Explain', 'Diagnose CSG Geometry', 'Diagnose DAGMC Model']) {
         await expect(actions.getByRole('button', { name: label })).toBeVisible();
     }

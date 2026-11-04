@@ -598,7 +598,7 @@ export class SimulationTabContribution implements DashboardTabContribution {
                 {groups.map((group) => (
                     <div className="nuke-ai-action-group" key={group.id}>
                         <span className="nuke-ai-action-group-label">
-                            <i className="codicon codicon-beaker" aria-hidden="true"></i>
+                            <i className="codicon codicon-hubot" aria-hidden="true"></i>
                             {group.label}
                         </span>
                         {group.actions.map((action) => (

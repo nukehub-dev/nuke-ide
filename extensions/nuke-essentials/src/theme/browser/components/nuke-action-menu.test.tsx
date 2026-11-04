@@ -116,4 +116,17 @@ describe('NukeActionMenu', () => {
         expect(html).toContain('nuke-action-menu-label');
         expect(html).not.toContain('title=');
     });
+
+    it('uses the host icon class on the trigger', () => {
+        const html = renderToStaticMarkup(
+            <NukeActionMenu
+                actions={toNukeActionDescriptors(SOURCE_ACTIONS)}
+                onExecute={() => undefined}
+                label="NukeAI actions"
+                iconClass="codicon-hubot"
+            />
+        );
+        expect(html).toContain('codicon-hubot');
+        expect(html).not.toContain('codicon-ellipsis');
+    });
 });

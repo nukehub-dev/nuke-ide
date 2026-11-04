@@ -178,7 +178,25 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
+    color: var(--theia-foreground);
+    font-size: var(--theia-ui-font-size1);
+    font-weight: normal;
+    letter-spacing: normal;
+    line-height: 1.4;
+    text-transform: none;
     cursor: pointer;
+}
+
+/* A checkbox label is prose, not a form caption. The generic .form-group
+   label rule is more specific, so restate the sentence-case treatment here. */
+:is(.simulation-dashboard, .openmc-widget) .form-group label.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--theia-foreground);
+    font-weight: normal;
+    letter-spacing: normal;
+    text-transform: none;
 }
 
 :is(.simulation-dashboard, .openmc-widget) .checkbox-label input[type='checkbox'],

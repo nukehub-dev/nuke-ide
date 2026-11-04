@@ -517,6 +517,7 @@ export class DAGMCEditorWidget extends ReactWidget {
                         actions={this.nukeAiActions()}
                         onExecute={(action) => this.executeNukeAiAction(action)}
                         label="NukeAI actions"
+                        iconClass="codicon-hubot"
                     />
                     {this.modelData && (
                         <>

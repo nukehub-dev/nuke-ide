@@ -1760,6 +1760,7 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                         actions={toNukeActionDescriptors(props.getNukeAiActions())}
                         onExecute={(action) => props.onExecuteContextAction(action.id)}
                         label="NukeAI actions"
+                        iconClass="codicon-hubot"
                     />
                 </div>
             </div>

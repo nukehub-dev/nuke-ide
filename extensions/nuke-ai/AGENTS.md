@@ -26,6 +26,9 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   actions only execute existing commands. The welcome and tool cards are container-query responsive: the quick-action
   grid, guide button, chat composer options, and two-column tool-card grids collapse or wrap in a narrow docked panel.
   The guide link targets `nuke.docs.open` with `/nuke-ai/user/getting-started.md`.
+- `src/browser/nuke-ai-secondary-window-module.ts` imports the NukeAI welcome, bot, tool-card, and
+  preview-gallery CSS into the secondary-window bundle. A detached chat window loads its own CSS, so
+  moved widgets lose styling without this module.
 - `src/browser/welcome/nuke-ai-walkthrough-provider.ts` rebinds `WalkthroughProvider` over Theia's AI walkthrough. It keeps
   the walkthrough and step ids (so saved progress and `ai.openGettingStartedWalkthrough` survive) and rewrites the
   opening and closing slides to NukeAI guide/NukeHub links. Help lists it as **NukeAI Walkthrough...**.

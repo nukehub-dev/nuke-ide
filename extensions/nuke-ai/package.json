@@ -74,7 +74,8 @@
       "backend": "lib/node/nuke-ai-backend-module"
     },
     {
-      "frontend": "lib/browser/welcome/nuke-ai-chat-frontend-module"
+      "frontend": "lib/browser/welcome/nuke-ai-chat-frontend-module",
+      "secondaryWindow": "lib/browser/nuke-ai-secondary-window-module"
     }
   ]
 }

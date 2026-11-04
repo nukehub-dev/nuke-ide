@@ -46,6 +46,8 @@ export interface NukeActionMenuProps {
     readonly onExecute: (action: NukeActionDescriptor) => void;
     /** Trigger text; also the accessible name and tooltip. Defaults to `Actions`. */
     readonly label?: string;
+    /** Codicon class on the trigger; defaults to the ellipsis glyph. */
+    readonly iconClass?: string;
     /** Extra class on the root (spacing for the host toolbar). */
     readonly className?: string;
     /** Menu alignment relative to the trigger; defaults to `end`. */
@@ -64,7 +66,14 @@ export interface NukeActionMenuProps {
  * name and shared Tooltip. With no actions it renders nothing, so exclusion
  * builds never show an empty control.
  */
-export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({ actions, onExecute, label = 'Actions', className, align = 'end' }) => {
+export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({
+    actions,
+    onExecute,
+    label = 'Actions',
+    iconClass = 'codicon-ellipsis',
+    className,
+    align = 'end'
+}) => {
     const [state, setState] = React.useState<NukeActionMenuState>(CLOSED_NUKE_ACTION_MENU);
     const rootRef = React.useRef<HTMLDivElement>(null);
     const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -179,7 +188,7 @@ export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({ actions, onExecu
                     onClick={toggle}
                     onKeyDown={onTriggerKeyDown}
                 >
-                    <span className="codicon codicon-ellipsis nuke-action-menu-icon" aria-hidden="true" />
+                    <span className={`codicon ${iconClass} nuke-action-menu-icon`} aria-hidden="true" />
                     <span className="nuke-action-menu-label">{label}</span>
                 </button>
             </Tooltip>

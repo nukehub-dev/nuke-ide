@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - nuke-essentials: shared dialogs, color picker, viewer bar, ViewCube, and view badges expose screen-reader names and keyboard-focus tooltips.
+- nuke-ai: NukeAI action menus and dashboard groups use the bot icon and sentence-case labels, and detached chat windows keep the welcome and tool-card styling.
 - openmc-studio: tally and dashboard checkboxes follow the active theme, checkbox labels stay sentence case, and icon-only actions expose screen-reader names.
 - nuke-visualizer: probe and find-data cards share one slot without covering each other or the bottom bar, the viewer bar wraps on narrow panels, and icon-only controls expose screen-reader names.
 

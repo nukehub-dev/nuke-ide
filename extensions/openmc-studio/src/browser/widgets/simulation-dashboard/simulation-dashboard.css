@@ -1195,10 +1195,10 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    color: var(--theia-descriptionForeground);
+    color: var(--theia-foreground);
     font-size: var(--theia-ui-font-size0);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 .simulation-dashboard .nuke-ai-action-group-label .codicon {

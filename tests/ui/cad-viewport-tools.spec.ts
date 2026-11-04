@@ -621,6 +621,7 @@ test('document toolbar exposes the NukeAI action menu with keyboard dismissal', 
 
     const trigger = toolbar.getByRole('button', { name: 'NukeAI actions' });
     await expect(trigger).toBeVisible();
+    await expect(trigger.locator('.codicon-hubot')).toHaveCount(1);
     await trigger.click();
     const menu = toolbar.locator('.nuke-action-menu-popup');
     await expect(menu).toBeVisible();
