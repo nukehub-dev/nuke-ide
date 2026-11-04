@@ -33,6 +33,7 @@ import { Message } from '@theia/core/lib/browser';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { NukeCheckbox, NukeEmptyState, NukeSearchInput, NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { DomainGeometryIcon } from '../widgets/domain-icons';
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
 import { TallyNativeViewerWidget } from '../plugins/openmc/widgets/tally-native/tally-native-viewer-widget';
 import {
@@ -281,7 +282,7 @@ export class CsgOutlineWidget extends ReactWidget {
                 <div className="csg-outline-panel">
                     <NukeEmptyState
                         variant="illustration"
-                        icon="symbol-struct"
+                        iconNode={<DomainGeometryIcon />}
                         title="No geometry viewer open."
                         message="Cell and material visibility appear here."
                         hint="Open a geometry.xml file to browse its cells here."
@@ -305,7 +306,7 @@ export class CsgOutlineWidget extends ReactWidget {
                 {!snapshot.hasDataset ? (
                     <NukeEmptyState
                         variant="illustration"
-                        icon="symbol-struct"
+                        iconNode={<DomainGeometryIcon />}
                         title="No dataset loaded yet."
                         message="Cells appear here once the viewer finishes loading its file."
                     />
