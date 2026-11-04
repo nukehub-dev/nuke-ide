@@ -16,10 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: parametric components add box, cylinder, tube, sphere, cone, and plate-with-hole templates with editable dimensions and radius/diameter aliases.
 - nuke-cad: mechanical component templates add L bracket, flange, stepped shaft, pipe with bore, and bolt-circle plate starters.
 - nuke-cad: nuclear component templates add hex cell, control-rod guide tube, and assembly grid plate starters.
-- nuke-essentials: a shared compact action menu provides keyboard navigation, focus return, and narrow-width icon collapse.
-- nuke-ai: embedded action menus make the read-only context actions visible in the statepoint loader, CAD toolbar, and DAGMC editor.
+- nuke-essentials: a shared compact action menu supports host icons, icon-only triggers, keyboard navigation, focus return, and top/bottom placement.
+- nuke-ai: embedded action menus make the read-only context actions visible in the statepoint loader, CAD search launcher, and DAGMC editor.
 - nuke-visualizer: the statepoint viewer header and empty loader expose Ask About Context, Explain Statepoint, and Diagnose Statepoint.
-- nuke-cad: the CAD document toolbar exposes the NukeAI actions menu alongside the ribbon.
 - openmc-studio: the DAGMC editor header exposes NukeAI actions while the Simulation tab keeps its validation and run groups.
 
 ### Changed
@@ -29,8 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: NukeAI actions move beside the floating CAD search launcher and open upward, keeping the ribbon uncluttered and the menu clear of dialogs.
 - nuke-cad: BOM, Model Outline, and Feature Tree empty states use the shared card, drop duplicate status rows, and offer New CAD Document/Open CAD Viewport actions.
 - nuke-visualizer: CSG/DAGMC outlines, Dataset Inspector, and Viewer Settings use the shared empty-state card; OpenMC geometry/tally cards align at the top.
-- nuke-visualizer: CSG Outline uses an overlapping-primitives icon so it stays distinct from OpenMC Geometry.
-- nuke-visualizer: the CSG Outline sidebar/activity icon and Nuke Tools entry use the same primitives glyph.
+- nuke-visualizer: CSG Outline uses one overlapping-primitives glyph in its empty card, sidebar/tab icon, and Nuke Tools entry, keeping it distinct from OpenMC Geometry.
 - nuke-ai: Diagnose CSG Geometry uses the shared CSG primitives glyph instead of the old symbol icon.
 - nuke-essentials: the generic code Outline view is closed in the default shell; reopen it from View → Outline for code files.
 

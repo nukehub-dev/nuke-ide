@@ -1027,6 +1027,9 @@ needs to be visualized and exported.
 Reopening the CAD viewport restores the active model and re-opens the Feature
 Tree and Model Outline panels. Both panels are also available as **Feature
 Tree** and **Model Outline** buttons in the Inspect ribbon and command search.
+When the Feature Tree, Model Outline, or BOM has nothing to show, its empty
+card offers **New CAD Document** and/or **Open CAD Viewport** so the next step
+is one click away.
 
 The **Feature Tree** panel shows five sections:
 

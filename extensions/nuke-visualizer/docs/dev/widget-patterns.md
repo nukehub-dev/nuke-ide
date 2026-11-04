@@ -147,15 +147,18 @@ await this.plotlyService.showPlot({
 | Data received  | `setFigure()` or `setState()` triggers React render |
 | Widget closed  | Nothing special (no server to kill)                 |
 
-Empty states use `NukeEmptyState` with either a codicon or `iconNode` for a domain SVG illustration. Reusable
-visualizer illustrations live in `src/browser/widgets/domain-icons.tsx`; use them for file-specific empty states
-instead of generic repo/database glyphs.
+Empty states use `NukeEmptyState`. Pass `icon` with `variant="illustration"` for a codicon in the tinted
+illustration tile, or `iconNode` for a domain SVG. Reusable visualizer illustrations live in
+`src/browser/widgets/domain-icons.tsx`; use them for file-specific empty states instead of generic
+repo/database glyphs. Panel empty states put the card at the top of the panel, not vertically centered in a
+tall sidebar.
 
 Title, command, and Nuke Tools `iconClass` hooks use `nuke-visualizer-icon nuke-visualizer-icon-<domain>` for
-the domain panels (geometry, overlap, materials, nuclear, tally, statepoint). The classes live in
-`src/browser/icons/domain-icon-classes.css` and are CSS masks so they follow the active theme color.
-Keep each domain glyph one coherent symbol; do not compose detached pieces (for example a grid plus bars)
-into one icon.
+the visualizer's own panels (geometry, overlap, materials, nuclear, tally, statepoint). The classes live in
+`src/browser/icons/domain-icon-classes.css`. The shared `nuke-domain-icon nuke-domain-icon-csg` class lives in
+`nuke-essentials` and is reused by the CSG Outline and Diagnose CSG Geometry surfaces. All are CSS masks, so
+they follow the active theme color. Keep each domain glyph one coherent symbol; do not compose detached pieces
+(for example a grid plus bars) into one icon.
 
 ### Advantages
 
