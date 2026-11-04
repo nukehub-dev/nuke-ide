@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Generate the bundled nuke-cad example-project JSON from the canonical e2e
- * `.nuke-cad` fixtures.
+ * Generate bundled nuke-cad JSON (example projects and component-template
+ * bodies) from the canonical e2e `.nuke-cad` fixtures.
  *
  * The extension imports sample documents as JSON modules, but the committed
  * fixtures use the `.nuke-cad` extension. Keep exactly one tracked copy: the
@@ -17,6 +17,30 @@ const COPIES = [
     {
         source: 'extensions/nuke-cad/tests/e2e/assets/gui_pincell.nuke-cad',
         target: 'extensions/nuke-cad/src/common/samples/gui_pincell.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_box.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_box.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_cylinder.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_cylinder.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_tube.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_tube.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_sphere.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_sphere.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_cone.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_cone.json'
+    },
+    {
+        source: 'extensions/nuke-cad/tests/e2e/assets/gui_plate_with_hole.nuke-cad',
+        target: 'extensions/nuke-cad/src/common/samples/gui_plate_with_hole.json'
     },
     {
         source: 'extensions/nuke-cad/tests/e2e/assets/tokamak_with_divertor.nuke-cad',

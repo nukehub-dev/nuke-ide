@@ -4,10 +4,10 @@ Nuke CAD ships two separate starting-point registries for new documents. They
 share the New Document picker but have different contracts and different
 creation flows.
 
-| Registry            | Module                              | Shipped entries    | What it supplies                                                          |
-| ------------------- | ----------------------------------- | ------------------ | ------------------------------------------------------------------------- |
-| Parameter presets   | `src/common/document-templates.ts`  | `empty`, `tokamak` | A shallow `parameters` map merged over an empty schema-v3 document.       |
-| Component templates | `src/common/component-templates.ts` | `pincell`          | A complete validated document plus typed, bounded, unit-aware parameters. |
+| Registry            | Module                             | Shipped entries                                                           | What it supplies                                                          |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Parameter presets   | `src/common/document-templates.ts` | `empty`, `tokamak`                                                        | A shallow `parameters` map merged over an empty schema-v3 document.       |
+| Component templates | `src/common/component-templates/`  | `box`, `cylinder`, `tube`, `sphere`, `cone`, `plate-with-hole`, `pincell` | A complete validated document plus typed, bounded, unit-aware parameters. |
 
 Parameter presets carry no geometry and store no template metadata in the
 document. `applyDocumentTemplate` only merges the preset values into the empty
@@ -83,7 +83,11 @@ Add a component template only when all of these hold:
 1. **Canonical fixture.** The document body comes from a validated `.nuke-cad`
    fixture (or generated sample JSON derived from one), never a hand-edited
    copy. The pincell body is generated from
-   `tests/e2e/assets/gui_pincell.nuke-cad`.
+   `tests/e2e/assets/gui_pincell.nuke-cad`; the primitive family is generated
+   by `src/browser/document/gui-build-primitives.test.ts` into
+   `tests/e2e/assets/gui_<id>.nuke-cad` under `NUKE_CAD_WRITE_FIXTURE=1` and
+   compared byte-for-byte afterwards. `scripts/copy-cad-samples.js` copies each
+   fixture to `src/common/samples/gui_<id>.json` during the build.
 2. **Declared ↔ referenced parameters.** `validateComponentTemplateLibrary()`
    returns no errors: every document parameter is declared, every declared
    canonical parameter is a document parameter, and every derived alias points
@@ -123,6 +127,40 @@ Add a component template only when all of these hold:
 - Registry order does not control the picker; `listComponentTemplates` ranks
   exact id, keyword/id substring, name, then description matches and caps the
   result at 50.
+
+## Shipped entries: primitives
+
+All six primitives are category `primitives`, document units `cm`, and carry
+one labelled, untagged body. Their sketches are solved at generation time and
+their canonical fixtures live under `tests/e2e/assets/`.
+
+| Id                | Body       | Parameters (default; bounds in cm)                                                                                                                     | Shape features                 |
+| ----------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
+| `box`             | `box`      | `length` 10 (1–200), `width` 6 (1–200), `height` 4 (1–200)                                                                                             | Straight sweep                 |
+| `cylinder`        | `cylinder` | `radius` 2.5 (0.05–100), `height` 8 (0.1–200), `diameter` 5 alias                                                                                      | Revolve rectangle about Z      |
+| `tube`            | `tube`     | `outerRadius` 3 (0.1–100), `innerRadius` 2 (0.05–99.9), `height` 6 (0.1–200), `outerDiameter` 6 and `innerDiameter` 4 aliases                          | Revolve outer profile + groove |
+| `sphere`          | `sphere`   | `radius` 3 (0.05–100), `diameter` 6 alias                                                                                                              | Revolve semicircle about Z     |
+| `cone`            | `cone`     | `bottomRadius` 3 (0.05–100), `topRadius` 1.5 (0.01–99.9), `height` 6 (0.1–200), `bottomDiameter` 6 and `topDiameter` 3 aliases                         | Revolve trapezoid about Z      |
+| `plate-with-hole` | `plate`    | `length` 12 (1–200), `width` 8 (1–200), `thickness` 0.6 (0.01–50), `holeDiameter` 2 (0.01–100), `holeOffsetX` 0 (−100–100), `holeOffsetY` 0 (−100–100) | Straight sweep with inner wire |
+
+Radius/diameter pairs follow the pincell convention: the radius is the canonical
+document parameter and the diameter is a `derived` alias with factor `0.5`. The
+alias carries no separate bounds; its target's range is enforced after
+conversion. The plate hole uses `holeDiameter` directly because a circle profile
+carries a diameter dimension.
+
+`box` and `plate-with-hole` use a straight sweep instead of a pad because a pad's
+`length` is numeric-only in the document schema and cannot be bound to a sketch
+parameter. The profile sketch carries a construction dimension for `height` /
+`thickness`, and the straight path curve uses the same parameter. Changing the
+value re-solves the sketch and resamples the path, so the extrusion height is
+fully parameter-driven. The e2e suite builds every default fixture and asserts
+one solid at the shipped size:
+
+```bash
+NUKE_TEST_PYTHON=$HOME/.conda/envs/nuke/bin/python \
+  yarn test:python:full extensions/nuke-cad/tests/e2e/test_component_templates.py
+```
 
 ## Shipped entry: `pincell`
 

@@ -30,6 +30,20 @@ Studio the same way you would a script build.
    - **Parametric components** holds geometry-bearing templates. Selecting one
      saves a new `.nuke-cad` document with the template defaults, opens it, and
      starts the build:
+     - **Box** — a `10 × 6 × 4 cm` rectangular box driven by `length`, `width`,
+       and `height`.
+     - **Cylinder** — a `5 cm` diameter, `8 cm` tall cylinder driven by
+       `diameter` (or `radius`) and `height`.
+     - **Tube** — a `6 cm` outside diameter, `4 cm` bore, `6 cm` tall tube
+       driven by `outerDiameter`, `innerDiameter` (or the radius names), and
+       `height`.
+     - **Sphere** — a `6 cm` diameter sphere driven by `diameter` (or `radius`).
+     - **Cone** — a `6 cm` bottom diameter, `3 cm` top diameter, `6 cm` tall
+       conical frustum driven by `bottomDiameter`, `topDiameter` (or the radius
+       names), and `height`.
+     - **Plate with hole** — a `12 × 8 × 0.6 cm` plate with a `2 cm` through
+       hole driven by `length`, `width`, `thickness`, `holeDiameter`,
+       `holeOffsetX`, and `holeOffsetY`.
      - **Pincell** — a three-body PWR pin cell in `cm` with separate `fuel`
        (UO2), `clad` (Zircaloy-4), and `moderator` (H2O) bodies. It starts at
        `fuelRadius=0.4`, `cladRadius=0.5`, and `pitch=1.26`; the fuel and clad
@@ -37,6 +51,11 @@ Studio the same way you would a script build.
        reshapes the cell. Unlike the **Pincell demo** example project below, the
        component starts from the shipped component template, not a saved sample
        document.
+
+     The six primitives are mechanical starters: their bodies carry no material
+     tag. Radius/diameter pairs are interchangeable, so a request can use either
+     vocabulary; a plate hole is a diameter parameter because a circle profile
+     carries a diameter dimension.
 
    - **Example projects** holds complete sample documents instead of presets:
 
@@ -140,6 +159,15 @@ already inline. Use the pin button next to a row to **Pin to toolbar** (render
 it inline in that section) or **Unpin from toolbar** (return it to the menu).
 Pins persist in `nukeCad.ribbonPins`; a section renders at most eight inline
 buttons, defaults included.
+
+The document toolbar also carries a compact **NukeAI actions** menu at its right
+edge (the ellipsis button). It lists **Ask About Context**, **Diagnose CAD
+Model**, **Explain Selection**, and **Check Active CAD Model**; the same rows
+remain in the canvas right-click menu and the NukeAI sidebar. On narrow panels
+the trigger collapses to its icon while keeping its accessible name and tooltip.
+Choose a row to run the existing read-only command; if its required CAD state is
+missing, the command's normal warning explains what to open first and no chat
+starts.
 
 You can also create a `.nuke-cad` file directly in the Explorer; double-clicking
 it opens it in the CAD viewport by default.

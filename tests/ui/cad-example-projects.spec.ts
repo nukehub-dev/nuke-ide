@@ -34,8 +34,16 @@ test('New CAD Document picker lists example projects and cancels cleanly', async
     await expect(blankItems).toHaveCount(2);
 
     const componentSection = picker.locator('.cad-template-section').filter({ hasText: 'Parametric components' });
-    await expect(componentSection.locator('.cad-template-item')).toHaveCount(1);
-    await expect(componentSection.locator('.cad-template-name')).toHaveText('Pincell');
+    await expect(componentSection.locator('.cad-template-item')).toHaveCount(7);
+    await expect(componentSection.locator('.cad-template-name')).toHaveText([
+        'Box',
+        'Cone',
+        'Cylinder',
+        'Plate with hole',
+        'Sphere',
+        'Tube',
+        'Pincell'
+    ]);
 
     const samples = picker.locator('.cad-template-sample');
     const exampleSection = picker.locator('.cad-template-section').filter({ hasText: 'Example projects' });

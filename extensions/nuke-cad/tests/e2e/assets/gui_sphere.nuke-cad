@@ -1,0 +1,160 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "sphere",
+      "name": "sphere"
+    }
+  ],
+  "curves": [],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "sphere-revolve",
+      "name": "Sphere",
+      "params": {
+        "angle": 360,
+        "axis": "z"
+      },
+      "sketchId": "sphere-profile",
+      "suppressed": false,
+      "type": "revolve"
+    }
+  ],
+  "name": "sphere",
+  "parameters": {
+    "radius": 3
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "vertical-mid",
+          "l_id": "line-mid",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-arc",
+          "p1_id": "point-start",
+          "p2_id": "point-end",
+          "p_id": "point-center",
+          "type": "p2p_symmetric_ppp"
+        },
+        {
+          "a_id": "arc-sphere",
+          "driving": true,
+          "id": "arc-radius",
+          "radius": "radius",
+          "type": "arc_radius"
+        },
+        {
+          "distance": "radius",
+          "driving": true,
+          "id": "distance-start",
+          "p1_id": "point-start",
+          "p2_id": "point-center",
+          "type": "p2p_distance"
+        }
+      ],
+      "datumId": "datum-xz",
+      "dimensions": [
+        {
+          "constraintId": "arc-radius",
+          "driving": true,
+          "id": "dimension-arc-radius",
+          "kind": "radius",
+          "parameter": "radius",
+          "targetIds": [
+            "arc-sphere"
+          ],
+          "value": 3
+        },
+        {
+          "constraintId": "distance-start",
+          "driving": true,
+          "id": "dimension-start",
+          "kind": "distance",
+          "parameter": "radius",
+          "targetIds": [
+            "point-start",
+            "point-center"
+          ],
+          "value": 3
+        }
+      ],
+      "id": "sphere-profile",
+      "name": "sphere-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-start",
+          "type": "point",
+          "x": 0,
+          "y": -3
+        },
+        {
+          "construction": false,
+          "id": "point-end",
+          "type": "point",
+          "x": 0,
+          "y": 3
+        },
+        {
+          "c_id": "point-center",
+          "construction": false,
+          "end_angle": 1.5707963268,
+          "end_id": "point-end",
+          "id": "arc-sphere",
+          "radius": 3,
+          "start_angle": -1.5707963268,
+          "start_id": "point-start",
+          "type": "arc"
+        },
+        {
+          "construction": false,
+          "id": "line-base",
+          "p1_id": "point-end",
+          "p2_id": "point-start",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-mid",
+          "p1_id": "point-center",
+          "p2_id": "point-start",
+          "type": "line"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}
