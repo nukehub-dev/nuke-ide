@@ -287,7 +287,8 @@ export const NUCLEAR_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
                 0.01
             )
         ],
-        document: templateDocument('control-rod-guide-tube', controlRodGuideTubeJson)
+        document: templateDocument('control-rod-guide-tube', controlRodGuideTubeJson),
+        validate: (values) => validateGuideTubeWall(values.outerRadius * 2, values.innerRadius * 2, values.wallThickness)
     },
     {
         id: 'assembly-grid-plate',

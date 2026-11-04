@@ -528,6 +528,11 @@ export function resolveComponentTemplateParameters(
         values[name] = canonicalValue ?? derivedValue ?? toDocumentUnits(canonical.default, canonical, documentUnits);
     }
 
+    const templateError = template.validate?.(values);
+    if (templateError !== undefined) {
+        return { ok: false, message: templateError };
+    }
+
     const resolved: ResolvedComponentParameter[] = [];
     for (const parameter of parameters) {
         const directValue = direct.get(parameter.name);

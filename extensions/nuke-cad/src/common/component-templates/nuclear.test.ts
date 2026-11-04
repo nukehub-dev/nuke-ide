@@ -167,6 +167,15 @@ describe('nuclear component templates', () => {
         expect(expectFailure(resolveComponentTemplateParameters(guide, { outerDiameter: 0.05 }))).toContain('outerDiameter');
         expect(expectFailure(resolveComponentTemplateParameters(guide, { innerRadius: 0.001 }))).toContain('innerRadius');
         expect(expectFailure(resolveComponentTemplateParameters(guide, { length: 500 }))).toContain('length');
+        expect(
+            expectFailure(
+                resolveComponentTemplateParameters(guide, {
+                    outerDiameter: 1.4,
+                    innerDiameter: 1.2,
+                    wallThickness: 0.2
+                })
+            )
+        ).toContain('must equal');
     });
 
     it('resolves grid-plate overrides and rejects invalid counts', () => {

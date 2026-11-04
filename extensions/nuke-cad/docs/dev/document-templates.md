@@ -27,8 +27,13 @@ interface ComponentTemplate {
   keywords: readonly string[];
   parameters: readonly ComponentTemplateParameter[];
   document: NukeCadDocument; // validated v3 body, declared units, no import features
+  validate?(values: Readonly<Record<string, number>>): string | undefined; // cross-parameter check
 }
 ```
+
+`validate` runs after defaults, pairs, and unit conversions resolve. It returns
+an error message to reject the request; creation and AI previews call the same
+resolver, so the check applies everywhere.
 
 | Parameter field | Contract                                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -195,8 +200,9 @@ rather than a parameter reference. The shipped patterns therefore stay at their
 default instance counts; overriding a count re-solves the seed sketch and is
 accepted by creation, but does not change the number of holes. The
 `control-rod-guide-tube` wall thickness must equal half the difference between
-its outer and inner diameters; `validateGuideTubeWall` exposes that check for
-callers, and the user docs state the relation.
+its outer and inner diameters. The template declares an optional `validate`
+hook that runs `validateGuideTubeWall` after defaults, pairs, and unit
+conversions resolve, so an inconsistent triple is rejected before any build.
 
 ## Shipped entry: `pincell`
 

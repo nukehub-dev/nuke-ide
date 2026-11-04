@@ -69,6 +69,11 @@ export interface ComponentTemplate {
     readonly parameters: readonly ComponentTemplateParameter[];
     /** Fully validated template body; must declare `units` and carry no import features. */
     readonly document: NukeCadDocument;
+    /**
+     * Optional cross-parameter check run after defaults, pairs, and unit
+     * conversions resolve. Return an error message to reject the request.
+     */
+    readonly validate?: (values: Readonly<Record<string, number>>) => string | undefined;
 }
 
 /** One parameter after defaults, pairs, and unit conversions are resolved. */
