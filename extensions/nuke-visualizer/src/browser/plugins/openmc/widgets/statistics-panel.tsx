@@ -37,7 +37,7 @@
 
 import * as React from 'react';
 import * as Plotly from 'plotly.js-dist-min';
-import { NukeEmptyState, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeEmptyState, NukeSelect, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { PlotlyComponent } from '../../../plotly/plotly-component';
 import { usePlotlyTheme } from '../../../plotly/plotly-theme';
 import {
@@ -312,15 +312,16 @@ export function StatisticsPanel(props: StatisticsPanelProps): React.ReactElement
             <span className="codicon codicon-graph" aria-hidden="true" />
             <span className="nuke-statistics-panel-title">Statistics</span>
             {props.onClose && (
-                <button
-                    type="button"
-                    className="theia-button secondary nuke-statistics-panel-close"
-                    onClick={props.onClose}
-                    title="Close"
-                    aria-label="Close statistics"
-                >
-                    <span className="codicon codicon-close" aria-hidden="true" />
-                </button>
+                <Tooltip content="Close statistics" position="bottom">
+                    <button
+                        type="button"
+                        className="theia-button secondary nuke-statistics-panel-close"
+                        onClick={props.onClose}
+                        aria-label="Close statistics"
+                    >
+                        <span className="codicon codicon-close" aria-hidden="true" />
+                    </button>
+                </Tooltip>
             )}
         </div>
     );

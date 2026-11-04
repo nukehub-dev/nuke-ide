@@ -73,9 +73,15 @@ triangle/segment/voxel raycast hits to dataset tuples through
 `viewer-core/probe-model.ts`, while line profiles call `runBaseCommand` only
 for file-backed viewers. Picked samples render as world-anchored scene
 markers (newest accented, older muted) outside the data group, so probe and
-measure raycasts never hit them. The 430 px probe host reserves the bottom
-navigation band; its `max-height` must stay clear of `.nuke-viewer-nav-bar`
-so chart axes never run under the bar.
+measure raycasts never hit them. The 430 px probe host clears the orientation
+cube (top 92 px) and reserves the bottom navigation band (bottom 76 px covers
+two wrapped nav rows); its `max-height` must stay clear of
+`.nuke-viewer-nav-bar` so chart axes never run under the bar. The shared nav
+bar wraps its buttons inside the viewarea (`max-width: calc(100% - 16px)`)
+instead of clipping the leftmost controls on narrow views. Probe and Find Data
+share that overlay slot and the host toggles close the other card and any
+bottom-bar popover; only the card takes pointer events, so clicks on the
+surrounding transparent host still reach the canvas.
 
 Shading modes live in `viewer-core/shading-mode.ts`. `edges` draws every
 triangle edge; `feature-edges` passes a 30° threshold to `EdgesGeometry` and
@@ -200,7 +206,8 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
   (`and` only, inclusive `in [min, max]`), `find-data-dialog.tsx` is props-only, and
   `viewer-core/selection-overlay.ts` expands selected tuples into points/triangles/segments. The native
   viewer keeps the selection transient, adds an orange always-on-top group, and drops it on reload.
-  Selection indices never mutate the dataset; CSV extraction uses `selectionToCsv`.
+  Selection indices never mutate the dataset; CSV extraction uses `selectionToCsv`. Its host uses the
+  same slot, pointer-events, and nav clearance as the probe host.
 - **Axes grid** — `viewer-core/axes-grid.ts` builds box edges, low-face grid lines, and nice tick
   labels; `projectAxisLabels` projects/dedupes them; `axes-grid-overlay.tsx` paints them. The native
   viewer keeps `LineSegments` outside the data group (so data clipping doesn't cut the axes) and updates

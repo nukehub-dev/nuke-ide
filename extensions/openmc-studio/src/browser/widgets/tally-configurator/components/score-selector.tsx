@@ -138,6 +138,7 @@ export const ScoreSelector: React.FC<ScoreSelectorProps> = ({ scores, onUpdate, 
                     type="text"
                     value={customMt}
                     placeholder="Custom MT number (e.g. 102)"
+                    aria-label="Custom MT number"
                     onChange={(e) => setCustomMt(e.target.value)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {

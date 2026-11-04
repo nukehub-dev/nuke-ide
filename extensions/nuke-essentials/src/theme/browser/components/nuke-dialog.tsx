@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import { Tooltip } from './tooltip';
 
 export interface NukeDialogProps {
     /** Title shown in the dialog header. */
@@ -118,9 +119,11 @@ export const NukeDialog: React.FC<NukeDialogProps> = ({
                 <div className="nuke-dialog-header">
                     <div className="nuke-dialog-title">{title}</div>
                     {onClose !== undefined && (
-                        <button className="theia-button secondary nuke-dialog-close" onClick={onClose} title="Close">
-                            <span className="codicon codicon-close" />
-                        </button>
+                        <Tooltip content="Close" position="left">
+                            <button type="button" className="theia-button secondary nuke-dialog-close" onClick={onClose} aria-label="Close">
+                                <span className="codicon codicon-close" aria-hidden="true" />
+                            </button>
+                        </Tooltip>
                     )}
                 </div>
                 <div className={`nuke-dialog-body${bodyClassName ? ` ${bodyClassName}` : ''}`}>{children}</div>

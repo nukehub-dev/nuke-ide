@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import { Tooltip } from './tooltip';
 
 export interface NukePanelProps {
     /** Title shown in the panel header. */
@@ -51,9 +52,11 @@ export const NukePanel: React.FC<NukePanelProps> = ({ title, onClose, className,
         <div className="nuke-panel-header">
             <div className="nuke-panel-title">{title}</div>
             {onClose !== undefined && (
-                <button className="theia-button secondary nuke-panel-close" onClick={onClose} title="Close">
-                    <span className="codicon codicon-close" />
-                </button>
+                <Tooltip content="Close" position="left">
+                    <button type="button" className="theia-button secondary nuke-panel-close" onClick={onClose} aria-label="Close">
+                        <span className="codicon codicon-close" aria-hidden="true" />
+                    </button>
+                </Tooltip>
             )}
         </div>
         <div className={`nuke-panel-body${bodyClassName ? ` ${bodyClassName}` : ''}`}>{children}</div>

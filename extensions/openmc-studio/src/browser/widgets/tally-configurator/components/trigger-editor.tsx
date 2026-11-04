@@ -88,6 +88,7 @@ export const TriggerEditor: React.FC<TriggerEditorProps> = ({ triggers, tallySco
                             min={0}
                             step="any"
                             value={trigger.threshold}
+                            aria-label="Trigger threshold"
                             onChange={(e) => updateTrigger(index, { threshold: parseFloat(e.target.value) || 0 })}
                         />
                     </div>
@@ -104,8 +105,12 @@ export const TriggerEditor: React.FC<TriggerEditorProps> = ({ triggers, tallySco
                     </div>
                     <div className="form-group">
                         <label>&nbsp;</label>
-                        <button className="remove-filter-btn" onClick={() => onUpdate(triggers.filter((_, i) => i !== index))}>
-                            <i className="codicon codicon-trash"></i>
+                        <button
+                            className="remove-filter-btn"
+                            onClick={() => onUpdate(triggers.filter((_, i) => i !== index))}
+                            aria-label={`Remove trigger ${index + 1}`}
+                        >
+                            <i className="codicon codicon-trash" aria-hidden="true"></i>
                         </button>
                     </div>
                     {tallyScores.length > 0 && (

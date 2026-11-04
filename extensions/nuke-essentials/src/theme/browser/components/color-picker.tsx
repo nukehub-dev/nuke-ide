@@ -190,7 +190,15 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => 
 
     return (
         <div className="nuke-color-picker" ref={containerRef}>
-            <button ref={triggerRef} className="nuke-color-picker-trigger" onClick={() => setIsOpen(!isOpen)}>
+            <button
+                ref={triggerRef}
+                type="button"
+                className="nuke-color-picker-trigger"
+                onClick={() => setIsOpen(!isOpen)}
+                aria-haspopup="dialog"
+                aria-expanded={isOpen}
+                aria-label={`Selected color ${value}`}
+            >
                 <Tooltip content="Click to change color" position="top">
                     <span className="nuke-color-preview" style={{ backgroundColor: value }} />
                 </Tooltip>
@@ -204,6 +212,8 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => 
                     <div
                         ref={popupRef}
                         className="nuke-color-picker-popup"
+                        role="dialog"
+                        aria-label="Color picker"
                         style={{
                             position: 'fixed',
                             left: popupCoords.x,
@@ -214,8 +224,13 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => 
                     >
                         <div className="nuke-color-picker-header">
                             <span>Select Color</span>
-                            <button className="nuke-color-picker-close" onClick={() => setIsOpen(false)}>
-                                <i className="codicon codicon-close" />
+                            <button
+                                type="button"
+                                className="nuke-color-picker-close"
+                                onClick={() => setIsOpen(false)}
+                                aria-label="Close color picker"
+                            >
+                                <i className="codicon codicon-close" aria-hidden="true" />
                             </button>
                         </div>
 
@@ -227,8 +242,11 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => 
                                         {group.colors.map((color) => (
                                             <Tooltip key={color} content={color} position="top" delay={100}>
                                                 <button
+                                                    type="button"
                                                     className={`nuke-color-swatch ${value === color ? 'selected' : ''}`}
                                                     style={{ backgroundColor: color }}
+                                                    aria-label={color}
+                                                    aria-pressed={value === color}
                                                     onClick={() => handleSelect(color)}
                                                 />
                                             </Tooltip>
@@ -246,6 +264,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ value, onChange }) => 
                                 onChange={(e) => setHexInput(e.target.value)}
                                 onKeyDown={handleHexSubmit}
                                 placeholder="#000000"
+                                aria-label="Hex color"
                                 className={/^#[0-9A-Fa-f]{6}$/.test(hexInput.trim()) ? 'valid' : 'invalid'}
                             />
                         </div>

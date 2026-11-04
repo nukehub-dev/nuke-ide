@@ -75,10 +75,11 @@ export const ViewerNavBar = React.forwardRef<HTMLDivElement, ViewerNavBarProps>(
             <Tooltip key={item.action} content={item.tooltip} position="left">
                 <button
                     className="theia-button secondary nuke-viewer-nav-bar-button"
+                    aria-label={item.tooltip}
                     disabled={disabled}
                     onClick={() => onAction(item.action)}
                 >
-                    <span className={`codicon codicon-${item.icon}`} />
+                    <span className={`codicon codicon-${item.icon}`} aria-hidden="true" />
                 </button>
             </Tooltip>
         ))}

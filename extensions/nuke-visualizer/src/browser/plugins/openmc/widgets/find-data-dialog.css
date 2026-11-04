@@ -30,6 +30,7 @@
    from output-viewer.css; the query field overrides that rule's 120px width. */
 
 .find-data-dialog {
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 8px;

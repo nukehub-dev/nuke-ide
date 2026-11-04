@@ -1706,7 +1706,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Open/close the probe dialog from the nav trigger; closing disarms picking. */
     private toggleProbe(): void {
         this.probeDialogOpen = !this.probeDialogOpen;
-        if (!this.probeDialogOpen) {
+        if (this.probeDialogOpen) {
+            // Probe and Find Data share the top-right overlay slot; a bottom
+            // bar popover would collide with a tall probe card.
+            this.findDataOpen = false;
+            this.openNavPopover = undefined;
+        } else {
             this.probePicking = false;
         }
         this.update();
@@ -2593,6 +2598,11 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
                         disabled={disabled}
                         onClick={() => {
                             this.findDataOpen = !this.findDataOpen;
+                            if (this.findDataOpen) {
+                                // Probe and Find Data share the top-right overlay slot.
+                                this.closeProbe();
+                                this.openNavPopover = undefined;
+                            }
                             this.update();
                         }}
                     />
@@ -2655,6 +2665,12 @@ export class NativeVtkViewerWidget extends ReactWidget implements ViewerSettings
     /** Toggle the open popover slot (re-click closes, the other trigger switches). */
     private toggleNavPopover(kind: ViewerNavPopoverKind): void {
         this.openNavPopover = nextNavPopover(this.openNavPopover, kind);
+        if (this.openNavPopover !== undefined) {
+            // One overlay at a time: the bottom-bar cards never sit under a
+            // tall probe/Find Data card.
+            this.findDataOpen = false;
+            this.closeProbe();
+        }
         this.update();
     }
 

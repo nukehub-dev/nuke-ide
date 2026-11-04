@@ -130,11 +130,23 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
     const dropdown = open && (
         <div ref={dropdownRef} className="nuke-searchable-multi-select-dropdown" style={computeDropdownPosition(triggerRef.current)}>
             <div className="nuke-searchable-multi-select-input">
-                <i className="codicon codicon-search"></i>
-                <input type="text" value={query} placeholder={searchPlaceholder} onChange={(e) => setQuery(e.target.value)} autoFocus />
+                <i className="codicon codicon-search" aria-hidden="true"></i>
+                <input
+                    type="text"
+                    value={query}
+                    placeholder={searchPlaceholder}
+                    aria-label="Search options"
+                    onChange={(e) => setQuery(e.target.value)}
+                    autoFocus
+                />
                 {query && (
-                    <button className="nuke-searchable-multi-select-clear" onClick={() => setQuery('')} type="button">
-                        <i className="codicon codicon-close"></i>
+                    <button
+                        className="nuke-searchable-multi-select-clear"
+                        onClick={() => setQuery('')}
+                        type="button"
+                        aria-label="Clear search"
+                    >
+                        <i className="codicon codicon-close" aria-hidden="true"></i>
                     </button>
                 )}
             </div>

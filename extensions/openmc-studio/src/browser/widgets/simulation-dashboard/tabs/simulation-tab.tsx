@@ -239,8 +239,9 @@ export class SimulationTabContribution implements DashboardTabContribution {
                                 className="theia-button secondary small"
                                 onClick={() => host.stateManager.updateSettings({ restartFile: undefined })}
                                 disabled={host.isRunning}
+                                aria-label="Clear restart file"
                             >
-                                <i className="codicon codicon-close"></i>
+                                <i className="codicon codicon-close" aria-hidden="true"></i>
                             </button>
                         </Tooltip>
                     </span>

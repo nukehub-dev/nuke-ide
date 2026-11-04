@@ -191,6 +191,50 @@
     margin-top: 2px;
 }
 
+/* Native checkboxes stay real inputs (Space + AT) but paint from Theia's
+   checkbox tokens; the UA default unchecked box is light-only and breaks
+   dark themes. */
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) input[type='checkbox']:not(.nuke-checkbox-input) {
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-grid;
+    place-content: center;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    border: 1px solid var(--theia-checkbox-border, var(--theia-input-border));
+    border-radius: 3px;
+    background: var(--theia-checkbox-background, var(--theia-input-background));
+    color: var(--theia-checkbox-foreground, var(--theia-button-foreground));
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) input[type='checkbox']:not(.nuke-checkbox-input)::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    transform: scale(0);
+    background: currentColor;
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+    transition: transform 80ms ease-out;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) input[type='checkbox']:not(.nuke-checkbox-input):checked::before {
+    transform: scale(1);
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) input[type='checkbox']:not(.nuke-checkbox-input):focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) input[type='checkbox']:not(.nuke-checkbox-input):disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 /* Direct form actions are compact instead of stretching to the field width. */
 :is(.simulation-dashboard, .openmc-widget) .form-group > .theia-button {
     align-self: flex-start;
@@ -569,6 +613,11 @@
     border: 1px solid var(--theia-input-border);
     border-radius: 6px;
     background: var(--theia-input-background);
+}
+
+:is(.simulation-dashboard, .openmc-widget) .advanced-search:focus-within {
+    border-color: var(--theia-focusBorder);
+    box-shadow: var(--nuke-focus-glow);
 }
 
 :is(.simulation-dashboard, .openmc-widget) .advanced-search > .codicon-search {

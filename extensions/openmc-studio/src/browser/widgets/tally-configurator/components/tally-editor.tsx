@@ -124,6 +124,7 @@ export const TallyEditor: React.FC<TallyEditorProps> = ({
                             value={tally.name || ''}
                             onChange={(e) => onUpdate({ name: e.target.value })}
                             placeholder={`Tally ${tally.id}`}
+                            aria-label="Tally name"
                         />
                     </div>
                     <div className="form-group">

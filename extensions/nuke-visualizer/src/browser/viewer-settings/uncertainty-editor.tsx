@@ -174,12 +174,13 @@ export const UncertaintyEditor: React.FC<UncertaintyEditorProps> = ({
                 {LEGEND_WEIGHTS.map((weight) => {
                     const rgba = bivariateRgba(LEGEND_MEAN_COLOR, weight, options);
                     return (
-                        <span
+                        <Tooltip
                             key={weight}
-                            className="uncertainty-editor-legend-swatch"
-                            style={{ backgroundColor: cssRgba(rgba) }}
-                            title={`${formatPercent((1 - weight) * options.maxRelativeError)} relative error`}
-                        />
+                            content={`${formatPercent((1 - weight) * options.maxRelativeError)} relative error`}
+                            position="top"
+                        >
+                            <span className="uncertainty-editor-legend-swatch" style={{ backgroundColor: cssRgba(rgba) }} />
+                        </Tooltip>
                     );
                 })}
             </div>
