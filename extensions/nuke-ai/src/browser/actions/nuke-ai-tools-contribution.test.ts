@@ -120,7 +120,9 @@ describe('NukeAiToolsContribution', () => {
             NukeAiCommands.DIAGNOSE_RUN.id,
             NukeAiCommands.DIAGNOSE_STATEPOINT.id
         ]);
-        expect(items.map((item) => item.icon)).toEqual(['checklist', 'checklist', 'symbol-structure', 'layers', 'debug-alt', 'graph']);
+        expect(items.map((item) => item.icon)).toEqual(['checklist', 'checklist', undefined, 'layers', 'debug-alt', 'graph']);
+        const csg = items.find((item) => item.commandId === NukeAiCommands.DIAGNOSE_CSG.id);
+        expect(csg?.iconClass).toBe('nuke-domain-icon nuke-domain-icon-csg');
         expect(items.map((item) => item.order)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
         expect(items.map((item) => item.label)).toEqual([
             'Diagnose Active CAD Model',

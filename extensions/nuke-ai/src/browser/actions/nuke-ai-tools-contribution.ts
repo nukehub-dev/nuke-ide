@@ -162,7 +162,7 @@ const NUKE_AI_TOOL_ITEMS: readonly Omit<NukeToolsItem, 'sectionOrder'>[] = [
         category: ['NukeAI', 'Diagnostics'],
         categoryOrder: 'a',
         order: 'c',
-        icon: 'symbol-structure',
+        iconClass: 'nuke-domain-icon nuke-domain-icon-csg',
         description: 'Triage CSG surfaces, cells, universes, lattices, and geometry validation findings.',
         keywords: ['ai', 'diagnostics', 'openmc', 'csg', 'geometry', 'cells', 'surfaces']
     },

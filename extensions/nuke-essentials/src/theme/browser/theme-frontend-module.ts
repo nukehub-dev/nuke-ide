@@ -44,6 +44,7 @@ import './components/nuke-toolbar.css';
 import './components/nuke-action-menu.css';
 import './components/nuke-ribbon.css';
 import './components/nuke-empty-state.css';
+import './components/nuke-domain-icons.css';
 import './components/nuke-loading-overlay.css';
 import './components/nuke-panel.css';
 import './components/nuke-form.css';

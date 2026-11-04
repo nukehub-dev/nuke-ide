@@ -93,7 +93,7 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
             category: ['Visualizer'],
             sectionOrder: 'c',
             order: 'd',
-            iconClass: 'nuke-visualizer-icon nuke-visualizer-icon-csg',
+            iconClass: 'nuke-domain-icon nuke-domain-icon-csg',
             description: 'Open the CSG Outline sidebar for the active geometry viewer.'
         });
 

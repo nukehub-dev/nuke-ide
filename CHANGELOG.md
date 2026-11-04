@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-visualizer: CSG/DAGMC outlines, Dataset Inspector, and Viewer Settings use the shared empty-state card; OpenMC geometry/tally cards align at the top.
 - nuke-visualizer: CSG Outline uses an overlapping-primitives icon so it stays distinct from OpenMC Geometry.
 - nuke-visualizer: the CSG Outline sidebar/activity icon and Nuke Tools entry use the same primitives glyph.
+- nuke-ai: Diagnose CSG Geometry uses the shared CSG primitives glyph instead of the old symbol icon.
 - nuke-essentials: the generic code Outline view is closed in the default shell; reopen it from View → Outline for code files.
 
 ### Removed
