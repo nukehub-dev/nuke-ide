@@ -1,6 +1,6 @@
 # Safe Edits
 
-NukeAI can change OpenMC run settings, including output, cutoff, and kinetics (IFP) options, project metadata (name, description, and author), materials, tallies, CSG surfaces/cells/universes/lattices, DAGMC volume materials, scalar CAD feature parameters, existing sketch
+NukeAI can change OpenMC run settings, including output, cutoff, and kinetics (IFP) options, project metadata (name, description, and author), materials, tallies, independent fixed-source definitions, CSG surfaces/cells/universes/lattices, DAGMC volume materials, scalar CAD feature parameters, existing sketch
 dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
 STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, existing drawing-sheet presentation
 settings, parameterized component-document creation, and, on Linux only, sandboxed Python model scripts without writing
@@ -44,14 +44,14 @@ kinetics requires the IFP tallies (`ifp-time-numerator`, `ifp-beta-numerator`, a
 exist in the project; NukeAI does not add tallies from a settings edit. IFP generations cannot exceed inactive
 batches, including when a later change lowers the inactive count. `output.path` must be project-relative or an
 absolute path inside the workspace; the directory is not created or deleted. Sources, random ray, CMFD, and geometry
-paths remain outside this flow. Materials, tallies, CSG geometry, and DAGMC have their own flows below.
+paths remain outside this flow. Sources, materials, tallies, CSG geometry, and DAGMC have their own flows below.
 
 ## Finding ids
 
 Every material, tally, and geometry edit takes numeric ids. NukeAI resolves them with `summarizeMaterials`,
-`summarizeTallies`, or `summarizeGeometry` first and never invents an id. The geometry summary also returns DAGMC
-volume/material assignments. Material summaries report the nuclide count, not the list; tally filters report up to 20
-sample bins plus the full count.
+`summarizeTallies`, or `summarizeGeometry` first and never invents an id. Source edits take list indexes, resolved
+with `summarizeSources`. The geometry summary also returns DAGMC volume/material assignments. Material summaries
+report the nuclide count, not the list; tally filters report up to 20 sample bins plus the full count.
 
 ## Materials
 
@@ -82,6 +82,27 @@ Scores must be catalog names or numeric `MT<n>` values. Existing filters, trigge
 cannot be edited through this flow. Adding a tally with filters is supported; mesh authoring remains a dashboard task.
 NukeAI resolves ids with `summarizeTallies` and never invents tally results: run the model and inspect a statepoint for
 results.
+
+## Sources
+
+Source edits add, update, or remove independent fixed-source definitions, one to sixteen actions per preview. NukeAI
+starts with `nuke_openmc_summarizeSources`, which reports the run mode, whether it is fixed source, and each source's
+index, type, spatial/angle/time summary, energy type, particle, and whether it can be edited. An eigenvalue or other
+run mode rejects the preview with `Sources only apply to fixed-source runs.`
+
+- **Add** - append an independent source with a spatial and energy distribution plus optional angle, time, particle,
+  and strength.
+- **Update** - replace the source at an index with a new independent definition.
+- **Remove** - delete an independent source; the preview keeps its full snapshot for undo.
+
+File, compiled, mesh, and tokamak sources stay read-only. Spatial distributions cover point, box, sphere, cylinder,
+cartesian, cylindrical, spherical, and point cloud; energy covers discrete, uniform, Maxwell, Watt, normal, power
+law, tabular, mixture, decay spectrum, and Muir; angles cover isotropic, monodirectional, and mu-phi; times cover
+delta, uniform, discrete, tabular, and mixture. The preview rejects unknown actions or fields, duplicate or
+out-of-range indexes, non-finite numbers, non-positive sizes and radii, mu outside [-1, 1], phi outside [0, 2π], and
+any distribution that cannot serialize to `settings.xml`. Apply re-checks that the source list still matches the
+preview, writes only `settings.sources`, and offers **Undo**. Undo restores the previous source list only while the
+applied list is unchanged.
 
 ## CSG geometry
 
@@ -141,14 +162,14 @@ Confirm only when the diff matches what you want. The apply tool call appears as
 diff, an **Undo** button, and no **Apply with NukeAI**.
 
 If the project changed between the preview and the apply, the apply is rejected with a message naming the changed
-setting, material, tally, or metadata field. Run a fresh preview instead of retrying the old proposal.
+setting, material, tally, source, or metadata field. Run a fresh preview instead of retrying the old proposal.
 
 ## Undo
 
 An applied change shows **Undo**. Selecting it opens a warning notification with an **Undo** action; the reverse
 handler runs only after you choose that action. Cancelling the notification leaves the applied change in place.
 
-Undo restores only the settings, project metadata fields, materials, tallies, CSG entities, or DAGMC assignments that the proposal changed and
+Undo restores only the settings, project metadata fields, materials, tallies, source lists, CSG entities, or DAGMC assignments that the proposal changed and
 verifies that the current values still match the applied result. A failed undo keeps the token so you can try again, and
 reports the failure instead of replacing the card.
 

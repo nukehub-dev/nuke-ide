@@ -129,6 +129,28 @@ tallies; they must already exist. `kinetics.ifpNGenerations` cannot exceed `run.
 change lowers the inactive count. `output.path` is not created or deleted. Sources use their own flow below, and
 random ray, CMFD, and geometry have separate controls. Report the rejection message instead of trying another path.
 
+## Preview, apply, and undo source edits
+
+Source edits only apply to fixed-source runs. Read `nuke_openmc_summarizeSources` first for the run mode, the
+`fixedSource` flag, and every source index; file, compiled, mesh, and tokamak rows are read-only.
+
+1. **Preview** with `nuke_openmc_previewSourceChange` and 1 to 16 actions:
+   - `{ "action": "add", "source": { "spatial": { ... }, "energy": { ... }, "angle": { ... }, "time": { ... }, "particle": "neutron" } }`
+   - `{ "action": "update", "index": 0, "source": { ... } }`
+   - `{ "action": "remove", "index": 1 }`
+     An independent source needs a spatial and energy distribution; angle, time, particle, and strength are optional.
+     Spatial types are point, box, sphere, cylinder, cartesian, cylindrical, spherical, and pointcloud; mesh, file,
+     compiled, and tokamak sources are rejected. Energy types are discrete, uniform, Maxwell, Watt, normal, power law,
+     tabular, mixture, decay spectrum, and Muir; angles are isotropic, monodirectional, and mu-phi; times are delta,
+     uniform, discrete, tabular, and mixture. The preview rejects duplicate or out-of-range indexes, non-finite values,
+     non-positive sizes and radii, mu outside [-1, 1], phi outside [0, 2π], and any source that cannot serialize.
+2. **Apply** with `nuke_openmc_applySourceChange` and only the preview proposal id after explicit confirmation. A
+   stale preview is rejected when the source list changed; preview again.
+3. **Undo** restores the previous source list only while the applied list is unchanged.
+
+An eigenvalue or other run mode rejects the preview with `Sources only apply to fixed-source runs.` Never switch the
+run mode to make a source edit succeed.
+
 ## Preview, apply, and undo material edits
 
 Read the active project first and never invent nuclides, densities, volumes, colors, or names. Call

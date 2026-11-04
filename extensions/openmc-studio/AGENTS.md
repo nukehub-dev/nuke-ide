@@ -71,7 +71,9 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   flow: it returns the run mode and every supported path value (`null` when unset). Edits cover run controls, `output.*`,
   `cutoff.*`, and `kinetics.*`; nested writes keep unrelated keys, `ifpNGenerations` must not exceed `run.inactive`, and
   enabling kinetics requires the dashboard-generated IFP tallies to exist. Apply re-runs cross-field checks.
-  See `docs/dev/ai-capabilities.md`.
+  `nuke.openmc.summarizeSources`/`previewSourceChange`/`applySourceChange` author independent sources on a fixed-source
+  run only through a `sources` proposal; file/compiled/mesh/tokamak sources stay read-only, indexes come from the
+  summary, and undo restores the previous source list. See `docs/dev/ai-capabilities.md`.
 - `nuke.openmc.previewMaterialChange`/`applyMaterialChange` add, update, or remove materials through a `materials` proposal;
   ids/macroscopic/CAD provenance are read-only, adds need unique names, and undo restores only changed materials.
 - `nuke.openmc.previewTallyChange`/`applyTallyChange` add, update, or remove tallies through a `tallies` proposal; scores must be

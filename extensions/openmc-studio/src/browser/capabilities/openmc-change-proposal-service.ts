@@ -48,7 +48,7 @@ export const OPENMC_CHANGE_PROPOSAL_LIMIT = 20;
 export const OPENMC_CHANGE_PROPOSAL_TTL_MS = 10 * 60 * 1000;
 
 /** Domain that owns a previewed change. */
-export type OpenMCChangeScope = 'settings' | 'materials' | 'tallies' | 'project' | 'dagmc' | 'geometry';
+export type OpenMCChangeScope = 'settings' | 'materials' | 'tallies' | 'project' | 'dagmc' | 'geometry' | 'sources';
 
 /** A previewed change awaiting apply. */
 export interface OpenMCChangeProposal {
@@ -79,7 +79,8 @@ const SCOPE_LABELS: Record<OpenMCChangeScope, string> = {
     tallies: 'tallies',
     project: 'project metadata',
     dagmc: 'DAGMC geometry',
-    geometry: 'CSG geometry'
+    geometry: 'CSG geometry',
+    sources: 'sources'
 };
 
 /**

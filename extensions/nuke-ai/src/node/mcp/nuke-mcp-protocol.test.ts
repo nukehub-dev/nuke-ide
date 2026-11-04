@@ -102,7 +102,8 @@ describe('read-only capability filtering', () => {
             'nuke.viz.summarizeStatepoint',
             'nuke.viz.diagnoseStatepoint',
             'nuke.viz.captureView',
-            'nuke.openmc.summarizeSettings'
+            'nuke.openmc.summarizeSettings',
+            'nuke.openmc.summarizeSources'
         ]);
         expect(isAllowedMcpCapability('nuke.cad.summarizeDocument')).toBe(true);
         expect(isAllowedMcpCapability('nuke.cad.exportDagmc')).toBe(false);

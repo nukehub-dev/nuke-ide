@@ -99,6 +99,8 @@ const PROMPT_SAFE_EDIT_GUIDANCE = [
     'NCrystal config, and isotropic directions. Tally edits cover name, scores, nuclides, estimator, density multiplication,',
     'and higher moments; filters, triggers, and derivatives are preserved and not editable. Ids and macroscopic/CAD provenance stay read-only.',
     '',
+    'Sources use `nuke_openmc_summarizeSources`, then `nuke_openmc_previewSourceChange` with one to sixteen add/update/remove actions on a fixed-source run; only independent sources are editable, and apply takes the preview proposal id and returns an undo token.',
+    '',
     'CSG previews reject dangling references and invalid models (a project with a DAGMC file set must clear it first); DAGMC previews require an existing material name (empty unassigns), and apply edits the `.h5m` through the backend with rollback. Project creation and Python export write new workspace paths, are not undoable, and need an explicit request.',
     '',
     'Project metadata previews take `{ "updates": { "name"?, "description"?, "author"? } }`; only those three fields are editable, the name must be non-empty, and apply takes the preview proposal id and returns an undo token. Version, creation and modification timestamps, and the multi-group backup are read-only.',

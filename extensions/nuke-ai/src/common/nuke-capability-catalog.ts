@@ -363,6 +363,19 @@ export const NUKE_CAPABILITY_CATALOG: readonly NukeCapabilityCatalogEntry[] = [
         diagnostics: true
     },
     {
+        id: 'nuke.openmc.summarizeSources',
+        toolName: 'nuke_openmc_summarizeSources',
+        title: 'OpenMC source inventory',
+        summary:
+            'Returns the run mode, fixed-source flag, and up to 50 read-only source rows with index, type, spatial/angle/time summaries, energy type, particle, and editability; resolve every index before previewing a source change.',
+        domain: 'openmc',
+        risk: 'read',
+        chat: true,
+        mcpReadOnly: true,
+        mcpOrder: 16,
+        diagnostics: true
+    },
+    {
         id: 'nuke.openmc.previewProjectMetadata',
         toolName: 'nuke_openmc_previewProjectMetadata',
         title: 'OpenMC project metadata preview',
@@ -446,6 +459,26 @@ export const NUKE_CAPABILITY_CATALOG: readonly NukeCapabilityCatalogEntry[] = [
         toolName: 'nuke_openmc_createProject',
         title: 'OpenMC project creation',
         summary: 'Creates a project from a template; requires explicit confirmation and must not overwrite.',
+        domain: 'openmc',
+        risk: 'write',
+        chat: true
+    },
+    {
+        id: 'nuke.openmc.previewSourceChange',
+        toolName: 'nuke_openmc_previewSourceChange',
+        title: 'OpenMC source preview',
+        summary:
+            'Validates independent fixed-source add/update/remove actions on a fixed-source run and returns a `changeSet` diff without writing; summarize first and never guess indexes.',
+        domain: 'openmc',
+        risk: 'read',
+        chat: true
+    },
+    {
+        id: 'nuke.openmc.applySourceChange',
+        toolName: 'nuke_openmc_applySourceChange',
+        title: 'OpenMC source apply',
+        summary:
+            'Applies a previewed source proposal by id, writes only `settings.sources`, and returns an undo token; requires explicit confirmation.',
         domain: 'openmc',
         risk: 'write',
         chat: true
