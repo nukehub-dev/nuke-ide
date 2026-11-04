@@ -88,7 +88,6 @@
   "name": "flange",
   "parameters": {
     "boltCircleRadius": 4.8,
-    "boltCount": 6,
     "boltHoleDiameter": 1,
     "innerRadius": 3.5,
     "outerRadius": 6,
@@ -411,26 +410,6 @@
           "driving": true,
           "id": "diameter-hole",
           "type": "circle_diameter"
-        },
-        {
-          "driving": true,
-          "id": "horizontal-count",
-          "l_id": "line-count",
-          "type": "horizontal_l"
-        },
-        {
-          "difference": "boltCount",
-          "driving": true,
-          "id": "distance-count",
-          "param1": {
-            "o_id": "point-center",
-            "prop": "x"
-          },
-          "param2": {
-            "o_id": "point-count",
-            "prop": "x"
-          },
-          "type": "difference"
         }
       ],
       "datumId": "datum-xy",
@@ -457,18 +436,6 @@
             "circle-hole"
           ],
           "value": 1
-        },
-        {
-          "constraintId": "distance-count",
-          "driving": true,
-          "id": "dimension-count",
-          "kind": "distanceH",
-          "parameter": "boltCount",
-          "targetIds": [
-            "point-count",
-            "point-center"
-          ],
-          "value": 6
         }
       ],
       "id": "flange-bolt-profile",
@@ -491,13 +458,6 @@
         },
         {
           "construction": true,
-          "id": "point-count",
-          "type": "point",
-          "x": 6,
-          "y": 0
-        },
-        {
-          "construction": true,
           "id": "line-hole",
           "p1_id": "point-center",
           "p2_id": "point-hole",
@@ -509,13 +469,6 @@
           "id": "circle-hole",
           "radius": 0.5,
           "type": "circle"
-        },
-        {
-          "construction": true,
-          "id": "line-count",
-          "p1_id": "point-center",
-          "p2_id": "point-count",
-          "type": "line"
         }
       ]
     }

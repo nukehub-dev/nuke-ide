@@ -57,6 +57,12 @@ export interface ComponentTemplateParameter {
     readonly pair?: string;
     /** Store this input into another document parameter with a factor (diameter -> radius: factor 0.5). */
     readonly derived?: { readonly parameter: string; readonly factor: number };
+    /**
+     * Apply this parameter through the template's {@link ComponentTemplate.configure}
+     * hook instead of storing it as an editable document parameter. Used for
+     * creation-time topology such as pattern counts.
+     */
+    readonly binding?: 'template';
 }
 
 /** A shipped parametric component template. */
@@ -74,6 +80,14 @@ export interface ComponentTemplate {
      * conversions resolve. Return an error message to reject the request.
      */
     readonly validate?: (values: Readonly<Record<string, number>>) => string | undefined;
+    /**
+     * Optional creation-time configuration. Receives a detached copy of the
+     * template body and every resolved parameter (document parameters plus
+     * `binding: 'template'` values) and returns the document to build. Use it
+     * for topology that the generic sketch-parameter cascade cannot express,
+     * such as pattern counts or a regenerated hole array.
+     */
+    readonly configure?: (document: NukeCadDocument, values: Readonly<Record<string, number>>) => NukeCadDocument;
 }
 
 /** One parameter after defaults, pairs, and unit conversions are resolved. */
@@ -101,6 +115,8 @@ export type ComponentTemplateResolveResult =
           readonly ok: true;
           /** Document parameter names mapped to values in document units (derived aliases are folded into their target). */
           readonly values: Readonly<Record<string, number>>;
+          /** `binding: 'template'` values for the configure hook, in document units. */
+          readonly templateValues: Readonly<Record<string, number>>;
           /** Every declared template parameter in declaration order. */
           readonly resolved: readonly ResolvedComponentParameter[];
       }

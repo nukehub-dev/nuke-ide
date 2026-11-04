@@ -66,6 +66,7 @@ const FLANGE = { outerRadius: 6, innerRadius: 3.5, thickness: 1, boltCircleRadiu
 const STEPPED_SHAFT = { stepRadius: 1.2, shaftRadius: 2, stepLength: 3, totalLength: 12 } as const;
 const PIPE = { outerRadius: 3, boreRadius: 2.4, length: 10 } as const;
 const PLATE = { radius: 5, thickness: 0.8, holeDiameter: 0.9, holeCount: 4, holeCircleRadius: 3.5 } as const;
+const TEMPLATE_ONLY_PARAMETERS = new Set(['holeCount', 'boltCount']);
 
 type PointSpec = { fixed?: boolean; construction?: boolean };
 type FeatureSpec = Omit<FeatureDef, 'body'>;
@@ -166,14 +167,11 @@ function radialProfile(id: string, radius: number, height: number, radiusParamet
 
 /**
  * L-shaped equal-leg profile on XY with two through holes and a thickness
- * handle for the straight sweep.
- *
- * `holeCount` drives the construction count dimension. The schema has no way
- * to bind a pattern count to a document parameter, so the sketch ships two
- * representative holes at the default count instead of rebuilding the hole
- * array from the count.
+ * handle for the straight sweep. The canonical fixture ships the default
+ * two-hole layout; the template's configure hook rebuilds the sketch for a
+ * different creation-time hole count.
  */
-function lBracketProfile(legLength: number, legWidth: number, thickness: number, holeDiameter: number, holeCount: number): SketchDef {
+function lBracketProfile(legLength: number, legWidth: number, thickness: number, holeDiameter: number): SketchDef {
     const holeRadius = holeDiameter / 2;
     const firstHole: [number, number] = [legLength / 2, legWidth / 2];
     const secondHole: [number, number] = [(legWidth + legLength) / 2, legWidth / 2];
@@ -199,9 +197,7 @@ function lBracketProfile(legLength: number, legWidth: number, thickness: number,
             point('point-hole-1', firstHole[0], firstHole[1]),
             circle('circle-hole-1', 'point-hole-1', holeRadius),
             point('point-hole-2', secondHole[0], secondHole[1]),
-            circle('circle-hole-2', 'point-hole-2', holeRadius),
-            point('point-count', holeCount, 0, { construction: true }),
-            line('line-count', 'point-1', 'point-count', true)
+            circle('circle-hole-2', 'point-hole-2', holeRadius)
         ],
         constraints: [
             signConstraint('horizontal-13', 'horizontal_l', 'line-7'),
@@ -219,9 +215,7 @@ function lBracketProfile(legLength: number, legWidth: number, thickness: number,
             symmetric('symmetric-hole-1', 'point-1', 'point-3', 'point-hole-1'),
             circleDiameter('diameter-hole-1', 'circle-hole-1', 'holeDiameter'),
             symmetric('symmetric-hole-2', 'point-4', 'point-2', 'point-hole-2'),
-            circleDiameter('diameter-hole-2', 'circle-hole-2', 'holeDiameter'),
-            signConstraint('horizontal-count', 'horizontal_l', 'line-count'),
-            difference('distance-count', 'x', 'point-1', 'point-count', 'holeCount')
+            circleDiameter('diameter-hole-2', 'circle-hole-2', 'holeDiameter')
         ],
         dimensions: [
             dimension('dimension-length', 'distance-length', 'distanceH', ['point-2', 'point-1'], 'legLength', legLength),
@@ -230,8 +224,7 @@ function lBracketProfile(legLength: number, legWidth: number, thickness: number,
             dimension('dimension-upper', 'distance-upper', 'distanceV', ['point-6', 'point-1'], 'legLength', legLength),
             dimension('dimension-thickness', 'distance-thickness', 'distanceV', ['point-height', 'point-6'], 'thickness', thickness),
             dimension('dimension-hole-1', 'diameter-hole-1', 'diameter', ['circle-hole-1'], 'holeDiameter', holeDiameter),
-            dimension('dimension-hole-2', 'diameter-hole-2', 'diameter', ['circle-hole-2'], 'holeDiameter', holeDiameter),
-            dimension('dimension-count', 'distance-count', 'distanceH', ['point-count', 'point-1'], 'holeCount', holeCount)
+            dimension('dimension-hole-2', 'diameter-hole-2', 'diameter', ['circle-hole-2'], 'holeDiameter', holeDiameter)
         ]
     };
 }
@@ -288,10 +281,8 @@ function boltPatternSketch(
     id: string,
     holeCircleRadiusParameter: string,
     holeDiameterParameter: string,
-    countParameter: string,
     holeCircleRadius: number,
-    holeDiameter: number,
-    count: number
+    holeDiameter: number
 ): SketchDef {
     return {
         id,
@@ -301,16 +292,12 @@ function boltPatternSketch(
             point('point-center', 0, 0, { fixed: true }),
             point('point-hole', holeCircleRadius, 0),
             line('line-hole', 'point-center', 'point-hole', true),
-            circle('circle-hole', 'point-hole', holeDiameter / 2),
-            point('point-count', count, 0, { construction: true }),
-            line('line-count', 'point-center', 'point-count', true)
+            circle('circle-hole', 'point-hole', holeDiameter / 2)
         ],
         constraints: [
             signConstraint('horizontal-hole', 'horizontal_l', 'line-hole'),
             difference('distance-radius', 'x', 'point-center', 'point-hole', holeCircleRadiusParameter),
-            circleDiameter('diameter-hole', 'circle-hole', holeDiameterParameter),
-            signConstraint('horizontal-count', 'horizontal_l', 'line-count'),
-            difference('distance-count', 'x', 'point-center', 'point-count', countParameter)
+            circleDiameter('diameter-hole', 'circle-hole', holeDiameterParameter)
         ],
         dimensions: [
             dimension(
@@ -321,8 +308,7 @@ function boltPatternSketch(
                 holeCircleRadiusParameter,
                 holeCircleRadius
             ),
-            dimension('dimension-hole', 'diameter-hole', 'diameter', ['circle-hole'], holeDiameterParameter, holeDiameter),
-            dimension('dimension-count', 'distance-count', 'distanceH', ['point-count', 'point-center'], countParameter, count)
+            dimension('dimension-hole', 'diameter-hole', 'diameter', ['circle-hole'], holeDiameterParameter, holeDiameter)
         ]
     };
 }
@@ -414,9 +400,7 @@ function mechanicalSpecs(): readonly MechanicalSpec[] {
             id: 'l-bracket',
             bodyLabel: 'l-bracket',
             parameters: L_BRACKET,
-            sketches: [
-                lBracketProfile(L_BRACKET.legLength, L_BRACKET.legWidth, L_BRACKET.thickness, L_BRACKET.holeDiameter, L_BRACKET.holeCount)
-            ],
+            sketches: [lBracketProfile(L_BRACKET.legLength, L_BRACKET.legWidth, L_BRACKET.thickness, L_BRACKET.holeDiameter)],
             curves: [verticalPath('l-bracket-thickness-path', 'l-bracket thickness path', 'thickness', L_BRACKET.thickness)],
             features: [sweepFeature('l-bracket-sweep', 'L bracket', 'l-bracket-profile', 'l-bracket-thickness-path')]
         },
@@ -431,10 +415,8 @@ function mechanicalSpecs(): readonly MechanicalSpec[] {
                     'flange-bolt-profile',
                     'boltCircleRadius',
                     'boltHoleDiameter',
-                    'boltCount',
                     FLANGE.boltCircleRadius,
-                    FLANGE.boltHoleDiameter,
-                    FLANGE.boltCount
+                    FLANGE.boltHoleDiameter
                 )
             ],
             features: [
@@ -481,10 +463,8 @@ function mechanicalSpecs(): readonly MechanicalSpec[] {
                     'bolt-circle-plate-bolt-profile',
                     'holeCircleRadius',
                     'holeDiameter',
-                    'holeCount',
                     PLATE.holeCircleRadius,
-                    PLATE.holeDiameter,
-                    PLATE.holeCount
+                    PLATE.holeDiameter
                 )
             ],
             features: [
@@ -503,6 +483,9 @@ async function buildDocument(spec: MechanicalSpec): Promise<NukeCadDocument> {
     expect(store.createDocument(spec.id).success, spec.id).toBe(true);
     expect(store.setUnits('cm').success, spec.id).toBe(true);
     for (const [name, value] of Object.entries(spec.parameters)) {
+        if (TEMPLATE_ONLY_PARAMETERS.has(name)) {
+            continue;
+        }
         const result = store.addParameter(name, value);
         expect(result.success, `${spec.id}: ${result.error ?? name}`).toBe(true);
     }
@@ -631,8 +614,7 @@ describe('GUI build mechanical', () => {
             legLength: 10,
             legWidth: 3,
             thickness: 0.9,
-            holeDiameter: 1.2,
-            holeCount: 3
+            holeDiameter: 1.2
         });
         expect(primitive(bracket, 'point-2').x).toBeCloseTo(10);
         expect(primitive(bracket, 'point-4').x).toBeCloseTo(3);
@@ -645,21 +627,18 @@ describe('GUI build mechanical', () => {
         expect(primitive(bracket, 'point-hole-2').y).toBeCloseTo(1.5);
         expect(primitive(bracket, 'circle-hole-1').radius).toBeCloseTo(0.6);
         expect(primitive(bracket, 'circle-hole-2').radius).toBeCloseTo(0.6);
-        expect(primitive(bracket, 'point-count').x).toBeCloseTo(3);
 
         const flangeOuter = await solveWith('flange', 'flange-outer-profile', { outerRadius: 7, thickness: 1.4 });
         const flangeBore = await solveWith('flange', 'flange-bore-profile', { innerRadius: 4, thickness: 1.4 });
         const flangeBolt = await solveWith('flange', 'flange-bolt-profile', {
             boltCircleRadius: 5.5,
-            boltHoleDiameter: 1.2,
-            boltCount: 8
+            boltHoleDiameter: 1.2
         });
         expect(primitive(flangeOuter, 'point-2').x).toBeCloseTo(7);
         expect(primitive(flangeOuter, 'point-3').y).toBeCloseTo(1.4);
         expect(primitive(flangeBore, 'point-2').x).toBeCloseTo(4);
         expect(primitive(flangeBolt, 'point-hole').x).toBeCloseTo(5.5);
         expect(primitive(flangeBolt, 'circle-hole').radius).toBeCloseTo(0.6);
-        expect(primitive(flangeBolt, 'point-count').x).toBeCloseTo(8);
 
         const shaft = await solveWith('stepped-shaft', 'stepped-shaft-profile', {
             stepRadius: 1.5,
@@ -682,13 +661,11 @@ describe('GUI build mechanical', () => {
         const plate = await solveWith('bolt-circle-plate', 'bolt-circle-plate-profile', { radius: 6, thickness: 1.1 });
         const plateBolt = await solveWith('bolt-circle-plate', 'bolt-circle-plate-bolt-profile', {
             holeCircleRadius: 4.2,
-            holeDiameter: 1.4,
-            holeCount: 6
+            holeDiameter: 1.4
         });
         expect(primitive(plate, 'point-2').x).toBeCloseTo(6);
         expect(primitive(plate, 'point-3').y).toBeCloseTo(1.1);
         expect(primitive(plateBolt, 'point-hole').x).toBeCloseTo(4.2);
         expect(primitive(plateBolt, 'circle-hole').radius).toBeCloseTo(0.7);
-        expect(primitive(plateBolt, 'point-count').x).toBeCloseTo(6);
     });
 });

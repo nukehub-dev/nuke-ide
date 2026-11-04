@@ -29,6 +29,7 @@ import { describe, expect, it } from 'vitest';
 import { validateNukeCadDocument } from '../cad-document';
 import {
     componentParameterSketchIds,
+    instantiateComponentTemplate,
     resolveComponentTemplateParameters,
     validateComponentTemplate,
     type ComponentTemplate,
@@ -182,7 +183,8 @@ describe('mechanical component templates', () => {
         for (const testCase of cases) {
             const result = expectSuccess(resolveComponentTemplateParameters(templateById(testCase.id), testCase.overrides));
             for (const [name, value] of Object.entries(testCase.expected)) {
-                expect(result.values[name], `${testCase.id}:${name}`).toBeCloseTo(value);
+                const actual = result.values[name] ?? result.templateValues[name];
+                expect(actual, `${testCase.id}:${name}`).toBeCloseTo(value);
             }
             for (const parameter of result.resolved) {
                 if (!Object.prototype.hasOwnProperty.call(testCase.overrides, parameter.name)) {
@@ -211,7 +213,8 @@ describe('mechanical component templates', () => {
                 'mm'
             )
         );
-        expect(bracket.values).toEqual({ legLength: 10, legWidth: 3, thickness: 0.6, holeDiameter: 1, holeCount: 2 });
+        expect(bracket.values).toEqual({ legLength: 10, legWidth: 3, thickness: 0.6, holeDiameter: 1 });
+        expect(bracket.templateValues.holeCount).toBe(2);
 
         const flange = expectSuccess(
             resolveComponentTemplateParameters(templateById('flange'), { outerDiameter: 140, boltCircleDiameter: 110 }, 'mm')
@@ -304,11 +307,41 @@ describe('mechanical component templates', () => {
         }
     });
 
-    it('references count parameters from the pattern sketch', () => {
-        expect(componentParameterSketchIds(templateById('l-bracket').document, 'holeCount')).toEqual(['l-bracket-profile']);
-        expect(componentParameterSketchIds(templateById('flange').document, 'boltCount')).toEqual(['flange-bolt-profile']);
-        expect(componentParameterSketchIds(templateById('bolt-circle-plate').document, 'holeCount')).toEqual([
-            'bolt-circle-plate-bolt-profile'
-        ]);
+    it('applies creation-time count parameters through the configure hook', () => {
+        function instantiate(id: string, overrides: Record<string, number>) {
+            const template = templateById(id);
+            const resolved = expectSuccess(resolveComponentTemplateParameters(template, overrides));
+            const document = instantiateComponentTemplate(template, id, { ...resolved.values, ...resolved.templateValues });
+            expect(validateNukeCadDocument(document).valid, id).toBe(true);
+            return document;
+        }
+
+        const bracket = instantiate('l-bracket', { holeCount: 3 });
+        const bracketSketch = bracket.sketches.find((sketch) => sketch.id === 'l-bracket-profile')!;
+        expect(bracketSketch.primitives.filter((primitive) => String(primitive.id).startsWith('point-hole-'))).toHaveLength(3);
+        expect(bracket.parameters.holeCount).toBeUndefined();
+
+        const flange = instantiate('flange', { boltCount: 8 });
+        const flangePattern = flange.features.find((feature) => feature.id === 'flange-bolt-pattern')!;
+        expect((flangePattern.params as { count?: number }).count).toBe(8);
+        expect(flange.parameters.boltCount).toBeUndefined();
+
+        const plate = instantiate('bolt-circle-plate', { holeCount: 6 });
+        const platePattern = plate.features.find((feature) => feature.id === 'bolt-circle-plate-pattern')!;
+        expect((platePattern.params as { count?: number }).count).toBe(6);
+        expect(plate.parameters.holeCount).toBeUndefined();
+    });
+
+    it('keeps count parameters out of the editable document parameters', () => {
+        for (const id of MECHANICAL_IDS) {
+            const template = templateById(id);
+            const countNames = template.parameters
+                .filter((parameter) => parameter.binding === 'template')
+                .map((parameter) => parameter.name);
+            for (const name of countNames) {
+                expect(template.document.parameters[name], `${id}:${name}`).toBeUndefined();
+                expect(componentParameterSketchIds(template.document, name), `${id}:${name}`).toEqual([]);
+            }
+        }
     });
 });

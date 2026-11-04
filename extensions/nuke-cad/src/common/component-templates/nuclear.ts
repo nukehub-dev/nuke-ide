@@ -46,11 +46,10 @@
  * a construction wall gauge for the `wallThickness` parameter, and
  * `validateGuideTubeWall` checks a resolved triple before a caller builds it.
  *
- * Pattern counts are numeric-only in the document schema, so the grid plate
- * ships a representative 3x3 cell array at the default count. `cellCount`
- * still drives a construction dimension in the plate sketch, so overriding it
- * re-solves the sketch and the creation flow accepts the value; the solid
- * keeps the default cell count.
+ * Pattern counts are creation-time template parameters (`binding: 'template'`)
+ * because the document schema stores a pattern count as a plain number. The
+ * grid plate's configure hook rebuilds its hole array for the requested count
+ * before the candidate build.
  *
  * @module nuke-cad/common
  */
@@ -59,6 +58,7 @@ import type { NukeCadDocument } from '../cad-document';
 import assemblyGridPlateJson from '../samples/gui_assembly_grid_plate.json';
 import controlRodGuideTubeJson from '../samples/gui_control_rod_guide_tube.json';
 import hexCellJson from '../samples/gui_hex_cell.json';
+import { buildGridPlateProfile, replaceSketch } from './sketch-builders';
 import type { ComponentTemplate, ComponentTemplateParameter } from './types';
 
 /** Material tags applied to each template body by label. */
@@ -170,7 +170,8 @@ function countParameter(
         min,
         max,
         step: 1,
-        description
+        description,
+        binding: 'template'
     };
 }
 
@@ -202,13 +203,42 @@ export function validateGuideTubeWall(outerDiameter: number, innerDiameter: numb
     return undefined;
 }
 
+/** Default cell count shipped by the nuclear grid-plate fixture. */
+const DEFAULT_GRID_CELLS = 3;
+
+function configureGridPlate(document: NukeCadDocument, values: Readonly<Record<string, number>>): NukeCadDocument {
+    if (values.cellCount === DEFAULT_GRID_CELLS) {
+        return document;
+    }
+    return replaceSketch(
+        document,
+        buildGridPlateProfile({
+            width: values.width,
+            height: values.height,
+            thickness: values.plateThickness,
+            cellPitch: values.cellPitch,
+            cellCount: values.cellCount,
+            cellDiameter: values.cellDiameter
+        })
+    );
+}
+
+function validateGridPlate(values: Readonly<Record<string, number>>): string | undefined {
+    const count = Math.max(1, Math.round(values.cellCount));
+    const span = (count - 1) * values.cellPitch + values.cellDiameter;
+    if (span > Math.min(values.width, values.height)) {
+        return `A ${count}x${count} cell array at cellPitch ${values.cellPitch} cm and cellDiameter ${values.cellDiameter} cm does not fit in the ${values.width} x ${values.height} cm plate.`;
+    }
+    return undefined;
+}
+
 /**
  * Three nuclear starters with sketch-driven dimensions.
  *
  * The hex cell is a fuel/clad/moderator pin in a hexagonal cell envelope; its
  * flat-to-flat pitch is the hex-lattice center-to-center spacing. The guide
  * tube is a hollow Zircaloy tube. The assembly grid plate is a Zircaloy plate
- * with a representative 3x3 through-hole cell array.
+ * with a 3x3 through-hole cell array at the shipped default count.
  */
 export const NUCLEAR_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
     {
@@ -294,7 +324,7 @@ export const NUCLEAR_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
         id: 'assembly-grid-plate',
         name: 'Assembly grid plate',
         description:
-            'Zircaloy-4 grid plate with a representative 3x3 through-hole cell array; cellCount is the nominal count and the shipped pattern stays at the default three cells per side.',
+            'Zircaloy-4 grid plate with a cellCount x cellCount through-hole array; creation rebuilds the array for the requested count.',
         category: 'nuclear',
         keywords: ['assembly', 'grid', 'grid plate', 'spacer grid', 'cell', 'array', 'reactor', 'pwr'],
         parameters: [
@@ -302,16 +332,11 @@ export const NUCLEAR_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
             lengthParameter('height', 'Height', 4.2, 0.5, 200, 'Plate height along Y.', 0.1),
             lengthParameter('plateThickness', 'Plate thickness', 0.3, 0.05, 50, 'Plate thickness along Z.', 0.01),
             lengthParameter('cellPitch', 'Cell pitch', 1.26, 0.05, 20, 'Center-to-center spacing of the cell array.', 0.01),
-            countParameter(
-                'cellCount',
-                'Cell count',
-                3,
-                1,
-                17,
-                'Nominal cells per side; the shipped representative pattern carries three cells per side.'
-            ),
+            countParameter('cellCount', 'Cell count', 3, 1, 17, 'Cells per side; creation rebuilds the through-hole array for this count.'),
             lengthParameter('cellDiameter', 'Cell diameter', 0.95, 0.05, 10, 'Diameter of each through-cell.', 0.01)
         ],
-        document: templateDocument('assembly-grid-plate', assemblyGridPlateJson)
+        document: templateDocument('assembly-grid-plate', assemblyGridPlateJson),
+        validate: validateGridPlate,
+        configure: configureGridPlate
     }
 ];

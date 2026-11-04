@@ -28,12 +28,16 @@ interface ComponentTemplate {
   parameters: readonly ComponentTemplateParameter[];
   document: NukeCadDocument; // validated v3 body, declared units, no import features
   validate?(values: Readonly<Record<string, number>>): string | undefined; // cross-parameter check
+  configure?(document: NukeCadDocument, values: Readonly<Record<string, number>>): NukeCadDocument; // creation-time topology
 }
 ```
 
 `validate` runs after defaults, pairs, and unit conversions resolve. It returns
 an error message to reject the request; creation and AI previews call the same
-resolver, so the check applies everywhere.
+resolver, so the check applies everywhere. `configure` receives a detached
+template body plus every resolved value and returns the document to build. Use
+it when the generic sketch-parameter cascade cannot express the topology, such
+as a pattern count or a regenerated hole array.
 
 | Parameter field | Contract                                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -47,6 +51,7 @@ resolver, so the check applies everywhere.
 | `description`   | Optional one-line help.                                                                                             |
 | `pair`          | Optional mutual counterpart, used for radius/diameter aliases. The declaration must name another parameter.         |
 | `derived`       | Optional `{ parameter, factor }` alias: the input is stored in the named document parameter after `input × factor`. |
+| `binding`       | Optional `'template'`: a creation-time parameter applied by `configure`, never stored as a document parameter.      |
 
 Resolution rules in `resolveComponentTemplateParameters`:
 
@@ -55,6 +60,9 @@ Resolution rules in `resolveComponentTemplateParameters`:
   ignore the caller unit.
 - `count` overrides must be positive integers; every numeric override must be
   finite. Unknown parameter names reject the whole request.
+- A `binding: 'template'` parameter must not be a document parameter or a
+  derived alias. Its resolved value is returned in `templateValues` and passed
+  to `validate`/`configure`, not written to `document.parameters`.
 - `min`/`max` are validated in the declared unit. A derived alias is also
   checked against its target parameter's range after the factor conversion.
 - A `pair` must be mutual. Supplying both sides at once is accepted only when
@@ -194,15 +202,20 @@ nuclear entry.
 | `control-rod-guide-tube` | `control-rod-guide-tube` | `outerRadius` 0.6 (0.05–100), `innerRadius` 0.54 (0.025–99.9), `length` 30 (0.5–200), `wallThickness` 0.06 (0.001–50), two diameter aliases                    | `guide-tube` Zircaloy-4                        |
 | `assembly-grid-plate`    | `assembly-grid-plate`    | `width` 4.2 (0.5–200), `height` 4.2 (0.5–200), `plateThickness` 0.3 (0.05–50), `cellPitch` 1.26 (0.05–20), `cellCount` 3 (1–17), `cellDiameter` 0.95 (0.05–10) | `grid-plate` Zircaloy-4                        |
 
-Pattern counts (`holeCount`, `boltCount`, `cellCount`) resolve and validate as
-template parameters, but the document schema stores a pattern count as a number
-rather than a parameter reference. The shipped patterns therefore stay at their
-default instance counts; overriding a count re-solves the seed sketch and is
-accepted by creation, but does not change the number of holes. The
-`control-rod-guide-tube` wall thickness must equal half the difference between
-its outer and inner diameters. The template declares an optional `validate`
-hook that runs `validateGuideTubeWall` after defaults, pairs, and unit
-conversions resolve, so an inconsistent triple is rejected before any build.
+Pattern counts (`holeCount`, `boltCount`, `cellCount`) are creation-time
+template parameters with `binding: 'template'`. They validate and resolve like
+every other input but are not stored in the created document's editable
+parameter table, because the document schema stores a pattern count as a plain
+number. The template's optional `configure` hook applies them to a detached
+document before the candidate build: the flange and bolt-circle plate set the
+`circularPattern` count, while the L bracket and assembly grid plate rebuild
+their hole sketch for the requested count. The canonical fixtures keep the
+shipped default counts; the e2e suite also builds override fixtures and asserts
+the changed face counts. The `control-rod-guide-tube` wall thickness must equal
+half the difference between its outer and inner diameters. The template
+declares an optional `validate` hook that runs `validateGuideTubeWall` after
+defaults, pairs, and unit conversions resolve, so an inconsistent triple is
+rejected before any build.
 
 ## Shipped entry: `pincell`
 

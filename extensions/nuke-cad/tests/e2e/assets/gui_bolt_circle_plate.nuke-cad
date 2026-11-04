@@ -73,7 +73,6 @@
   "name": "bolt-circle-plate",
   "parameters": {
     "holeCircleRadius": 3.5,
-    "holeCount": 4,
     "holeDiameter": 0.9,
     "radius": 5,
     "thickness": 0.8
@@ -251,26 +250,6 @@
           "driving": true,
           "id": "diameter-hole",
           "type": "circle_diameter"
-        },
-        {
-          "driving": true,
-          "id": "horizontal-count",
-          "l_id": "line-count",
-          "type": "horizontal_l"
-        },
-        {
-          "difference": "holeCount",
-          "driving": true,
-          "id": "distance-count",
-          "param1": {
-            "o_id": "point-center",
-            "prop": "x"
-          },
-          "param2": {
-            "o_id": "point-count",
-            "prop": "x"
-          },
-          "type": "difference"
         }
       ],
       "datumId": "datum-xy",
@@ -297,18 +276,6 @@
             "circle-hole"
           ],
           "value": 0.9
-        },
-        {
-          "constraintId": "distance-count",
-          "driving": true,
-          "id": "dimension-count",
-          "kind": "distanceH",
-          "parameter": "holeCount",
-          "targetIds": [
-            "point-count",
-            "point-center"
-          ],
-          "value": 4
         }
       ],
       "id": "bolt-circle-plate-bolt-profile",
@@ -331,13 +298,6 @@
         },
         {
           "construction": true,
-          "id": "point-count",
-          "type": "point",
-          "x": 4,
-          "y": 0
-        },
-        {
-          "construction": true,
           "id": "line-hole",
           "p1_id": "point-center",
           "p2_id": "point-hole",
@@ -349,13 +309,6 @@
           "id": "circle-hole",
           "radius": 0.45,
           "type": "circle"
-        },
-        {
-          "construction": true,
-          "id": "line-count",
-          "p1_id": "point-center",
-          "p2_id": "point-count",
-          "type": "line"
         }
       ]
     }

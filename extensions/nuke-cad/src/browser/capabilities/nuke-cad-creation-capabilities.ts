@@ -281,7 +281,7 @@ export class NukeCadCreationCapabilities implements NukeCapabilityContribution {
             return { ok: false, message: resolved.message };
         }
         const name = request.value.name?.trim() || template.name;
-        let candidate = instantiateComponentTemplate(template, name);
+        let candidate = instantiateComponentTemplate(template, name, { ...resolved.values, ...resolved.templateValues });
         const solved = await this.applyParameterValues(candidate, resolved.values);
         if (!solved.ok) {
             return { ok: false, message: solved.message };
@@ -448,6 +448,10 @@ export class NukeCadCreationCapabilities implements NukeCapabilityContribution {
     ): Promise<{ ok: true; document: NukeCadDocument } | { ok: false; message: string }> {
         let candidate = document;
         for (const [name, value] of Object.entries(values)) {
+            if (!Object.prototype.hasOwnProperty.call(candidate.parameters, name)) {
+                // Template-bound values were already applied by `configure`.
+                continue;
+            }
             const current = candidate.parameters[name];
             if (current === value) {
                 continue;

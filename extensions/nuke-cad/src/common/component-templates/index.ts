@@ -408,12 +408,21 @@ export function resolveComponentTemplateParameters(
         if (canonical.derived !== undefined) {
             return { ok: false, message: `Parameter '${name}' cannot be both a document parameter and a derived alias` };
         }
+        if (canonical.binding === 'template') {
+            return { ok: false, message: `Parameter '${name}' cannot be both a document parameter and template-bound` };
+        }
         if (typeof canonical.default !== 'number' || !Number.isFinite(canonical.default)) {
             return { ok: false, message: `Parameter '${name}' must declare a finite default` };
         }
     }
     for (const parameter of parameters) {
         if (documentParameterNames.has(parameter.name)) {
+            continue;
+        }
+        if (parameter.binding === 'template') {
+            if (parameter.derived !== undefined) {
+                return { ok: false, message: `Parameter '${parameter.name}' cannot be both template-bound and derived` };
+            }
             continue;
         }
         if (parameter.derived === undefined) {
@@ -528,7 +537,16 @@ export function resolveComponentTemplateParameters(
         values[name] = canonicalValue ?? derivedValue ?? toDocumentUnits(canonical.default, canonical, documentUnits);
     }
 
-    const templateError = template.validate?.(values);
+    const templateValues: Record<string, number> = {};
+    for (const parameter of parameters) {
+        if (documentParameterNames.has(parameter.name) || parameter.binding !== 'template') {
+            continue;
+        }
+        const directValue = direct.get(parameter.name);
+        templateValues[parameter.name] = toDocumentUnits(directValue ?? parameter.default, parameter, documentUnits);
+    }
+
+    const templateError = template.validate?.({ ...values, ...templateValues });
     if (templateError !== undefined) {
         return { ok: false, message: templateError };
     }
@@ -547,7 +565,7 @@ export function resolveComponentTemplateParameters(
             }
             inputValue = derivedValueFromStorage(parameter, stored, target, documentUnits);
         } else {
-            const stored = values[parameter.name];
+            const stored = values[parameter.name] ?? templateValues[parameter.name];
             if (stored === undefined) {
                 return { ok: false, message: `Parameter '${parameter.name}' is not a document parameter` };
             }
@@ -566,7 +584,7 @@ export function resolveComponentTemplateParameters(
             max: parameter.max === undefined ? undefined : toDocumentUnits(parameter.max, parameter, documentUnits)
         });
     }
-    return { ok: true, values, resolved };
+    return { ok: true, values, templateValues, resolved };
 }
 
 /**
@@ -575,10 +593,14 @@ export function resolveComponentTemplateParameters(
  * Parameters and sketches stay exactly as shipped; the caller validates and
  * solves them as part of its creation flow.
  */
-export function instantiateComponentTemplate(template: ComponentTemplate, name: string): NukeCadDocument {
+export function instantiateComponentTemplate(
+    template: ComponentTemplate,
+    name: string,
+    values?: Readonly<Record<string, number>>
+): NukeCadDocument {
     const clone = JSON.parse(JSON.stringify(template.document)) as NukeCadDocument;
     clone.name = name;
-    return clone;
+    return values === undefined ? clone : (template.configure?.(clone, values) ?? clone);
 }
 
 /**
@@ -662,6 +684,9 @@ export function validateComponentTemplate(template: ComponentTemplate): readonly
         ) {
             errors.push(`${prefix}: ${parameterLabel} step must be a positive finite number`);
         }
+        if (parameter.binding !== undefined && parameter.binding !== 'template') {
+            errors.push(`${prefix}: ${parameterLabel} binding must be 'template' when present`);
+        }
         if (parameter.derived !== undefined) {
             const factor = parameter.derived.factor;
             if (typeof factor !== 'number' || !Number.isFinite(factor) || factor === 0) {
@@ -707,7 +732,14 @@ export function validateComponentTemplate(template: ComponentTemplate): readonly
         if (typeof name !== 'string' || name.length === 0) {
             continue;
         }
-        if (parameter.derived !== undefined) {
+        if (parameter.binding === 'template') {
+            if (parameter.derived !== undefined) {
+                errors.push(`${prefix}: parameter '${name}' cannot be both template-bound and derived`);
+            }
+            if (documentParameterNames.has(name)) {
+                errors.push(`${prefix}: parameter '${name}' cannot be both a document parameter and template-bound`);
+            }
+        } else if (parameter.derived !== undefined) {
             if (documentParameterNames.has(name)) {
                 errors.push(`${prefix}: parameter '${name}' cannot be both a document parameter and a derived alias`);
             }
@@ -716,7 +748,7 @@ export function validateComponentTemplate(template: ComponentTemplate): readonly
                 errors.push(`${prefix}: parameter '${name}' derives from '${target}', which is not a document parameter`);
             }
         } else if (!documentParameterNames.has(name)) {
-            errors.push(`${prefix}: parameter '${name}' must be a document parameter or declare a derived target`);
+            errors.push(`${prefix}: parameter '${name}' must be a document parameter, declare a derived target, or use binding 'template'`);
         }
     }
     for (const name of documentParameterNames) {

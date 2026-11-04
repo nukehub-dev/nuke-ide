@@ -29,6 +29,7 @@ import { describe, expect, it } from 'vitest';
 import { validateNukeCadDocument } from '../cad-document';
 import {
     componentParameterSketchIds,
+    instantiateComponentTemplate,
     resolveComponentTemplateParameters,
     validateComponentTemplate,
     type ComponentTemplate,
@@ -182,8 +183,8 @@ describe('nuclear component templates', () => {
         const plate = templateById('assembly-grid-plate');
         const resolved = expectSuccess(
             resolveComponentTemplateParameters(plate, {
-                width: 5,
-                height: 4.5,
+                width: 6,
+                height: 6,
                 plateThickness: 0.4,
                 cellPitch: 1.5,
                 cellCount: 4,
@@ -191,17 +192,18 @@ describe('nuclear component templates', () => {
             })
         );
         expect(resolved.values).toEqual({
-            width: 5,
-            height: 4.5,
+            width: 6,
+            height: 6,
             plateThickness: 0.4,
             cellPitch: 1.5,
-            cellCount: 4,
             cellDiameter: 1
         });
+        expect(resolved.templateValues.cellCount).toBe(4);
         expect(resolved.resolved.find((parameter) => parameter.name === 'cellCount')!.value).toBe(4);
 
         expect(expectFailure(resolveComponentTemplateParameters(plate, { cellCount: 2.5 }))).toContain('positive integer');
         expect(expectFailure(resolveComponentTemplateParameters(plate, { cellCount: 0 }))).toContain('positive integer');
+        expect(expectFailure(resolveComponentTemplateParameters(plate, { cellCount: 5 }))).toContain('does not fit');
         expect(expectFailure(resolveComponentTemplateParameters(plate, { cellDiameter: 0.001 }))).toContain('cellDiameter');
         expect(expectFailure(resolveComponentTemplateParameters(plate, { width: 0.1 }))).toContain('width');
     });
@@ -217,9 +219,22 @@ describe('nuclear component templates', () => {
         expect(componentParameterSketchIds(templateById('control-rod-guide-tube').document, 'wallThickness')).toEqual([
             'guide-tube-profile'
         ]);
-        expect(componentParameterSketchIds(templateById('assembly-grid-plate').document, 'cellCount')).toEqual(['grid-plate-profile']);
         expect(componentParameterSketchIds(templateById('assembly-grid-plate').document, 'plateThickness')).toContain(
             'grid-plate-thickness-path'
         );
+        expect(templateById('assembly-grid-plate').document.parameters.cellCount).toBeUndefined();
+    });
+
+    it('applies the grid-plate cellCount through the configure hook', () => {
+        const template = templateById('assembly-grid-plate');
+        const resolved = expectSuccess(resolveComponentTemplateParameters(template, { width: 6, height: 6, cellCount: 4, cellPitch: 1.2 }));
+        const document = instantiateComponentTemplate(template, 'grid', {
+            ...resolved.values,
+            ...resolved.templateValues
+        });
+        const sketch = document.sketches.find((candidate) => candidate.id === 'grid-plate-profile')!;
+        expect(sketch.primitives.filter((primitive) => String(primitive.id).startsWith('point-hole-'))).toHaveLength(16);
+        expect(document.parameters.cellCount).toBeUndefined();
+        expect(validateNukeCadDocument(document).valid).toBe(true);
     });
 });

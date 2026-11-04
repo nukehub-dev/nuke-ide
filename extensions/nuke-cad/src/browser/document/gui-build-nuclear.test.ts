@@ -314,23 +314,14 @@ function hexProfile(
 }
 
 /**
- * Rectangular grid plate profile on XY with a representative 3x3 through-hole
- * array, a construction count handle, and a vertical sweep-height handle.
+ * Rectangular grid plate profile on XY with the canonical 3x3 through-hole
+ * array and a vertical sweep-height handle.
  *
  * `cellPitch` drives the hole spacing through adjacent-center dimensions and
- * `cellDiameter` drives every hole. `cellCount` drives a construction count
- * dimension: the document schema stores pattern counts as plain numbers, so
- * the shipped sketch keeps the 3x3 array at the default count instead of
- * rebuilding it from the parameter.
+ * `cellDiameter` drives every hole. The template's configure hook rebuilds the
+ * sketch for a different creation-time cell count.
  */
-function gridPlateProfile(
-    width: number,
-    height: number,
-    thickness: number,
-    cellPitch: number,
-    cellCount: number,
-    cellDiameter: number
-): SketchDef {
+function gridPlateProfile(width: number, height: number, thickness: number, cellPitch: number, cellDiameter: number): SketchDef {
     const halfWidth = width / 2;
     const halfHeight = height / 2;
     const gauge = heightGauge('profile', 'point-center', thickness, 'plateThickness');
@@ -344,9 +335,7 @@ function gridPlateProfile(
         line('line-3', 'point-3', 'point-4'),
         line('line-4', 'point-4', 'point-1'),
         point('point-center', 0, 0, { fixed: true }),
-        ...gauge.primitives,
-        point('point-count', cellCount, 0, { construction: true }),
-        line('line-count', 'point-center', 'point-count', true)
+        ...gauge.primitives
     ];
     const constraints: Record<string, unknown>[] = [
         signConstraint('horizontal-1', 'horizontal_l', 'line-1'),
@@ -356,8 +345,6 @@ function gridPlateProfile(
         symmetricPoint('symmetric-corners', 'point-1', 'point-3', 'point-center'),
         difference('distance-width', 'x', 'point-1', 'point-2', 'width'),
         difference('distance-height', 'y', 'point-1', 'point-4', 'height'),
-        signConstraint('count-horizontal', 'horizontal_l', 'line-count'),
-        difference('distance-count', 'x', 'point-center', 'point-count', 'cellCount'),
         ...gauge.constraints
     ];
     const dimensions: SketchDimension[] = [
@@ -370,8 +357,7 @@ function gridPlateProfile(
             ['profile-point-height', 'point-center'],
             'plateThickness',
             thickness
-        ),
-        dimension('dimension-count', 'distance-count', 'distanceH', ['point-count', 'point-center'], 'cellCount', cellCount)
+        )
     ];
 
     const holes: string[][] = [];
@@ -524,7 +510,6 @@ function nuclearSpecs(): readonly NuclearSpec[] {
                     GRID_PLATE.height,
                     GRID_PLATE.plateThickness,
                     GRID_PLATE.cellPitch,
-                    GRID_PLATE.cellCount,
                     GRID_PLATE.cellDiameter
                 )
             ],
@@ -539,6 +524,9 @@ async function buildDocument(spec: NuclearSpec): Promise<NukeCadDocument> {
     expect(store.createDocument(spec.id).success, spec.id).toBe(true);
     expect(store.setUnits('cm').success, spec.id).toBe(true);
     for (const [name, value] of Object.entries(spec.parameters)) {
+        if (name === 'cellCount') {
+            continue;
+        }
         const result = store.addParameter(name, value);
         expect(result.success, `${spec.id}: ${result.error ?? name}`).toBe(true);
     }
@@ -697,13 +685,11 @@ describe('GUI build nuclear', () => {
             height: 4.5,
             plateThickness: 0.4,
             cellPitch: 1.4,
-            cellCount: 4,
             cellDiameter: 1.0
         });
         expect(primitive(grid, 'point-2').x).toBeCloseTo(2.5);
         expect(primitive(grid, 'point-4').y).toBeCloseTo(2.25);
         expect(primitive(grid, 'profile-point-height').y).toBeCloseTo(0.4);
-        expect(primitive(grid, 'point-count').x).toBeCloseTo(4);
         expect(primitive(grid, 'point-hole-00').x).toBeCloseTo(-1.4);
         expect(primitive(grid, 'point-hole-00').y).toBeCloseTo(-1.4);
         expect(primitive(grid, 'circle-hole-22').radius).toBeCloseTo(0.5);

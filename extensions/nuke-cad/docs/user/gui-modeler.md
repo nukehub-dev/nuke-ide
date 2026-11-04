@@ -61,10 +61,12 @@ Studio the same way you would a script build.
      with bore, and bolt-circle plate. The **nuclear** starters add a three-body
      hexagonal fuel cell, a Zircaloy control-rod guide tube, and a Zircaloy
      assembly grid plate with a representative 3×3 cell array. Pattern counts
-     (`holeCount`, `boltCount`, `cellCount`) validate as parameters but the
-     shipped pattern keeps its default instance count until pattern-count
-     binding is supported; the guide-tube wall thickness must equal half the
-     difference between its outer and inner diameters.
+     (`holeCount`, `boltCount`, `cellCount`) are creation-time parameters: the
+     New Document picker ships the default count, and an AI creation request
+     with a different count rebuilds the pattern or hole array before the
+     document is saved. Counts are not added to the editable parameter table.
+     The guide-tube wall thickness must equal half the difference between its
+     outer and inner diameters.
 
    - **Example projects** holds complete sample documents instead of presets:
 

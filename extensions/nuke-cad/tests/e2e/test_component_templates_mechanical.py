@@ -58,6 +58,17 @@ import geometry_service  # noqa: E402
 _ASSETS = Path(__file__).parent / "assets"
 
 # Fixture stem, selector label, shipped default span in cm, and feature ids.
+EXPECTED_FACES = {
+    "gui_l_bracket": 10,
+    "gui_l_bracket_3_holes": 11,
+    "gui_flange": 10,
+    "gui_flange_8_bolts": 12,
+    "gui_stepped_shaft": 5,
+    "gui_pipe_with_bore": 4,
+    "gui_bolt_circle_plate": 7,
+    "gui_bolt_circle_plate_6_holes": 9,
+}
+
 CASES = [
     ("gui_l_bracket", "l-bracket", (8.0, 8.0, 0.6), ["l-bracket-sweep"]),
     (
@@ -70,6 +81,19 @@ CASES = [
     ("gui_pipe_with_bore", "pipe", (6.0, 6.0, 10.0), ["pipe-outer", "pipe-bore"]),
     (
         "gui_bolt_circle_plate",
+        "bolt-circle-plate",
+        (10.0, 10.0, 0.8),
+        ["bolt-circle-plate-base", "bolt-circle-plate-hole", "bolt-circle-plate-pattern"],
+    ),
+    ("gui_l_bracket_3_holes", "l-bracket", (8.0, 8.0, 0.6), ["l-bracket-sweep"]),
+    (
+        "gui_flange_8_bolts",
+        "flange",
+        (12.0, 12.0, 1.0),
+        ["flange-outer", "flange-bore", "flange-bolt-hole", "flange-bolt-pattern"],
+    ),
+    (
+        "gui_bolt_circle_plate_6_holes",
         "bolt-circle-plate",
         (10.0, 10.0, 0.8),
         ["bolt-circle-plate-base", "bolt-circle-plate-hole", "bolt-circle-plate-pattern"],
@@ -97,6 +121,7 @@ def test_mechanical_template_builds_one_solid(
     )
     assert result["success"] is True, result.get("error", "")
     assert result["solidCount"] == 1, result.get("selectorMap")
+    assert result["faceCount"] == EXPECTED_FACES[stem], (stem, result["faceCount"])
 
     selector_map = result.get("selectorMap") or {}
     assert set(selector_map) == {label}, selector_map

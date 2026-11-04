@@ -60,6 +60,10 @@ _ASSETS = Path(__file__).parent / "assets"
 # Fixture stem, selector labels, expected solid count, and shipped default span
 # in cm. The hex-cell span is pointy-to-pointy x flat-to-flat x height.
 _HEX_PITCH = 1.26
+EXPECTED_FACES = {
+    "gui_assembly_grid_plate": 15,
+    "gui_assembly_grid_plate_4_cells": 22,
+}
 CASES = [
     (
         "gui_hex_cell",
@@ -69,6 +73,7 @@ CASES = [
     ),
     ("gui_control_rod_guide_tube", ("guide-tube",), 1, (1.2, 1.2, 30.0)),
     ("gui_assembly_grid_plate", ("grid-plate",), 1, (4.2, 4.2, 0.3)),
+    ("gui_assembly_grid_plate_4_cells", ("grid-plate",), 1, (6.0, 6.0, 0.3)),
 ]
 
 
@@ -92,6 +97,8 @@ def test_nuclear_template_builds_expected_solids(
     )
     assert result["success"] is True, result.get("error", "")
     assert result["solidCount"] == solid_count, result.get("selectorMap")
+    if stem in EXPECTED_FACES:
+        assert result["faceCount"] == EXPECTED_FACES[stem], (stem, result["faceCount"])
 
     selector_map = result.get("selectorMap") or {}
     assert set(selector_map) == set(labels), selector_map

@@ -40,11 +40,10 @@
  * diameters stay canonical because a circle profile carries a diameter
  * dimension.
  *
- * Circular-pattern counts are numeric-only in the document schema, so the
- * flange and bolt-circle plate ship representative fixed patterns at the
- * default count. The count parameter still drives a construction dimension in
- * the pattern sketch, so overriding it re-solves the sketch and the creation
- * flow accepts the value; the solid keeps the default hole count.
+ * Pattern counts are creation-time template parameters (`binding: 'template'`)
+ * because the document schema stores a pattern count as a plain number. The
+ * configure hook sets the count on the pattern feature, or rebuilds the hole
+ * array for the L bracket, before the candidate build.
  *
  * @module nuke-cad/common
  */
@@ -55,6 +54,7 @@ import flangeJson from '../samples/gui_flange.json';
 import lBracketJson from '../samples/gui_l_bracket.json';
 import pipeWithBoreJson from '../samples/gui_pipe_with_bore.json';
 import steppedShaftJson from '../samples/gui_stepped_shaft.json';
+import { buildLBracketProfile, replaceSketch, setCircularPatternCount } from './sketch-builders';
 import type { ComponentTemplate, ComponentTemplateParameter } from './types';
 
 function templateDocument(sample: unknown): NukeCadDocument {
@@ -146,8 +146,70 @@ function countParameter(
         min,
         max,
         step: 1,
-        description
+        description,
+        binding: 'template'
     };
+}
+
+/** Default pattern counts shipped by the mechanical fixtures. */
+const DEFAULT_L_BRACKET_HOLES = 2;
+const DEFAULT_FLANGE_BOLTS = 6;
+const DEFAULT_PLATE_HOLES = 4;
+
+function configureLBracket(document: NukeCadDocument, values: Readonly<Record<string, number>>): NukeCadDocument {
+    if (values.holeCount === DEFAULT_L_BRACKET_HOLES) {
+        return document;
+    }
+    return replaceSketch(
+        document,
+        buildLBracketProfile({
+            legLength: values.legLength,
+            legWidth: values.legWidth,
+            thickness: values.thickness,
+            holeDiameter: values.holeDiameter,
+            holeCount: values.holeCount
+        })
+    );
+}
+
+function validateLBracket(values: Readonly<Record<string, number>>): string | undefined {
+    if (values.holeDiameter >= values.legWidth) {
+        return 'L-bracket holeDiameter must be smaller than legWidth so the holes fit on the horizontal leg.';
+    }
+    if (values.holeCount === 2) {
+        const secondHole = (values.legWidth + values.legLength) / 2;
+        if (secondHole + values.holeDiameter / 2 > values.legLength) {
+            return 'L-bracket legLength is too short for two holes at the shipped spacing.';
+        }
+    } else if (values.holeCount > 2) {
+        const margin = values.holeDiameter / 2 + Math.max(0.1, (values.legLength - values.legWidth) * 0.05);
+        if (values.legWidth + margin >= values.legLength - margin) {
+            return 'L-bracket legLength is too short for the requested holeCount.';
+        }
+    }
+    return undefined;
+}
+
+function validateFlange(values: Readonly<Record<string, number>>): string | undefined {
+    const holeRadius = values.boltHoleDiameter / 2;
+    if (values.boltCircleRadius - holeRadius <= values.innerRadius) {
+        return 'The flange bolt circle must lie outside the inner radius.';
+    }
+    if (values.boltCircleRadius + holeRadius >= values.outerRadius) {
+        return 'The flange bolt holes must stay inside the outer radius.';
+    }
+    return undefined;
+}
+
+function validateBoltCirclePlate(values: Readonly<Record<string, number>>): string | undefined {
+    const holeRadius = values.holeDiameter / 2;
+    if (values.holeCircleRadius - holeRadius <= 0) {
+        return 'The bolt-hole circle must lie outside the plate center.';
+    }
+    if (values.holeCircleRadius + holeRadius >= values.radius) {
+        return 'The bolt holes must stay inside the plate radius.';
+    }
+    return undefined;
 }
 
 /**
@@ -169,9 +231,11 @@ export const MECHANICAL_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
             lengthParameter('legWidth', 'Leg width', 2.5, 0.5, 50, 'Width of each leg.', 0.1),
             lengthParameter('thickness', 'Thickness', 0.6, 0.1, 20, 'Extrusion thickness along Z.', 0.01),
             lengthParameter('holeDiameter', 'Hole diameter', 0.8, 0.2, 20, 'Diameter of the two through holes on the horizontal leg.', 0.1),
-            countParameter('holeCount', 'Hole count', 2, 1, 12, 'Representative hole count; the shipped sketch carries two holes.')
+            countParameter('holeCount', 'Hole count', 2, 1, 12, 'Number of through holes; creation rebuilds the hole array for this count.')
         ],
-        document: templateDocument(lBracketJson)
+        document: templateDocument(lBracketJson),
+        validate: validateLBracket,
+        configure: configureLBracket
     },
     {
         id: 'flange',
@@ -185,7 +249,7 @@ export const MECHANICAL_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
             lengthParameter('thickness', 'Thickness', 1, 0.2, 20, 'Flange thickness along Z.', 0.01),
             radiusParameter('boltCircleRadius', 'Bolt circle radius', 4.8, 0.5, 49.5, 'Radius of the bolt-hole centerline.', 0.1),
             lengthParameter('boltHoleDiameter', 'Bolt hole diameter', 1, 0.2, 10, 'Diameter of each bolt hole.', 0.1),
-            countParameter('boltCount', 'Bolt count', 6, 1, 24, 'Representative bolt-hole count; the shipped pattern carries six holes.'),
+            countParameter('boltCount', 'Bolt count', 6, 1, 24, 'Bolt-hole count around the bolt circle; creation rebuilds the pattern.'),
             diameterAlias(
                 'outerDiameter',
                 'Outer diameter',
@@ -204,7 +268,12 @@ export const MECHANICAL_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
                 0.1
             )
         ],
-        document: templateDocument(flangeJson)
+        document: templateDocument(flangeJson),
+        validate: validateFlange,
+        configure: (document, values) =>
+            values.boltCount === DEFAULT_FLANGE_BOLTS
+                ? document
+                : setCircularPatternCount(document, 'flange-bolt-pattern', values.boltCount)
     },
     {
         id: 'stepped-shaft',
@@ -254,7 +323,7 @@ export const MECHANICAL_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
             radiusParameter('radius', 'Radius', 5, 0.5, 100, 'Plate radius.', 0.1),
             lengthParameter('thickness', 'Thickness', 0.8, 0.05, 50, 'Plate thickness along Z.', 0.01),
             lengthParameter('holeDiameter', 'Hole diameter', 0.9, 0.1, 20, 'Diameter of each bolt hole.', 0.1),
-            countParameter('holeCount', 'Hole count', 4, 1, 24, 'Representative bolt-hole count; the shipped pattern carries four holes.'),
+            countParameter('holeCount', 'Hole count', 4, 1, 24, 'Bolt-hole count around the hole circle; creation rebuilds the pattern.'),
             radiusParameter('holeCircleRadius', 'Hole circle radius', 3.5, 0.2, 99.9, 'Radius of the bolt-hole centerline.', 0.1),
             diameterAlias('diameter', 'Diameter', 10, 'radius', 'Plate diameter; equivalent to twice the plate radius.', 0.1),
             diameterAlias(
@@ -266,6 +335,11 @@ export const MECHANICAL_COMPONENT_TEMPLATES: readonly ComponentTemplate[] = [
                 0.1
             )
         ],
-        document: templateDocument(boltCirclePlateJson)
+        document: templateDocument(boltCirclePlateJson),
+        validate: validateBoltCirclePlate,
+        configure: (document, values) =>
+            values.holeCount === DEFAULT_PLATE_HOLES
+                ? document
+                : setCircularPatternCount(document, 'bolt-circle-plate-pattern', values.holeCount)
     }
 ];

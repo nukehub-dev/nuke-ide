@@ -14,14 +14,14 @@ shared module object.
 | `gui_sphere.json`                 | 3.4 KB  | Generated from `tests/e2e/assets/gui_sphere.nuke-cad` (primitive component-template fixture).               |
 | `gui_cone.json`                   | 4.5 KB  | Generated from `tests/e2e/assets/gui_cone.nuke-cad` (primitive component-template fixture).                 |
 | `gui_plate_with_hole.json`        | 8.4 KB  | Generated from `tests/e2e/assets/gui_plate_with_hole.nuke-cad` (primitive component-template fixture).      |
-| `gui_l_bracket.json`              | 11.3 KB | Generated from `tests/e2e/assets/gui_l_bracket.nuke-cad` (mechanical component-template fixture).           |
-| `gui_flange.json`                 | 11.5 KB | Generated from `tests/e2e/assets/gui_flange.nuke-cad` (mechanical component-template fixture).              |
+| `gui_l_bracket.json`              | 10.2 KB | Generated from `tests/e2e/assets/gui_l_bracket.nuke-cad` (mechanical component-template fixture).           |
+| `gui_flange.json`                 | 10.4 KB | Generated from `tests/e2e/assets/gui_flange.nuke-cad` (mechanical component-template fixture).              |
 | `gui_stepped_shaft.json`          | 6.3 KB  | Generated from `tests/e2e/assets/gui_stepped_shaft.nuke-cad` (mechanical component-template fixture).       |
 | `gui_pipe_with_bore.json`         | 7.5 KB  | Generated from `tests/e2e/assets/gui_pipe_with_bore.nuke-cad` (mechanical component-template fixture).      |
-| `gui_bolt_circle_plate.json`      | 8.1 KB  | Generated from `tests/e2e/assets/gui_bolt_circle_plate.nuke-cad` (mechanical component-template fixture).   |
+| `gui_bolt_circle_plate.json`      | 6.9 KB  | Generated from `tests/e2e/assets/gui_bolt_circle_plate.nuke-cad` (mechanical component-template fixture).   |
 | `gui_hex_cell.json`               | 15.8 KB | Generated from `tests/e2e/assets/gui_hex_cell.nuke-cad` (nuclear component-template fixture).               |
 | `gui_control_rod_guide_tube.json` | 5.7 KB  | Generated from `tests/e2e/assets/gui_control_rod_guide_tube.nuke-cad` (nuclear component-template fixture). |
-| `gui_assembly_grid_plate.json`    | 20.1 KB | Generated from `tests/e2e/assets/gui_assembly_grid_plate.nuke-cad` (nuclear component-template fixture).    |
+| `gui_assembly_grid_plate.json`    | 19.0 KB | Generated from `tests/e2e/assets/gui_assembly_grid_plate.nuke-cad` (nuclear component-template fixture).    |
 | `tokamak_with_divertor.json`      | 404 KB  | Generated from `tests/e2e/assets/tokamak_with_divertor.nuke-cad` (in-repo GUI-authored fixture).            |
 | `w7x/w7x_geometry.json`           | 6.5 KB  | Committed W7-X inventory metadata (10 coil shapes, 5 shells, source hash); not generated.                   |
 | `w7x/w7x_study.json`              | 2.5 KB  | Committed measured 4/5/6-module coil-study reports (same source hash); not generated.                       |

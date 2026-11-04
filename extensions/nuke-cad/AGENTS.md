@@ -53,8 +53,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   fixtures by `scripts/copy-cad-samples.js` during `yarn build`; never edit the generated
   copies. The fixture remains the single source of truth.
 - Component templates: `src/common/component-templates/` (`index.ts` public API, family
-  modules; `component-templates.ts` re-exports). Primitive, mechanical, and nuclear entries are
-  fixture-backed from `tests/e2e/assets/gui_<id>.nuke-cad`; see `docs/dev/document-templates.md`.
+  modules, `sketch-builders.ts`; `component-templates.ts` re-exports). Primitive, mechanical, and
+  nuclear entries are fixture-backed from `tests/e2e/assets/gui_<id>.nuke-cad`. Pattern counts use
+  `binding: 'template'` plus the template `configure` hook; they rebuild geometry at creation time
+  and are not document parameters. See `docs/dev/document-templates.md`.
 - The sketch solver is client-side only: `sketch-solver.ts` is the sole planegcs
   importer (pinned exact, WASM fallback documented); curve-level constraints stay
   lines/circles/arcs, ellipses/B-splines take point-level ones; evaluation lives in

@@ -278,6 +278,30 @@ describe('CAD creation capabilities', () => {
         expect(fuelRadius?.value).toBeCloseTo(0.41);
     });
 
+    it('applies template-bound count parameters before the candidate build', async () => {
+        const harness = createHarness();
+        const prepared = await harness.invoke(PREPARE_DOCUMENT_CREATION_ID, {
+            templateId: 'flange',
+            parameters: { boltCount: 8 }
+        });
+        expect(prepared.ok).toBe(true);
+        const proposalId = (prepared.data as { proposalId: string }).proposalId;
+        const proposal = harness.proposals.get(proposalId);
+        expect(proposal).toBeDefined();
+        const pattern = proposal!.document.features.find((feature) => feature.id === 'flange-bolt-pattern');
+        expect((pattern?.params as { count?: number } | undefined)?.count).toBe(8);
+        expect(proposal!.document.parameters.boltCount).toBeUndefined();
+
+        const bracket = await harness.invoke(PREPARE_DOCUMENT_CREATION_ID, {
+            templateId: 'l-bracket',
+            parameters: { holeCount: 3 }
+        });
+        expect(bracket.ok).toBe(true);
+        const bracketProposal = harness.proposals.get((bracket.data as { proposalId: string }).proposalId)!;
+        const bracketSketch = bracketProposal.document.sketches.find((sketch) => sketch.id === 'l-bracket-profile')!;
+        expect(bracketSketch.primitives.filter((primitive) => String(primitive.id).startsWith('point-hole-'))).toHaveLength(3);
+    });
+
     it('fails the prepare when the solver rejects a parameter', async () => {
         const harness = createHarness({ solveFails: true });
         const result = await harness.invoke(PREPARE_DOCUMENT_CREATION_ID, { templateId: 'pincell', parameters: { pitch: 1.4 } });

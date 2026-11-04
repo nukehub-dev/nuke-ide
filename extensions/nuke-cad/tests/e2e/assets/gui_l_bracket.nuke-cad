@@ -102,7 +102,6 @@
   ],
   "name": "l-bracket",
   "parameters": {
-    "holeCount": 2,
     "holeDiameter": 0.8,
     "legLength": 8,
     "legWidth": 2.5,
@@ -252,26 +251,6 @@
           "driving": true,
           "id": "diameter-hole-2",
           "type": "circle_diameter"
-        },
-        {
-          "driving": true,
-          "id": "horizontal-count",
-          "l_id": "line-count",
-          "type": "horizontal_l"
-        },
-        {
-          "difference": "holeCount",
-          "driving": true,
-          "id": "distance-count",
-          "param1": {
-            "o_id": "point-1",
-            "prop": "x"
-          },
-          "param2": {
-            "o_id": "point-count",
-            "prop": "x"
-          },
-          "type": "difference"
         }
       ],
       "datumId": "datum-xy",
@@ -357,18 +336,6 @@
             "circle-hole-2"
           ],
           "value": 0.8
-        },
-        {
-          "constraintId": "distance-count",
-          "driving": true,
-          "id": "dimension-count",
-          "kind": "distanceH",
-          "parameter": "holeCount",
-          "targetIds": [
-            "point-count",
-            "point-1"
-          ],
-          "value": 2
         }
       ],
       "id": "l-bracket-profile",
@@ -439,13 +406,6 @@
           "y": 1.25
         },
         {
-          "construction": true,
-          "id": "point-count",
-          "type": "point",
-          "x": 2,
-          "y": 0
-        },
-        {
           "construction": false,
           "id": "line-7",
           "p1_id": "point-1",
@@ -507,13 +467,6 @@
           "id": "circle-hole-2",
           "radius": 0.4,
           "type": "circle"
-        },
-        {
-          "construction": true,
-          "id": "line-count",
-          "p1_id": "point-1",
-          "p2_id": "point-count",
-          "type": "line"
         }
       ]
     }
