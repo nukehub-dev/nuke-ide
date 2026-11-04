@@ -27,63 +27,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { ChatAgentLocation } from '@theia/ai-chat/lib/common';
+import { NUKE_CAPABILITY_IDS } from '../../common/nuke-capability-catalog';
 import { MCP_READ_ONLY_CAPABILITY_IDS } from '../../common/nuke-mcp-protocol';
 import { NUKE_CAPABILITY_TOOL_NAMES, NUKE_CHAT_AGENT_ID, NukeChatAgent } from './nuke-chat-agent';
-
-const CAPABILITY_IDS = [
-    'nuke.cad.summarizeDocument',
-    'nuke.cad.inspectSelection',
-    'nuke.cad.diagnoseModel',
-    'nuke.cad.previewFeatureChange',
-    'nuke.cad.applyFeatureChange',
-    'nuke.cad.listSketchDimensions',
-    'nuke.cad.previewSketchChange',
-    'nuke.cad.applySketchChange',
-    'nuke.cad.previewTopologyChange',
-    'nuke.cad.applyTopologyChange',
-    'nuke.cad.inspectImportSource',
-    'nuke.cad.previewImportBodies',
-    'nuke.cad.applyImportBodies',
-    'nuke.cad.summarizeAssembly',
-    'nuke.cad.previewAssemblyChange',
-    'nuke.cad.applyAssemblyChange',
-    'nuke.cad.summarizeDrawing',
-    'nuke.cad.previewDrawingChange',
-    'nuke.cad.applyDrawingChange',
-    'nuke.cad.listDocumentTemplates',
-    'nuke.cad.prepareDocumentCreation',
-    'nuke.cad.createDocumentFromTemplate',
-    'nuke.cad.inspectScriptSource',
-    'nuke.cad.previewScriptChange',
-    'nuke.cad.applyScriptChange',
-    'nuke.cad.exportDagmc',
-    'nuke.openmc.summarizeProject',
-    'nuke.openmc.summarizeMaterials',
-    'nuke.openmc.summarizeTallies',
-    'nuke.openmc.summarizeGeometry',
-    'nuke.openmc.validateProject',
-    'nuke.openmc.diagnoseProject',
-    'nuke.openmc.importCad',
-    'nuke.openmc.createProject',
-    'nuke.openmc.exportPython',
-    'nuke.openmc.previewSettings',
-    'nuke.openmc.applySettings',
-    'nuke.openmc.previewMaterialChange',
-    'nuke.openmc.applyMaterialChange',
-    'nuke.openmc.previewTallyChange',
-    'nuke.openmc.applyTallyChange',
-    'nuke.openmc.previewGeometryChange',
-    'nuke.openmc.applyGeometryChange',
-    'nuke.openmc.previewDagmcChange',
-    'nuke.openmc.applyDagmcChange',
-    'nuke.openmc.runSimulation',
-    'nuke.openmc.getRunStatus',
-    'nuke.openmc.diagnoseRun',
-    'nuke.viz.summarizeStatepoint',
-    'nuke.viz.diagnoseStatepoint',
-    'nuke.viz.openStatepoint',
-    'nuke.viz.captureView'
-];
 
 function promptTemplate(): string {
     return new NukeChatAgent().prompts[0].defaultVariant.template;
@@ -107,7 +53,7 @@ describe('NukeChatAgent', () => {
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_CAPABILITY_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(CAPABILITY_IDS.length);
+        expect(agent.functions).toHaveLength(NUKE_CAPABILITY_IDS.length);
     });
 
     it('never exposes the script authoring capabilities through MCP', () => {
@@ -131,7 +77,7 @@ describe('NukeChatAgent', () => {
         for (const [index, toolName] of NUKE_CAPABILITY_TOOL_NAMES.entries()) {
             expect(prompt).toContain(toolName);
             expect(prompt).toContain(`~{${toolName}}`);
-            expect(prompt).toContain(CAPABILITY_IDS[index]);
+            expect(prompt).toContain(NUKE_CAPABILITY_IDS[index]);
         }
         expect(prompt).not.toMatch(/~\{nuke\./);
     });

@@ -72,24 +72,28 @@ see [Local Metrics and the Edit Journal](metrics.md).
 
 ## Chat exposure checklist
 
-Registering a capability makes it available to the bridge, but the NukeAI agent only calls tools named in its prompt.
-When the capability should be callable from chat, update all of these together:
+Registering a capability makes it available to the bridge, but NukeAI only calls tools named in its prompt. The
+catalog at `extensions/nuke-ai/src/common/nuke-capability-catalog.ts` is the single source of truth for the NukeAI
+tool list and prompt lines, the Nuke Diagnostics tool list, and the external MCP allowlist.
 
-1. `extensions/nuke-ai/src/browser/agent/nuke-system-prompt.ts` — one title line with the tool name and one description
-   line with the dotted capability id and `~{<tool_name>}`. Keep the prompt within its 240-line budget.
-2. `NUKE_CAPABILITY_TOOL_NAMES` in `extensions/nuke-ai/src/browser/agent/nuke-chat-agent.ts` — the sanitized tool name,
-   in workflow order.
-3. `CAPABILITY_IDS` in `nuke-chat-agent.test.ts` — the dotted id at the same index.
-4. For a Diagnostics-only tool, `NUKE_DIAGNOSTICS_TOOL_NAMES` in `nuke-diagnostics-agent.ts` and the matching
-   `CAPABILITY_IDS` in `nuke-diagnostics-agent.test.ts` plus its prompt line.
-5. For an externally exposed read-only tool, `MCP_READ_ONLY_CAPABILITY_IDS` in `src/common/nuke-mcp-protocol.ts` and the
-   MCP protocol, catalog, and contribution tests.
-6. The owning domain skill under `extensions/nuke-ai/skills/` when the workflow needs guidance, and the dev/user docs plus
-   `CHANGELOG.md`.
-7. If the capability backs a contextual action, add a `NukeAiActionPrecondition` in `nuke-ai-commands.ts` so the action
+1. Add one catalog entry with:
+   - `id` and `toolName` — the dotted registry id and its sanitized `nuke_*` name; `toToolName(id)` must equal `toolName`.
+   - `title` and `summary` — the short label and one-line description rendered in the NukeAI prompt.
+   - `domain` — `cad`, `openmc`, or `visualizer`; `risk` — the capability's weakest accurate risk.
+   - `chat: true` when NukeAI may advertise and call it, `false` for a diagnostics-only tool.
+   - `diagnostics: true` only when the read-only Diagnostics agent may call it.
+   - `mcpReadOnly: true` plus `mcpOrder` only when the entry is `risk: 'read'` and safe for external clients.
+2. Keep `summary` concise. The prompt renders one generated line per chat entry and must stay within its 240-line
+   budget; never add a second hand-written tool line.
+3. A diagnostics-only tool also needs its triage line in `nuke-diagnostics-system-prompt.ts`. The catalog test
+   checks that every `diagnostics: true` entry appears there by name, `~{toolName}`, and dotted id.
+4. The owning domain skill under `extensions/nuke-ai/skills/` when the workflow needs guidance, and the dev/user docs
+   plus `CHANGELOG.md`.
+5. If the capability backs a contextual action, add a `NukeAiActionPrecondition` in `nuke-ai-commands.ts` so the action
    warns without opening a chat when its CAD document, OpenMC project, active run, or statepoint is missing.
 
-The `references every capability tool by its sanitized name` test fails when the chat prompt and its two lists drift
-apart. The diagnostics test covers its own list, and the MCP catalog tests cover the external boundary.
+`nuke-capability-catalog.test.ts` fails on duplicate ids or tool names, a non-sanitized name, a chat or diagnostics
+entry missing from its prompt or list, a non-read MCP or diagnostics entry, and a prompt over budget. Removing one
+catalog entry breaks the same consistency check.
 
 See [Capability Registry](../../../nuke-core/docs/dev/capability-registry.md) for validation details, context contributions, workspace path checks, and the version contract.

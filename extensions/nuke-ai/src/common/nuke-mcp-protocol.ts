@@ -37,6 +37,10 @@
  */
 
 import type { NukeCapabilityDescriptor } from './nuke-capability-delegate';
+import { MCP_READ_ONLY_CAPABILITY_IDS, NUKE_CAPABILITY_CATALOG } from './nuke-capability-catalog';
+
+/** Read-only capability IDs allowed to cross the external MCP boundary. */
+export { MCP_READ_ONLY_CAPABILITY_IDS };
 
 /** Maximum serialized tool result or resource text returned over MCP. */
 export const MCP_MAX_RESULT_BYTES = 1024 * 1024;
@@ -69,24 +73,6 @@ export const MCP_TOOL_DESCRIPTION_LIMIT = 800;
 
 /** Maximum characters in a serialized tool example. */
 export const MCP_TOOL_EXAMPLE_LIMIT = 240;
-
-/** Read-only capability IDs allowed to cross the external MCP boundary. */
-export const MCP_READ_ONLY_CAPABILITY_IDS = [
-    'nuke.cad.summarizeDocument',
-    'nuke.cad.inspectSelection',
-    'nuke.cad.diagnoseModel',
-    'nuke.openmc.summarizeProject',
-    'nuke.openmc.summarizeMaterials',
-    'nuke.openmc.summarizeTallies',
-    'nuke.openmc.summarizeGeometry',
-    'nuke.openmc.validateProject',
-    'nuke.openmc.getRunStatus',
-    'nuke.openmc.diagnoseProject',
-    'nuke.openmc.diagnoseRun',
-    'nuke.viz.summarizeStatepoint',
-    'nuke.viz.diagnoseStatepoint',
-    'nuke.viz.captureView'
-] as const;
 
 /** MCP resource URI for the active IDE context snapshot. */
 export const MCP_CONTEXT_RESOURCE_URI = 'nuke://context';
@@ -163,7 +149,8 @@ export function toMcpToolName(capabilityId: string): string {
 
 /** True when a capability ID is explicitly allowlisted for external MCP. */
 export function isAllowedMcpCapability(capabilityId: string): boolean {
-    return (MCP_READ_ONLY_CAPABILITY_IDS as readonly string[]).includes(capabilityId);
+    const entry = NUKE_CAPABILITY_CATALOG.find((candidate) => candidate.id === capabilityId);
+    return entry !== undefined && entry.mcpReadOnly === true && entry.risk === 'read';
 }
 
 /**

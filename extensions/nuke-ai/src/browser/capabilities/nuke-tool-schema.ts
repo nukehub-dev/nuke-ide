@@ -38,8 +38,7 @@
 
 import { ToolRequestParameterProperty, ToolRequestParameters } from '@theia/ai-core/lib/common/language-model';
 import { NukeJsonSchema, NukeJsonSchemaProperty } from 'nuke-core/lib/common/nuke-capability-protocol';
-
-const MAX_TOOL_NAME_LENGTH = 128;
+import { toNukeCapabilityToolName } from '../../common/nuke-capability-catalog';
 
 /** JSON Schema keywords whose value is a single nested schema. */
 const SCHEMA_OBJECT_KEYWORDS = new Set([
@@ -62,14 +61,7 @@ const SCHEMA_ARRAY_KEYWORDS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems']
 const SCHEMA_MAP_KEYWORDS = new Set(['$defs', 'definitions', 'dependentSchemas', 'patternProperties', 'properties']);
 
 /** Convert a capability id to a provider-safe tool name. */
-export function toToolName(capabilityId: string): string {
-    return capabilityId
-        .replace(/[^A-Za-z0-9_-]+/g, '_')
-        .replace(/_+/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .slice(0, MAX_TOOL_NAME_LENGTH)
-        .replace(/_+$/g, '');
-}
+export const toToolName = toNukeCapabilityToolName;
 
 /** Convert a capability's input schema to Theia tool parameters. */
 export function toToolParameters(schema: NukeJsonSchema): ToolRequestParameters {

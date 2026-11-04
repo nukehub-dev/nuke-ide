@@ -65,6 +65,17 @@ Schema conversion preserves JSON Schema keywords recursively, including nested `
 
 The registry normalizes every capability to an explicit version, defaulting to `1`. The version appears in catalog rows and MCP descriptors; it is not part of the model-facing tool name. A capability with the same id and a higher version replaces the old contract only through a normal registration change.
 
+## Capability catalog
+
+`src/common/nuke-capability-catalog.ts` is the static source of truth for what the AI surfaces advertise. The live registry still decides which capabilities are enabled; the catalog describes each AI-facing capability once and records which consumer may expose it:
+
+- `chat: true` entries drive `NUKE_CAPABILITY_TOOL_NAMES`, the NukeAI `functions` list, and the generated prompt lines.
+- `diagnostics: true` entries drive `NUKE_DIAGNOSTICS_TOOL_NAMES` and are checked against the Diagnostics prompt. Diagnostics-only entries use `chat: false`.
+- `mcpReadOnly: true` entries with `risk: 'read'` drive `MCP_READ_ONLY_CAPABILITY_IDS`; `mcpOrder` keeps the external order stable.
+- Each entry carries `id`, `toolName`, `title`, one-line `summary`, `domain`, and `risk`.
+
+`buildNukeSystemPrompt` renders one compact line per chat entry, grouped by risk (read first, then write and execute), and `NUKE_SYSTEM_PROMPT` is computed once from it. The chat agent, Diagnostics agent, and MCP protocol re-export the derived lists so existing imports stay stable. `src/browser/agent/nuke-capability-catalog.test.ts` fails when an id or tool name is duplicated, a tool name is not the sanitized id, a consumer list or prompt misses an entry, a diagnostics-only entry leaks into chat, or an MCP or diagnostics entry is not `read`.
+
 ## Local journals
 
 Every `invokeCapability` call records one metric line in a `finally` block, including failed, cancelled, and
