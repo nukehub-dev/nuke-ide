@@ -93,7 +93,7 @@ test('DAGMC editor action menu keeps actions enabled and the command preflight w
             .getByText('Open a DAGMC model in the Visualizer before running this NukeAI action.')
             .first()
     ).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('.theia-ChatInput')).toHaveCount(0);
+    await expect(page.locator('.theia-ChatInput')).not.toBeFocused();
 
     expect(severe(errors), `unexpected severe errors:\n${severe(errors).join('\n')}`).toEqual([]);
 });

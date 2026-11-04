@@ -100,8 +100,22 @@ export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({ actions, onExecu
                 close();
             }
         };
+        // Theia keybindings can consume Escape before it bubbles through the
+        // React root, so close from the capture phase while the menu is open.
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key !== 'Escape') {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+        };
         document.addEventListener('mousedown', onPointerDown, true);
-        return () => document.removeEventListener('mousedown', onPointerDown, true);
+        document.addEventListener('keydown', onKeyDown, true);
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown, true);
+            document.removeEventListener('keydown', onKeyDown, true);
+        };
     }, [state.open, close]);
 
     if (actions.length === 0) {
