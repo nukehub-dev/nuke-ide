@@ -43,8 +43,8 @@ Output toggles and path, particle cutoffs, and kinetics (IFP) options are editab
 kinetics requires the IFP tallies (`ifp-time-numerator`, `ifp-beta-numerator`, and `ifp-denominator`) to already
 exist in the project; NukeAI does not add tallies from a settings edit. IFP generations cannot exceed inactive
 batches, including when a later change lowers the inactive count. `output.path` must be project-relative or an
-absolute path inside the workspace; the directory is not created or deleted. Sources, random ray, CMFD, and geometry
-paths remain outside this flow. Sources, materials, tallies, CSG geometry, and DAGMC have their own flows below.
+absolute path inside the workspace; the directory is not created or deleted. Random ray, CMFD, and geometry paths
+remain outside this flow. Sources, materials, tallies, CSG geometry, and DAGMC have their own flows below.
 
 ## Finding ids
 
