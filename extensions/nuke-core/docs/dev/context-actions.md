@@ -6,13 +6,13 @@ The public types and DI tokens live in [`src/common/nuke-context-action-protocol
 
 ## Scopes
 
-| Scope               | Rendered by                        | Example surface                            |
-| ------------------- | ---------------------------------- | ------------------------------------------ |
-| `cad.viewport`      | CAD viewport right-click menu      | Solid and empty-space menus                |
-| `openmc.validation` | OpenMC Studio Simulation dashboard | Validation toolbar group                   |
-| `openmc.run`        | OpenMC Studio Simulation dashboard | Run toolbar group                          |
-| `visualizer.dagmc`  | DAGMC viewer right-click menu      | Canvas context menu, after volume controls |
-| `visualizer.tally`  | Tally viewer right-click menu      | Only when a tally dataset is loaded        |
+| Scope               | Rendered by                                    | Example surface                              |
+| ------------------- | ---------------------------------------------- | -------------------------------------------- |
+| `cad.viewport`      | CAD viewport right-click menu and toolbar      | Solid/empty-space menus, NukeAI actions menu |
+| `openmc.validation` | OpenMC Studio Simulation dashboard             | Validation toolbar group                     |
+| `openmc.run`        | OpenMC Studio Simulation dashboard             | Run toolbar group                            |
+| `visualizer.dagmc`  | DAGMC viewer menu and DAGMC Editor header      | Canvas context menu, header actions menu     |
+| `visualizer.tally`  | Tally viewer menu and statepoint viewer header | Only with a loaded tally/statepoint          |
 
 ## Registering an action
 
@@ -64,14 +64,14 @@ Domain widgets own their menu and toolbar layout. They must:
 3. Render the group only when at least one action remains.
 4. Execute the chosen action through the command registry.
 
-The widget may import the protocol types and registry token from `nuke-core`, but never the contributor. Domain extensions stay free of the contributor's dependencies.
+The widget may import the protocol types and registry token from `nuke-core`, but never the contributor. Domain extensions stay free of the contributor's dependencies. Toolbar/header surfaces can map the same descriptors through `NukeActionMenu` from `nuke-essentials` (with `availableNukeActionDescriptors` for the missing-command filter); the menu is presentation-only and its execute callback routes back to the host command registry.
 
 ## Consumers
 
-| Domain            | Integration                                                                                     |
-| ----------------- | ----------------------------------------------------------------------------------------------- |
-| `nuke-cad`        | `viewport-context-menu.ts` appends a NukeAI group to solid and empty-space menus.               |
-| `openmc-studio`   | `nuke-ai-actions.ts` builds validation/run groups for the Simulation dashboard toolbar.         |
-| `nuke-visualizer` | DAGMC and tally context menu builders append their scope's actions after the domain-owned rows. |
+| Domain            | Integration                                                                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nuke-cad`        | `viewport-context-menu.ts` appends a NukeAI group to solid and empty-space menus; the document toolbar adds the shared menu.                              |
+| `openmc-studio`   | `nuke-ai-actions.ts` builds validation/run groups for the Simulation dashboard toolbar; the DAGMC Editor header adds the shared menu.                     |
+| `nuke-visualizer` | DAGMC and tally context menu builders append their scope's actions after the domain-owned rows; the statepoint viewer header/loader adds the shared menu. |
 
 `nuke-ai` registers the current read-only actions in `src/browser/actions/nuke-ai-context-actions.ts`. When NukeAI is excluded from the build, no commands exist, so every domain omits the group.

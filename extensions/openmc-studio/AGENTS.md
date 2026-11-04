@@ -79,7 +79,9 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - `nuke.openmc.diagnoseProject` / `diagnoseRun` are read-only: project diagnosis aggregates validation, environment, cross-section,
   and DAGMC findings; run diagnosis triages an active run's log tail. Findings cap at 20 with `findings-truncated`.
 - The Simulation dashboard validation/run toolbar renders `openmc.validation` / `openmc.run` actions from nuke-core's neutral
-  context-action registry; missing commands are omitted. See `nuke-core/docs/dev/context-actions.md`.
+  context-action registry; missing commands are omitted. The DAGMC Editor header renders `visualizer.dagmc` actions through
+  the shared `NukeActionMenu` (Diagnose Statepoint only after a statepoint loads); both surfaces keep the commands enabled
+  and let their existing preflight warnings explain missing state. See `nuke-core/docs/dev/context-actions.md`.
 
 ## Work Guidance
 

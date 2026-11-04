@@ -39,6 +39,17 @@ The Statepoint Viewer is organized into tabs: **Overview** (run configuration), 
 | **Seed**              | Random number seed                           |
 | **OpenMC Version**    | Version string from the simulation           |
 
+### NukeAI Actions
+
+The statepoint header carries a compact **NukeAI actions** menu (the ellipsis
+button), and the empty loader offers the same menu beside **Browse Statepoint
+File**. It lists **Ask About Context**, **Explain Statepoint**, and **Diagnose
+Statepoint** in that order. Choose a row to run the same read-only command as
+the NukeAI sidebar or Command Palette; the statepoint preflight warns instead of
+opening a chat when no statepoint is loaded. The rows stay enabled, `Esc` closes
+the menu and returns focus to the trigger, and on a narrow panel the trigger
+collapses to its icon with the same accessible name and tooltip.
+
 ### k-Effective Results (Eigenvalue Mode)
 
 | Field                    | Description                                            |

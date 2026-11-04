@@ -399,6 +399,16 @@ This path needs **pydagmc** and the **moab** package (which provides `pymoab`), 
 Select a volume in the canvas or the DAGMC Outline, then hide, isolate, or frame it. The viewer still loads the full
 multiblock model; visibility changes never re-run the conversion. See **DAGMC Outline Sidebar** below.
 
+### NukeAI Actions
+
+DAGMC viewers keep **Capture View**, **Diagnose Statepoint**, and **Ask About
+Context** in the right-click canvas menu. The DAGMC Editor header also exposes
+the same rows in a compact **NukeAI actions** menu; **Diagnose Statepoint**
+appears after a statepoint is loaded. The same rows remain in the NukeAI
+sidebar. Rows stay enabled: if no DAGMC viewer or statepoint is available, the
+command's existing preflight warning explains what to open first and no chat
+starts.
+
 ### Color by Material, Volume, and Group
 
 Converted `.h5m` files carry per-volume material names and group membership

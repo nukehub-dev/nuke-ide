@@ -38,6 +38,7 @@ import * as React from '@theia/core/shared/react';
 import { type MessageService } from '@theia/core/lib/common/message-service';
 import { Tooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import {
+    NukeActionMenu,
     NukeCheckbox,
     NukeDialog,
     NukeFormRow,
@@ -47,9 +48,11 @@ import {
     NukeSection,
     NukeSelect,
     selectRibbonDensity,
+    toNukeActionDescriptors,
     type NukeRibbonDensity,
     type NukeRibbonItem
 } from 'nuke-essentials/lib/theme/browser/components';
+import type { NukeContextAction } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { SketchModeController } from '../../sketch/sketch-mode-controller';
 import {
     SKETCH_TOOL_SHORTCUTS,
@@ -153,6 +156,10 @@ interface CadSketchOverlayProps {
     readonly ribbonPins: readonly string[];
     /** Toggle a command's inline pin state. */
     readonly onToggleRibbonPin: (commandId: string) => void;
+    /** Command-backed context actions for the document toolbar menu. */
+    readonly getNukeAiActions: () => readonly NukeContextAction[];
+    /** Route a selected context action to the Theia command registry. */
+    readonly onExecuteContextAction: (commandId: string) => void;
     readonly templates: ReadonlyArray<DocumentTemplate>;
     readonly onEnterSketch: (kind: DatumKind, offset: number) => void;
     /** Receives the full validated new-kind datum draft plus the picker offset. */
@@ -312,6 +319,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
         ribbonLabels,
         ribbonPins,
         onToggleRibbonPin,
+        getNukeAiActions,
+        onExecuteContextAction,
         onEnterSketch,
         onEnterSketchDraft,
         onExitSketch,
@@ -710,6 +719,8 @@ export function CadSketchOverlay(props: CadSketchOverlayProps): React.ReactEleme
                     ribbonLabels={ribbonLabels}
                     ribbonPins={ribbonPins}
                     onToggleRibbonPin={onToggleRibbonPin}
+                    getNukeAiActions={getNukeAiActions}
+                    onExecuteContextAction={onExecuteContextAction}
                     searchShortcutBlocked={
                         setupVisible ||
                         featureCreationType !== undefined ||
@@ -1444,6 +1455,10 @@ interface DocumentModeToolbarProps {
     readonly ribbonPins: readonly string[];
     /** Toggle a command's inline pin state. */
     readonly onToggleRibbonPin: (commandId: string) => void;
+    /** Command-backed context actions for the toolbar menu. */
+    readonly getNukeAiActions: () => readonly NukeContextAction[];
+    /** Route a selected context action to the Theia command registry. */
+    readonly onExecuteContextAction: (commandId: string) => void;
     /**
      * True while a task panel/dialog/pick/measure session owns the keyboard:
      * the `/` search shortcut stays inert then. The `/` handler itself only
@@ -1740,6 +1755,12 @@ function DocumentModeToolbar(props: DocumentModeToolbarProps): React.ReactElemen
                             />
                         ))}
                     </NukeRibbon>
+                    <NukeActionMenu
+                        className="cad-document-toolbar-nuke-ai-actions"
+                        actions={toNukeActionDescriptors(props.getNukeAiActions())}
+                        onExecute={(action) => props.onExecuteContextAction(action.id)}
+                        label="NukeAI actions"
+                    />
                 </div>
             </div>
             <CadCommandSearchLauncher actions={searchActions} blocked={props.searchShortcutBlocked} />

@@ -5460,6 +5460,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             ribbonLabels={props.ribbonLabels}
             ribbonPins={props.ribbonPins}
             onToggleRibbonPin={props.onToggleRibbonPin}
+            getNukeAiActions={props.getNukeAiActions}
+            onExecuteContextAction={props.onExecuteContextAction}
             templates={props.templates}
             onEnterSketch={props.onEnterSketch}
             onEnterSketchDraft={props.onEnterSketchDraft}

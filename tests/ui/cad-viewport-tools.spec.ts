@@ -612,3 +612,31 @@ test('empty viewport launchers open their pickers and cancel cleanly', async ({ 
     const severe = severeErrors(errors);
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
+
+test('document toolbar exposes the NukeAI action menu with keyboard dismissal', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+    const { toolbar } = await openCadFixture(page, 'cad-pincell.nuke-cad');
+
+    const trigger = toolbar.getByRole('button', { name: 'NukeAI actions' });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    const menu = toolbar.locator('.nuke-action-menu-popup');
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole('menuitem')).toHaveCount(4);
+    await expect(menu.locator('.nuke-action-menu-item-label')).toHaveText([
+        'Ask About Context',
+        'Diagnose CAD Model',
+        'Explain Selection',
+        'Check Active CAD Model'
+    ]);
+
+    // Escape closes the menu and returns focus to the trigger.
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+
+    const severe = severeErrors(errors);
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});

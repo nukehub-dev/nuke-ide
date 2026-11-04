@@ -1,0 +1,123 @@
+/* ============================================================================
+   Shared compact action menu
+   ============================================================================
+   A host-neutral "Actions" trigger for command-backed toolbar menus. Colors
+   come from Theia tokens; the popup uses the shared widget surface. Inside a
+   narrow container-query host the trigger collapses to its ellipsis icon while
+   keeping the accessible name and Tooltip. */
+
+.nuke-action-menu {
+    position: relative;
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.nuke-action-menu-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 0;
+    margin-left: 0;
+    padding: 5px 10px;
+    font-size: var(--theia-ui-font-size1);
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.nuke-action-menu-trigger:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.nuke-action-menu-icon {
+    flex: 0 0 auto;
+    font-size: 14px;
+}
+
+.nuke-action-menu-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.nuke-action-menu-popup {
+    position: absolute;
+    top: calc(100% + 4px);
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    box-sizing: border-box;
+    min-width: 220px;
+    max-width: min(360px, calc(100vw - 24px));
+    padding: 4px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-foreground);
+    box-shadow: var(--nuke-shadow-lg);
+}
+
+.nuke-action-menu-popup-end {
+    right: 0;
+}
+
+.nuke-action-menu-popup-start {
+    left: 0;
+}
+
+.nuke-action-menu-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nuke-action-menu-item:hover,
+.nuke-action-menu-item:focus-visible {
+    background: var(--theia-list-hoverBackground);
+}
+
+.nuke-action-menu-item:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.nuke-action-menu-item-label {
+    font-size: var(--theia-ui-font-size1);
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+.nuke-action-menu-item-description {
+    color: var(--theia-descriptionForeground);
+    font-size: var(--theia-ui-font-size0);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+/* Container-query collapse: hosts with a narrow widget/toolbar keep the
+   ellipsis trigger and the accessible name/tooltip, and hide the caption. */
+@container (max-width: 560px) {
+    .nuke-action-menu-label {
+        display: none;
+    }
+
+    .nuke-action-menu-trigger {
+        width: 28px;
+        min-width: 28px;
+        padding: 0 6px;
+    }
+}

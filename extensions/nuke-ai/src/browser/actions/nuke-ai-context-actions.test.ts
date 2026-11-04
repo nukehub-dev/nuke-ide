@@ -113,18 +113,18 @@ describe('NukeAiContextActionContribution', () => {
     });
 
     it('covers the DAGMC and tally visualizer scopes', () => {
-        expect(labelsFor('visualizer.dagmc')).toEqual(['Capture View', 'Diagnose Statepoint']);
-        expect(labelsFor('visualizer.tally')).toEqual(['Explain Statepoint', 'Diagnose Statepoint']);
+        expect(labelsFor('visualizer.dagmc')).toEqual(['Capture View', 'Diagnose Statepoint', 'Ask About Context']);
+        expect(labelsFor('visualizer.tally')).toEqual(['Ask About Context', 'Explain Statepoint', 'Diagnose Statepoint']);
         expect(
             registeredActions()
                 .filter((action) => action.scope === 'visualizer.dagmc')
                 .map((action) => action.commandId)
-        ).toEqual([NukeAiCommands.CAPTURE_VIEW.id, NukeAiCommands.DIAGNOSE_STATEPOINT.id]);
+        ).toEqual([NukeAiCommands.CAPTURE_VIEW.id, NukeAiCommands.DIAGNOSE_STATEPOINT.id, NukeAiCommands.ASK.id]);
         expect(
             registeredActions()
                 .filter((action) => action.scope === 'visualizer.tally')
                 .map((action) => action.commandId)
-        ).toEqual([NukeAiCommands.EXPLAIN_STATEPOINT.id, NukeAiCommands.DIAGNOSE_STATEPOINT.id]);
+        ).toEqual([NukeAiCommands.ASK.id, NukeAiCommands.EXPLAIN_STATEPOINT.id, NukeAiCommands.DIAGNOSE_STATEPOINT.id]);
     });
 
     it('reuses existing NukeAI command ids only', () => {

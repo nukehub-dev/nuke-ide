@@ -90,7 +90,9 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/actions/` owns the read-only NukeAI commands, `NukeAiActionService`, and the NukeAI Nuke Tools
   section. Actions send `#nukeContext` through `ChatService`, never import domain extensions, and report failures.
   `nuke-ai-context-actions.ts` publishes the same commands through nuke-core's neutral context-action registry for
-  CAD, OpenMC, DAGMC, and tally menus; domain extensions never import nuke-ai.
+  CAD, OpenMC, DAGMC, and tally menus; domain extensions never import nuke-ai. Domain toolbars map those descriptors
+  through `NukeActionMenu` (nuke-essentials), so the statepoint header, CAD document toolbar, and DAGMC editor header
+  expose the same read-only commands without owning AI logic; missing commands are filtered by each host.
 - Do not add `@theia/ai-mcp-server`: its generic `/mcp` endpoint starts automatically without auth or origin checks.
   External MCP is a separate opt-in contribution; see `docs/dev/mcp.md`.
 - `src/browser/capabilities/nuke-tool-schema.ts` converts capability ids and JSON schemas into sanitized tool names and

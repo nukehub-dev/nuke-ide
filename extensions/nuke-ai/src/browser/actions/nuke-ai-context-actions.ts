@@ -155,13 +155,31 @@ export const NUKE_AI_CONTEXT_ACTIONS: readonly NukeContextAction[] = [
         order: 'b'
     },
     {
+        id: 'nuke-ai.visualizer.dagmc.ask',
+        scope: 'visualizer.dagmc',
+        label: 'Ask About Context',
+        description: 'Open a focused NukeAI chat with the active DAGMC viewport and workspace context attached.',
+        commandId: NukeAiCommands.ASK.id,
+        group: 'nuke-ai',
+        order: 'c'
+    },
+    {
+        id: 'nuke-ai.visualizer.tally.ask',
+        scope: 'visualizer.tally',
+        label: 'Ask About Context',
+        description: 'Open a focused NukeAI chat with the loaded statepoint and workspace context attached.',
+        commandId: NukeAiCommands.ASK.id,
+        group: 'nuke-ai',
+        order: 'a'
+    },
+    {
         id: 'nuke-ai.visualizer.tally.explainStatepoint',
         scope: 'visualizer.tally',
         label: 'Explain Statepoint',
         description: 'Explain k-effective, batches, tallies, and uncertainty for the loaded statepoint.',
         commandId: NukeAiCommands.EXPLAIN_STATEPOINT.id,
         group: 'nuke-ai',
-        order: 'a'
+        order: 'b'
     },
     {
         id: 'nuke-ai.visualizer.tally.diagnoseStatepoint',
@@ -170,7 +188,7 @@ export const NUKE_AI_CONTEXT_ACTIONS: readonly NukeContextAction[] = [
         description: 'Triage the loaded statepoint metadata without reading raw tally values.',
         commandId: NukeAiCommands.DIAGNOSE_STATEPOINT.id,
         group: 'nuke-ai',
-        order: 'b'
+        order: 'c'
     }
 ];
 

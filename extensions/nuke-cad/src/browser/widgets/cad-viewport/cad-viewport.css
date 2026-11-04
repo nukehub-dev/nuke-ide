@@ -1841,6 +1841,11 @@
     gap: 6px;
     min-width: 0;
     flex: 1;
+    container-type: inline-size;
+}
+
+.cad-document-toolbar-nuke-ai-actions {
+    flex: 0 0 auto;
 }
 
 /*

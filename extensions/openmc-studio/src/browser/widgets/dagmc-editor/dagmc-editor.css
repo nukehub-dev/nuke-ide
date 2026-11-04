@@ -133,7 +133,7 @@
     gap: 8px;
 }
 
-.dagmc-editor-header .header-actions button {
+.dagmc-editor-header .header-actions > :not(.nuke-action-menu) button {
     display: flex;
     align-items: center;
     gap: 6px;

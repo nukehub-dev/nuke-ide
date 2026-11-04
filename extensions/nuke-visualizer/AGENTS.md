@@ -50,7 +50,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - `nuke.viz.diagnoseStatepoint` triages loaded statepoint metadata only (k-effective uncertainty, batch counts, tally
   coverage); it never reads raw tally values or replaces the loaded file. See `docs/dev/ai-capabilities.md`.
 - DAGMC and tally context menus append `visualizer.dagmc` / `visualizer.tally` actions from nuke-core's neutral registry;
-  missing commands are omitted and the tally group needs a loaded dataset. See `nuke-core/docs/dev/context-actions.md`.
+  missing commands are omitted and the tally group needs a loaded dataset. The statepoint viewer header and empty loader
+  also render `visualizer.tally` through the shared `NukeActionMenu`; rows stay enabled and the command preflight warns
+  for a missing statepoint. See `nuke-core/docs/dev/context-actions.md`.
 - `nuke.viz.compareStatepoints` / `nuke.viz.analyzeTallySeries` live in `visualizer-diagnostics-capabilities.ts` with
   pure thresholds in `visualizer-diagnostics.ts`; both use `OpenMCBackendService` only, never `OpenMCService.loadStatepoint`.
 - Diagnostic paths stay absolute and inside a workspace root; series reads cap at 50 files and report aggregate steps

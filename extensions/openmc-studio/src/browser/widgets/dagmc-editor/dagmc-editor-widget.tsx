@@ -42,6 +42,7 @@ import * as React from '@theia/core/shared/react';
 import * as path from 'path';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { CommandRegistry } from '@theia/core/lib/common/command';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { ConfirmDialog } from '@theia/core/lib/browser/dialogs';
 import { FileDialogService, OpenFileDialogProps, SaveFileDialogProps } from '@theia/filesystem/lib/browser';
@@ -50,13 +51,21 @@ import { OpenMCStateManager } from '../../openmc-state-manager';
 import { OpenMCStudioService } from '../../openmc-studio-service';
 import { OpenMCXMLGenerationService } from '../../xml-generator/xml-generation-service';
 import { NukeCoreService, NukeCoreStatusBarVisibility, NukeCoreStatusBarVisibilityService } from 'nuke-core/lib/common';
-import { Tooltip, NukeSelect } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
+import {
+    availableNukeActionDescriptors,
+    NukeActionMenu,
+    Tooltip,
+    NukeSelect,
+    type NukeActionDescriptor
+} from 'nuke-essentials/lib/theme/browser/components';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { DAGMCInfo, DAGMCVolume } from '../../../common/openmc-state-schema';
 import { OpenMCStudioBackendService, CADImportResult } from '../../../common/openmc-studio-protocol';
 
 // Import from nuke-visualizer for 3D preview
 import { VisualizerWidget } from 'nuke-visualizer/lib/browser/visualizer-widget';
+import { OpenMCService } from 'nuke-visualizer/lib/browser/plugins/openmc/openmc-service';
 import { WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 
@@ -164,6 +173,15 @@ export class DAGMCEditorWidget extends ReactWidget {
     @inject(OpenMCXMLGenerationService)
     protected readonly xmlService!: OpenMCXMLGenerationService;
 
+    @inject(CommandRegistry)
+    protected readonly commandRegistry!: CommandRegistry;
+
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions!: NukeContextActionRegistry;
+
+    @inject(OpenMCService)
+    protected readonly openmcService!: OpenMCService;
+
     @inject(WidgetManager)
     protected readonly widgetManager!: WidgetManager;
 
@@ -224,6 +242,11 @@ export class DAGMCEditorWidget extends ReactWidget {
             this.checkForDagmcFile();
             this.update();
         });
+        this.toDispose.push(
+            this.openmcService.onStatepointLoaded(() => {
+                this.update();
+            })
+        );
 
         this.checkForDagmcFile();
         this.update();
@@ -433,6 +456,24 @@ export class DAGMCEditorWidget extends ReactWidget {
     }
 
     /**
+     * Map the neutral `visualizer.dagmc` actions to the shared menu. The
+     * statepoint diagnosis row appears only after a statepoint has loaded;
+     * commands missing from the build (NukeAI excluded) are dropped.
+     */
+    private nukeAiActions(): NukeActionDescriptor[] {
+        const hasStatepoint = this.openmcService.getCurrentStatepoint() !== null;
+        const actions = this.contextActions
+            .getActions('visualizer.dagmc')
+            .filter((action) => hasStatepoint || action.commandId !== 'nuke.ai.diagnoseStatepoint');
+        return availableNukeActionDescriptors(actions, (commandId) => this.commandRegistry.getCommand(commandId) !== undefined);
+    }
+
+    /** Run the selected NukeAI command; its preflight owns missing prerequisites. */
+    private executeNukeAiAction(action: NukeActionDescriptor): void {
+        void this.commandRegistry.executeCommand(action.id);
+    }
+
+    /**
      * Render the header with file info and action buttons.
      * @returns Header React node.
      */
@@ -471,6 +512,12 @@ export class DAGMCEditorWidget extends ReactWidget {
                 )}
 
                 <div className="header-actions">
+                    <NukeActionMenu
+                        className="dagmc-editor-nuke-ai-actions"
+                        actions={this.nukeAiActions()}
+                        onExecute={(action) => this.executeNukeAiAction(action)}
+                        label="NukeAI actions"
+                    />
                     {this.modelData && (
                         <>
                             <Tooltip content="Save as new file" position="bottom">

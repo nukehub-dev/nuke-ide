@@ -28,7 +28,8 @@ All files under `extensions/nuke-core/` except generated artifacts (`lib/`, `nod
   `version` (default `1`); the registry rejects invalid versions and logs the first duplicate id collision once.
   See `docs/dev/capability-registry.md`.
 - `src/browser/context-actions/` owns the neutral context-action registry (scopes, dedup, stable order, synchronous `when`, `onDidChange`);
-  domain menus render command-backed rows without importing the contributor. See `docs/dev/context-actions.md`.
+  domain menus render command-backed rows without importing the contributor, and toolbar/header surfaces may map the same
+  descriptors through nuke-essentials `NukeActionMenu`. See `docs/dev/context-actions.md`.
 - Write capabilities preview edits as a `changeSet` and return an `undoToken` after apply; register the reverse handler with the
   singleton `NukeUndoService`. Undo is in-memory and session-scoped; nuke-ai's edit journal is an audit trail, not an undo
   source. See `docs/dev/capability-registry.md`.
