@@ -37,8 +37,12 @@
  * @module nuke-ai/common
  */
 
-/** Domain that owns a cataloged capability. */
-export type NukeCapabilityDomain = 'cad' | 'openmc' | 'visualizer';
+/**
+ * Domain that owns a cataloged capability. The known domains keep
+ * autocomplete, while a new extension can add its own id without editing this
+ * union.
+ */
+export type NukeCapabilityDomain = 'cad' | 'openmc' | 'visualizer' | (string & {});
 
 /** Weakest accurate action risk for a cataloged capability. */
 export type NukeCapabilityRisk = 'read' | 'write' | 'execute' | 'destructive';
