@@ -129,4 +129,20 @@ describe('NukeActionMenu', () => {
         expect(html).toContain('codicon-hubot');
         expect(html).not.toContain('codicon-ellipsis');
     });
+
+    it('can render an icon-only trigger while keeping the accessible name', () => {
+        const html = renderToStaticMarkup(
+            <NukeActionMenu
+                actions={toNukeActionDescriptors(SOURCE_ACTIONS)}
+                onExecute={() => undefined}
+                label="NukeAI actions"
+                iconClass="codicon-hubot"
+                showLabel={false}
+            />
+        );
+        expect(html).toContain('aria-label="NukeAI actions"');
+        expect(html).toContain('nuke-action-menu-trigger-icon-only');
+        expect(html).toContain('codicon-hubot');
+        expect(html).not.toContain('nuke-action-menu-label');
+    });
 });

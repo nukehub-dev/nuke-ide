@@ -48,6 +48,8 @@ export interface NukeActionMenuProps {
     readonly label?: string;
     /** Codicon class on the trigger; defaults to the ellipsis glyph. */
     readonly iconClass?: string;
+    /** Show the visible label beside the icon; defaults to true. */
+    readonly showLabel?: boolean;
     /** Extra class on the root (spacing for the host toolbar). */
     readonly className?: string;
     /** Menu opens below or above the trigger; defaults to `bottom`. */
@@ -73,6 +75,7 @@ export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({
     onExecute,
     label = 'Actions',
     iconClass = 'codicon-ellipsis',
+    showLabel = true,
     className,
     placement = 'bottom',
     align = 'end'
@@ -183,7 +186,7 @@ export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({
                 <button
                     ref={triggerRef}
                     type="button"
-                    className="theia-button secondary nuke-action-menu-trigger"
+                    className={`theia-button secondary nuke-action-menu-trigger${showLabel ? '' : ' nuke-action-menu-trigger-icon-only'}`}
                     aria-label={label}
                     aria-haspopup="menu"
                     aria-expanded={state.open}
@@ -192,7 +195,7 @@ export const NukeActionMenu: React.FC<NukeActionMenuProps> = ({
                     onKeyDown={onTriggerKeyDown}
                 >
                     <span className={`codicon ${iconClass} nuke-action-menu-icon`} aria-hidden="true" />
-                    <span className="nuke-action-menu-label">{label}</span>
+                    {showLabel && <span className="nuke-action-menu-label">{label}</span>}
                 </button>
             </Tooltip>
             {state.open && (

@@ -683,6 +683,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                                 onExecute={(action) => this.executeNukeAiAction(action)}
                                 label="NukeAI actions"
                                 iconClass="codicon-hubot"
+                                showLabel={false}
                             />
                         </div>
                     </NukeEmptyState>
@@ -712,6 +713,7 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                                 onExecute={(action) => this.executeNukeAiAction(action)}
                                 label="NukeAI actions"
                                 iconClass="codicon-hubot"
+                                showLabel={false}
                             />
                             <span className={`run-mode run-mode-${info.runMode}`}>{info.runMode}</span>
                             <Tooltip content="Close" position="top">

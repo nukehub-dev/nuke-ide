@@ -47,8 +47,8 @@ File**. It lists **Ask About Context**, **Explain Statepoint**, and **Diagnose
 Statepoint** in that order. Choose a row to run the same read-only command as
 the NukeAI sidebar or Command Palette; the statepoint preflight warns instead of
 opening a chat when no statepoint is loaded. The rows stay enabled, `Esc` closes
-the menu and returns focus to the trigger, and on a narrow panel the trigger
-collapses to its icon with the same accessible name and tooltip.
+the menu and returns focus to the trigger. The trigger is an icon-only bot
+button; its accessible name and tooltip carry the label.
 
 ### k-Effective Results (Eigenvalue Mode)
 

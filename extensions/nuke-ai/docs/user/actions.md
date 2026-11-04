@@ -47,9 +47,9 @@ NukeAI actions also appear beside the work, in the menu or toolbar owned by the 
 | Tally viewer right-click menu                     | **Ask About Context**, **Explain Statepoint**, **Diagnose Statepoint** (only with a loaded tally)                                                                |
 
 The statepoint header, the CAD viewport's floating Search launcher, and the DAGMC editor header open a
-compact **NukeAI actions** menu with the NukeAI bot icon. The trigger keeps its label on wide panels and collapses to the bot icon on
-narrow ones; the accessible name and tooltip stay available either way. `Esc` closes the menu and returns
-focus to the trigger, and the rows stay in registry order. The context menus keep their existing rows, and
+compact **NukeAI actions** menu with the NukeAI bot icon. The trigger is an icon-only bot button; its
+accessible name and tooltip carry the label. `Esc` closes the menu and returns focus to the trigger, and
+the rows stay in registry order. The context menus keep their existing rows, and
 the OpenMC Simulation tab keeps its inline validation and run groups with the same bot icon and sentence-case
 group labels.
 

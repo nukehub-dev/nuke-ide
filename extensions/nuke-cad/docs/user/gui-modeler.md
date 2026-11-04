@@ -174,9 +174,9 @@ buttons, defaults included.
 The floating **Search** launcher at the bottom-left also carries a compact
 **NukeAI actions** menu beside it (the bot-icon button). It lists **Ask About Context**, **Diagnose CAD
 Model**, **Explain Selection**, and **Check Active CAD Model**; the same rows
-remain in the canvas right-click menu and the NukeAI sidebar. On narrow panels
-the trigger collapses to its icon while keeping its accessible name and tooltip.
-Choose a row to run the existing read-only command; if its required CAD state is
+remain in the canvas right-click menu and the NukeAI sidebar. The trigger is an
+icon-only bot button with a tooltip and accessible name. Choose a row to run the
+existing read-only command; if its required CAD state is
 missing, the command's normal warning explains what to open first and no chat
 starts.
 

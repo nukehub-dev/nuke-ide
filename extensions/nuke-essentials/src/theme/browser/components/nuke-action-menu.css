@@ -31,6 +31,13 @@
     outline-offset: 1px;
 }
 
+.nuke-action-menu-trigger-icon-only {
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+    justify-content: center;
+}
+
 .nuke-action-menu-icon {
     flex: 0 0 auto;
     font-size: 14px;

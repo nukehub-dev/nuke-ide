@@ -623,6 +623,8 @@ test('command search launcher exposes the NukeAI action menu with keyboard dismi
     const trigger = launcher.getByRole('button', { name: 'NukeAI actions' });
     await expect(trigger).toBeVisible();
     await expect(trigger.locator('.codicon-hubot')).toHaveCount(1);
+    await expect(trigger).toHaveClass(/nuke-action-menu-trigger-icon-only/);
+    await expect(trigger.locator('.nuke-action-menu-label')).toHaveCount(0);
     await trigger.click();
     const menu = launcher.locator('.nuke-action-menu-popup');
     await expect(menu).toBeVisible();

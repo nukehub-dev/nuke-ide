@@ -1862,6 +1862,11 @@
     box-shadow: var(--nuke-shadow-sm);
 }
 
+.cad-viewport .cad-command-search-launcher .nuke-action-menu-trigger-icon-only {
+    width: 28px;
+    padding: 0;
+}
+
 .cad-viewport .cad-command-search-launcher .nuke-action-menu-trigger:hover,
 .cad-viewport .cad-command-search-launcher .nuke-action-menu-trigger[aria-expanded='true'] {
     border-color: var(--theia-focusBorder);

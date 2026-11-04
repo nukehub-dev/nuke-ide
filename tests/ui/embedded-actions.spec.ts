@@ -58,11 +58,9 @@ test('statepoint viewer exposes the statepoint action menu and closes it with Es
     await expect(menu).toHaveCount(0);
     await expect(trigger).toBeFocused();
 
-    // The trigger collapses to its icon in a narrow container but keeps the
-    // accessible name and tooltip.
-    await page.setViewportSize({ width: 500, height: 800 });
-    await page.waitForTimeout(200);
-    await expect(trigger.locator('.nuke-action-menu-label')).toBeHidden();
+    // The trigger is icon-only; the accessible name and tooltip carry the label.
+    await expect(trigger).toHaveClass(/nuke-action-menu-trigger-icon-only/);
+    await expect(trigger.locator('.nuke-action-menu-label')).toHaveCount(0);
     await expect(trigger).toHaveAttribute('aria-label', 'NukeAI actions');
 
     expect(severe(errors), `unexpected severe errors:\n${severe(errors).join('\n')}`).toEqual([]);
@@ -80,6 +78,8 @@ test('DAGMC editor action menu keeps actions enabled and the command preflight w
     const trigger = editor.getByRole('button', { name: 'NukeAI actions' });
     await expect(trigger).toBeVisible();
     await expect(trigger.locator('.codicon-hubot')).toHaveCount(1);
+    await expect(trigger).toHaveClass(/nuke-action-menu-trigger-icon-only/);
+    await expect(trigger.locator('.nuke-action-menu-label')).toHaveCount(0);
     await trigger.click();
     const menu = editor.locator('.nuke-action-menu-popup');
     await expect(menu).toBeVisible();
