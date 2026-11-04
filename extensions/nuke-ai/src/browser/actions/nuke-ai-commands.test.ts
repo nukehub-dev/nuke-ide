@@ -70,7 +70,7 @@ describe('NukeAI commands', () => {
             ...NUKE_AI_ACTIONS.map((action) => action.command.id),
             NukeAiCommands.PREVIEW_SETTINGS.id
         ]);
-        expect(registry.handlers.size).toBe(14);
+        expect(registry.handlers.size).toBe(16);
     });
 
     it('uses unique command ids and the NukeAI category', () => {
@@ -92,11 +92,7 @@ describe('NukeAI commands', () => {
             }
             await registry.execute(action.command.id);
 
-            if (action.agentId === undefined) {
-                expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText);
-            } else {
-                expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText, action.agentId);
-            }
+            expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText, action.agentId, action.precondition);
             expect(action.prompt.trim().length).toBeGreaterThan(0);
             expect(action.prompt.toLowerCase()).toContain('read-only');
             expect(action.prompt).not.toContain('~{');
@@ -105,7 +101,7 @@ describe('NukeAI commands', () => {
             expect(action.displayText.length).toBeLessThanOrEqual(30);
         }
 
-        expect(actions.ask).toHaveBeenCalledTimes(12);
+        expect(actions.ask).toHaveBeenCalledTimes(14);
         expect(actions.attachContext).not.toHaveBeenCalled();
     });
 
@@ -116,6 +112,9 @@ describe('NukeAI commands', () => {
         expect(NukeAiPrompts.EXPLAIN_SELECTION).toContain('nuke_cad_inspectSelection');
         expect(NukeAiPrompts.VALIDATE_OPENMC).toContain('nuke_openmc_validateProject');
         expect(NukeAiPrompts.DIAGNOSE_OPENMC).toContain('nuke_openmc_diagnoseProject');
+        expect(NukeAiPrompts.DIAGNOSE_CSG).toContain('nuke_openmc_validateProject');
+        expect(NukeAiPrompts.DIAGNOSE_CSG).toContain('nuke_openmc_diagnoseProject');
+        expect(NukeAiPrompts.DIAGNOSE_DAGMC).toContain('nuke_openmc_diagnoseProject');
         expect(NukeAiPrompts.EXPLAIN_RUN).toContain('nuke_openmc_getRunStatus');
         expect(NukeAiPrompts.DIAGNOSE_RUN).toContain('nuke_openmc_diagnoseRun');
         expect(NukeAiPrompts.EXPLAIN_STATEPOINT).toContain('nuke_viz_summarizeStatepoint');
@@ -130,7 +129,12 @@ describe('NukeAI commands', () => {
 
         await registry.execute(NukeAiCommands.PREVIEW_SETTINGS.id);
 
-        expect(actions.ask).toHaveBeenCalledWith(NukeAiPrompts.PREVIEW_SETTINGS, 'Review OpenMC Settings');
+        expect(actions.ask).toHaveBeenCalledWith(
+            NukeAiPrompts.PREVIEW_SETTINGS,
+            'Review OpenMC Settings',
+            undefined,
+            expect.objectContaining({ kind: 'context', field: 'activeOpenmcProject' })
+        );
         expect(NukeAiPrompts.PREVIEW_SETTINGS.toLowerCase()).toContain('read-only');
     });
 
@@ -138,11 +142,11 @@ describe('NukeAI commands', () => {
         const { registry, actions } = createHarness();
         const diagnostics = NUKE_AI_ACTIONS.filter((action) => action.agentId === NUKE_DIAGNOSTICS_AGENT_ID);
 
-        expect(diagnostics).toHaveLength(4);
+        expect(diagnostics).toHaveLength(6);
         for (const action of diagnostics) {
             await registry.execute(action.command.id);
 
-            expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText, NUKE_DIAGNOSTICS_AGENT_ID);
+            expect(actions.ask).toHaveBeenLastCalledWith(action.prompt, action.displayText, NUKE_DIAGNOSTICS_AGENT_ID, action.precondition);
         }
     });
 

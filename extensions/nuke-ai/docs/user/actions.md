@@ -11,33 +11,38 @@ Command Palette. The **NukeAI** section is the first section in the sidebar.
 
 ![NukeAI section in the Nuke Tools sidebar with the read-only contextual actions](images/nuke-ai-actions.png)
 
-| Action                    | What it asks NukeAI to do                                                          |
-| ------------------------- | ---------------------------------------------------------------------------------- |
-| Ask About Active Context  | Explain what the active CAD document, OpenMC project, and dataset let you do next. |
-| Attach Active Context     | Add the `#nukeContext` chip to the active chat.                                    |
-| Check Active CAD Model    | Summarize the active CAD document, including counts, selection, and warnings.      |
-| Explain CAD Selection     | Explain the selected solid or solids and any hidden solids.                        |
-| Validate OpenMC Project   | Validate the active OpenMC project and group issues by severity.                   |
-| Explain OpenMC Run        | Summarize the active run status and the recent log tail.                           |
-| Refresh Active Run Status | Read the active OpenMC run state, working directory, and recent log tail.          |
-| Explain Active Statepoint | Explain k-effective, batches, tallies, and uncertainty in the active dataset.      |
-| Review OpenMC Settings    | Summarize the project and review settings; preview a concrete change only.         |
-| Capture DAGMC View        | Capture the active DAGMC viewport and describe the preview.                        |
+| Action                    | What it asks NukeAI to do                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| Ask About Active Context  | Explain what the active CAD document, OpenMC project, and dataset let you do next.  |
+| Attach Active Context     | Add the `#nukeContext` chip to the active chat.                                     |
+| Check Active CAD Model    | Summarize the active CAD document, including counts, selection, and warnings.       |
+| Explain CAD Selection     | Explain the selected solid or solids and any hidden solids.                         |
+| Validate OpenMC Project   | Validate the active OpenMC project and group issues by severity.                    |
+| Diagnose CSG Geometry     | Focus project diagnosis on CSG surfaces, cells, universes, lattices, and findings.  |
+| Diagnose DAGMC Model      | Focus project diagnosis on the DAGMC file, volumes, materials, and graveyard state. |
+| Explain OpenMC Run        | Summarize the active run status and the recent log tail.                            |
+| Refresh Active Run Status | Read the active OpenMC run state, working directory, and recent log tail.           |
+| Explain Active Statepoint | Explain k-effective, batches, tallies, and uncertainty in the active dataset.       |
+| Review OpenMC Settings    | Summarize the project and review settings; preview a concrete change only.          |
+| Capture DAGMC View        | Capture the active DAGMC viewport and describe the preview.                         |
 
 Every action is also available in the Command Palette under the `NukeAI:` prefix. The command-palette label names the
 action, and the chat transcript shows the shorter action label. **Review OpenMC Settings** is a Command Palette and
 welcome quick-start action; the other rows also appear in the NukeAI sidebar section.
 
+Before opening a chat, each action checks for the CAD document, OpenMC project, active run, or statepoint it needs. If
+that context is missing, NukeAI shows a warning naming the prerequisite and does not start a model request.
+
 ## In domain menus
 
 NukeAI actions also appear beside the work, in the menu or toolbar owned by the active domain:
 
-| Surface                              | NukeAI actions                                                                                             |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| CAD viewport right-click menu        | **Ask About Context**, **Diagnose CAD Model**, **Explain Selection**, **Check Active CAD Model**           |
-| OpenMC Studio Simulation tab toolbar | **Diagnose Project** and **Validate and Explain** (validation), **Diagnose Run** and **Explain Run** (run) |
-| DAGMC viewer right-click menu        | **Capture View**, **Diagnose Statepoint**                                                                  |
-| Tally viewer right-click menu        | **Explain Statepoint**, **Diagnose Statepoint** (only with a loaded tally)                                 |
+| Surface                              | NukeAI actions                                                                                                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CAD viewport right-click menu        | **Ask About Context**, **Diagnose CAD Model**, **Explain Selection**, **Check Active CAD Model**                                                                 |
+| OpenMC Studio Simulation tab toolbar | **Diagnose Project**, **Validate and Explain**, **Diagnose CSG Geometry**, and **Diagnose DAGMC Model** (validation); **Diagnose Run** and **Explain Run** (run) |
+| DAGMC viewer right-click menu        | **Capture View**, **Diagnose Statepoint**                                                                                                                        |
+| Tally viewer right-click menu        | **Explain Statepoint**, **Diagnose Statepoint** (only with a loaded tally)                                                                                       |
 
 Each entry runs the same read-only command as its sidebar and Command Palette action. The domain menus never carry
 their own AI logic: they read command-backed descriptors from the neutral `nuke-core` context-action registry. When
@@ -46,10 +51,10 @@ disabled rows.
 
 ## Diagnostics
 
-The **Diagnostics** subsection under **NukeAI** opens the read-only **Nuke Diagnostics** agent with four focused
-requests: **Diagnose Active CAD Model**, **Diagnose OpenMC Project**, **Diagnose OpenMC Run**, and **Diagnose Active
-Statepoint**. Each one reports severity-coded findings with the tool evidence behind them and closes with safe next
-steps. See [Nuke Diagnostics](diagnostics.md) for the findings, severity rules, and the statepoint metadata
+The **Diagnostics** subsection under **NukeAI** opens the read-only **Nuke Diagnostics** agent with six focused
+requests: **Diagnose Active CAD Model**, **Diagnose OpenMC Project**, **Diagnose CSG Geometry**, **Diagnose DAGMC
+Model**, **Diagnose OpenMC Run**, and **Diagnose Active Statepoint**. Each one reports severity-coded findings with the
+tool evidence behind them and closes with safe next steps. See [Nuke Diagnostics](diagnostics.md) for the findings, severity rules, and the statepoint metadata
 limitation.
 
 ## Inspect capabilities and logs
@@ -72,7 +77,7 @@ the stable identifiers for extension authors: `nuke.cad.summarizeDocument` is ex
 
 ## Read-only by default
 
-The sidebar actions and the four diagnostics actions only read state. They do not move geometry, edit an OpenMC
+The sidebar actions and the six diagnostics actions only read state. They do not move geometry, edit an OpenMC
 project, open viewers, start or cancel runs, or write files. **Review OpenMC Settings** may prepare a read-only preview
 of a concrete change, but it never applies one. If a tool cannot see the required state, NukeAI reports what is missing
 instead of inventing a path or a result.

@@ -20,7 +20,8 @@ the default chat agent when no default has been chosen; if the default-agent pic
 - **Review OpenMC Settings** shows the current run settings and previews a proposed change before anything is applied.
 - **Diagnose Active Statepoint** checks k-effective uncertainty, batches, and tally coverage.
 
-If no language model is ready, the section shows a **Choose a model** card with an **Open AI Settings** button. Add a
+If the required CAD document, OpenMC project, run, or statepoint is missing, the quick action explains the prerequisite
+and returns without opening a chat. If no language model is ready, the section shows a **Choose a model** card with an **Open AI Settings** button. Add a
 provider and API key there, then return to the chat. The card disappears once a model is ready. NukeAI never ships a
 provider key of its own.
 

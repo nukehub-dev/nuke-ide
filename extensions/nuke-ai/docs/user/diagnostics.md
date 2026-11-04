@@ -9,24 +9,33 @@ closes with a short list of safe next steps. It never repairs anything.
 Open the **Nuke Tools** view, expand the **NukeAI** section, and use the **Diagnostics** subsection. Every action is
 also available in the Command Palette under the `NukeAI:` prefix.
 
-| Action                     | Agent            | Tool                          |
-| -------------------------- | ---------------- | ----------------------------- |
-| Diagnose Active CAD Model  | Nuke Diagnostics | `nuke_cad_diagnoseModel`      |
-| Diagnose OpenMC Project    | Nuke Diagnostics | `nuke_openmc_diagnoseProject` |
-| Diagnose OpenMC Run        | Nuke Diagnostics | `nuke_openmc_diagnoseRun`     |
-| Diagnose Active Statepoint | Nuke Diagnostics | `nuke_viz_diagnoseStatepoint` |
+| Action                     | Agent            | Tool                                                          |
+| -------------------------- | ---------------- | ------------------------------------------------------------- |
+| Diagnose Active CAD Model  | Nuke Diagnostics | `nuke_cad_diagnoseModel`                                      |
+| Diagnose OpenMC Project    | Nuke Diagnostics | `nuke_openmc_diagnoseProject`                                 |
+| Diagnose CSG Geometry      | Nuke Diagnostics | `nuke_openmc_validateProject` + `nuke_openmc_diagnoseProject` |
+| Diagnose DAGMC Model       | Nuke Diagnostics | `nuke_openmc_diagnoseProject`                                 |
+| Diagnose OpenMC Run        | Nuke Diagnostics | `nuke_openmc_diagnoseRun`                                     |
+| Diagnose Active Statepoint | Nuke Diagnostics | `nuke_viz_diagnoseStatepoint`                                 |
 
-Each action opens a focused chat pinned to **Nuke Diagnostics** and sends the matching request with `#nukeContext`
-attached. If the diagnostics agent is unavailable, the request falls back to the **NukeAI** agent instead of failing.
+Each action first checks its required context. If the active CAD document, OpenMC project, run, or statepoint is
+missing, NukeAI shows a notification with the missing prerequisite instead of opening a chat or calling a model. When
+the context is present, the action opens a focused chat pinned to **Nuke Diagnostics** and sends the matching request
+with `#nukeContext` attached. If the diagnostics agent is unavailable, the request falls back to the **NukeAI** agent
+instead of failing.
 
 ## What each diagnosis reports
 
 - **CAD model** — the document path, build success, solid, face, and triangle counts, region manifest state,
   selection validity, hidden solids, and findings such as a failed build, no solids, missing triangles, stale
   selection, or a manifest count mismatch.
-- **OpenMC project** — validation findings, environment readiness, cross-section configuration, DAGMC file state,
-  entity counts, and whether the project is ready to run. Findings include environment problems, missing cross
-  sections, missing DAGMC files, empty materials, missing geometry, and absent tallies.
+- **OpenMC project** — validation findings, environment readiness, cross-section configuration, CSG geometry, DAGMC
+  file state, entity counts, and whether the project is ready to run. Findings include environment problems, missing
+  cross sections, missing DAGMC files, empty materials, missing geometry, and absent tallies.
+- **CSG geometry** — the same project validation and diagnosis focused on surfaces, cells, universes, lattices, region
+  validity, and geometry findings.
+- **DAGMC** — the same project diagnosis focused on the configured `.h5m` file, file presence, volume and material
+  assignments, graveyard state, and DAGMC-related findings.
 - **OpenMC run** — the run state, working directory, log file, log tail, and findings from the log. Findings cover
   lost particles, overlapping cells, missing cross sections, error lines, warnings, convergence problems, and MPI
   failures. When more than one run is active, the request asks which working directory to diagnose instead of

@@ -101,6 +101,24 @@ export const NUKE_AI_CONTEXT_ACTIONS: readonly NukeContextAction[] = [
         order: 'b'
     },
     {
+        id: 'nuke-ai.openmc.validation.diagnoseCsg',
+        scope: 'openmc.validation',
+        label: 'Diagnose CSG Geometry',
+        description: 'Focus the project diagnosis on CSG surfaces, cells, universes, lattices, and geometry findings.',
+        commandId: NukeAiCommands.DIAGNOSE_CSG.id,
+        group: 'nuke-ai',
+        order: 'c'
+    },
+    {
+        id: 'nuke-ai.openmc.validation.diagnoseDagmc',
+        scope: 'openmc.validation',
+        label: 'Diagnose DAGMC Model',
+        description: 'Focus the project diagnosis on DAGMC file state, volumes, materials, and graveyard findings.',
+        commandId: NukeAiCommands.DIAGNOSE_DAGMC.id,
+        group: 'nuke-ai',
+        order: 'd'
+    },
+    {
         id: 'nuke-ai.openmc.run.diagnoseRun',
         scope: 'openmc.run',
         label: 'Diagnose Run',

@@ -93,16 +93,20 @@ confirmation flow for those actions.
 
 `src/browser/actions/nuke-ai-action-service.ts` owns two entry points:
 
-- `ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID)` creates a focused chat session pinned to the
-  requested agent, falling back to the default NukeAI agent when the requested one is unavailable, attaches
-  `nukeContext`, and sends the prompt with the short display text.
+- `ask(prompt, displayText, agentId = NUKE_CHAT_AGENT_ID, precondition?)` first checks the optional contextual
+  precondition, then creates a focused chat session pinned to the requested agent, falling back to the default NukeAI
+  agent when the requested one is unavailable, attaches `nukeContext`, and sends the prompt with the short display
+  text. A missing CAD document, OpenMC project, active run, or statepoint produces a warning without a chat request.
 - `attachContext()` ensures an active session and executes the public `add-context-variable` command for
   `nukeContext`.
 
 `src/browser/actions/nuke-ai-commands.ts` registers the Command Palette entries and
 `src/browser/actions/nuke-ai-tools-contribution.ts` places them in the first Nuke Tools sidebar section, with the
-four diagnostic commands under a `Diagnostics` subgroup. The actions are read-only, never import a domain extension,
-and report failures through `MessageService` instead of failing silently.
+six diagnostic commands under a `Diagnostics` subgroup. Each command carries an optional `NukeAiActionPrecondition`:
+CAD, OpenMC project, and statepoint actions require the matching ambient context, while run actions probe the read-only
+`nuke.openmc.getRunStatus` capability. The preflight runs before a session is created, so a missing prerequisite shows a
+warning instead of calling a model. The actions are read-only, never import a domain extension, and report failures
+through `MessageService` instead of failing silently.
 
 ## Tool result pipeline
 

@@ -85,6 +85,8 @@ export interface NukeCapabilityContext {
     readonly activeCadDocument?: string;
     readonly activeOpenmcProject?: string;
     readonly activeDataset?: string;
+    /** True while at least one DAGMC viewer is open in the main area. */
+    readonly hasDagmcViewer?: boolean;
     readonly signal?: AbortSignal;
 }
 

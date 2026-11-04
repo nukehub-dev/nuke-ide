@@ -649,6 +649,31 @@ describe('NukeCapabilityToolBridge', () => {
         expect(invoke).not.toHaveBeenCalled();
     });
 
+    it('allows a diagnostics capability when invoked by the diagnostics agent', async () => {
+        const invoke = vi.fn(async () => ({ ok: true, message: 'Diagnosed.' }));
+        const { toolRegistry, bridge } = setup({
+            capabilities: [
+                capability({
+                    id: 'nuke.viz.diagnoseStatepoint',
+                    inputSchema: { type: 'object', properties: {} },
+                    invoke
+                })
+            ]
+        });
+        await bridge.onStart();
+        const tool = toolRegistry.tools.get(toToolName('nuke.viz.diagnoseStatepoint')) as ToolRequest;
+
+        const content = contentOf(
+            await tool.handler('{}', {
+                request: { agentId: NUKE_DIAGNOSTICS_AGENT_ID },
+                response: {}
+            } as unknown as ToolInvocationContext)
+        );
+
+        expect(content[0]).toEqual({ type: 'text', text: 'Diagnosed.' });
+        expect(invoke).toHaveBeenCalledTimes(1);
+    });
+
     it('returns an error for invalid JSON arguments', async () => {
         const { toolRegistry, bridge } = setup({ capabilities: [capability({ id: 'nuke.example.invalidJson' })] });
         await bridge.onStart();

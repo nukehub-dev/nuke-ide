@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ChatAgentLocation } from '@theia/ai-chat/lib/common';
+import { toToolName } from '../capabilities/nuke-tool-schema';
 import { NUKE_DIAGNOSTICS_AGENT_ID, NUKE_DIAGNOSTICS_TOOL_NAMES, NukeDiagnosticsAgent } from './nuke-diagnostics-agent';
 
 const CAPABILITY_IDS = [
@@ -108,6 +109,7 @@ describe('NukeDiagnosticsAgent', () => {
             expect(prompt).toContain(toolName);
             expect(prompt).toContain(`~{${toolName}}`);
             expect(prompt).toContain(CAPABILITY_IDS[index]);
+            expect(toToolName(CAPABILITY_IDS[index])).toBe(toolName);
         }
         expect(prompt).not.toMatch(/~\{nuke\./);
     });

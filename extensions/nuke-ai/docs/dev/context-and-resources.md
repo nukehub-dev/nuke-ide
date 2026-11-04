@@ -13,6 +13,7 @@ The available fields are:
 - `activeCadDocument` — path of the active NukeCAD document.
 - `activeOpenmcProject` — path of the active OpenMC Studio project.
 - `activeDataset` — path of the statepoint loaded in the visualizer.
+- `hasDagmcViewer` — true while at least one DAGMC viewer is open; used by the Capture DAGMC View preflight.
 
 NukeAI must not import a domain extension to read these values. It injects `NukeCapabilityContextService` and reads
 the merged snapshot.

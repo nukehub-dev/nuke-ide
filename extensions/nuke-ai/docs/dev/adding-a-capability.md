@@ -62,7 +62,7 @@ bind(NukeCapabilityContribution).toService(ExampleCapabilityContribution);
   - `destructive` also adds a warning that data can be overwritten or deleted.
 - **Annotations** — omit them to derive MCP-style hints from `risk`. Explicit annotations win, but a contradiction with the risk is logged and the derived hints are not silently replaced.
 - **`when`** — return false when the action does not apply, for example when no CAD document or OpenMC project is active. A throwing predicate is treated as false.
-- **Context** — use `workspaceRoots`, `activeCadDocument`, `activeOpenmcProject`, `activeDataset`, and `signal`. Check `signal.aborted` or listen for its abort event when the work is long-running.
+- **Context** — use `workspaceRoots`, `activeCadDocument`, `activeOpenmcProject`, `activeDataset`, `hasDagmcViewer`, and `signal`. Check `signal.aborted` or listen for its abort event when the work is long-running.
 - **Results** — return the structured envelope. Use `message` for the human-readable summary, `data` for compact structured output, `artifacts` for files or URIs, `warnings` for caveats, `nextActions` for suggested follow-ups, and `handle` or `undoToken` when the caller needs to continue or reverse the action. Add `preview` to render truthful output in the chat; see [Previews and Trajectory](preview.md).
 - **Bounds** — keep `data` small. Strings over 8 KiB are truncated and payloads over 32 KiB are replaced with a marked summary before they reach the model.
 
@@ -86,6 +86,8 @@ When the capability should be callable from chat, update all of these together:
    MCP protocol, catalog, and contribution tests.
 6. The owning domain skill under `extensions/nuke-ai/skills/` when the workflow needs guidance, and the dev/user docs plus
    `CHANGELOG.md`.
+7. If the capability backs a contextual action, add a `NukeAiActionPrecondition` in `nuke-ai-commands.ts` so the action
+   warns without opening a chat when its CAD document, OpenMC project, active run, or statepoint is missing.
 
 The `references every capability tool by its sanitized name` test fails when the chat prompt and its two lists drift
 apart. The diagnostics test covers its own list, and the MCP catalog tests cover the external boundary.

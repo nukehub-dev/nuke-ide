@@ -269,7 +269,7 @@ export class NukeCapabilityToolBridge implements FrontendApplicationContribution
         if (
             ChatToolContext.is(ctx) &&
             ctx.request.agentId === NUKE_DIAGNOSTICS_AGENT_ID &&
-            !(NUKE_DIAGNOSTICS_TOOL_NAMES as readonly string[]).includes(capability.id)
+            !(NUKE_DIAGNOSTICS_TOOL_NAMES as readonly string[]).includes(toToolName(capability.id))
         ) {
             return createToolCallError(`Capability ${capability.id} is not available to the read-only Nuke Diagnostics agent.`);
         }

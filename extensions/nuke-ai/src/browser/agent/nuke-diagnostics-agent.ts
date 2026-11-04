@@ -51,7 +51,11 @@ export const NUKE_DIAGNOSTICS_SYSTEM_PROMPT_ID = 'nuke-diagnostics-system';
 /** Default variant of the Nuke Diagnostics system prompt. */
 export const NUKE_DIAGNOSTICS_SYSTEM_PROMPT_VARIANT_ID = 'nuke-diagnostics-system-default';
 
-/** Diagnostic and read-only support tool names published by the capability bridge. */
+/**
+ * Diagnostic and read-only support tool names published by the capability bridge.
+ * These are sanitized chat tool names, not dotted capability ids; the bridge
+ * compares them through `toToolName`.
+ */
 export const NUKE_DIAGNOSTICS_TOOL_NAMES = [
     'nuke_cad_diagnoseModel',
     'nuke_openmc_diagnoseProject',
