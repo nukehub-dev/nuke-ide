@@ -9,11 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- nuke-ai: safe edits preview and apply OpenMC project name, description, and author changes with confirmation and session-scoped undo.
+- openmc-studio: NukeAI reads the run mode and every supported OpenMC settings value before previewing an edit.
+- openmc-studio: NukeAI advanced settings edits cover output, particle cutoffs, and kinetics (IFP) with nested-safe undo and IFP/inactive cross-checks.
+- openmc-studio: NukeAI previews, applies, and undoes independent OpenMC source add/update/remove edits for fixed-source runs, with a read-only source inventory.
+- nuke-cad: parametric components add box, cylinder, tube, sphere, cone, and plate-with-hole templates with editable dimensions and radius/diameter aliases.
+- nuke-cad: mechanical component templates add L bracket, flange, stepped shaft, pipe with bore, and bolt-circle plate starters.
+- nuke-cad: nuclear component templates add hex cell, control-rod guide tube, and assembly grid plate starters.
+- nuke-essentials: a shared compact action menu provides keyboard navigation, focus return, and narrow-width icon collapse.
+- nuke-ai: embedded action menus make the read-only context actions visible in the statepoint loader, CAD toolbar, and DAGMC editor.
+- nuke-visualizer: the statepoint viewer header and empty loader expose Ask About Context, Explain Statepoint, and Diagnose Statepoint.
+- nuke-cad: the CAD document toolbar exposes the NukeAI actions menu alongside the ribbon.
+- openmc-studio: the DAGMC editor header exposes NukeAI actions while the Simulation tab keeps its validation and run groups.
+
 ### Changed
+
+- nuke-ai: the chat prompt, chat tool list, Diagnostics tool list, skill allowlists, and MCP read-only allowlist are generated from one capability catalog, so enabled capabilities cannot silently disappear.
 
 ### Removed
 
 ### Fixed
+
+- nuke-essentials: shared dialogs, color picker, viewer bar, ViewCube, and view badges expose screen-reader names and keyboard-focus tooltips.
+- openmc-studio: tally and dashboard checkboxes follow the active theme, checkbox labels stay sentence case, and icon-only actions expose screen-reader names.
+- nuke-visualizer: probe and find-data cards share one slot without covering each other or the bottom bar, the viewer bar wraps on narrow panels, and icon-only controls expose screen-reader names.
 
 ## [0.2.1] - 2026-11-04
 
