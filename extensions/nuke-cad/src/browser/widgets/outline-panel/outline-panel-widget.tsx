@@ -317,6 +317,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 onToggleOriginAxes={() => this.handleToggleOriginAxes()}
                 onToggleOriginAxis={(axis) => this.handleToggleOriginAxis(axis)}
                 onExportBomCsv={() => void this.handleExportBomCsv()}
+                onOpenViewport={() => void this.commandService.executeCommand(NukeCadCommands.OPEN_CAD_VIEWPORT.id)}
                 onSaveNamedView={() => void this.commandService.executeCommand(NukeCadCommands.SAVE_NAMED_VIEW.id)}
                 onRestoreNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.RESTORE_NAMED_VIEW.id, id)}
                 onDeleteNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.DELETE_NAMED_VIEW.id, id)}
@@ -598,6 +599,7 @@ interface CadOutlinePanelComponentProps {
     readonly onToggleOriginAxes: () => void;
     readonly onToggleOriginAxis: (axis: OriginAxis) => void;
     readonly onExportBomCsv: () => void;
+    readonly onOpenViewport: () => void;
     /** Named Views: save the current camera, restore a row, or delete it by id. */
     readonly onSaveNamedView: () => void;
     readonly onRestoreNamedView: (id: string) => void;
@@ -801,7 +803,11 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
                     icon="nuke-cad-outline"
                     title="No CAD model is open."
                     message="Open a model in the CAD viewport to inspect its volumes and surfaces."
-                />
+                >
+                    <button className="theia-button" onClick={props.onOpenViewport}>
+                        <span className="codicon codicon-window" /> Open CAD Viewport
+                    </button>
+                </NukeEmptyState>
             )}
 
             {model && (
