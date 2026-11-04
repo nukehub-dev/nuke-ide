@@ -52,10 +52,13 @@ test('creates a rectilinear mesh with the token editor and bounds helper', async
     await expect(editor.locator('.mesh-summary')).toContainText('Rectilinear');
     await expect(editor.locator('.mesh-grid-editor')).toHaveCount(3);
 
-    // Grid inputs inherit the same Theia input colors as every other form field.
-    const gridBackground = await editor.getByLabel('X boundaries').evaluate((element) => getComputedStyle(element).backgroundColor);
-    const formBackground = await editor.getByLabel('X lower bound').evaluate((element) => getComputedStyle(element).backgroundColor);
-    expect(gridBackground).toBe(formBackground);
+    // Grid and helper inputs inherit the same Theia input chrome as every other form field.
+    const inputStyles = async (label: string) =>
+        editor.getByLabel(label).evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, border: style.borderColor, radius: style.borderRadius, fontSize: style.fontSize };
+        });
+    expect(await inputStyles('X boundaries')).toEqual(await inputStyles('X lower bound'));
 
     // Default grids are 2×2×2; typing explicit boundaries updates cells.
     await editor.getByLabel('X boundaries').fill('0 0.5 1');

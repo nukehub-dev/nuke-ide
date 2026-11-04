@@ -1,14 +1,15 @@
 ---
 name: nuke-cad
-description: Inspect, summarize, export, and author the active NukeCAD document. Use before an OpenMC import to confirm solid counts, selection, manifest links, and export artifacts, or to preview feature, sketch, topology, import, assembly, drawing, or sandboxed Python script changes.
+description: Inspect, summarize, export, create, and author the active NukeCAD document. Use before an OpenMC import to confirm solid counts, selection, manifest links, and export artifacts, to create a document from a shipped template, or to preview feature, sketch, topology, import, assembly, drawing, or sandboxed Python script changes.
 ---
 
 # NukeCAD
 
 Use this skill when the user asks about the active CAD model, needs a DAGMC model for OpenMC, wants to know whether a
-CAD document is ready for simulation, or asks for a small feature-parameter, sketch-dimension, topology-impact, import,
-assembly-placement, drawing-sheet settings, or Python script change. Read/export is always available. Feature, sketch,
-topology, import, assembly-placement, and drawing settings edits are available only when the user enabled **Nuke CAD: AI
+CAD document is ready for simulation, wants a new document from a shipped component template, or asks for a small
+feature-parameter, sketch-dimension, topology-impact, import, assembly-placement, drawing-sheet settings, or Python
+script change. Read/export and template listing are always available. Feature, sketch, topology, import,
+assembly-placement, drawing-settings, and creation applies are available only when the user enabled **Nuke CAD: AI
 Authoring** and a script change additionally needs **Nuke CAD: Script Authoring** on a saved `.py` model. New sketch
 entities, document parameters not referenced by a sketch, booleans, body/feature add/delete/reorder, lattices, and
 assembly structure stay in the CAD viewport and Feature Tree.
@@ -31,6 +32,24 @@ and triangle counts, the bounding box, warnings, the current selection, and the 
 
 Use `nuke_cad_inspectSelection` when the user refers to "the selected body" or "this face". It returns the primary
 solid, every highlighted solid, and the hidden solid ids. Pass no arguments.
+
+## Create a document from a template
+
+Use this flow when the user wants a new model based on a shipped component. Call `nuke_cad_listDocumentTemplates` with
+`{}`; it is read-only and works even when AI authoring is off. Pass `{ "category"?, "query"? }` only to narrow the
+catalogue. Never invent a template id or parameter.
+
+With **Nuke CAD: AI Authoring** enabled, call `nuke_cad_prepareDocumentCreation` with
+`{ "templateId", "name"?, "parameters"?, "unit"? }`. It resolves the numeric parameters (including radius/diameter
+equivalents), re-solves the affected sketches, and real-builds a private candidate without installing it. Review the
+resolved parameter rows and build summary with the user. Creation has no before-model, so it opens no **CAD Edit
+Review** panel and draws no ghost.
+
+Call `nuke_cad_createDocumentFromTemplate` with `{ "proposalId", "path"?, "replaceExisting"? }` only after explicit
+confirmation. A dirty active document refuses; a clean open document requires `replaceExisting: true`; the target must
+be a new `.nuke-cad` file inside a workspace root. Apply writes the file, installs it as the active document, schedules
+the rebuild, and returns an `undoToken`. The model supplies only a template id and numbers, never geometry, JSON, or
+code.
 
 ## Edit a feature parameter
 
@@ -354,8 +373,9 @@ import, validate the project with `nuke_openmc_validateProject` before starting 
 ## Boundaries
 
 - Do not author geometry beyond the scalar feature-edit, sketch-dimension, topology-impact, import, assembly-placement,
-  drawing-settings, and sandboxed-script flows. New sketch entities, document parameters not referenced by a sketch,
-  booleans, body/feature add/delete/reorder, lattices, and assembly structure stay in the CAD viewport or Feature Tree.
+  drawing-settings, template-creation, and sandboxed-script flows. New sketch entities, document parameters not
+  referenced by a sketch, booleans, body/feature add/delete/reorder, lattices, and assembly structure stay in the CAD
+  viewport or Feature Tree.
 - Do not apply a feature, sketch, topology, import, assembly, drawing, or script change without an explicit
   confirmation, and never send CAD authoring tools through MCP. Script apply is panel-only, so direct the user there
   instead of calling `nuke_cad_applyScriptChange` from chat.

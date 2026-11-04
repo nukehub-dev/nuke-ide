@@ -1181,12 +1181,6 @@
     min-width: 0;
 }
 
-.tally-configurator-container .mesh-grid-helper-row input {
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-}
-
 .tally-configurator-container .mesh-grid-helper-apply {
     align-self: flex-start;
 }

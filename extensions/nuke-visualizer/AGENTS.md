@@ -79,7 +79,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
   `python/plugins/base/commands/analysis.py` (pure numpy in `lib/analysis.py`, lazy VTK); `base.export` lives in
   `commands/export.py` + `lib/export.py` (CSV/VTK/glTF). Register both in `base/plugin.py`.
 - Exodus series (`python/plugins/base/lib/exodus_series.py`, `base.exodus-series` → `ExodusTimeSliderWidget` for
-  `*.e`/`*.exo*`) and headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
+  `*.e`/`*.exo*`) uses the shared ViewCube, a Fit view action, an XZ grid, and one dismissible animation-export
+  notice; see `docs/dev/output-viewers.md`.
+- Headless geometry (`geometry_viz.py::extract_csg_mesh`, `slice_viz.py` via `openmc.geometry-mesh` /
   `openmc.geometry-slice-vtk` into `widgets/geometry-native/` and `widgets/tally-native/`); see `docs/dev/python-backends.md`.
 - Tally series (`openmc.tally-series` in `commands/tally_series.py` + `lib/tally_series.py`) reads sibling
   statepoints through `widgets/statepoint/tally-series-widget.tsx`; preload no per-step mesh, and pass the

@@ -25,11 +25,13 @@ Optional extension for the AI runtime and its integration with NukeIDE capabilit
 - Bundles the Theia AI runtime and language-model provider packages
 - NukeAI chat with agents, skills (progressive disclosure), and a themed Welcome screen
 - Exposes every enabled Nuke capability as a typed AI chat tool
-- Read-only diagnostics agent for CAD model health, OpenMC project readiness and failed runs, and statepoint convergence and tally coverage
+- Read-only diagnostics agent for CAD model health, OpenMC project readiness and failed runs, statepoint convergence, and statepoint/tally-series comparisons
+- Reads material, tally, CSG, and DAGMC-volume inventories before an edit so the model resolves real ids instead of guessing
 - Preview/apply/undo OpenMC settings, material, tally, CSG geometry, and DAGMC volume-material edits with a before/after diff and explicit confirmation
 - Create OpenMC projects from templates and export the project as Python, both to validated workspace paths
 - Eight CAD authoring slices: scalar feature and sketch-dimension edits, topology-impacting changes, imported bodies, assembly placement, drawing-sheet presentation, Linux-only sandboxed Python scripts, and parameterized component-document creation (its template list is read-only and ungated)
 - Names, validates, and bounds tool arguments and results before they reach the model
+- Treats tool results, file and script text, logs, names, and previews as untrusted data, never instructions
 - Refreshes the tool set when capabilities or ambient context change
 - Persists truthful previews and bounded local metrics/edit journals under `.nuke-ide/ai`
 - Calls capability handlers in-process; no HTTP or MCP hop on the internal path
@@ -45,7 +47,7 @@ Advanced 3D and 2D visualization for nuclear engineering data.
 
 **Plugins:**
 
-- **Base Visualizer** — VTK, DAGMC (.h5m), STL, PLY, OBJ meshes
+- **Base Visualizer** — VTK, DAGMC (.h5m and multiblock `.vtm`), STEP/BREP, Gmsh (.msh), ExodusII time series, STL, PLY, and OBJ meshes
 - **OpenMC Plugin** — Statepoints (incl. IFP kinetics), tallies, cross-sections, depletion results, geometry, materials, nuclear data browsing, and output viewers for particle tracks, collision tracks, weight windows, and random ray results
 
 [User Guide](../extensions/nuke-visualizer/docs/user/getting-started.md) · [Developer Guide](../extensions/nuke-visualizer/docs/dev/index.md)

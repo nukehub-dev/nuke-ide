@@ -80,9 +80,14 @@ When the capability should be callable from chat, update all of these together:
 2. `NUKE_CAPABILITY_TOOL_NAMES` in `extensions/nuke-ai/src/browser/agent/nuke-chat-agent.ts` — the sanitized tool name,
    in workflow order.
 3. `CAPABILITY_IDS` in `nuke-chat-agent.test.ts` — the dotted id at the same index.
-4. The owning domain skill under `extensions/nuke-ai/skills/` when the workflow needs guidance, and the dev/user docs plus
+4. For a Diagnostics-only tool, `NUKE_DIAGNOSTICS_TOOL_NAMES` in `nuke-diagnostics-agent.ts` and the matching
+   `CAPABILITY_IDS` in `nuke-diagnostics-agent.test.ts` plus its prompt line.
+5. For an externally exposed read-only tool, `MCP_READ_ONLY_CAPABILITY_IDS` in `src/common/nuke-mcp-protocol.ts` and the
+   MCP protocol, catalog, and contribution tests.
+6. The owning domain skill under `extensions/nuke-ai/skills/` when the workflow needs guidance, and the dev/user docs plus
    `CHANGELOG.md`.
 
-The test `references every capability tool by its sanitized name` fails when the prompt and both lists drift apart.
+The `references every capability tool by its sanitized name` test fails when the chat prompt and its two lists drift
+apart. The diagnostics test covers its own list, and the MCP catalog tests cover the external boundary.
 
 See [Capability Registry](../../../nuke-core/docs/dev/capability-registry.md) for validation details, context contributions, workspace path checks, and the version contract.

@@ -33,9 +33,10 @@ connecting a model, choosing a default agent, asking a first question, and keepi
 links point at the NukeAI guide and NukeHub, not at Theia's generic AI documentation. Progress is kept per step, so
 the walkthrough resumes where you stopped.
 
-The chat panel docks on the right and can be dragged narrow. Below roughly 260 px the quick-start cards switch to one
-column and drop their secondary line, the guide button goes full width, and the composer's option row wraps so the
-send button stays reachable. A width of about 300 px or more keeps the full card layout.
+The chat panel docks on the right and can be dragged narrow. At 380 px and below the quick-action grid collapses to one
+column and the model-setup button goes full width; below 240 px the cards also drop their icons and secondary line. At
+260 px the guide button goes full width, and the composer option row wraps so the send button stays reachable. Wider
+panels return to the normal multi-column card grid.
 
 ## Chat basics
 
@@ -150,14 +151,15 @@ The filter is a denylist, so it is not a guarantee against kernel bugs.
 
 Run **NukeAI: Open Preview Gallery** from the Command Palette to browse the saved previews. The gallery lists bundles
 newest first, shows the capability and capture time behind each card, and opens the preview image or its result
-snapshot when you click a card. It is read-only: there is no delete or regenerate control. To clear the history,
-delete `.nuke-ide/ai/previews` in the file explorer. See [Previews and the Gallery](previews.md).
+snapshot when you click a card. It is read-only: there is no delete or regenerate control. To clear the history, run
+**NukeAI: Clear Preview History** and confirm, or delete `.nuke-ide/ai/previews` in the file explorer. See
+[Previews and the Gallery](previews.md).
 
 ## Domain skills
 
 NukeAI ships five skills that load only when a task needs them:
 
-- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, preview/apply feature, sketch, topology, import, assembly-placement, or drawing-settings edits, and guide Linux sandboxed Python script review.
+- `/nuke-cad` — summarize, inspect, and export the active CAD document to DAGMC, create a document from a shipped template, preview/apply feature, sketch, topology, import, assembly-placement, or drawing-settings edits, and guide Linux sandboxed Python script review.
 - `/openmc-studio` — summarize, validate, create, edit settings/materials/tallies/CSG/DAGMC, export Python, import CAD, run, and poll an OpenMC project.
 - `/nuke-visualizer` — summarize or open a statepoint and capture a DAGMC viewport.
 - `/nuke-workflow` — the end-to-end CAD → DAGMC → OpenMC → statepoint → capture handoff.

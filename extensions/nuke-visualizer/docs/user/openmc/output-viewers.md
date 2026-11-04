@@ -4,7 +4,7 @@ The OpenMC plugin turns simulation output files into interactive 3D viewers. Dou
 
 ---
 
-## Particle Tracks (`tracks.h5`)
+## Particle Tracks (`tracks.h5`, `tracks_p<N>.h5`)
 
 Recorded particle track segments, written when particle tracks are configured in OpenMC settings.
 
@@ -13,7 +13,7 @@ Recorded particle track segments, written when particle tracks are configured in
 - **Panel:** a tracks metadata table (batch, generation, particle ID, particle counts).
 - **Header filters:** particle type, cell/material, and max-tracks/max-points caps re-run the conversion.
 
-## Collision Tracks (`collision_track.h5`)
+## Collision Tracks (`collision_track.h5`, `collision_track.<N>.h5`)
 
 Individual collision sites recorded by OpenMC's collision track feature.
 
@@ -108,4 +108,4 @@ Display settings live in the **Viewer Settings** sidebar (`Ctrl+Shift+P` → "Op
 - **Point probe markers** — sampled points stay anchored in the scene with the newest sample accented and older samples muted; clearing the probe history or reloading the dataset removes them.
 - **Missing dependencies** — if the active Python environment lacks `vtk`, the viewer shows an actionable panel (what to install, or switch environment in Settings → Nuke Utils) with a Retry button.
 
-> **Tip:** Conversions run in the active Python environment and cache nothing — if you switch environments, reopen the file to re-convert.
+> **Tip:** Conversions run in the active Python environment — if you switch environments, reopen the file to re-convert.

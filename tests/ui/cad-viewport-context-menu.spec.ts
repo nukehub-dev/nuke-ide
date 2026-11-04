@@ -13,7 +13,8 @@ import { collectErrors, waitForWorkbench, openFileByQuickOpen, runCommand } from
  * when the pointer ray crosses more than one distinct face, opens an anchored
  * candidate list, and advertises Alt+click cycling. The feature dialog it
  * opens drags by its header and resets on a header double-click, like the
- * sketch chrome panels.
+ * sketch chrome panels. The trailing NukeAI group appends the read-only CAD
+ * context actions to both the solid and empty-space menus.
  *
  * The menu only appears once a tessellation is on screen, which requires a
  * working CAD backend. Without one the build fails and the viewport shows its
@@ -88,7 +89,11 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
         'Fit to Solid',
         'Hide Solid',
         'Isolate Solid',
-        'Clear Selection'
+        'Clear Selection',
+        'Ask About Context',
+        'Diagnose CAD Model',
+        'Explain Selection',
+        'Check Active CAD Model'
     ]);
     const editItem = menu.locator('.cad-viewport-context-menu-item', { hasText: 'Edit Feature…' });
     await expect(editItem).toBeEnabled();
@@ -150,7 +155,17 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     await page.mouse.click(box.x + 20, box.y + box.height - 80, { button: 'right' });
     await expect(menu).toBeVisible();
     const emptyLabels = await labelTexts();
-    expect(emptyLabels).toEqual(['Clear Selection', 'Fit All', 'Reset Explode', 'Show All Solids', 'Show Section View']);
+    expect(emptyLabels).toEqual([
+        'Clear Selection',
+        'Fit All',
+        'Reset Explode',
+        'Show All Solids',
+        'Show Section View',
+        'Ask About Context',
+        'Diagnose CAD Model',
+        'Explain Selection',
+        'Check Active CAD Model'
+    ]);
     await expect(
         menu.locator('.cad-viewport-context-menu-item', { hasText: 'Clear Selection' }).locator('.cad-viewport-context-menu-hint')
     ).toHaveText('Esc');
@@ -258,7 +273,11 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
         'Measure Radius',
         'Fit to Solid',
         'Hide Solid',
-        'Isolate Solid'
+        'Isolate Solid',
+        'Ask About Context',
+        'Diagnose CAD Model',
+        'Explain Selection',
+        'Check Active CAD Model'
     ]);
 
     // Appearance… opens the per-body display-only override dialog. The menu is

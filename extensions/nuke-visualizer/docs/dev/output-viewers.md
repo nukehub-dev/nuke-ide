@@ -36,7 +36,7 @@ reload()
   │    └─ python server.py openmc.<cmd>    # plugins/openmc/lib/output_vtk.py
   │         tracks-vtk / collision-vtk / weight-windows-vtk [--mesh-id] / voxel-vtk
   │         → writes .vtp / .vtr / .vti (numpy-only geometry; vtk imports lazily for the write)
-  └─ FileService.read(vtkPath) → setVtkText(text)
+  └─ readVtkText(fileService, uri) → setVtkText(text)
        └─ parseNativeVtkXml → three.js scene (instant color-by, no restart)
 ```
 
@@ -48,7 +48,22 @@ tabs and the DAGMC tally drape — never block the open on the backend.
 Tally series is the cross-statepoint path: `openmc.tally-series` reads one tally/score/nuclide from every sibling
 statepoint (`statepoint*.h5` / `openmc_simulation_n<N>.h5`) and returns per-step aggregates plus the series-wide mesh
 `viewRange`. `OpenMCTallySeriesWidget` charts that payload and converts only the chosen step on **Open 3D at this
-step**, passing `viewRange` as a custom range when **Shared color range** is on; no per-step mesh is preloaded.
+step**, passing `viewRange` as a custom range when **Shared color range** is on; no per-step mesh is preloaded. The
+tab and the widget header use the `graph-line` codicon.
+
+### Exodus Time Series
+
+`ExodusTimeSliderWidget` (`src/browser/plugins/openmc/widgets/exodus-series/exodus-time-slider-widget.tsx`) renders the
+`base.exodus-series` payload as a client-side step index: first/prev/slider/next/last controls, a labeled shared
+`ViewCube`, a step-row **Fit view**, a faint XZ grid, and instant color-by/colormap changes. The
+`OpenMCExodusViewerContribution` claims `*.e`/`*.exo*`; extraction reads Exodus-II through `netCDF4`, with a
+single-step `meshio` fallback.
+
+Animation export (`animation-export.ts`) uses `canvas.captureStream` plus the browser `MediaRecorder` (VP9/WebM
+preferred, 30 fps, 500 ms per step) and records the current color-by state against the current global range. Completion,
+cancellation, and failure settle one inline dismissible notice, and the pre-export step index is restored. Failure also
+raises one error notification; a shell without `MediaRecorder` refuses with a clear message. See
+`docs/user/base-visualizer.md`.
 
 Generic probe: `base.probe` samples a point/cell array at explicit points or a
 polyline (`--path`, `--samples`). Point arrays use `vtkProbeFilter`
@@ -97,8 +112,9 @@ The tracks viewer draws decimated direction cones (`THREE.InstancedMesh`, one dr
 
 ### Panel Shortcuts
 
-`viewer-nav-extras.tsx::ViewerPanelActions` renders the bottom-bar gear (Viewer Settings) and the
-DAGMC-only outline button. Both execute id-only commands from `commands/panel-commands.ts`; the widgets never
+`viewer-nav-extras.tsx::ViewerPanelActions` renders the bottom-bar gear (Viewer Settings), the optional
+Dataset Inspector table button, and the DAGMC-only outline button. All execute id-only commands from
+`commands/panel-commands.ts`; the widgets never
 import command contributions, so the widget → contribution → widget module cycle stays out. The DAGMC Outline
 panel drives `DagmcOutlinePatch.hideAll`/`focusVolume`: Hide all fills the hidden-volume set, and Frame fits only
 that volume's visible block bounds without changing visibility. Filtering force-expands sections and reports
@@ -219,6 +235,8 @@ IFP kinetics results live in ordinary `statepoint*.h5` files, so they have no re
 | Mesh-quality popover       | `widgets/viewer-quality-menu.tsx`, `base.mesh-quality`                                       |
 | Tally series command       | `python/plugins/openmc/commands/tally_series.py`, `lib/tally_series.py`                      |
 | Tally series widget/model  | `widgets/statepoint/tally-series-widget.tsx`, `tally-series-model.ts`                        |
+| Exodus time slider         | `src/browser/plugins/openmc/widgets/exodus-series/exodus-time-slider-widget.tsx`             |
+| Exodus animation export    | `src/browser/plugins/openmc/widgets/exodus-series/animation-export.ts`                       |
 | Entropy convergence        | `python/plugins/openmc/commands/statepoint.py`, `widgets/statepoint/entropy-convergence*`    |
 | Depletion analysis         | `python/plugins/openmc/lib/depletion_analysis.py`, `widgets/depletion/depletion-analysis.ts` |
 | Dose-coefficient reference | `python/plugins/openmc/commands/nuclear_data.py`, `widgets/nuclear-data/dose-*`              |

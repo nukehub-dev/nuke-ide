@@ -281,8 +281,14 @@ describe('toolLabel', () => {
         expect(toolLabel('nuke_cad_inspectScriptSource')).toBe('CAD script source');
         expect(toolLabel('nuke_cad_previewScriptChange')).toBe('CAD script preview');
         expect(toolLabel('nuke_cad_applyScriptChange')).toBe('CAD script applied');
+        expect(toolLabel('nuke_cad_listDocumentTemplates')).toBe('CAD template list');
+        expect(toolLabel('nuke_cad_prepareDocumentCreation')).toBe('CAD document creation preview');
+        expect(toolLabel('nuke_cad_createDocumentFromTemplate')).toBe('CAD document created');
         expect(toolLabel('nuke_cad_exportDagmc')).toBe('DAGMC export');
         expect(toolLabel('nuke_openmc_summarizeProject')).toBe('OpenMC project');
+        expect(toolLabel('nuke_openmc_summarizeMaterials')).toBe('OpenMC materials');
+        expect(toolLabel('nuke_openmc_summarizeTallies')).toBe('OpenMC tallies');
+        expect(toolLabel('nuke_openmc_summarizeGeometry')).toBe('OpenMC geometry');
         expect(toolLabel('nuke_openmc_validateProject')).toBe('OpenMC validation');
         expect(toolLabel('nuke_openmc_diagnoseProject')).toBe('OpenMC diagnosis');
         expect(toolLabel('nuke_openmc_diagnoseRun')).toBe('Run diagnosis');
@@ -292,6 +298,12 @@ describe('toolLabel', () => {
         expect(toolLabel('nuke_openmc_applyMaterialChange')).toBe('Material applied');
         expect(toolLabel('nuke_openmc_previewTallyChange')).toBe('Tally preview');
         expect(toolLabel('nuke_openmc_applyTallyChange')).toBe('Tally applied');
+        expect(toolLabel('nuke_openmc_createProject')).toBe('OpenMC project created');
+        expect(toolLabel('nuke_openmc_exportPython')).toBe('OpenMC Python export');
+        expect(toolLabel('nuke_openmc_previewGeometryChange')).toBe('Geometry preview');
+        expect(toolLabel('nuke_openmc_applyGeometryChange')).toBe('Geometry applied');
+        expect(toolLabel('nuke_openmc_previewDagmcChange')).toBe('DAGMC preview');
+        expect(toolLabel('nuke_openmc_applyDagmcChange')).toBe('DAGMC applied');
         expect(toolLabel('nuke_openmc_importCad')).toBe('DAGMC import');
         expect(toolLabel('nuke_openmc_runSimulation')).toBe('OpenMC run');
         expect(toolLabel('nuke_openmc_getRunStatus')).toBe('Run status');

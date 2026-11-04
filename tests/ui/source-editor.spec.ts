@@ -92,6 +92,45 @@ test.describe('openmc source editor', () => {
         expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
     });
 
+    test('the custom PDG field follows the theme', async ({ page }) => {
+        const errors = collectErrors(page);
+        await page.goto('/');
+        await waitForWorkbench(page);
+        await runCommand(page, 'Open Simulation Dashboard');
+
+        const dashboard = page.locator('.simulation-dashboard');
+        await expect(dashboard).toBeVisible({ timeout: 30_000 });
+        await dashboard.getByRole('button', { name: 'Settings', exact: true }).click();
+        const sourceCard = dashboard.locator('.source-card').first();
+        await expect(sourceCard).toBeVisible({ timeout: 30_000 });
+
+        const advanced = sourceSection(page, 'Advanced');
+        await advanced.locator('.source-section-header').click();
+        await advanced.getByRole('button', { name: 'Custom PDG…' }).click();
+
+        const custom = advanced.locator('.particle-type-custom-field input');
+        await expect(custom).toBeVisible();
+        const styles = await custom.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, border: style.borderColor, radius: style.borderRadius, fontSize: style.fontSize };
+        });
+        const themedStyles = await advanced
+            .locator('.form-group input[type="number"]')
+            .first()
+            .evaluate((element) => {
+                const style = getComputedStyle(element);
+                return {
+                    background: style.backgroundColor,
+                    border: style.borderColor,
+                    radius: style.borderRadius,
+                    fontSize: style.fontSize
+                };
+            });
+        expect(styles).toEqual(themedStyles);
+
+        expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
+    });
+
     test('expands secondary source cards from the header', async ({ page }) => {
         const errors = collectErrors(page);
         await page.goto('/');

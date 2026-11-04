@@ -4365,13 +4365,31 @@
     font-family: var(--theia-monospace-font-family);
 }
 
+.simulation-dashboard .source-bias-editor input[type='text'],
 .simulation-dashboard .source-array-bias textarea,
 .simulation-dashboard .ww-bound-editor textarea,
 .simulation-dashboard .ww-energy-add input {
     width: 100%;
     box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
     font-family: var(--theia-monospace-font-family);
     font-size: 11px;
+    outline: none;
+    transition:
+        border-color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+.simulation-dashboard .source-bias-editor input[type='text']:focus,
+.simulation-dashboard .source-array-bias textarea:focus,
+.simulation-dashboard .ww-bound-editor textarea:focus,
+.simulation-dashboard .ww-energy-add input:focus {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theia-focusBorder) 24%, transparent);
 }
 
 .simulation-dashboard .source-array-bias-actions {

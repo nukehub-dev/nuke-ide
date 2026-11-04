@@ -4,8 +4,8 @@ NukeAI can change basic OpenMC run settings, materials, tallies, CSG surfaces/ce
 dimensions or referenced document parameters, a small set of topology-impacting CAD feature settings, imported
 STEP/IGES/BREP bodies, placement-only edits on an existing grounded assembly, existing drawing-sheet presentation
 settings, parameterized component-document creation, and, on Linux only, sandboxed Python model scripts without writing
-directly from the chat model. Every edit goes through a preview or plan, an explicit apply step with confirmation, and
-an in-session undo.
+directly from the chat model. Every model edit goes through a preview or plan, an explicit apply step with confirmation,
+and an in-session undo; project creation and Python export are confirmed file writes and are not undoable.
 
 ## Supported settings
 
@@ -83,9 +83,10 @@ one fails, and undo restores both the file and the project state.
 
 ## Project creation and Python export
 
-Creating a project from a template and exporting the project as Python write new files; they are confirmed but not
-undoable. The path must be inside the workspace, must not already exist, and project creation refuses a dirty open
-project. Export defaults to `model.py` beside the saved project.
+Creating a project from a template and exporting the project as Python write files; both are confirmed but not
+undoable. A created project path must be inside the workspace and must not already exist, and creation refuses a
+dirty open project. Export defaults to `model.py` beside the saved project; an explicit path stays inside the
+workspace and needs `overwrite` to replace an existing file.
 
 ## Preview
 
@@ -116,11 +117,11 @@ setting, material, or tally. Run a fresh preview instead of retrying the old pro
 ## Undo
 
 An applied change shows **Undo**. Selecting it opens a warning notification with an **Undo** action; the reverse
-handler runs only after you choose that action. Cancelling the notification leaves the settings unchanged.
+handler runs only after you choose that action. Cancelling the notification leaves the applied change in place.
 
-Undo restores only the paths, materials, or tallies that the proposal changed and verifies that the current values
-still match the applied result. A failed undo keeps the token so you can try again, and reports the failure instead of
-replacing the card.
+Undo restores only the settings, materials, tallies, CSG entities, or DAGMC assignments that the proposal changed and
+verifies that the current values still match the applied result. A failed undo keeps the token so you can try again, and
+reports the failure instead of replacing the card.
 
 Undo state is in memory for the current IDE session only:
 

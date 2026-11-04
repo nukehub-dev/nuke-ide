@@ -2,7 +2,7 @@
   "private": true,
   "name": "nuke-ide",
   "productName": "NukeIDE",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "NukeIDE is an open-source IDE for nuclear simulation and engineering.",
   "license": "BSD-2-Clause",
   "author": {
@@ -80,16 +80,16 @@
     "@theia/external-api": "1.76.0",
     "@theia/getting-started": "1.76.0",
     "@theia/telemetry": "1.76.0",
-    "nuke-essentials": "0.1.3",
-    "nuke-fileinfo": "0.1.3",
-    "nuke-docs": "0.1.3",
-    "nuke-sysmon": "0.1.3",
-    "nuke-core": "0.1.3",
-    "nuke-ai": "0.1.3",
-    "nuke-visualizer": "0.1.3",
-    "openmc-studio": "0.1.3",
-    "nuke-cad": "0.1.3",
-    "nukelab-integration": "0.1.3"
+    "nuke-essentials": "0.2.0",
+    "nuke-fileinfo": "0.2.0",
+    "nuke-docs": "0.2.0",
+    "nuke-sysmon": "0.2.0",
+    "nuke-core": "0.2.0",
+    "nuke-ai": "0.2.0",
+    "nuke-visualizer": "0.2.0",
+    "openmc-studio": "0.2.0",
+    "nuke-cad": "0.2.0",
+    "nukelab-integration": "0.2.0"
   },
   "devDependencies": {
     "@theia/cli": "1.76.0"

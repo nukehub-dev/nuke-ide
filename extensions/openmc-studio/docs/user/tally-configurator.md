@@ -135,11 +135,18 @@ proton, deuteron, triton, alpha, He3, and custom nuclides require OpenMC 0.16's 
 `ParticleType`. On 0.15.3 those bins stay in the project with an inline warning and are omitted from
 generated XML/Python.
 
+On a wide panel the presets render as segmented buttons; a narrow container switches to a select
+with the same options. Presets the probed OpenMC release cannot represent stay visible but
+disabled, with the reason in the shared tooltip. **Custom PDG** is a themed numeric field that
+previews the resolved canonical name and PDG; an empty or invalid value shows an inline error and
+is not stored. In the particle-production filter, chosen custom particles appear as removable
+chips.
+
 **Particle production** (`particleproduction`, OpenMC 0.16+) selects secondary particles (photon,
-neutron, electron, positron, proton, deuteron, triton, alpha, He3, or a custom nuclide/PDG number)
-and optional strictly increasing energy boundaries in eV. It is most useful with the `events`
-score. On environments older than OpenMC 0.16 the filter stays in the project but is omitted from
-generated XML/Python with a warning.
+neutron, electron, positron, proton, deuteron, triton, alpha, He3, or a custom PDG number; nuclear
+PDG codes resolve to GNDS names such as `He4`) and optional strictly increasing energy boundaries in
+eV. It is most useful with the `events` score. On environments older than OpenMC 0.16 the filter
+stays in the project but is omitted from generated XML/Python with a warning.
 
 **Mu surface** (`musurface`) bins surface crossings by the cosine of the angle between the particle
 direction and the surface normal. It needs a `surface` filter and the `current` score; the editor

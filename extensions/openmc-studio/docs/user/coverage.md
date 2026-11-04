@@ -64,7 +64,7 @@ A run needs a configured OpenMC environment and cross-section library (`OPENMC_C
 - **OpenMC 0.15.3** is supported with the release-compatible XML surface.
 - **OpenMC 0.16.0+** adds source-distribution bias, mesh-filter rotation, shared secondary bank, surface grazing, reaction and particle-production filters, TokamakSource, decay-spectrum sources, depletion substeps, keff-search reactivity control, and PDG-backed particle types (proton, deuteron, triton, alpha, He3, and custom nuclides/PDG codes).
 - Capability probes decide which 0.16-only fields are emitted; version strings are never parsed. Unsupported fields are omitted with a generation warning instead of being silently written into an invalid XML file.
-- Neutron, photon, electron, and positron particles work on both supported releases. Particles beyond that set require the 0.16 PDG probe; on 0.15.3 they stay in the project with an inline warning and a neutron fallback in generated files.
+- Neutron, photon, electron, and positron particles work on both supported releases. Particles beyond that set require the 0.16 PDG probe; on 0.15.3 they stay in the project with an inline warning. Sources and weight windows fall back to neutron in generated files, tally `particle` filters omit the unsupported bins, and `particleproduction` filters are omitted with a warning.
 - Generated XML and Python are both views of the same project state. Derived tallies are analysis-only and never appear in either simulation input.
 
 ---

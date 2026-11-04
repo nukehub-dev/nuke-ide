@@ -98,8 +98,26 @@ const ALLOWED_TOOL_NAMES = [
     'nuke_cad_inspectScriptSource',
     'nuke_cad_previewScriptChange',
     'nuke_cad_applyScriptChange',
+    'nuke_cad_listDocumentTemplates',
+    'nuke_cad_prepareDocumentCreation',
+    'nuke_cad_createDocumentFromTemplate',
     'nuke_openmc_summarizeProject',
+    'nuke_openmc_summarizeMaterials',
+    'nuke_openmc_summarizeTallies',
+    'nuke_openmc_summarizeGeometry',
     'nuke_openmc_validateProject',
+    'nuke_openmc_previewSettings',
+    'nuke_openmc_applySettings',
+    'nuke_openmc_previewMaterialChange',
+    'nuke_openmc_applyMaterialChange',
+    'nuke_openmc_previewTallyChange',
+    'nuke_openmc_applyTallyChange',
+    'nuke_openmc_createProject',
+    'nuke_openmc_exportPython',
+    'nuke_openmc_previewGeometryChange',
+    'nuke_openmc_applyGeometryChange',
+    'nuke_openmc_previewDagmcChange',
+    'nuke_openmc_applyDagmcChange',
     'nuke_openmc_importCad',
     'nuke_openmc_runSimulation',
     'nuke_openmc_getRunStatus',
@@ -221,6 +239,10 @@ describe('NukeAISkillServiceImpl', () => {
         }
         for (const toolName of ALLOWED_TOOL_NAMES) {
             expect(combined, `missing tool ${toolName}`).toContain(toolName);
+        }
+        const usedToolNames = new Set(combined.match(/\bnuke_[A-Za-z0-9_]+/g) ?? []);
+        for (const toolName of usedToolNames) {
+            expect(ALLOWED_TOOL_NAMES, `unexpected tool name ${toolName}`).toContain(toolName);
         }
         for (const content of contents) {
             expect(content.toLowerCase()).toContain('confirmation');

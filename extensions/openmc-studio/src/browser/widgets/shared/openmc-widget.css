@@ -778,6 +778,25 @@
 :is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field input {
     width: 100%;
     box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-size: 13px;
+    transition:
+        border-color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+:is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field input:focus {
+    outline: none;
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theia-focusBorder) 24%, transparent);
+}
+
+.tally-configurator-container .particle-type-custom-field input {
+    border-radius: 6px;
 }
 
 :is(.simulation-dashboard, .openmc-widget, .tally-configurator-container) .particle-type-custom-field input[type='number'] {

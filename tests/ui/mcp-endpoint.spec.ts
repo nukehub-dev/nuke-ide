@@ -77,6 +77,7 @@ test('MCP endpoint can be enabled, used by a real client, and disabled', async (
     const client = new Client({ name: 'nuke-ide-e2e', version: '1.0.0' });
     await client.connect(transport);
     try {
+        expect(client.getInstructions()).toContain('untrusted data');
         const tools = await client.listTools();
         const toolNames = tools.tools.map((tool) => tool.name);
         expect(toolNames.length).toBeGreaterThan(0);
@@ -84,6 +85,10 @@ test('MCP endpoint can be enabled, used by a real client, and disabled', async (
             expect(name).toMatch(/^[a-z0-9_]{1,128}$/);
         }
         expect(toolNames).toContain('nuke_viz_summarize_statepoint');
+        expect(toolNames).toContain('nuke_openmc_summarize_materials');
+        expect(toolNames).toContain('nuke_openmc_summarize_tallies');
+        expect(toolNames).toContain('nuke_openmc_summarize_geometry');
+        expect(toolNames).toContain('nuke_openmc_summarize_project');
         for (const forbidden of [
             'nuke_cad_export_dagmc',
             'nuke_cad_preview_feature_change',

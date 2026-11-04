@@ -98,10 +98,10 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   bins, and weight windows; XML/Python emit canonical names, import accepts names/GNDS/`pdg:<n>`, and particles beyond the 0.15.3 set
   are gated by `OpenMCCompat.generalizedParticles`. See `docs/dev/state-model.md`.
 - Shared widget CSS: `widgets/shared/openmc-widget.css` is the opt-in design system (root gets `openmc-widget` class, accent
-  `--theia-focusBorder`, Theia vars only). The particle selector styles additionally cover `.tally-configurator-container`
-  because that widget does not opt into `.openmc-widget`; keep that scope when reusing them. Dashboard tabs are
-  `DashboardTabContribution`s; new scalar settings belong in the
-  Advanced section (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.
+  `--theia-focusBorder`, Theia vars only). The particle selector styles, including the custom-PDG field, additionally cover
+  `.tally-configurator-container` because that widget does not opt into `.openmc-widget`; keep that scope when reusing
+  them. Dashboard tabs are `DashboardTabContribution`s; new scalar settings belong in the Advanced section
+  (`advanced-section.tsx`). See `docs/dev/widget-patterns.md` and `docs/dev/adding-a-widget.md`.
 - Domain chrome uses `codicon-openmc-*` masks from `src/browser/icons/openmc-icon-classes.css`; generic codicons stay for
   utility actions. Project identity uses the theme-aware `openmc-brand-openmc` mask; DAGMC keeps the mesh icon because
   upstream has no theme-safe standalone mark. Hover labels use the shared nuke-essentials `Tooltip`, never native

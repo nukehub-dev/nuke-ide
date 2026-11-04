@@ -136,8 +136,18 @@ test('particle filter uses the themed selector and custom PDG field', async ({ p
     expect(await custom.evaluate((element) => getComputedStyle(element).flexDirection)).toBe('column');
 
     const input = custom.locator('input');
-    const background = await input.evaluate((element) => getComputedStyle(element).backgroundColor);
-    expect(background).not.toBe('rgba(0, 0, 0, 0)');
+    const styles = await input.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, border: style.borderColor, radius: style.borderRadius, fontSize: style.fontSize };
+    });
+    const formStyles = await editor
+        .locator('.form-group input[type="text"]')
+        .first()
+        .evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, border: style.borderColor, radius: style.borderRadius, fontSize: style.fontSize };
+        });
+    expect(styles).toEqual(formStyles);
 
     expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
 });

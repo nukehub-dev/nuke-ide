@@ -29,7 +29,7 @@
 | `nuke.openmc.previewDagmcChange`    | `read`    | `actions` (1-32 `assign` volume material or `setFlags`), optional `summary`     | Proposal id, summary, and labelled volume/flag diff plus a `changeSet` for `applyDagmcChange`.                                  |
 | `nuke.openmc.applyDagmcChange`      | `write`   | `proposalId` from `previewDagmcChange`                                          | Applied diff, an `undoToken`, and a diagnosis follow-up.                                                                        |
 
-`importCad`, `runSimulation`, `createProject`, `exportPython`, and every apply capability require confirmation. Every capability is enabled regardless of whether a project is saved; handlers reject paths outside the workspace roots instead of hiding the action. The two diagnostics are read-only and never write files, change project state, or start/stop runs. Previews are read-only and never mutate project state; project creation and script export write new files and are not undoable.
+`importCad`, `runSimulation`, `createProject`, `exportPython`, and every apply capability require confirmation. Every capability is enabled regardless of whether a project is saved; handlers reject paths outside the workspace roots instead of hiding the action. The two diagnostics are read-only and never write files, change project state, or start/stop runs. Previews are read-only and never mutate project state; project creation and script export write files and are not undoable.
 
 ## Read inventories before an edit
 
