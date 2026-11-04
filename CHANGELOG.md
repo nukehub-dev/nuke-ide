@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-cad: NukeAI actions move beside the floating CAD search launcher and open upward, keeping the ribbon uncluttered and the menu clear of dialogs.
 - nuke-cad: BOM, Model Outline, and Feature Tree empty states use the shared card, drop duplicate status rows, and offer New CAD Document/Open CAD Viewport actions.
 - nuke-visualizer: CSG/DAGMC outlines, Dataset Inspector, and Viewer Settings use the shared empty-state card; OpenMC geometry/tally cards align at the top.
-- nuke-visualizer: CSG Outline uses the geometry-hierarchy icon so its empty state matches OpenMC Geometry.
+- nuke-visualizer: CSG Outline uses an overlapping-primitives icon so it stays distinct from OpenMC Geometry.
 - nuke-essentials: the generic code Outline view is closed in the default shell; reopen it from View → Outline for code files.
 
 ### Removed
