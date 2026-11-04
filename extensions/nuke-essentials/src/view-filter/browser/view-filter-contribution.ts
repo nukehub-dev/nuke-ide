@@ -52,11 +52,13 @@ const FILTERED_CONTRIBUTIONS: Function[] = [
 ];
 
 /**
- * Widget ids that may still be restored from stale layout state saved before
- * the contributions above were filtered out (the widget factories remain
- * bound, so the shell happily recreates them). Closed once after layout init.
+ * Widget ids closed once after layout init. `debug` and `test-view-container`
+ * are filtered out above; the generic code `outline-view` is redundant with
+ * the CAD/OpenMC outline views in the NukeIDE shell. The factories remain
+ * bound, so users can still reopen Outline from the View menu for code files;
+ * it is closed again on the next startup.
  */
-const STALE_WIDGET_IDS = ['debug', 'test-view-container'];
+const STALE_WIDGET_IDS = ['debug', 'test-view-container', 'outline-view'];
 
 @injectable()
 export class ViewFilterContribution implements FilterContribution {

@@ -17,6 +17,10 @@ test.describe('boot', () => {
         // a good proxy for "frontend + backend finished booting".
         await expect(page.locator('#theia-statusBar')).toBeVisible({ timeout: 60_000 });
 
+        // NukeIDE uses the CAD/OpenMC outline views; the generic code Outline
+        // is redundant in the default shell and is closed after layout init.
+        await expect(page.locator('.theia-tabBar-tab').filter({ hasText: /^Outline$/ })).toHaveCount(0);
+
         expect(errors, `console/page errors during boot:\n${errors.join('\n')}`).toEqual([]);
     });
 });

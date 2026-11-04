@@ -328,35 +328,6 @@
     font-family: var(--theia-code-font-family);
 }
 
-.cad-outline-empty {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 40px 20px;
-    text-align: center;
-    color: var(--theia-descriptionForeground);
-}
-
-.cad-outline-empty > i {
-    width: 32px;
-    height: 32px;
-    -webkit-mask-size: 32px 32px;
-    mask-size: 32px 32px;
-    opacity: 0.3;
-}
-
-.cad-outline-empty p {
-    margin: 0;
-    font-size: 14px;
-}
-
-.cad-outline-empty .empty-hint {
-    font-size: 12px;
-}
-
 /* V7: read-only properties of the selected (or pinned) solid */
 .properties-section {
     margin-bottom: 10px;

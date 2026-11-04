@@ -32,7 +32,7 @@ import { ApplicationShell, Widget } from '@theia/core/lib/browser';
 import { Message } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
-import { ColorPicker, NukeSelect, NukeSlider, NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { ColorPicker, NukeEmptyState, NukeSelect, NukeSlider, NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import { NativeVtkViewerWidget } from '../plugins/openmc/widgets/native-vtk-viewer-widget';
 import { DagmcViewerWidget } from '../plugins/openmc/widgets/dagmc/dagmc-viewer-widget';
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
@@ -293,14 +293,12 @@ export class ViewerSettingsWidget extends ReactWidget {
         if (!host || !snapshot) {
             return (
                 <div className="viewer-settings-panel">
-                    {this.renderHeader(undefined, '')}
-                    <div className="viewer-settings-empty">
-                        <i className={codicon('settings-gear')}></i>
-                        <p>No viewer open.</p>
-                        <span className="empty-hint">
-                            Open a VTK, DAGMC, tally, geometry, or Exodus file to adjust its display settings here.
-                        </span>
-                    </div>
+                    <NukeEmptyState
+                        variant="illustration"
+                        icon="settings-gear"
+                        title="No viewer open."
+                        message="Open a VTK, DAGMC, tally, geometry, or Exodus file to adjust its display settings here."
+                    />
                 </div>
             );
         }
@@ -311,10 +309,12 @@ export class ViewerSettingsWidget extends ReactWidget {
                     <div className="viewer-settings-note nuke-viewer-status-line">{snapshot.note}</div>
                 )}
                 {!snapshot.hasDataset ? (
-                    <div className="viewer-settings-empty">
-                        <p>No dataset loaded yet.</p>
-                        <span className="empty-hint">Settings appear here once the viewer finishes loading its file.</span>
-                    </div>
+                    <NukeEmptyState
+                        variant="illustration"
+                        icon="settings-gear"
+                        title="No dataset loaded yet."
+                        message="Settings appear here once the viewer finishes loading its file."
+                    />
                 ) : (
                     host && (
                         <>

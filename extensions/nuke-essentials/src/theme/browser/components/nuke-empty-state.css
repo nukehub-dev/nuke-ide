@@ -48,6 +48,11 @@
     height: 50px;
 }
 
+.nuke-empty-state-illustration-icon {
+    font-size: 38px;
+    line-height: 1;
+}
+
 .nuke-empty-state-title {
     font-size: var(--theia-ui-font-size2);
     font-weight: 600;

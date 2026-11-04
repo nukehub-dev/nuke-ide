@@ -44,7 +44,7 @@ import { Disposable } from '@theia/core/lib/common/disposable';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
 import { CadDocumentStore, getAssemblySection } from '../../document/cad-document-store';
 import { buildBomRows, instanceSolidIds, type BomRow } from '../cad-viewport/assembly-view';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import './bom-panel.css';
 
 @injectable()
@@ -124,11 +124,12 @@ function CadBomPanelComponent(props: CadBomPanelComponentProps): React.ReactElem
                 </div>
             )}
             {props.rows.length === 0 ? (
-                <div className="cad-bom-empty">
-                    <i className="codicon codicon-nuke-cad-bom" />
-                    <p>No assembly instances</p>
-                    <span className="empty-hint">Add part instances in the CAD viewport assembly panel to list them here.</span>
-                </div>
+                <NukeEmptyState
+                    variant="illustration"
+                    icon="nuke-cad-bom"
+                    title="No assembly instances"
+                    message="Add part instances in the CAD viewport assembly panel to list them here."
+                />
             ) : (
                 <div className="cad-bom-table">
                     <div className="cad-bom-head">

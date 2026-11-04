@@ -280,6 +280,7 @@ export class CsgOutlineWidget extends ReactWidget {
             return (
                 <div className="csg-outline-panel">
                     <NukeEmptyState
+                        variant="illustration"
                         icon="symbol-struct"
                         title="No geometry viewer open."
                         message="Cell and material visibility appear here."
@@ -302,7 +303,12 @@ export class CsgOutlineWidget extends ReactWidget {
                     </div>
                 </div>
                 {!snapshot.hasDataset ? (
-                    <NukeEmptyState title="No dataset loaded yet." message="Cells appear here once the viewer finishes loading its file." />
+                    <NukeEmptyState
+                        variant="illustration"
+                        icon="symbol-struct"
+                        title="No dataset loaded yet."
+                        message="Cells appear here once the viewer finishes loading its file."
+                    />
                 ) : (
                     <>
                         <div className="csg-outline-status nuke-viewer-status-line">

@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: the chat prompt, chat tool list, Diagnostics tool list, skill allowlists, and MCP read-only allowlist are generated from one capability catalog, so enabled capabilities cannot silently disappear.
 - nuke-cad: component-template count parameters rebuild the requested pattern or hole array at creation time instead of staying at the shipped count.
 - nuke-cad: NukeAI actions move beside the floating CAD search launcher and open upward, keeping the ribbon uncluttered and the menu clear of dialogs.
+- nuke-cad: BOM and Model Outline empty states use the shared card and drop duplicate status rows.
+- nuke-visualizer: CSG/DAGMC outlines and Viewer Settings use the shared empty-state card.
+- nuke-essentials: the generic code Outline view is closed in the default shell; reopen it from View → Outline for code files.
 
 ### Removed
 

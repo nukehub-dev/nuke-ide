@@ -13,9 +13,10 @@ test('BOM panel opens bound and shows one empty state', async ({ page }) => {
 
     const panel = page.locator('.cad-bom-panel');
     await expect(panel).toBeVisible({ timeout: 30_000 });
-    const empty = panel.locator('.cad-bom-empty');
+    const empty = panel.locator('.nuke-empty-state');
     await expect(empty).toBeVisible();
-    await expect(empty.locator('p')).toHaveText('No assembly instances');
+    await expect(empty.locator('.nuke-empty-state-title')).toHaveText('No assembly instances');
+    await expect(empty.locator('.nuke-empty-state-illustration')).toBeVisible();
     await expect(panel.locator('.cad-bom-header')).toHaveCount(0);
-    await expect(empty.locator('.empty-hint')).toContainText('CAD viewport assembly panel');
+    await expect(empty.locator('.nuke-empty-state-message')).toContainText('CAD viewport assembly panel');
 });

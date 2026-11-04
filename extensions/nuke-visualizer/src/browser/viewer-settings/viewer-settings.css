@@ -77,30 +77,6 @@
     color: var(--theia-descriptionForeground);
 }
 
-.viewer-settings-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 24px 8px;
-    text-align: center;
-    color: var(--theia-descriptionForeground);
-}
-
-.viewer-settings-empty > i {
-    font-size: 24px;
-    opacity: 0.6;
-}
-
-.viewer-settings-empty p {
-    margin: 4px 0 0;
-    color: var(--theia-foreground);
-}
-
-.viewer-settings-empty .empty-hint {
-    font-size: 11px;
-}
-
 /* Collapsible badge section (CAD TreeSection grammar). Headers share the
    Model Outline treatment: 11 px uppercase, 0.3 px tracking, 7 px gap,
    tight 2 px section spacing. */
