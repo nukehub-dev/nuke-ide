@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- nuke-essentials: illustrated empty-state icons render at the intended size instead of Theia's 16px codicon default.
 - nuke-essentials: shared dialogs, color picker, viewer bar, ViewCube, and view badges expose screen-reader names and keyboard-focus tooltips.
 - nuke-ai: NukeAI action menus use an icon-only bot trigger with a tooltip, and dashboard groups use the bot icon and sentence-case labels.
 - nuke-ai: detached chat windows keep the NukeAI welcome and tool-card styling.

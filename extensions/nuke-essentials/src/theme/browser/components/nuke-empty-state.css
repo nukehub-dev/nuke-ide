@@ -49,7 +49,18 @@
 }
 
 .nuke-empty-state-illustration-icon {
-    font-size: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 50px;
+    line-height: 1;
+}
+
+/* Theia's `.codicon` shorthand sets 16px; the compound selector makes the
+   illustrated tile use the intended 48px glyph size. */
+.nuke-empty-state-illustration .nuke-empty-state-illustration-icon {
+    font-size: 48px;
     line-height: 1;
 }
 
