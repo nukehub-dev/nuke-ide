@@ -52,13 +52,13 @@ function registeredItems(): NukeToolsItem[] {
 }
 
 describe('NukeAiToolsContribution', () => {
-    it('registers eight contextual actions, one run action, four diagnostics actions, and two external MCP controls', () => {
+    it('registers eight contextual actions, one run action, six diagnostics actions, and two external MCP controls', () => {
         const items = registeredItems();
 
-        expect(items).toHaveLength(15);
+        expect(items).toHaveLength(17);
         expect(items.filter((item) => item.category.length === 1)).toHaveLength(8);
         expect(items.filter((item) => item.category.join('/') === 'NukeAI/Run')).toHaveLength(1);
-        expect(items.filter((item) => item.category.join('/') === 'NukeAI/Diagnostics')).toHaveLength(4);
+        expect(items.filter((item) => item.category.join('/') === 'NukeAI/Diagnostics')).toHaveLength(6);
         expect(items.filter((item) => item.category.join('/') === 'NukeAI/External MCP')).toHaveLength(2);
     });
 
@@ -109,20 +109,24 @@ describe('NukeAiToolsContribution', () => {
         expect(items.map((item) => item.icon)).toEqual(['refresh']);
     });
 
-    it('maps the four diagnostics actions to their NukeAI commands and codicons', () => {
+    it('maps the six diagnostics actions to their NukeAI commands and codicons', () => {
         const items = registeredItems().filter((item) => item.category.join('/') === 'NukeAI/Diagnostics');
 
         expect(items.map((item) => item.commandId)).toEqual([
             NukeAiCommands.DIAGNOSE_CAD.id,
             NukeAiCommands.DIAGNOSE_OPENMC.id,
+            NukeAiCommands.DIAGNOSE_CSG.id,
+            NukeAiCommands.DIAGNOSE_DAGMC.id,
             NukeAiCommands.DIAGNOSE_RUN.id,
             NukeAiCommands.DIAGNOSE_STATEPOINT.id
         ]);
-        expect(items.map((item) => item.icon)).toEqual(['checklist', 'checklist', 'debug-alt', 'graph']);
-        expect(items.map((item) => item.order)).toEqual(['a', 'b', 'c', 'd']);
+        expect(items.map((item) => item.icon)).toEqual(['checklist', 'checklist', 'symbol-structure', 'layers', 'debug-alt', 'graph']);
+        expect(items.map((item) => item.order)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
         expect(items.map((item) => item.label)).toEqual([
             'Diagnose Active CAD Model',
             'Diagnose OpenMC Project',
+            'Diagnose CSG Geometry',
+            'Diagnose DAGMC Model',
             'Diagnose OpenMC Run',
             'Diagnose Active Statepoint'
         ]);

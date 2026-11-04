@@ -32,6 +32,12 @@ import type { MessageService } from '@theia/core/lib/common/message-service';
 import { ChatAgentLocation } from '@theia/ai-chat/lib/common';
 import type { ChatAgent, ChatService, ChatSession } from '@theia/ai-chat/lib/common';
 import type { ChatAgentService } from '@theia/ai-chat/lib/common/chat-agent-service';
+import type {
+    NukeCapability,
+    NukeCapabilityContext,
+    NukeCapabilityContextService,
+    NukeCapabilityRegistry
+} from 'nuke-core/lib/common/nuke-capability-protocol';
 import { NUKE_CHAT_AGENT_ID } from '../agent/nuke-chat-agent';
 import { NUKE_DIAGNOSTICS_AGENT_ID } from '../agent/nuke-diagnostics-agent';
 import { NUKE_CONTEXT_VARIABLE } from '../context/nuke-context-variable-contribution';
@@ -49,6 +55,8 @@ interface HarnessOptions {
     createError?: Error;
     sendError?: Error;
     commandError?: Error;
+    context?: NukeCapabilityContext;
+    capabilities?: readonly NukeCapability[];
 }
 
 function createHarness(options: HarnessOptions = {}): {
@@ -58,6 +66,9 @@ function createHarness(options: HarnessOptions = {}): {
     getActiveSession: ReturnType<typeof vi.fn>;
     getAgent: ReturnType<typeof vi.fn>;
     executeCommand: ReturnType<typeof vi.fn>;
+    getContext: ReturnType<typeof vi.fn>;
+    getEnabled: ReturnType<typeof vi.fn>;
+    getCapability: ReturnType<typeof vi.fn>;
     messageService: { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
     logger: { error: ReturnType<typeof vi.fn> };
 } {
@@ -90,14 +101,34 @@ function createHarness(options: HarnessOptions = {}): {
     });
     const messageService = { warn: vi.fn(), error: vi.fn() };
     const logger = { error: vi.fn() };
+    const capabilities = options.capabilities ?? [];
+    const getContext = vi.fn(async () => options.context ?? { workspaceRoots: ['/workspace'] });
+    const getEnabled = vi.fn((context: NukeCapabilityContext) =>
+        capabilities.filter((capability) => !capability.when || capability.when(context))
+    );
+    const getCapability = vi.fn((id: string) => capabilities.find((capability) => capability.id === id));
     const service = new NukeAiActionService(
         { createSession, sendRequest, getActiveSession } as unknown as ChatService,
         { getAgent } as unknown as ChatAgentService,
         messageService as unknown as MessageService,
+        { getContext } as unknown as NukeCapabilityContextService,
+        { getEnabled, get: getCapability } as unknown as NukeCapabilityRegistry,
         { executeCommand } as unknown as CommandRegistry,
         logger as unknown as ILogger
     );
-    return { service, createSession, sendRequest, getActiveSession, getAgent, executeCommand, messageService, logger };
+    return {
+        service,
+        createSession,
+        sendRequest,
+        getActiveSession,
+        getAgent,
+        executeCommand,
+        getContext,
+        getEnabled,
+        getCapability,
+        messageService,
+        logger
+    };
 }
 
 describe('NukeAiActionService', () => {
@@ -156,6 +187,96 @@ describe('NukeAiActionService', () => {
         await harness.service.ask('Summarize the active model.', 'Ask About Active Context');
 
         expect(harness.createSession).toHaveBeenCalledWith('panel', { focus: true }, undefined);
+        expect(harness.sendRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns without starting a chat when the required context is missing', async () => {
+        const harness = createHarness();
+
+        await harness.service.ask('Diagnose the statepoint.', 'Diagnose Active Statepoint', undefined, {
+            kind: 'context',
+            field: 'activeDataset',
+            message: 'Open a statepoint in the Visualizer first.'
+        });
+
+        expect(harness.messageService.warn).toHaveBeenCalledWith('Open a statepoint in the Visualizer first.');
+        expect(harness.createSession).not.toHaveBeenCalled();
+        expect(harness.sendRequest).not.toHaveBeenCalled();
+    });
+
+    it('warns without starting a chat when no DAGMC viewer is open', async () => {
+        const harness = createHarness({ context: { workspaceRoots: ['/workspace'], hasDagmcViewer: false } });
+
+        await harness.service.ask('Capture the DAGMC view.', 'Capture DAGMC View', undefined, {
+            kind: 'context',
+            field: 'hasDagmcViewer',
+            message: 'Open a DAGMC model in the Visualizer first.'
+        });
+
+        expect(harness.messageService.warn).toHaveBeenCalledWith('Open a DAGMC model in the Visualizer first.');
+        expect(harness.createSession).not.toHaveBeenCalled();
+        expect(harness.sendRequest).not.toHaveBeenCalled();
+    });
+
+    it('starts the chat when the required context is present', async () => {
+        const harness = createHarness({ context: { workspaceRoots: ['/workspace'], activeDataset: '/workspace/statepoint.100.h5' } });
+
+        await harness.service.ask('Diagnose the statepoint.', 'Diagnose Active Statepoint', undefined, {
+            kind: 'context',
+            field: 'activeDataset',
+            message: 'Open a statepoint in the Visualizer first.'
+        });
+
+        expect(harness.messageService.warn).not.toHaveBeenCalled();
+        expect(harness.createSession).toHaveBeenCalledTimes(1);
+        expect(harness.sendRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns without starting a chat when a capability reports no active run', async () => {
+        const getRunStatus = {
+            id: 'nuke.openmc.getRunStatus',
+            title: 'Get run status',
+            description: 'Read the active run.',
+            category: ['OpenMC'],
+            inputSchema: { type: 'object', properties: {} },
+            risk: 'read',
+            invoke: vi.fn(async () => ({ ok: true, data: { running: false } }))
+        } as unknown as NukeCapability;
+        const harness = createHarness({ capabilities: [getRunStatus] });
+
+        await harness.service.ask('Diagnose the run.', 'Diagnose OpenMC Run', undefined, {
+            kind: 'capability',
+            capability: 'nuke.openmc.getRunStatus',
+            message: 'Start or open an OpenMC run first.',
+            isReady: (result) => Boolean((result.data as { running?: unknown } | undefined)?.running)
+        });
+
+        expect(harness.messageService.warn).toHaveBeenCalledWith('Start or open an OpenMC run first.');
+        expect(harness.createSession).not.toHaveBeenCalled();
+        expect(harness.sendRequest).not.toHaveBeenCalled();
+    });
+
+    it('starts the run chat when the capability reports an active run', async () => {
+        const getRunStatus = {
+            id: 'nuke.openmc.getRunStatus',
+            title: 'Get run status',
+            description: 'Read the active run.',
+            category: ['OpenMC'],
+            inputSchema: { type: 'object', properties: {} },
+            risk: 'read',
+            invoke: vi.fn(async () => ({ ok: true, data: { running: true } }))
+        } as unknown as NukeCapability;
+        const harness = createHarness({ capabilities: [getRunStatus] });
+
+        await harness.service.ask('Diagnose the run.', 'Diagnose OpenMC Run', undefined, {
+            kind: 'capability',
+            capability: 'nuke.openmc.getRunStatus',
+            message: 'Start or open an OpenMC run first.',
+            isReady: (result) => Boolean((result.data as { running?: unknown } | undefined)?.running)
+        });
+
+        expect(harness.messageService.warn).not.toHaveBeenCalled();
+        expect(harness.createSession).toHaveBeenCalledTimes(1);
         expect(harness.sendRequest).toHaveBeenCalledTimes(1);
     });
 

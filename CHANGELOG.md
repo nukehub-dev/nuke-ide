@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.2.1] - 2026-11-04
+
+### Added
+
+- nuke-ai: Diagnose CSG Geometry and Diagnose DAGMC Model focus OpenMC project validation and diagnosis on CSG and DAGMC findings.
+
+### Fixed
+
+- nuke-ai: Nuke Diagnostics can call its read-only CAD, OpenMC, CSG, DAGMC, and statepoint tools again after the allowlist guard compared sanitized tool names to dotted capability ids.
+- nuke-ai: contextual actions verify the active CAD document, OpenMC project, run, statepoint, or DAGMC viewer first and show the missing prerequisite instead of opening a chat or calling a model.
+
 ## [0.2.0] - 2026-11-04
 
 NukeIDE 0.2.0 is the first release with NukeAI: an in-IDE agent that reads CAD, OpenMC, and visualization state, previews changes, and applies them with confirmation. The release also adds a complete CAD authoring loop, broader OpenMC 0.16 coverage, fully native visualization, and refreshed build and verification infrastructure.
@@ -223,6 +234,7 @@ First tagged release.
   `cadquery-ocp`/`cadquery_vtk` pins and the Dockerfile's VTK force-reinstall
   repair step are gone.
 
-[Unreleased]: https://github.com/nukehub-dev/nuke-ide/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nukehub-dev/nuke-ide/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.2.1
 [0.2.0]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.2.0
 [0.1.3]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.1.3

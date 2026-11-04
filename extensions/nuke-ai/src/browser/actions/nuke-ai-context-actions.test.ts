@@ -88,13 +88,23 @@ describe('NukeAiContextActionContribution', () => {
     });
 
     it('covers OpenMC validation and run scopes', () => {
-        expect(labelsFor('openmc.validation')).toEqual(['Diagnose Project', 'Validate and Explain']);
+        expect(labelsFor('openmc.validation')).toEqual([
+            'Diagnose Project',
+            'Validate and Explain',
+            'Diagnose CSG Geometry',
+            'Diagnose DAGMC Model'
+        ]);
         expect(labelsFor('openmc.run')).toEqual(['Diagnose Run', 'Explain Run']);
         expect(
             registeredActions()
                 .filter((action) => action.scope === 'openmc.validation')
                 .map((action) => action.commandId)
-        ).toEqual([NukeAiCommands.DIAGNOSE_OPENMC.id, NukeAiCommands.VALIDATE_OPENMC.id]);
+        ).toEqual([
+            NukeAiCommands.DIAGNOSE_OPENMC.id,
+            NukeAiCommands.VALIDATE_OPENMC.id,
+            NukeAiCommands.DIAGNOSE_CSG.id,
+            NukeAiCommands.DIAGNOSE_DAGMC.id
+        ]);
         expect(
             registeredActions()
                 .filter((action) => action.scope === 'openmc.run')

@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "nuke-visualizer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Advanced 3D visualization for nuclear computational data in NukeIDE",
   "license": "BSD-2-Clause",
   "keywords": [
@@ -33,7 +33,7 @@
     "@theia/workspace": "1.76.0",
     "fflate": "^0.8.3",
     "http-proxy": "^1.18.1",
-    "nuke-essentials": "0.2.0",
+    "nuke-essentials": "0.2.1",
     "plotly.js-dist-min": "^3.7.0",
     "three": "^0.167.1"
   },

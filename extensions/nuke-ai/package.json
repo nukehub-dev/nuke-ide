@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "nuke-ai",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "AI runtime and capability-backed tools for NukeIDE",
   "license": "BSD-2-Clause",
   "keywords": [
@@ -53,8 +53,8 @@
     "@theia/external-api": "1.76.0",
     "@theia/filesystem": "1.76.0",
     "@theia/workspace": "1.76.0",
-    "nuke-core": "0.2.0",
-    "nuke-essentials": "0.2.0",
+    "nuke-core": "0.2.1",
+    "nuke-essentials": "0.2.1",
     "zod": "4.3.6"
   },
   "devDependencies": {

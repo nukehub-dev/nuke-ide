@@ -170,4 +170,4 @@ bind(MyContextContribution).toSelf().inSingletonScope();
 bind(NukeCapabilityContextContribution).toService(MyContextContribution);
 ```
 
-`NukeCapabilityContextService.getContext()` awaits async contributions, merges their partials in contribution order, always adds the absolute workspace roots from `WorkspaceService`, and returns a frozen snapshot. A failing contribution is logged and skipped. `onDidChangeContext` fires when any contribution event or the workspace roots change, debounced by one microtask.
+The context fields are `workspaceRoots`, `activeCadDocument`, `activeOpenmcProject`, `activeDataset`, `hasDagmcViewer`, and `signal`. `NukeCapabilityContextService.getContext()` awaits async contributions, merges their partials in contribution order, always adds the absolute workspace roots from `WorkspaceService`, and returns a frozen snapshot. A failing contribution is logged and skipped. `onDidChangeContext` fires when any contribution event or the workspace roots change, debounced by one microtask.

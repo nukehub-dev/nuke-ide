@@ -495,11 +495,11 @@ describe('visualizer capabilities', () => {
     it('exposes the current statepoint as ambient context and fires on load', () => {
         const info = statepoint();
         const { service, statepointLoaded } = createStatepointService({ current: info });
-        const contribution = new VisualizerContextContribution(service);
+        const contribution = new VisualizerContextContribution(service, createShell());
         const listener = vi.fn();
         const disposable = contribution.onDidChangeContext!(listener);
 
-        expect(contribution.getContext()).toEqual({ activeDataset: info.file });
+        expect(contribution.getContext()).toEqual({ activeDataset: info.file, hasDagmcViewer: false });
         statepointLoaded.fire(info);
         expect(listener).toHaveBeenCalledTimes(1);
 
@@ -507,8 +507,18 @@ describe('visualizer capabilities', () => {
     });
 
     it('omits the ambient dataset when no statepoint is loaded', () => {
-        const contribution = new VisualizerContextContribution(createStatepointService().service);
+        const contribution = new VisualizerContextContribution(createStatepointService().service, createShell());
 
-        expect(contribution.getContext()).toEqual({ activeDataset: undefined });
+        expect(contribution.getContext()).toEqual({ activeDataset: undefined, hasDagmcViewer: false });
+    });
+
+    it('reports an open DAGMC viewer in the ambient context', () => {
+        const viewer = createDagmcWidget();
+        const contribution = new VisualizerContextContribution(
+            createStatepointService().service,
+            createShell(undefined, [viewer as unknown as Widget])
+        );
+
+        expect(contribution.getContext()).toEqual({ activeDataset: undefined, hasDagmcViewer: true });
     });
 });

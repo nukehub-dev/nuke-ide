@@ -42,11 +42,39 @@ import { ILogger } from '@theia/core/lib/common/logger';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { ChatAgent, ChatAgentLocation, ChatService } from '@theia/ai-chat/lib/common';
 import { ChatAgentService } from '@theia/ai-chat/lib/common/chat-agent-service';
+import {
+    NukeCapabilityContext,
+    NukeCapabilityContextService,
+    NukeCapabilityRegistry,
+    NukeCapabilityResult
+} from 'nuke-core/lib/common/nuke-capability-protocol';
 import { NUKE_CHAT_AGENT_ID } from '../agent/nuke-chat-agent';
 import { NUKE_CONTEXT_VARIABLE } from '../context/nuke-context-variable-contribution';
 
 /** Public Theia command that adds a context variable to the active chat. */
 export const ADD_CONTEXT_VARIABLE_COMMAND = 'add-context-variable';
+
+/** Ambient context field that must be present before a contextual action can run. */
+export type NukeAiContextField = 'activeCadDocument' | 'activeOpenmcProject' | 'activeDataset' | 'hasDagmcViewer';
+
+/** Require an ambient context field before opening a chat or calling a model. */
+export interface NukeAiContextPrecondition {
+    readonly kind: 'context';
+    readonly field: NukeAiContextField;
+    readonly message: string;
+}
+
+/** Require a read-only capability to be enabled and report a ready state. */
+export interface NukeAiCapabilityPrecondition {
+    readonly kind: 'capability';
+    readonly capability: string;
+    readonly message: string;
+    readonly input?: unknown;
+    readonly isReady?: (result: NukeCapabilityResult) => boolean;
+}
+
+/** Preflight for a contextual action; failures warn without starting a chat request. */
+export type NukeAiActionPrecondition = NukeAiContextPrecondition | NukeAiCapabilityPrecondition;
 
 /** Create focused NukeAI sessions and send contextual requests. */
 @injectable()
@@ -55,6 +83,8 @@ export class NukeAiActionService {
         @inject(ChatService) protected readonly chatService: ChatService,
         @inject(ChatAgentService) protected readonly chatAgentService: ChatAgentService,
         @inject(MessageService) protected readonly messageService: MessageService,
+        @inject(NukeCapabilityContextService) protected readonly contextService: NukeCapabilityContextService,
+        @inject(NukeCapabilityRegistry) protected readonly capabilityRegistry: NukeCapabilityRegistry,
         @inject(CommandRegistry) protected readonly commandRegistry: CommandRegistry,
         @inject(ILogger) protected readonly logger: ILogger
     ) {}
@@ -64,8 +94,18 @@ export class NukeAiActionService {
      * Nuke context attached. `agentId` selects the chat agent; when it is not
      * available the request falls back to the default NukeAI agent.
      */
-    async ask(prompt: string, displayText: string, agentId: string = NUKE_CHAT_AGENT_ID): Promise<void> {
+    async ask(
+        prompt: string,
+        displayText: string,
+        agentId: string = NUKE_CHAT_AGENT_ID,
+        precondition?: NukeAiActionPrecondition
+    ): Promise<void> {
         try {
+            const unmet = await this.unsatisfiedPrecondition(precondition);
+            if (unmet) {
+                this.messageService.warn(unmet);
+                return;
+            }
             const agent = this.resolveAgent(agentId);
             const session = this.chatService.createSession(ChatAgentLocation.Panel, { focus: true }, agent);
             const invocation = await this.chatService.sendRequest(session.id, {
@@ -97,6 +137,50 @@ export class NukeAiActionService {
         } catch (error) {
             this.logger.error('[NukeAI] Failed to attach the active context.', error);
             this.messageService.error(`NukeAI could not attach the active context: ${errorMessage(error)}`);
+        }
+    }
+
+    /**
+     * Check a contextual action's required state before creating a session.
+     * Capability checks are read-only and never call a language model.
+     */
+    protected async unsatisfiedPrecondition(precondition?: NukeAiActionPrecondition): Promise<string | undefined> {
+        if (!precondition) {
+            return undefined;
+        }
+        let context: NukeCapabilityContext;
+        try {
+            context = await this.contextService.getContext();
+        } catch (error) {
+            this.logger.error('[NukeAI] Failed to read context before a contextual action.', error);
+            return precondition.message;
+        }
+        if (precondition.kind === 'context') {
+            const value = context[precondition.field];
+            if (precondition.field === 'hasDagmcViewer') {
+                return value === true ? undefined : precondition.message;
+            }
+            return typeof value === 'string' && value.trim().length > 0 ? undefined : precondition.message;
+        }
+        if (!this.capabilityRegistry.getEnabled(context).some((capability) => capability.id === precondition.capability)) {
+            return precondition.message;
+        }
+        const capability = this.capabilityRegistry.get(precondition.capability);
+        if (!capability) {
+            return precondition.message;
+        }
+        try {
+            const result = await capability.invoke(precondition.input ?? {}, context);
+            if (!result.ok) {
+                return result.message ?? precondition.message;
+            }
+            if (precondition.isReady && !precondition.isReady(result)) {
+                return precondition.message;
+            }
+            return undefined;
+        } catch (error) {
+            this.logger.error(`[NukeAI] Contextual precondition ${precondition.capability} failed.`, error);
+            return precondition.message;
         }
     }
 

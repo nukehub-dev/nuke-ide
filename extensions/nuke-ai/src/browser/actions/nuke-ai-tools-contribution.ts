@@ -156,12 +156,34 @@ const NUKE_AI_TOOL_ITEMS: readonly Omit<NukeToolsItem, 'sectionOrder'>[] = [
         keywords: ['ai', 'diagnostics', 'openmc', 'project', 'validation', 'findings']
     },
     {
+        id: NukeAiCommands.DIAGNOSE_CSG.id,
+        label: 'Diagnose CSG Geometry',
+        commandId: NukeAiCommands.DIAGNOSE_CSG.id,
+        category: ['NukeAI', 'Diagnostics'],
+        categoryOrder: 'a',
+        order: 'c',
+        icon: 'symbol-structure',
+        description: 'Triage CSG surfaces, cells, universes, lattices, and geometry validation findings.',
+        keywords: ['ai', 'diagnostics', 'openmc', 'csg', 'geometry', 'cells', 'surfaces']
+    },
+    {
+        id: NukeAiCommands.DIAGNOSE_DAGMC.id,
+        label: 'Diagnose DAGMC Model',
+        commandId: NukeAiCommands.DIAGNOSE_DAGMC.id,
+        category: ['NukeAI', 'Diagnostics'],
+        categoryOrder: 'a',
+        order: 'd',
+        icon: 'layers',
+        description: 'Triage the DAGMC file, volume and material assignments, graveyard state, and DAGMC findings.',
+        keywords: ['ai', 'diagnostics', 'openmc', 'dagmc', 'h5m', 'volumes', 'materials']
+    },
+    {
         id: NukeAiCommands.DIAGNOSE_RUN.id,
         label: 'Diagnose OpenMC Run',
         commandId: NukeAiCommands.DIAGNOSE_RUN.id,
         category: ['NukeAI', 'Diagnostics'],
         categoryOrder: 'a',
-        order: 'c',
+        order: 'e',
         icon: 'debug-alt',
         description: 'Triage the active OpenMC run log for errors, warnings, and lost particles.',
         keywords: ['ai', 'diagnostics', 'openmc', 'run', 'log', 'errors']
@@ -172,7 +194,7 @@ const NUKE_AI_TOOL_ITEMS: readonly Omit<NukeToolsItem, 'sectionOrder'>[] = [
         commandId: NukeAiCommands.DIAGNOSE_STATEPOINT.id,
         category: ['NukeAI', 'Diagnostics'],
         categoryOrder: 'a',
-        order: 'd',
+        order: 'f',
         icon: 'graph',
         description: 'Triage the loaded statepoint metadata: uncertainty, batches, and tally coverage.',
         keywords: ['ai', 'diagnostics', 'visualizer', 'statepoint', 'k-eff', 'tallies']

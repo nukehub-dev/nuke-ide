@@ -428,7 +428,14 @@ export default new ContainerModule((bind: interfaces.Bind) => {
         .inSingletonScope();
     bind(NukeCapabilityContribution).toService(VisualizerDiagnosticsCapabilities);
     bind(VisualizerContextContribution)
-        .toDynamicValue(({ container }) => new VisualizerContextContribution(container.get(OpenMCService)))
+        .toDynamicValue(
+            ({ container }) =>
+                new VisualizerContextContribution(
+                    container.get(OpenMCService),
+                    container.get(ApplicationShell),
+                    (widget): widget is DagmcViewerWidget => widget instanceof DagmcViewerWidget
+                )
+        )
         .inSingletonScope();
     bind(NukeCapabilityContextContribution).toService(VisualizerContextContribution);
 

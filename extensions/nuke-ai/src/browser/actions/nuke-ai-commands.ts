@@ -38,7 +38,7 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { Command, CommandContribution, CommandRegistry } from '@theia/core/lib/common/command';
 import { NUKE_DIAGNOSTICS_AGENT_ID } from '../agent/nuke-diagnostics-agent';
-import { NukeAiActionService } from './nuke-ai-action-service';
+import { NukeAiActionPrecondition, NukeAiActionService } from './nuke-ai-action-service';
 
 /** Contextual commands owned by NukeAI. */
 export const NukeAiCommands = {
@@ -75,6 +75,16 @@ export const NukeAiCommands = {
     DIAGNOSE_OPENMC: {
         id: 'nuke.ai.diagnoseOpenMc',
         label: 'NukeAI: Diagnose OpenMC Project',
+        category: 'NukeAI'
+    } as Command,
+    DIAGNOSE_CSG: {
+        id: 'nuke.ai.diagnoseCsg',
+        label: 'NukeAI: Diagnose CSG Geometry',
+        category: 'NukeAI'
+    } as Command,
+    DIAGNOSE_DAGMC: {
+        id: 'nuke.ai.diagnoseDagmc',
+        label: 'NukeAI: Diagnose DAGMC Model',
         category: 'NukeAI'
     } as Command,
     EXPLAIN_RUN: {
@@ -114,6 +124,37 @@ export const NukeAiCommands = {
     } as Command
 };
 
+const CAD_CONTEXT: NukeAiActionPrecondition = {
+    kind: 'context',
+    field: 'activeCadDocument',
+    message: 'Open or create a CAD document before running this NukeAI action.'
+};
+
+const OPENMC_CONTEXT: NukeAiActionPrecondition = {
+    kind: 'context',
+    field: 'activeOpenmcProject',
+    message: 'Open or create an OpenMC project before running this NukeAI action.'
+};
+
+const STATEPOINT_CONTEXT: NukeAiActionPrecondition = {
+    kind: 'context',
+    field: 'activeDataset',
+    message: 'Open a statepoint in the Visualizer before running this NukeAI action.'
+};
+
+const DAGMC_VIEW: NukeAiActionPrecondition = {
+    kind: 'context',
+    field: 'hasDagmcViewer',
+    message: 'Open a DAGMC model in the Visualizer before running this NukeAI action.'
+};
+
+const ACTIVE_RUN: NukeAiActionPrecondition = {
+    kind: 'capability',
+    capability: 'nuke.openmc.getRunStatus',
+    message: 'Start or open an OpenMC run before running this NukeAI action.',
+    isReady: (result) => Boolean((result.data as { running?: unknown } | undefined)?.running)
+};
+
 /** Prompt and display text for one NukeAI action. */
 export interface NukeAiActionDefinition {
     command: Command;
@@ -123,6 +164,8 @@ export interface NukeAiActionDefinition {
     prompt?: string;
     /** Chat agent that owns the request; defaults to NukeAI when omitted. */
     agentId?: string;
+    /** Context required before opening a chat or calling a model. */
+    precondition?: NukeAiActionPrecondition;
 }
 
 /** Read-only prompts shown in the chat for each contextual action. */
@@ -161,6 +204,18 @@ export const NukeAiPrompts = {
         'Call nuke_openmc_getRunStatus for the active OpenMC run, summarize its state, working directory, and recent',
         'log tail, and explain what the status means. This is read-only: do not start, cancel, or restart the run.'
     ].join(' '),
+    DIAGNOSE_CSG: [
+        'Call nuke_openmc_validateProject and nuke_openmc_diagnoseProject for the active OpenMC project. Focus on CSG',
+        'geometry: surfaces, cells, universes, lattices, region validity, and geometry validation findings. Report every',
+        'geometry finding with its evidence, and give at most three safe next steps. This is read-only: do not edit',
+        'geometry, import CAD, or start a run, and do not invent findings.'
+    ].join(' '),
+    DIAGNOSE_DAGMC: [
+        'Call nuke_openmc_diagnoseProject for the active OpenMC project. Focus on DAGMC state: the configured .h5m file,',
+        'file presence, volume and material assignments, graveyard state, and DAGMC-related findings. Report every',
+        'finding with its evidence, and give at most three safe next steps. This is read-only: do not import, convert,',
+        'edit, or export geometry, and do not start a run.'
+    ].join(' '),
     DIAGNOSE_RUN: [
         'Call nuke_openmc_diagnoseRun for the active OpenMC run. Report the run state and every error and warning',
         'finding with its evidence from the log tail, then give at most three safe next steps. If more than one run',
@@ -198,36 +253,89 @@ export const NukeAiPrompts = {
 export const NUKE_AI_ACTIONS: readonly NukeAiActionDefinition[] = [
     { command: NukeAiCommands.ASK, displayText: 'Ask About Active Context', prompt: NukeAiPrompts.ASK },
     { command: NukeAiCommands.ATTACH_CONTEXT, displayText: 'Attach Active Context' },
-    { command: NukeAiCommands.CHECK_CAD, displayText: 'Check Active CAD Model', prompt: NukeAiPrompts.CHECK_CAD },
-    { command: NukeAiCommands.EXPLAIN_SELECTION, displayText: 'Explain CAD Selection', prompt: NukeAiPrompts.EXPLAIN_SELECTION },
-    { command: NukeAiCommands.VALIDATE_OPENMC, displayText: 'Validate OpenMC Project', prompt: NukeAiPrompts.VALIDATE_OPENMC },
-    { command: NukeAiCommands.EXPLAIN_RUN, displayText: 'Explain OpenMC Run', prompt: NukeAiPrompts.EXPLAIN_RUN },
-    { command: NukeAiCommands.EXPLAIN_STATEPOINT, displayText: 'Explain Active Statepoint', prompt: NukeAiPrompts.EXPLAIN_STATEPOINT },
-    { command: NukeAiCommands.REFRESH_RUN, displayText: 'Refresh Run Status', prompt: NukeAiPrompts.REFRESH_RUN },
-    { command: NukeAiCommands.CAPTURE_VIEW, displayText: 'Capture DAGMC View', prompt: NukeAiPrompts.CAPTURE_VIEW },
+    {
+        command: NukeAiCommands.CHECK_CAD,
+        displayText: 'Check Active CAD Model',
+        prompt: NukeAiPrompts.CHECK_CAD,
+        precondition: CAD_CONTEXT
+    },
+    {
+        command: NukeAiCommands.EXPLAIN_SELECTION,
+        displayText: 'Explain CAD Selection',
+        prompt: NukeAiPrompts.EXPLAIN_SELECTION,
+        precondition: CAD_CONTEXT
+    },
+    {
+        command: NukeAiCommands.VALIDATE_OPENMC,
+        displayText: 'Validate OpenMC Project',
+        prompt: NukeAiPrompts.VALIDATE_OPENMC,
+        precondition: OPENMC_CONTEXT
+    },
+    {
+        command: NukeAiCommands.EXPLAIN_RUN,
+        displayText: 'Explain OpenMC Run',
+        prompt: NukeAiPrompts.EXPLAIN_RUN,
+        precondition: ACTIVE_RUN
+    },
+    {
+        command: NukeAiCommands.EXPLAIN_STATEPOINT,
+        displayText: 'Explain Active Statepoint',
+        prompt: NukeAiPrompts.EXPLAIN_STATEPOINT,
+        precondition: STATEPOINT_CONTEXT
+    },
+    {
+        command: NukeAiCommands.REFRESH_RUN,
+        displayText: 'Refresh Run Status',
+        prompt: NukeAiPrompts.REFRESH_RUN,
+        precondition: ACTIVE_RUN
+    },
+    {
+        command: NukeAiCommands.CAPTURE_VIEW,
+        displayText: 'Capture DAGMC View',
+        prompt: NukeAiPrompts.CAPTURE_VIEW,
+        precondition: DAGMC_VIEW
+    },
     {
         command: NukeAiCommands.DIAGNOSE_CAD,
         displayText: 'Diagnose Active CAD Model',
         prompt: NukeAiPrompts.DIAGNOSE_CAD,
-        agentId: NUKE_DIAGNOSTICS_AGENT_ID
+        agentId: NUKE_DIAGNOSTICS_AGENT_ID,
+        precondition: CAD_CONTEXT
     },
     {
         command: NukeAiCommands.DIAGNOSE_OPENMC,
         displayText: 'Diagnose OpenMC Project',
         prompt: NukeAiPrompts.DIAGNOSE_OPENMC,
-        agentId: NUKE_DIAGNOSTICS_AGENT_ID
+        agentId: NUKE_DIAGNOSTICS_AGENT_ID,
+        precondition: OPENMC_CONTEXT
+    },
+    {
+        command: NukeAiCommands.DIAGNOSE_CSG,
+        displayText: 'Diagnose CSG Geometry',
+        prompt: NukeAiPrompts.DIAGNOSE_CSG,
+        agentId: NUKE_DIAGNOSTICS_AGENT_ID,
+        precondition: OPENMC_CONTEXT
+    },
+    {
+        command: NukeAiCommands.DIAGNOSE_DAGMC,
+        displayText: 'Diagnose DAGMC Model',
+        prompt: NukeAiPrompts.DIAGNOSE_DAGMC,
+        agentId: NUKE_DIAGNOSTICS_AGENT_ID,
+        precondition: OPENMC_CONTEXT
     },
     {
         command: NukeAiCommands.DIAGNOSE_RUN,
         displayText: 'Diagnose OpenMC Run',
         prompt: NukeAiPrompts.DIAGNOSE_RUN,
-        agentId: NUKE_DIAGNOSTICS_AGENT_ID
+        agentId: NUKE_DIAGNOSTICS_AGENT_ID,
+        precondition: ACTIVE_RUN
     },
     {
         command: NukeAiCommands.DIAGNOSE_STATEPOINT,
         displayText: 'Diagnose Active Statepoint',
         prompt: NukeAiPrompts.DIAGNOSE_STATEPOINT,
-        agentId: NUKE_DIAGNOSTICS_AGENT_ID
+        agentId: NUKE_DIAGNOSTICS_AGENT_ID,
+        precondition: STATEPOINT_CONTEXT
     }
 ];
 
@@ -241,15 +349,14 @@ export class NukeAiCommandContribution implements CommandContribution {
             const prompt = action.prompt;
             if (prompt === undefined) {
                 commands.registerCommand(action.command, { execute: () => this.actions.attachContext() });
-            } else if (action.agentId === undefined) {
-                commands.registerCommand(action.command, { execute: () => this.actions.ask(prompt, action.displayText) });
             } else {
-                const agentId = action.agentId;
-                commands.registerCommand(action.command, { execute: () => this.actions.ask(prompt, action.displayText, agentId) });
+                commands.registerCommand(action.command, {
+                    execute: () => this.actions.ask(prompt, action.displayText, action.agentId, action.precondition)
+                });
             }
         }
         commands.registerCommand(NukeAiCommands.PREVIEW_SETTINGS, {
-            execute: () => this.actions.ask(NukeAiPrompts.PREVIEW_SETTINGS, 'Review OpenMC Settings')
+            execute: () => this.actions.ask(NukeAiPrompts.PREVIEW_SETTINGS, 'Review OpenMC Settings', undefined, OPENMC_CONTEXT)
         });
     }
 }

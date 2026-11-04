@@ -416,12 +416,28 @@ export class VisualizerCapabilities implements NukeCapabilityContribution {
     }
 }
 
-/** Ambient context contribution: the statepoint currently driving the visualizer. */
+/** Ambient context contribution: the statepoint and DAGMC viewer currently driving the visualizer. */
 export class VisualizerContextContribution implements NukeCapabilityContextContribution {
-    constructor(protected readonly openmcService: OpenMCService) {}
+    constructor(
+        protected readonly openmcService: OpenMCService,
+        protected readonly shell?: ApplicationShell,
+        protected readonly isDagmcViewer: DagmcViewerMatcher = defaultDagmcViewerMatcher
+    ) {}
 
     getContext(): Partial<NukeCapabilityContext> {
-        return { activeDataset: this.openmcService.getCurrentStatepoint()?.file };
+        return {
+            activeDataset: this.openmcService.getCurrentStatepoint()?.file,
+            hasDagmcViewer: this.hasDagmcViewer()
+        };
+    }
+
+    /** True when the active widget or any main-area widget is a DAGMC viewer. */
+    protected hasDagmcViewer(): boolean {
+        if (!this.shell) {
+            return false;
+        }
+        const active = this.shell.activeWidget;
+        return this.isDagmcViewer(active) || this.shell.getWidgets('main').some((widget) => this.isDagmcViewer(widget));
     }
 
     get onDidChangeContext(): Event<void> {

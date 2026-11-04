@@ -3,7 +3,7 @@
   "name": "nuke-ide-electron",
   "productName": "NukeIDE",
   "desktopName": "org.nukehub.nukeide.desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NukeIDE is an open-source IDE for nuclear simulation and engineering.",
   "license": "BSD-2-Clause",
   "author": {
@@ -82,15 +82,15 @@
     "@theia/external-api": "1.76.0",
     "@theia/getting-started": "1.76.0",
     "@theia/telemetry": "1.76.0",
-    "nuke-essentials": "0.2.0",
-    "nuke-fileinfo": "0.2.0",
-    "nuke-docs": "0.2.0",
-    "nuke-sysmon": "0.2.0",
-    "nuke-core": "0.2.0",
-    "nuke-ai": "0.2.0",
-    "nuke-visualizer": "0.2.0",
-    "openmc-studio": "0.2.0",
-    "nuke-cad": "0.2.0"
+    "nuke-essentials": "0.2.1",
+    "nuke-fileinfo": "0.2.1",
+    "nuke-docs": "0.2.1",
+    "nuke-sysmon": "0.2.1",
+    "nuke-core": "0.2.1",
+    "nuke-ai": "0.2.1",
+    "nuke-visualizer": "0.2.1",
+    "openmc-studio": "0.2.1",
+    "nuke-cad": "0.2.1"
   },
   "devDependencies": {
     "@theia/cli": "1.76.0",
