@@ -85,7 +85,8 @@ the read-only support tools, all derived from catalog entries with `diagnostics:
 - diagnostics: `nuke_cad_diagnoseModel`, `nuke_openmc_diagnoseProject`, `nuke_openmc_diagnoseRun`,
   `nuke_viz_diagnoseStatepoint`, `nuke_viz_compareStatepoints`, `nuke_viz_analyzeTallySeries`;
 - support: `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_openmc_summarizeProject`,
-  `nuke_openmc_validateProject`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`.
+  `nuke_openmc_summarizeSettings`, `nuke_openmc_summarizeSources`, `nuke_openmc_validateProject`,
+  `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`.
 
 `nuke_viz_compareStatepoints` and `nuke_viz_analyzeTallySeries` are diagnostics-only catalog entries with `chat: false`;
 they never enter the NukeAI tool list or prompt. The diagnostics prompt is curated rather than generated, so the catalog

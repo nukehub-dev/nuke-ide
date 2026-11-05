@@ -26,8 +26,8 @@ Optional extension for the AI runtime and its integration with NukeIDE capabilit
 - NukeAI chat with agents, skills (progressive disclosure), and a themed Welcome screen
 - Exposes every enabled Nuke capability as a typed AI chat tool
 - Read-only diagnostics agent for CAD model health, OpenMC project readiness (including CSG and DAGMC), failed runs, statepoint convergence, and statepoint/tally-series comparisons
-- Reads material, tally, CSG, and DAGMC-volume inventories before an edit so the model resolves real ids instead of guessing
-- Preview/apply/undo OpenMC settings, material, tally, CSG geometry, and DAGMC volume-material edits with a before/after diff and explicit confirmation
+- Reads settings, sources, project metadata, material, tally, CSG, and DAGMC-volume inventories before an edit so the model resolves real ids instead of guessing
+- Preview/apply/undo OpenMC project metadata, settings, sources, material, tally, CSG geometry, and DAGMC volume-material edits with a before/after diff and explicit confirmation
 - Create OpenMC projects from templates and export the project as Python, both to validated workspace paths
 - Eight CAD authoring slices: scalar feature and sketch-dimension edits, topology-impacting changes, imported bodies, assembly placement, drawing-sheet presentation, Linux-only sandboxed Python scripts, and parameterized component-document creation (its template list is read-only and ungated)
 - Names, validates, and bounds tool arguments and results before they reach the model
@@ -78,6 +78,7 @@ Parametric CAD / meshing / FEM extension with two authoring modes.
 
 - Script mode: author geometry with build123d (CadQuery is optional) or open existing STEP/STP/BREP files
 - GUI document mode: `.nuke-cad` parametric documents with a sketcher, constraints, dimensions, feature tree, and document-level parameters
+- New-document component templates: primitives, mechanical starters, and nuclear starters, with count-driven patterns and holes
 - Sweep/pipe features: sweep a sketch section or a circular pipe along 3D curves with Frenet or fixed-binormal orientation, with a ghosted in-viewport preview
 - Loft and helical sweep features: join ordered sketch sections into a single solid, or sweep a section along a parametric helix (axis/pitch/turns), both with a ghosted in-viewport preview
 - Live three.js viewport with face/solid picking and an **Open CAD Model...** button

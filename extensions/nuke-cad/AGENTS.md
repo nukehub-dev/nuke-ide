@@ -192,9 +192,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   display-only, no rebuild) use one cloned material per overridden body; selection keeps
   the shared highlight and xray wins opacity. `nukeCad.appearancePresets` is a user-level
   preset library (normalized in `body-appearance.ts`); multi-body apply commits once via
-  `setBodiesAppearance`. `nukeCad.colorByMaterial` adds material-tag palette colors beneath
-  explicit appearance colors (`resolveBodyDisplayAppearance`; shared `materialColor`). See
-  `docs/dev/viewport-outline.md`.
+  `setBodiesAppearance`, and the dialog uses the viewport's theme-adaptive body color as its
+  draft default while keeping color out of opacity-only overrides. `nukeCad.colorByMaterial`
+  adds material-tag palette colors beneath explicit appearance colors (`resolveBodyDisplayAppearance`;
+  shared `materialColor`). See `docs/dev/viewport-outline.md`.
 - Model Outline (read-only manifest; Document units/precision/display + material legend,
   Properties, Table, Parameters, BOM, warnings-Fuse)
   and Feature Tree (ordered bodies/datums/sketches/features/curves, suppression,

@@ -641,7 +641,9 @@ selected body. The update is one undoable document change.
 
 **OK** stores the override in the document (it survives save/reopen and rides
 undo/redo); **Remove override** returns the body to the theme-adaptive default;
-**Cancel** or closing the dialog discards the draft. Overrides are
+**Cancel** or closing the dialog discards the draft. The dialog previews the
+active theme's body color when the body has no color override, and changing only
+opacity keeps that theme-adaptive color instead of pinning the preview color. Overrides are
 **display-only**: they never affect builds, exports, DAGMC/FEM output, or
 Export Python. Selection highlighting still uses the shared focus color; in
 X-ray mode the ghost opacity wins over the per-body value, and shaded-wireframe

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
+NukeIDE 0.3.0 unifies NukeAI behind one capability catalog, extends safe OpenMC edits to project metadata, advanced settings, and fixed-source sources, adds a parametric CAD component library, and completes a theme-and-accessibility pass across empty states, action menus, and viewers.
+
 ### Added
 
 - nuke-ai: safe edits preview and apply OpenMC project name, description, and author changes with confirmation and session-scoped undo.
@@ -26,16 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nuke-ai: the chat prompt, chat tool list, Diagnostics tool list, skill allowlists, and MCP read-only allowlist are generated from one capability catalog, so enabled capabilities cannot silently disappear.
 - nuke-cad: component-template count parameters rebuild the requested pattern or hole array at creation time instead of staying at the shipped count.
 - nuke-cad: NukeAI actions move beside the floating CAD search launcher and open upward, keeping the ribbon uncluttered and the menu clear of dialogs.
+- nuke-cad: Feature Tree uses an indented tree-list glyph, distinct from OpenMC Geometry's cell hierarchy.
 - nuke-cad: BOM, Model Outline, and Feature Tree empty states use the shared card, drop duplicate status rows, and offer New CAD Document/Open CAD Viewport actions.
 - nuke-visualizer: CSG/DAGMC outlines, Dataset Inspector, and Viewer Settings use the shared empty-state card; OpenMC geometry/tally cards align at the top.
 - nuke-visualizer: CSG Outline uses one overlapping-primitives glyph in its empty card, sidebar/tab icon, and Nuke Tools entry, keeping it distinct from OpenMC Geometry.
+- nuke-visualizer: OpenMC Geometry uses the same cell-node glyph in its tab, Nuke Tools entry, and empty card.
 - nuke-ai: Diagnose CSG Geometry uses the shared CSG primitives glyph instead of the old symbol icon.
 - nuke-essentials: the generic code Outline view is closed in the default shell; reopen it from View → Outline for code files.
 
-### Removed
-
 ### Fixed
 
+- nuke-cad: the Appearance opacity field uses the themed input chrome instead of a white native number field, and opacity-only edits keep the theme body color.
+- nuke-cad: the duplicate unsaved dot behind the document toolbar is removed; the toolbar's own dot is the single indicator.
 - nuke-essentials: the Welcome page scrolls vertically when walkthroughs and recent workspaces exceed the viewport.
 - nuke-essentials: recent-workspace rows keep a flat hover surface instead of underlining the path.
 - nuke-essentials: illustrated empty-state icons and CAD mask glyphs render at the intended size instead of Theia's 16px codicon default.
@@ -264,7 +270,8 @@ First tagged release.
   `cadquery-ocp`/`cadquery_vtk` pins and the Dockerfile's VTK force-reinstall
   repair step are gone.
 
-[Unreleased]: https://github.com/nukehub-dev/nuke-ide/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/nukehub-dev/nuke-ide/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.3.0
 [0.2.1]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.2.1
 [0.2.0]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.2.0
 [0.1.3]: https://github.com/nukehub-dev/nuke-ide/releases/tag/v0.1.3

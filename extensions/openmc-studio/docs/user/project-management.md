@@ -27,7 +27,7 @@ A `.nuke-openmc` file is a JSON project document. It contains the complete model
 
 | Content                          | Description                                                   |
 | -------------------------------- | ------------------------------------------------------------- |
-| `version` / `state.metadata`     | Schema version, name, description, timestamps                 |
+| `version` / `state.metadata`     | Schema version, name, description, author, timestamps         |
 | `state.geometry`                 | Surfaces, cells, universes, lattices, transforms              |
 | `state.materials`                | Compositions, densities, thermal scattering, volumes          |
 | `state.settings`                 | Run mode, sources, variance reduction, runtime settings       |
@@ -96,9 +96,9 @@ To create a custom starting point, build a project and save it as a normal `.nuk
 
 ## Project Metadata
 
-Click the project name in the dashboard header to edit the display **Name** and optional **Description**. The name also appears in the editor title, with a `●` while there are unsaved changes.
+Click the project name in the dashboard header to edit the display **Name** and optional **Description**. The name also appears in the editor title, with a `●` while there are unsaved changes. NukeAI can also change the name, description, and author through a previewed safe edit; see [NukeAI Safe Edits](../../../nuke-ai/docs/user/safe-edits.md).
 
-The `.nuke-openmc` file stores the schema version, author when present, and created/modified timestamps. There is no separate Project Info panel, no editable author field, and no user-facing UUID or OpenMC-version metadata.
+The `.nuke-openmc` file stores the schema version, author when present, and created/modified timestamps. There is no separate Project Info panel or interactive author field; NukeAI is the author-editing path. There is no user-facing UUID or OpenMC-version metadata.
 
 > **Tip:** Use the Description field to record modeling assumptions, reference data sources, or validation benchmarks the project targets.
 

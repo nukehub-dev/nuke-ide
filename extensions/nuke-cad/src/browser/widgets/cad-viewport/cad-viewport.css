@@ -1466,17 +1466,6 @@
 
 /* Document mode chrome */
 
-.cad-viewport-dirty-marker {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 10;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--theia-editorInfo-foreground);
-}
-
 /* A faint dot grid makes the empty document read as a CAD canvas rather than
    a blank editor page. The welcome card keeps the plain background. */
 .cad-viewport.empty:has(.cad-viewport-start-model) {
@@ -2191,6 +2180,21 @@
 .nuke-form-row-control input.cad-body-appearance-percent {
     flex: 0 0 auto;
     width: 56px;
+    padding: 4px 6px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: var(--nuke-radius-sm);
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font: inherit;
+    text-align: right;
+    /* Native spinner glyphs are light-only; the slider owns 5% stepping. */
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.nuke-form-row-control input.cad-body-appearance-percent:focus {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
 }
 
 .cad-body-appearance-percent-unit {

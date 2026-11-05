@@ -47,7 +47,7 @@ One-time setup: `npx playwright install chromium`. The capture spec writes truec
 
 Regenerate the images when a documented UI changes, a capture fixture changes, or a layout change moves the controls a screenshot shows. Stop any existing `yarn start:browser` server first: capture runs start a fresh app so they cannot reuse a stale bundle. Review every generated image before committing: no personal paths or data, no loading indicators or transient toasts, crop to the workflow being described, and keep the single light theme so the docs stay consistent.
 
-Keep the manifest curated: remove screenshots that no longer document a flow. Git retains replaced image blobs in history, so the optimizer reduces each revision rather than erasing old ones; at the current seventeen-image size (~560 KiB total) Git LFS is unnecessary.
+Keep the manifest curated: remove screenshots that no longer document a flow. Git retains replaced image blobs in history, so the optimizer reduces each revision rather than erasing old ones; at the current eighteen-image size (~590 KiB total) Git LFS is unnecessary.
 
 ## Native docs widget
 

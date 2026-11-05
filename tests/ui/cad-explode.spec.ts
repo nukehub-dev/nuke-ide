@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { collectErrors, waitForWorkbench, openFileByQuickOpen } from './helpers';
+import { collectErrors, dismissNotifications, waitForWorkbench, openFileByQuickOpen } from './helpers';
 
 /**
  * Explode-view smoke: opening a document model shows the explode slider in the
@@ -29,6 +29,12 @@ test('explode slider displaces solids and reassembles at zero', async ({ page })
         test.skip(true, `CAD backend unavailable: ${(await errorBanner.textContent()) ?? 'build failed'}`);
     }
 
+    // The build toast and the slider's focus tooltip sit over the viewport and
+    // would otherwise make the pixel comparison flaky; drop both before the
+    // first capture and blur after the reassembly.
+    await dismissNotifications(page);
+    await page.waitForTimeout(250);
+
     // Drive the real slider with the keyboard: End = 100%. Solids move, so
     // the raster must change.
     const before = await viewport.screenshot();
@@ -42,6 +48,7 @@ test('explode slider displaces solids and reassembles at zero', async ({ page })
     // Back to zero (Home): the assembled model renders identically again.
     await page.keyboard.press('Home');
     await expect(viewport.locator('.cad-viewport-explode-value')).toHaveText('0%');
+    await slider.blur();
     await page.waitForTimeout(250);
     const reassembled = await viewport.screenshot();
     expect(reassembled.equals(exploded), 'reassembling must re-render the canvas').toBe(false);

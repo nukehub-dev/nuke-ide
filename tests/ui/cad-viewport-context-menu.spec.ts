@@ -301,6 +301,21 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     await expect(appearanceDialog.getByLabel('Apply to all selected bodies')).toHaveCount(0);
     const opacityPercent = appearanceDialog.getByLabel('Opacity percent');
     await expect(opacityPercent).toHaveValue('100');
+    // The number field is a real form field, so it must paint with the theme's
+    // input tokens instead of the browser's white default in dark themes.
+    const opacityTheme = await opacityPercent.evaluate((input) => {
+        const root = document.documentElement;
+        const original = root.style.getPropertyValue('--theia-input-background');
+        root.style.setProperty('--theia-input-background', '#123456');
+        const themed = getComputedStyle(input).backgroundColor;
+        if (original.length > 0) {
+            root.style.setProperty('--theia-input-background', original);
+        } else {
+            root.style.removeProperty('--theia-input-background');
+        }
+        return { themed, expected: 'rgb(18, 52, 86)' };
+    });
+    expect(opacityTheme.themed).toBe(opacityTheme.expected);
 
     // Preset library: save the current draft, apply it back, then delete it.
     // Presets are user preferences, not document data.
@@ -367,6 +382,8 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     const outlineRows = page.locator('.cad-outline-panel').first().locator('.outline-row');
     await outlineRows.first().click({ modifiers: ['Control'] });
     appearanceDialog = await openAppearance();
+    const themeColorBefore = await appearanceDialog.locator('.nuke-color-value').textContent();
+    expect(themeColorBefore).not.toBeNull();
     const applyAll = appearanceDialog.getByLabel('Apply to all selected bodies');
     await expect(applyAll).toBeVisible();
     await expect(applyAll).not.toBeChecked();
@@ -377,9 +394,11 @@ test('right-click context menu and draggable feature dialog', async ({ page }) =
     await expect(appearanceDialog).toBeHidden();
 
     // The centre body (part of the selection) carries the override; the
-    // multi-body commit itself is covered by the store unit tests.
+    // multi-body commit itself is covered by the store unit tests. An
+    // opacity-only edit must keep the body on its theme-adaptive color.
     appearanceDialog = await openAppearance();
     await expect(appearanceDialog.getByLabel('Opacity percent')).toHaveValue('50');
+    await expect(appearanceDialog.locator('.nuke-color-value')).toHaveText(themeColorBefore ?? '');
     await appearanceDialog.locator('.nuke-dialog-close').click();
     await expect(appearanceDialog).toBeHidden();
 

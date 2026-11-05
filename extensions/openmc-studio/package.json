@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "openmc-studio",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "OpenMC No-Code Simulation Builder for NukeIDE - Graphical interface for Monte Carlo neutron transport simulations",
   "license": "BSD-2-Clause",
   "keywords": [
@@ -34,9 +34,9 @@
     "@theia/navigator": "1.76.0",
     "@theia/process": "1.76.0",
     "@theia/workspace": "1.76.0",
-    "nuke-core": "0.2.1",
-    "nuke-essentials": "0.2.1",
-    "nuke-visualizer": "0.2.1",
+    "nuke-core": "0.3.0",
+    "nuke-essentials": "0.3.0",
+    "nuke-visualizer": "0.3.0",
     "xml2js": "^0.6.2"
   },
   "devDependencies": {

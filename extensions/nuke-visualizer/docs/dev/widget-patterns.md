@@ -157,8 +157,9 @@ Title, command, and Nuke Tools `iconClass` hooks use `nuke-visualizer-icon nuke-
 the visualizer's own panels (geometry, overlap, materials, nuclear, tally, statepoint). The classes live in
 `src/browser/icons/domain-icon-classes.css`. The shared `nuke-domain-icon nuke-domain-icon-csg` class lives in
 `nuke-essentials` and is reused by the CSG Outline and Diagnose CSG Geometry surfaces. All are CSS masks, so
-they follow the active theme color. Keep each domain glyph one coherent symbol; do not compose detached pieces
-(for example a grid plus bars) into one icon.
+they follow the active theme color. The geometry mask mirrors `DomainGeometryIcon`, so the OpenMC Geometry tab,
+Nuke Tools entry, and empty card share one cell-node glyph. Keep each domain glyph one coherent symbol; do not
+compose detached pieces (for example a grid plus bars) into one icon.
 
 ### Advantages
 
