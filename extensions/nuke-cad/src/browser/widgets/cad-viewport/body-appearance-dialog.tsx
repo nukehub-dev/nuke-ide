@@ -48,7 +48,7 @@ import {
     NukeSlider,
     Tooltip
 } from 'nuke-essentials/lib/theme/browser/components';
-import { BODY_APPEARANCE_DEFAULT_COLOR, BODY_APPEARANCE_DEFAULT_OPACITY, type AppearancePreset } from './body-appearance';
+import { BODY_APPEARANCE_DEFAULT_OPACITY, type AppearancePreset } from './body-appearance';
 
 export interface BodyAppearanceTarget {
     readonly bodyId: string;
@@ -60,6 +60,8 @@ export interface BodyAppearanceDialogProps {
     readonly target: BodyAppearanceTarget;
     /** Current document override, or undefined when the body follows the theme. */
     readonly appearance?: BodyAppearance;
+    /** Theme-adaptive body color shown when the body has no explicit color override. */
+    readonly defaultColor: string;
     /** User-level presets (already normalized by the widget). */
     readonly presets: readonly AppearancePreset[];
     /** Every distinct body id owning the current viewport selection. */
@@ -83,7 +85,8 @@ function clampPercent(value: number): number {
 }
 
 export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.ReactElement {
-    const [color, setColor] = React.useState(props.appearance?.color ?? BODY_APPEARANCE_DEFAULT_COLOR);
+    const [color, setColor] = React.useState(props.appearance?.color ?? props.defaultColor);
+    const [colorTouched, setColorTouched] = React.useState(false);
     const [opacityPercent, setOpacityPercent] = React.useState(
         clampPercent((props.appearance?.opacity ?? BODY_APPEARANCE_DEFAULT_OPACITY) * 100)
     );
@@ -95,7 +98,22 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
     const activePreset =
         selectedPreset !== NO_PRESET && props.presets.some((preset) => preset.name === selectedPreset) ? selectedPreset : NO_PRESET;
 
-    const draftAppearance = (): BodyAppearance => ({ color, opacity: opacityPercent / 100 });
+    /**
+     * Color stays omitted for a theme-adaptive body unless the user actually
+     * picks a color: an opacity-only edit must not pin a stale default color.
+     */
+    const draftAppearance = (): BodyAppearance => {
+        const draft: BodyAppearance = { opacity: opacityPercent / 100 };
+        if (props.appearance?.color !== undefined || colorTouched) {
+            draft.color = color;
+        }
+        return draft;
+    };
+
+    const pickColor = (next: string): void => {
+        setColorTouched(true);
+        setColor(next);
+    };
 
     const selectPreset = (name: string): void => {
         setSelectedPreset(name);
@@ -104,7 +122,7 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
         }
         const preset = props.presets.find((entry) => entry.name === name);
         if (preset !== undefined) {
-            setColor(preset.color);
+            pickColor(preset.color);
             setOpacityPercent(clampPercent(preset.opacity * 100));
         }
     };
@@ -113,7 +131,8 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
         if (props.onSavePreset === undefined) {
             return;
         }
-        const saved = await props.onSavePreset(draftAppearance());
+        // A preset needs a concrete color even when the body follows the theme.
+        const saved = await props.onSavePreset({ color, opacity: opacityPercent / 100 });
         if (saved !== undefined) {
             setSelectedPreset(saved);
         }
@@ -185,14 +204,15 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
                         placeholder="None"
                         style={{ flex: '1 1 auto', minWidth: 0 }}
                     />
-                    <button
-                        className="theia-button secondary cad-body-appearance-preset-save"
-                        onClick={() => void savePreset()}
-                        disabled={props.onSavePreset === undefined}
-                        title="Save the current color and opacity as a preset"
-                    >
-                        Save preset…
-                    </button>
+                    <Tooltip content="Save the current color and opacity as a preset" position="bottom">
+                        <button
+                            className="theia-button secondary cad-body-appearance-preset-save"
+                            onClick={() => void savePreset()}
+                            disabled={props.onSavePreset === undefined}
+                        >
+                            Save preset…
+                        </button>
+                    </Tooltip>
                     <Tooltip content="Delete preset" position="left">
                         <button
                             className="theia-button secondary cad-body-appearance-preset-delete"
@@ -206,7 +226,7 @@ export function BodyAppearanceDialog(props: BodyAppearanceDialogProps): React.Re
                 </div>
             </NukeFormRow>
             <NukeFormRow label="Color">
-                <ColorPicker value={color} onChange={setColor} />
+                <ColorPicker value={color} onChange={pickColor} />
             </NukeFormRow>
             <NukeFormRow label="Opacity">
                 <div className="cad-body-appearance-opacity">

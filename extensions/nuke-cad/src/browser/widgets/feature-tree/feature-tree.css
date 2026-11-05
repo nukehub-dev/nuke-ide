@@ -282,35 +282,6 @@
     width: 100%;
 }
 
-.cad-feature-tree-empty {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 40px 20px;
-    text-align: center;
-    color: var(--theia-descriptionForeground);
-}
-
-.cad-feature-tree-empty > i {
-    width: 32px;
-    height: 32px;
-    -webkit-mask-size: 32px 32px;
-    mask-size: 32px 32px;
-    opacity: 0.3;
-}
-
-.cad-feature-tree-empty p {
-    margin: 0;
-    font-size: 14px;
-}
-
-.cad-feature-tree-empty .empty-hint {
-    font-size: 12px;
-}
-
 .category-header-main {
     display: flex;
     align-items: center;

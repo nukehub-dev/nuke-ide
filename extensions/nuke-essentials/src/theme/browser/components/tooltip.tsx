@@ -141,6 +141,7 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, position = 
         visible && coords ? (
             <div
                 className={`nuke-tooltip nuke-tooltip-${effectivePosition}`}
+                role="tooltip"
                 style={{
                     position: 'fixed',
                     left: coords.x,
@@ -158,6 +159,14 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, position = 
                 ref={childRef}
                 onMouseEnter={showTooltip}
                 onMouseLeave={hideTooltip}
+                onFocus={(event) => {
+                    // Keyboard focus earns the hint; a mouse click focuses the
+                    // control too, but its hover state already covers that.
+                    if ((event.target as HTMLElement).matches(':focus-visible')) {
+                        showTooltip();
+                    }
+                }}
+                onBlur={hideTooltip}
                 onMouseDown={hideTooltip}
                 // Hug the anchored content: in stretchy flex-column containers a
                 // plain inline span inflates to the full container width, which

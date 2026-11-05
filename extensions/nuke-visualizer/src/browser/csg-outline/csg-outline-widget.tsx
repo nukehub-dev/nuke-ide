@@ -33,6 +33,7 @@ import { Message } from '@theia/core/lib/browser';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { codicon } from '@theia/core/lib/browser/widgets/widget';
 import { NukeCheckbox, NukeEmptyState, NukeSearchInput, NukeSwitch, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { DomainCsgIcon } from '../widgets/domain-icons';
 import { GeometryNativeViewerWidget } from '../plugins/openmc/widgets/geometry-native/geometry-native-viewer-widget';
 import { TallyNativeViewerWidget } from '../plugins/openmc/widgets/tally-native/tally-native-viewer-widget';
 import {
@@ -94,7 +95,7 @@ export class CsgOutlineWidget extends ReactWidget {
         this.id = CsgOutlineWidget.ID;
         this.title.label = CsgOutlineWidget.LABEL;
         this.title.closable = true;
-        this.title.iconClass = codicon('symbol-struct');
+        this.title.iconClass = 'nuke-domain-icon nuke-domain-icon-csg';
         this.toDispose.push(this.shell.onDidChangeActiveWidget(() => this.refreshActiveViewer()));
         this.toDispose.push(this.shell.onDidChangeCurrentWidget(() => this.refreshActiveViewer()));
         this.toDispose.push(Disposable.create(() => this.outlineListener?.dispose()));
@@ -280,7 +281,8 @@ export class CsgOutlineWidget extends ReactWidget {
             return (
                 <div className="csg-outline-panel">
                     <NukeEmptyState
-                        icon="symbol-struct"
+                        variant="illustration"
+                        iconNode={<DomainCsgIcon />}
                         title="No geometry viewer open."
                         message="Cell and material visibility appear here."
                         hint="Open a geometry.xml file to browse its cells here."
@@ -291,7 +293,7 @@ export class CsgOutlineWidget extends ReactWidget {
         return (
             <div className="csg-outline-panel">
                 <div className="csg-outline-header">
-                    <i className={`${codicon('symbol-struct')} csg-outline-header-icon`}></i>
+                    <i className="nuke-domain-icon nuke-domain-icon-csg csg-outline-header-icon"></i>
                     <div className="csg-outline-header-text">
                         <span className="csg-outline-panel-name">CSG Outline</span>
                         <div className="csg-outline-title">
@@ -302,7 +304,12 @@ export class CsgOutlineWidget extends ReactWidget {
                     </div>
                 </div>
                 {!snapshot.hasDataset ? (
-                    <NukeEmptyState title="No dataset loaded yet." message="Cells appear here once the viewer finishes loading its file." />
+                    <NukeEmptyState
+                        variant="illustration"
+                        iconNode={<DomainCsgIcon />}
+                        title="No dataset loaded yet."
+                        message="Cells appear here once the viewer finishes loading its file."
+                    />
                 ) : (
                     <>
                         <div className="csg-outline-status nuke-viewer-status-line">

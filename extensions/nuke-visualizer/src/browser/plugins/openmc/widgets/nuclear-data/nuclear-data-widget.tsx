@@ -315,17 +315,24 @@ export class NuclearDataWidget extends ReactWidget {
             <>
                 <div className="library-path-row">
                     <span className="library-path-label">Library:</span>
-                    <code className="library-path-value" title={this.libraryPath}>
-                        {this.libraryPath ?? '(unresolved — set nuke.openmcCrossSections or Change Library…)'}
-                    </code>
+                    <Tooltip content={this.libraryPath ?? 'No library resolved'} position="bottom">
+                        <code className="library-path-value">
+                            {this.libraryPath ?? '(unresolved — set nuke.openmcCrossSections or Change Library…)'}
+                        </code>
+                    </Tooltip>
                     <Tooltip content="Load a different cross_sections.xml" position="bottom">
                         <button className="theia-button secondary" onClick={() => this.browseLibrary()}>
                             <i className="codicon codicon-folder-opened"></i> Change Library…
                         </button>
                     </Tooltip>
                     <Tooltip content="Reload the library" position="bottom">
-                        <button className="theia-button secondary" disabled={this.loading} onClick={() => this.loadLibrary()}>
-                            <i className="codicon codicon-refresh"></i>
+                        <button
+                            className="theia-button secondary"
+                            disabled={this.loading}
+                            onClick={() => this.loadLibrary()}
+                            aria-label="Reload the library"
+                        >
+                            <i className="codicon codicon-refresh" aria-hidden="true"></i>
                         </button>
                     </Tooltip>
                 </div>
@@ -392,7 +399,13 @@ export class NuclearDataWidget extends ReactWidget {
                             </div>
                         </div>
 
-                        <div className="nuclide-split-handle" onMouseDown={this.startPanelDrag} title="Drag to resize" />
+                        <div
+                            className="nuclide-split-handle"
+                            role="separator"
+                            aria-orientation="vertical"
+                            aria-label="Resize nuclide panels"
+                            onMouseDown={this.startPanelDrag}
+                        />
 
                         <div className="nuclide-detail-panel">
                             {this.detailLoading && <p className="form-hint">Loading {this.selectedNuclide}…</p>}

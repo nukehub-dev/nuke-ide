@@ -289,15 +289,17 @@ export const ProbeDialog: React.FC<ProbeDialogProps> = ({
                                                         <td>{formatProbeValue(sample.position[0])}</td>
                                                         <td>{formatProbeValue(sample.position[1])}</td>
                                                         <td>{formatProbeValue(sample.position[2])}</td>
-                                                        <td
-                                                            className="probe-sample-array"
-                                                            title={
-                                                                sample.association !== undefined
-                                                                    ? `${associationLabel(sample.association)} array`
-                                                                    : undefined
-                                                            }
-                                                        >
-                                                            {sample.array ?? '—'}
+                                                        <td className="probe-sample-array">
+                                                            {sample.association !== undefined ? (
+                                                                <Tooltip
+                                                                    content={`${associationLabel(sample.association)} array`}
+                                                                    position="left"
+                                                                >
+                                                                    <span>{sample.array ?? '—'}</span>
+                                                                </Tooltip>
+                                                            ) : (
+                                                                (sample.array ?? '—')
+                                                            )}
                                                         </td>
                                                         <td>{value === null ? '' : formatProbeValue(value)}</td>
                                                     </tr>

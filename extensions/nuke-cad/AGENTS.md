@@ -52,6 +52,11 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
 - `src/common/samples/*.json` are generated from the canonical `tests/e2e/assets/*.nuke-cad`
   fixtures by `scripts/copy-cad-samples.js` during `yarn build`; never edit the generated
   copies. The fixture remains the single source of truth.
+- Component templates: `src/common/component-templates/` (`index.ts` public API, family
+  modules, `sketch-builders.ts`; `component-templates.ts` re-exports). Primitive, mechanical, and
+  nuclear entries are fixture-backed from `tests/e2e/assets/gui_<id>.nuke-cad`. Pattern counts use
+  `binding: 'template'` plus the template `configure` hook; they rebuild geometry at creation time
+  and are not document parameters. See `docs/dev/document-templates.md`.
 - The sketch solver is client-side only: `sketch-solver.ts` is the sole planegcs
   importer (pinned exact, WASM fallback documented); curve-level constraints stay
   lines/circles/arcs, ellipses/B-splines take point-level ones; evaluation lives in
@@ -174,7 +179,9 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   cover an active document. The same hook re-reveals Feature Tree + Model Outline, and
   New Document clears the old model/tokens before installing (no background restore).
 - The viewport context menu appends the neutral `cad.viewport` context-action group; existing
-  rows/separators stay fixed and missing commands are omitted. See `nuke-core/docs/dev/context-actions.md`.
+  rows/separators stay fixed and missing commands are omitted. The document toolbar also renders the same
+  command-backed rows through the shared `NukeActionMenu`; it stays additive and keeps actions enabled so the
+  command's preflight owns missing-state warnings. See `nuke-core/docs/dev/context-actions.md`.
 - Document opens are generation-guarded: a slower file read, rebuild, or cached-fast-path
   parse is discarded after a newer `.nuke-cad` open, and the Drawing Sheet clears per-document
   linework/results via `CadDocumentStore.documentEpoch` before refreshing the new document.
@@ -185,9 +192,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   display-only, no rebuild) use one cloned material per overridden body; selection keeps
   the shared highlight and xray wins opacity. `nukeCad.appearancePresets` is a user-level
   preset library (normalized in `body-appearance.ts`); multi-body apply commits once via
-  `setBodiesAppearance`. `nukeCad.colorByMaterial` adds material-tag palette colors beneath
-  explicit appearance colors (`resolveBodyDisplayAppearance`; shared `materialColor`). See
-  `docs/dev/viewport-outline.md`.
+  `setBodiesAppearance`, and the dialog uses the viewport's theme-adaptive body color as its
+  draft default while keeping color out of opacity-only overrides. `nukeCad.colorByMaterial`
+  adds material-tag palette colors beneath explicit appearance colors (`resolveBodyDisplayAppearance`;
+  shared `materialColor`). See `docs/dev/viewport-outline.md`.
 - Model Outline (read-only manifest; Document units/precision/display + material legend,
   Properties, Table, Parameters, BOM, warnings-Fuse)
   and Feature Tree (ordered bodies/datums/sketches/features/curves, suppression,
@@ -216,8 +224,10 @@ All files under `extensions/nuke-cad/` except generated artifacts (`lib/`,
   selection/signatures, hash/cache, assembly dirs, inspect CLI) and
   `tests/e2e/test_w7x_generator.py` (`NUKE_E2E_W7X_STEP`: 55 solids / 55 selector keys,
   plus 45/65-solid 4/6-module studies with simulation export blocked),
-  `tests/e2e/test_w7x_shape_study.py` (50 native solids, no STEP), and
-  `tests/python/test_coil_sweep.py`. See `docs/dev/testing-e2e.md`.
+  `tests/e2e/test_w7x_shape_study.py` (50 native solids, no STEP),
+  `tests/e2e/test_component_templates.py` / `_mechanical.py` / `_nuclear.py`
+  (fourteen templates, one solid each), and `tests/python/test_coil_sweep.py`.
+  See `docs/dev/testing-e2e.md`.
 
 ## Work Guidance
 
@@ -251,6 +261,11 @@ npx vitest run extensions/nuke-cad/src/common/cad-feature-edit.test.ts \
   extensions/nuke-cad/src/browser/capabilities/nuke-cad-creation-capabilities.test.ts \
   extensions/nuke-cad/src/browser/capabilities/create-target-policy.test.ts \
   extensions/nuke-cad/src/common/component-templates.test.ts \
+  extensions/nuke-cad/src/common/component-templates/mechanical.test.ts \
+  extensions/nuke-cad/src/common/component-templates/nuclear.test.ts \
+  extensions/nuke-cad/src/browser/document/gui-build-primitives.test.ts \
+  extensions/nuke-cad/src/browser/document/gui-build-mechanical.test.ts \
+  extensions/nuke-cad/src/browser/document/gui-build-nuclear.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-save-service.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-store.test.ts \
   extensions/nuke-cad/src/browser/document/cad-document-store-drawings.test.ts \

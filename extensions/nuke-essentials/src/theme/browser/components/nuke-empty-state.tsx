@@ -32,6 +32,8 @@ export interface NukeEmptyStateProps {
     icon?: string;
     /** Custom illustration shown above the title; takes precedence over `icon`. */
     iconNode?: React.ReactNode;
+    /** Plain line icon or the larger tinted illustration tile; defaults to `plain`. */
+    variant?: 'plain' | 'illustration';
     /** Primary heading. */
     title?: React.ReactNode;
     /** Descriptive message below the title. */
@@ -50,11 +52,24 @@ export interface NukeEmptyStateProps {
  * `EmptyState` pattern from `loading-spinner.tsx` with a title/hint and
  * theme-token CSS classes.
  */
-export const NukeEmptyState: React.FC<NukeEmptyStateProps> = ({ icon, iconNode, title, message, hint, className, children }) => (
+export const NukeEmptyState: React.FC<NukeEmptyStateProps> = ({
+    icon,
+    iconNode,
+    variant = 'plain',
+    title,
+    message,
+    hint,
+    className,
+    children
+}) => (
     <div className={`nuke-empty-state${className ? ` ${className}` : ''}`}>
         {iconNode !== undefined ? (
             <div className="nuke-empty-state-illustration" aria-hidden="true">
                 {iconNode}
+            </div>
+        ) : variant === 'illustration' && icon !== undefined ? (
+            <div className="nuke-empty-state-illustration" aria-hidden="true">
+                <span className={`codicon codicon-${icon} nuke-empty-state-illustration-icon`} />
             </div>
         ) : (
             icon !== undefined && <span className={`codicon codicon-${icon} nuke-empty-state-icon`} />

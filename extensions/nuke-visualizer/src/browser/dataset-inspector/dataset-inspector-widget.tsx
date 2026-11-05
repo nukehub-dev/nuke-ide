@@ -294,8 +294,8 @@ export class DatasetInspectorWidget extends ReactWidget {
         if (!host) {
             return (
                 <div className="dataset-inspector-panel">
-                    {this.renderHeader(undefined, '')}
                     <NukeEmptyState
+                        variant="illustration"
                         icon="table"
                         title="No dataset viewer open"
                         message="Open a VTK, DAGMC, tally, or Exodus file to inspect its dataset arrays here."
@@ -310,6 +310,7 @@ export class DatasetInspectorWidget extends ReactWidget {
                 {this.renderHeader(subtitle, subtitle ?? '')}
                 {summary === undefined ? (
                     <NukeEmptyState
+                        variant="illustration"
                         icon="database"
                         title="No dataset loaded yet"
                         message="The summary and array tables appear once the viewer finishes loading its file."

@@ -295,18 +295,32 @@ export const DepletionTimeline: React.FC<DepletionTimelineProps> = ({ depletion,
                                 </div>
                                 <div className="timeline-editor-actions">
                                     <Tooltip content="Duplicate" position="top">
-                                        <button className="icon-btn" onClick={() => handleDuplicateStep(selectedStepIndex)}>
-                                            <i className="codicon codicon-copy"></i>
+                                        <button
+                                            className="icon-btn"
+                                            onClick={() => handleDuplicateStep(selectedStepIndex)}
+                                            aria-label="Duplicate step"
+                                        >
+                                            <i className="codicon codicon-copy" aria-hidden="true"></i>
                                         </button>
                                     </Tooltip>
                                     <Tooltip content="Delete" position="top">
-                                        <button className="icon-btn delete" onClick={() => handleRemoveStep(selectedStepIndex)}>
-                                            <i className="codicon codicon-trash"></i>
+                                        <button
+                                            className="icon-btn delete"
+                                            onClick={() => handleRemoveStep(selectedStepIndex)}
+                                            aria-label="Delete step"
+                                        >
+                                            <i className="codicon codicon-trash" aria-hidden="true"></i>
                                         </button>
                                     </Tooltip>
-                                    <button className="icon-btn" onClick={() => setSelectedStepIndex(-1)}>
-                                        <i className="codicon codicon-close"></i>
-                                    </button>
+                                    <Tooltip content="Close step editor" position="top">
+                                        <button
+                                            className="icon-btn"
+                                            onClick={() => setSelectedStepIndex(-1)}
+                                            aria-label="Close step editor"
+                                        >
+                                            <i className="codicon codicon-close" aria-hidden="true"></i>
+                                        </button>
+                                    </Tooltip>
                                 </div>
                             </div>
 

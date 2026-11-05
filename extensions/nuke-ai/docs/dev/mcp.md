@@ -38,8 +38,9 @@ default and fail closed, so it mounts its own contribution on the external API s
 
 ## Read-only allowlist
 
-Only the capability IDs in `MCP_READ_ONLY_CAPABILITY_IDS` (`src/common/nuke-mcp-protocol.ts`) may cross the external
-boundary:
+Only catalog entries with `mcpReadOnly: true` and `risk: 'read'` may cross the external boundary. They derive
+`MCP_READ_ONLY_CAPABILITY_IDS` in `src/common/nuke-capability-catalog.ts`, which `src/common/nuke-mcp-protocol.ts`
+re-exports:
 
 | Capability                       | MCP tool name                     |
 | -------------------------------- | --------------------------------- |
@@ -171,8 +172,8 @@ persisted.
 ## Extending the catalog
 
 1. Add a capability to `nuke-cad`, `openmc-studio`, or `nuke-visualizer`; never to this extension.
-2. If it is read-only and safe for external agents, add its ID to `MCP_READ_ONLY_CAPABILITY_IDS`. Being `read` alone is
-   not enough.
+2. If it is read-only and safe for external agents, set `mcpReadOnly: true` and a stable `mcpOrder` on its catalog
+   entry. It must stay `risk: 'read'`; being `read` alone is not enough.
 3. Add the matching resource URI or prompt only if it stays inside the read-only contract.
 4. Extend `nuke-mcp-protocol.test.ts`, `nuke-mcp-catalog.test.ts`, and `nuke-mcp-contribution.test.ts` for the new tool,
    resource, or prompt, including the real client round trip.

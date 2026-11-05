@@ -119,6 +119,14 @@
     gap: 12px;
 }
 
+.statepoint-empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
 .statepoint-viewer .run-mode {
     font-size: 11px;
     font-weight: 600;

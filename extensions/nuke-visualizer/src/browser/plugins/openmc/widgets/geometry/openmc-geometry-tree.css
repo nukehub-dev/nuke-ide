@@ -16,8 +16,9 @@
 }
 
 .openmc-geometry-tree.empty {
-    justify-content: center;
+    justify-content: flex-start;
     align-items: center;
+    overflow-y: auto;
 }
 
 .openmc-geometry-tree.loading {

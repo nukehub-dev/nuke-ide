@@ -1,0 +1,216 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "cone",
+      "name": "cone"
+    }
+  ],
+  "curves": [],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "cone-revolve",
+      "name": "Cone",
+      "params": {
+        "angle": 360,
+        "axis": "z"
+      },
+      "sketchId": "cone-profile",
+      "suppressed": false,
+      "type": "revolve"
+    }
+  ],
+  "name": "cone",
+  "parameters": {
+    "bottomRadius": 3,
+    "height": 6,
+    "topRadius": 1.5
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-9",
+          "l_id": "line-5",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-10",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-11",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "bottomRadius",
+          "driving": true,
+          "id": "distance-bottom",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "topRadius",
+          "driving": true,
+          "id": "distance-top",
+          "param1": {
+            "o_id": "point-4",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-3",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "height",
+          "driving": true,
+          "id": "distance-height",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xz",
+      "dimensions": [
+        {
+          "constraintId": "distance-bottom",
+          "driving": true,
+          "id": "dimension-bottom",
+          "kind": "distanceH",
+          "parameter": "bottomRadius",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 3
+        },
+        {
+          "constraintId": "distance-top",
+          "driving": true,
+          "id": "dimension-top",
+          "kind": "distanceH",
+          "parameter": "topRadius",
+          "targetIds": [
+            "point-3",
+            "point-4"
+          ],
+          "value": 1.5
+        },
+        {
+          "constraintId": "distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "height",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 6
+        }
+      ],
+      "id": "cone-profile",
+      "name": "cone-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 3,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 1.5,
+          "y": 6
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": 0,
+          "y": 6
+        },
+        {
+          "construction": false,
+          "id": "line-5",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-6",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-4",
+          "p2_id": "point-1",
+          "type": "line"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

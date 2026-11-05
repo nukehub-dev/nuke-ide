@@ -27,23 +27,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { ChatAgentLocation } from '@theia/ai-chat/lib/common';
+import { NUKE_DIAGNOSTICS_CAPABILITY_IDS } from '../../common/nuke-capability-catalog';
 import { toToolName } from '../capabilities/nuke-tool-schema';
 import { NUKE_DIAGNOSTICS_AGENT_ID, NUKE_DIAGNOSTICS_TOOL_NAMES, NukeDiagnosticsAgent } from './nuke-diagnostics-agent';
-
-const CAPABILITY_IDS = [
-    'nuke.cad.diagnoseModel',
-    'nuke.openmc.diagnoseProject',
-    'nuke.openmc.diagnoseRun',
-    'nuke.viz.diagnoseStatepoint',
-    'nuke.viz.compareStatepoints',
-    'nuke.viz.analyzeTallySeries',
-    'nuke.cad.summarizeDocument',
-    'nuke.cad.inspectSelection',
-    'nuke.openmc.summarizeProject',
-    'nuke.openmc.validateProject',
-    'nuke.openmc.getRunStatus',
-    'nuke.viz.summarizeStatepoint'
-];
 
 const WRITE_TOOL_NAMES = [
     'nuke_cad_exportDagmc',
@@ -80,7 +66,7 @@ describe('NukeDiagnosticsAgent', () => {
 
         expect(agent.variables).toEqual(['nuke.context']);
         expect(agent.functions).toEqual([...NUKE_DIAGNOSTICS_TOOL_NAMES]);
-        expect(agent.functions).toHaveLength(12);
+        expect(agent.functions).toHaveLength(NUKE_DIAGNOSTICS_CAPABILITY_IDS.length);
         expect(NUKE_DIAGNOSTICS_TOOL_NAMES).toEqual(
             expect.arrayContaining([
                 'nuke_cad_diagnoseModel',
@@ -108,8 +94,8 @@ describe('NukeDiagnosticsAgent', () => {
         for (const [index, toolName] of NUKE_DIAGNOSTICS_TOOL_NAMES.entries()) {
             expect(prompt).toContain(toolName);
             expect(prompt).toContain(`~{${toolName}}`);
-            expect(prompt).toContain(CAPABILITY_IDS[index]);
-            expect(toToolName(CAPABILITY_IDS[index])).toBe(toolName);
+            expect(prompt).toContain(NUKE_DIAGNOSTICS_CAPABILITY_IDS[index]);
+            expect(toToolName(NUKE_DIAGNOSTICS_CAPABILITY_IDS[index])).toBe(toolName);
         }
         expect(prompt).not.toMatch(/~\{nuke\./);
     });

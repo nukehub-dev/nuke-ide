@@ -155,8 +155,8 @@ export const OpenMCMaterialMixer: React.FC<OpenMCMaterialMixerProps> = ({
                             </Tooltip>
                         )}
                         <Tooltip content="Close mixer" position="bottom">
-                            <button className="close-btn" onClick={onClose}>
-                                <i className="fa fa-times"></i>
+                            <button className="close-btn" onClick={onClose} aria-label="Close material mixer">
+                                <i className="fa fa-times" aria-hidden="true"></i>
                             </button>
                         </Tooltip>
                     </div>

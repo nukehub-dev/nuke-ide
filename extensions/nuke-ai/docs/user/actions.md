@@ -37,17 +37,27 @@ that context is missing, NukeAI shows a warning naming the prerequisite and does
 
 NukeAI actions also appear beside the work, in the menu or toolbar owned by the active domain:
 
-| Surface                              | NukeAI actions                                                                                                                                                   |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CAD viewport right-click menu        | **Ask About Context**, **Diagnose CAD Model**, **Explain Selection**, **Check Active CAD Model**                                                                 |
-| OpenMC Studio Simulation tab toolbar | **Diagnose Project**, **Validate and Explain**, **Diagnose CSG Geometry**, and **Diagnose DAGMC Model** (validation); **Diagnose Run** and **Explain Run** (run) |
-| DAGMC viewer right-click menu        | **Capture View**, **Diagnose Statepoint**                                                                                                                        |
-| Tally viewer right-click menu        | **Explain Statepoint**, **Diagnose Statepoint** (only with a loaded tally)                                                                                       |
+| Surface                                           | NukeAI actions                                                                                                                                                   |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CAD viewport search launcher and right-click menu | **Ask About Context**, **Diagnose CAD Model**, **Explain Selection**, **Check Active CAD Model**                                                                 |
+| OpenMC Studio Simulation tab toolbar              | **Diagnose Project**, **Validate and Explain**, **Diagnose CSG Geometry**, and **Diagnose DAGMC Model** (validation); **Diagnose Run** and **Explain Run** (run) |
+| DAGMC editor header                               | **Capture View**, **Diagnose Statepoint** (after a statepoint loads), **Ask About Context**                                                                      |
+| DAGMC viewer right-click menu                     | **Capture View**, **Diagnose Statepoint**, **Ask About Context**                                                                                                 |
+| Statepoint viewer header and loader               | **Ask About Context**, **Explain Statepoint**, **Diagnose Statepoint**                                                                                           |
+| Tally viewer right-click menu                     | **Ask About Context**, **Explain Statepoint**, **Diagnose Statepoint** (only with a loaded tally)                                                                |
+
+The statepoint header, the CAD viewport's floating Search launcher, and the DAGMC editor header open a
+compact **NukeAI actions** menu with the NukeAI bot icon. The trigger is an icon-only bot button; its
+accessible name and tooltip carry the label. `Esc` closes the menu and returns focus to the trigger, and
+the rows stay in registry order. The context menus keep their existing rows, and
+the OpenMC Simulation tab keeps its inline validation and run groups with the same bot icon and sentence-case
+group labels.
 
 Each entry runs the same read-only command as its sidebar and Command Palette action. The domain menus never carry
 their own AI logic: they read command-backed descriptors from the neutral `nuke-core` context-action registry. When
 NukeAI is not installed in the build, those commands do not exist and the NukeAI group is hidden instead of showing
-disabled rows.
+disabled rows. A row is not disabled when its prerequisite is missing; the command's existing preflight explains what
+to load first.
 
 ## Diagnostics
 

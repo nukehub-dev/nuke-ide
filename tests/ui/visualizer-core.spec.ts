@@ -199,3 +199,51 @@ test('screenshot export menu downloads a selected format', async ({ page }) => {
     const bad = severe(errors);
     expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
 });
+
+test('icon-only viewer chrome exposes accessible names and one overlay at a time', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+
+    const container = await openViewer(page, 'volume-slice.vti');
+    await expect(container.locator('.openmc-output-viewer-status.error')).toHaveCount(0);
+
+    // Shared bottom bar, ViewCube knobs, and viewer-local extras expose names
+    // instead of relying on hover-only tooltips.
+    await expect(container.getByRole('button', { name: 'Fit view' })).toBeVisible();
+    await expect(container.getByRole('button', { name: 'Zoom in' })).toBeVisible();
+    await expect(container.getByRole('button', { name: 'Snap to -X view' })).toBeVisible();
+    await expect(container.getByRole('button', { name: 'Open Viewer Settings' })).toBeVisible();
+    const probeTrigger = container.getByRole('button', { name: 'Probe point values and line profiles' });
+    const findDataTrigger = container.getByRole('button', { name: 'Find Data' });
+    await expect(probeTrigger).toBeVisible();
+    await expect(findDataTrigger).toBeVisible();
+
+    // Probe and Find Data share the top-right overlay slot; opening one closes
+    // the other instead of stacking two cards on the same pixels.
+    await probeTrigger.click();
+    await expect(container.locator('.probe-dialog')).toBeVisible({ timeout: 30_000 });
+    await findDataTrigger.click();
+    await expect(container.locator('.find-data-dialog')).toBeVisible({ timeout: 30_000 });
+    await expect(container.locator('.probe-dialog')).toHaveCount(0);
+    await probeTrigger.click();
+    await expect(container.locator('.probe-dialog')).toBeVisible({ timeout: 30_000 });
+    await expect(container.locator('.find-data-dialog')).toHaveCount(0);
+
+    // At a narrow width the bottom bar wraps inside the viewarea instead of
+    // clipping its leftmost controls, and the probe card stays above it.
+    await page.setViewportSize({ width: 420, height: 800 });
+    await page.waitForTimeout(300);
+    const narrowNav = container.locator('.nuke-viewer-nav-bar');
+    const navBox = await narrowNav.boundingBox();
+    expect(navBox).not.toBeNull();
+    expect(navBox!.x).toBeGreaterThanOrEqual(0);
+    expect(navBox!.x + navBox!.width).toBeLessThanOrEqual(421);
+    const [narrowDialogBox, narrowNavBox] = await Promise.all([container.locator('.probe-dialog').boundingBox(), narrowNav.boundingBox()]);
+    expect(narrowDialogBox).not.toBeNull();
+    expect(narrowNavBox).not.toBeNull();
+    expect(narrowDialogBox!.y + narrowDialogBox!.height).toBeLessThanOrEqual(narrowNavBox!.y + 1);
+
+    const bad = severe(errors);
+    expect(bad, `unexpected severe errors:\n${bad.join('\n')}`).toEqual([]);
+});

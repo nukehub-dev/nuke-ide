@@ -306,6 +306,7 @@ export class DagmcOutlineWidget extends ReactWidget {
             return (
                 <div className="dagmc-outline-panel">
                     <NukeEmptyState
+                        variant="illustration"
                         icon="layers"
                         title="No DAGMC viewer open."
                         message="Volume, material, and group visibility appear here."
@@ -330,6 +331,8 @@ export class DagmcOutlineWidget extends ReactWidget {
                 </div>
                 {!snapshot.hasDataset ? (
                     <NukeEmptyState
+                        variant="illustration"
+                        icon="layers"
                         title="No dataset loaded yet."
                         message="Volumes appear here once the viewer finishes loading its file."
                     />

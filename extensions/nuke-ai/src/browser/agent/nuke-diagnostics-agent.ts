@@ -39,8 +39,12 @@
 import { injectable } from '@theia/core/shared/inversify';
 import { LanguageModelRequirement, PromptVariantSet } from '@theia/ai-core';
 import { AbstractStreamParsingChatAgent, ChatAgentLocation } from '@theia/ai-chat/lib/common/chat-agents';
+import { NUKE_DIAGNOSTICS_TOOL_NAMES } from '../../common/nuke-capability-catalog';
 import { NUKE_CONTEXT_VARIABLE_ID } from './nuke-chat-agent';
 import { NUKE_DIAGNOSTICS_SYSTEM_PROMPT } from './nuke-diagnostics-system-prompt';
+
+/** Diagnostic and read-only support tool names published by the capability bridge. */
+export { NUKE_DIAGNOSTICS_TOOL_NAMES };
 
 /** Identifier of the dedicated Nuke Diagnostics chat agent. */
 export const NUKE_DIAGNOSTICS_AGENT_ID = 'NukeDiagnostics';
@@ -50,26 +54,6 @@ export const NUKE_DIAGNOSTICS_SYSTEM_PROMPT_ID = 'nuke-diagnostics-system';
 
 /** Default variant of the Nuke Diagnostics system prompt. */
 export const NUKE_DIAGNOSTICS_SYSTEM_PROMPT_VARIANT_ID = 'nuke-diagnostics-system-default';
-
-/**
- * Diagnostic and read-only support tool names published by the capability bridge.
- * These are sanitized chat tool names, not dotted capability ids; the bridge
- * compares them through `toToolName`.
- */
-export const NUKE_DIAGNOSTICS_TOOL_NAMES = [
-    'nuke_cad_diagnoseModel',
-    'nuke_openmc_diagnoseProject',
-    'nuke_openmc_diagnoseRun',
-    'nuke_viz_diagnoseStatepoint',
-    'nuke_viz_compareStatepoints',
-    'nuke_viz_analyzeTallySeries',
-    'nuke_cad_summarizeDocument',
-    'nuke_cad_inspectSelection',
-    'nuke_openmc_summarizeProject',
-    'nuke_openmc_validateProject',
-    'nuke_openmc_getRunStatus',
-    'nuke_viz_summarizeStatepoint'
-] as const;
 
 /** Read-only diagnostics agent for CAD, OpenMC, and statepoint state. */
 @injectable()

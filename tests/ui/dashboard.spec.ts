@@ -50,6 +50,31 @@ test.describe('simulation dashboard', () => {
         expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
     });
 
+    test('multi-group checkbox keeps sentence-case prose and an aligned input', async ({ page }) => {
+        const errors = collectErrors(page);
+        await page.goto('/');
+        await waitForWorkbench(page);
+        await createBlankProject(page);
+
+        const dashboard = page.locator('.simulation-dashboard');
+        await expect(dashboard).toBeVisible({ timeout: 30_000 });
+        await dashboard.getByRole('button', { name: 'Random Ray', exact: true }).click();
+
+        const label = dashboard.locator('.checkbox-label', { hasText: 'Nuclide-wise MGXS' });
+        await expect(label).toBeVisible();
+        const styles = await label.evaluate((element) => ({
+            textTransform: getComputedStyle(element).textTransform,
+            display: getComputedStyle(element).display,
+            gap: getComputedStyle(element).gap
+        }));
+        expect(styles.textTransform).toBe('none');
+        expect(styles.display).toBe('flex');
+        expect(styles.gap).not.toBe('0px');
+        await expect(label.locator('input[type="checkbox"]')).toBeVisible();
+
+        expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
+    });
+
     test('narrow editor panels keep tabs reachable and avoid horizontal overflow', async ({ page }) => {
         const errors = collectErrors(page);
         // A split-editor-sized viewport leaves roughly 350 px for the widget.

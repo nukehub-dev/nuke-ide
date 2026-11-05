@@ -1,0 +1,318 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "bolt-circle-plate",
+      "name": "bolt-circle-plate"
+    }
+  ],
+  "curves": [],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "bolt-circle-plate-base",
+      "name": "Bolt circle plate",
+      "params": {
+        "angle": 360,
+        "axis": "z"
+      },
+      "sketchId": "bolt-circle-plate-profile",
+      "suppressed": false,
+      "type": "revolve"
+    },
+    {
+      "body": "body-1",
+      "dependsOn": [
+        "bolt-circle-plate-base"
+      ],
+      "id": "bolt-circle-plate-hole",
+      "name": "Bolt circle plate hole",
+      "params": {
+        "axis": "z",
+        "length": 60
+      },
+      "sketchId": "bolt-circle-plate-bolt-profile",
+      "suppressed": false,
+      "type": "pocket"
+    },
+    {
+      "body": "body-1",
+      "dependsOn": [
+        "bolt-circle-plate-hole"
+      ],
+      "id": "bolt-circle-plate-pattern",
+      "name": "Bolt circle plate pattern",
+      "params": {
+        "angle": 360,
+        "axis": "z",
+        "count": 4,
+        "source": "bolt-circle-plate-hole"
+      },
+      "suppressed": false,
+      "type": "circularPattern"
+    }
+  ],
+  "name": "bolt-circle-plate",
+  "parameters": {
+    "holeCircleRadius": 3.5,
+    "holeDiameter": 0.9,
+    "radius": 5,
+    "thickness": 0.8
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-9",
+          "l_id": "line-5",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-10",
+          "l_id": "line-6",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-11",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-12",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "radius",
+          "driving": true,
+          "id": "distance-radius",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "thickness",
+          "driving": true,
+          "id": "distance-height",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xz",
+      "dimensions": [
+        {
+          "constraintId": "distance-radius",
+          "driving": true,
+          "id": "dimension-radius",
+          "kind": "distanceH",
+          "parameter": "radius",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 5
+        },
+        {
+          "constraintId": "distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "thickness",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 0.8
+        }
+      ],
+      "id": "bolt-circle-plate-profile",
+      "name": "bolt-circle-plate-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 5,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 5,
+          "y": 0.8
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": 0,
+          "y": 0.8
+        },
+        {
+          "construction": false,
+          "id": "line-5",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-6",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-4",
+          "p2_id": "point-1",
+          "type": "line"
+        }
+      ]
+    },
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-hole",
+          "l_id": "line-hole",
+          "type": "horizontal_l"
+        },
+        {
+          "difference": "holeCircleRadius",
+          "driving": true,
+          "id": "distance-radius",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole",
+          "diameter": "holeDiameter",
+          "driving": true,
+          "id": "diameter-hole",
+          "type": "circle_diameter"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "distance-radius",
+          "driving": true,
+          "id": "dimension-radius",
+          "kind": "distanceH",
+          "parameter": "holeCircleRadius",
+          "targetIds": [
+            "point-hole",
+            "point-center"
+          ],
+          "value": 3.5
+        },
+        {
+          "constraintId": "diameter-hole",
+          "driving": true,
+          "id": "dimension-hole",
+          "kind": "diameter",
+          "parameter": "holeDiameter",
+          "targetIds": [
+            "circle-hole"
+          ],
+          "value": 0.9
+        }
+      ],
+      "id": "bolt-circle-plate-bolt-profile",
+      "name": "bolt-circle-plate-bolt-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-hole",
+          "type": "point",
+          "x": 3.5,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "line-hole",
+          "p1_id": "point-center",
+          "p2_id": "point-hole",
+          "type": "line"
+        },
+        {
+          "c_id": "point-hole",
+          "construction": false,
+          "id": "circle-hole",
+          "radius": 0.45,
+          "type": "circle"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

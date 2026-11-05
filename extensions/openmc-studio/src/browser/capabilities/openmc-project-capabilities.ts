@@ -33,6 +33,10 @@
  * path, and active-project checks run before any write so a rejected request
  * leaves the open project untouched.
  *
+ * Also previews and applies project metadata edits (name, description, author)
+ * through the shared change proposal store. Metadata is not simulation input,
+ * so neither handler generates XML or calls the backend.
+ *
  * @module openmc-studio/browser/capabilities
  */
 
@@ -45,19 +49,33 @@ import {
     NukeCapabilityContribution,
     NukeCapabilityRegistry,
     NukeCapabilityResult,
-    NukeJsonSchema
+    NukeChange,
+    NukeChangeSet,
+    NukeJsonSchema,
+    NukeJsonSchemaProperty
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import { deriveAnnotations, isWithinWorkspace } from 'nuke-core/lib/browser/capabilities/nuke-capability-registry';
-import { OpenMCState } from '../../common/openmc-state-schema';
+import { NukeUndoEntry, NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
+import { OpenMCProjectMetadata, OpenMCState } from '../../common/openmc-state-schema';
 import { OpenMCStudioBackendService, ProjectSaveRequest } from '../../common/openmc-studio-protocol';
 import { buildProjectTemplate, getProjectTemplate, PROJECT_TEMPLATE_DEFINITIONS } from '../../common/project-templates';
 import { OpenMCStateManager } from '../openmc-state-manager';
+import { OpenMCChangeProposal, OpenMCChangeProposalService, scopeError } from './openmc-change-proposal-service';
 
 /** Write capability that creates and installs a project from a template. */
 export const CREATE_PROJECT_CAPABILITY_ID = 'nuke.openmc.createProject';
 
+/** Read capability that computes and stores a project metadata proposal. */
+export const PREVIEW_PROJECT_METADATA_CAPABILITY_ID = 'nuke.openmc.previewProjectMetadata';
+
+/** Write capability that applies a stored project metadata proposal. */
+export const APPLY_PROJECT_METADATA_CAPABILITY_ID = 'nuke.openmc.applyProjectMetadata';
+
 /** Read-only capability suggested after creating a project. */
 const VALIDATE_PROJECT_CAPABILITY_ID = 'nuke.openmc.validateProject';
+
+/** Read-only capability suggested after a metadata change. */
+const SUMMARIZE_PROJECT_CAPABILITY_ID = 'nuke.openmc.summarizeProject';
 
 /** Template used when the request omits `templateId`. */
 const DEFAULT_TEMPLATE_ID = 'blank';
@@ -110,6 +128,114 @@ const CREATE_PROJECT_OUTPUT_SCHEMA: NukeJsonSchema = {
         }
     },
     required: ['projectPath', 'templateId', 'counts'],
+    additionalProperties: false
+};
+
+/** Metadata fields the preview may edit. */
+export const PROJECT_METADATA_EDITABLE_FIELDS = ['name', 'description', 'author'] as const;
+
+/** One editable project metadata field. */
+export type OpenMCProjectMetadataField = (typeof PROJECT_METADATA_EDITABLE_FIELDS)[number];
+
+/** Metadata keys that are never editable through this flow. */
+const PROJECT_METADATA_READ_ONLY_FIELDS: readonly string[] = ['version', 'created', 'modified', 'mgBackup'];
+
+/** Display label for each editable metadata field. */
+const PROJECT_METADATA_FIELD_LABELS: Record<OpenMCProjectMetadataField, string> = {
+    name: 'Project name',
+    description: 'Project description',
+    author: 'Project author'
+};
+
+/** Longest accepted value per editable metadata field. */
+const PROJECT_METADATA_MAX_LENGTH: Record<OpenMCProjectMetadataField, number> = {
+    name: 120,
+    description: 500,
+    author: 120
+};
+
+/** Diff card title shared by the preview and apply capabilities. */
+const PROJECT_METADATA_CHANGE_TITLE = 'OpenMC project metadata change';
+
+/** Message for a proposal that is gone or past its TTL. */
+const PROJECT_METADATA_PROPOSAL_MISSING = 'This project metadata preview is missing or has expired. Preview again.';
+
+/** Message for an apply whose pinned metadata no longer matches. */
+const PROJECT_METADATA_STALE = 'Project metadata changed since the preview. Preview again.';
+
+/** Message for an undo whose target was edited after apply. */
+const PROJECT_METADATA_UNDO_STALE = 'Project metadata changed since the edit; the change can no longer be undone.';
+
+/** Description may keep tabs and line breaks but no other control characters. */
+const DESCRIPTION_CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+
+const PREVIEW_PROJECT_METADATA_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        updates: {
+            type: 'object',
+            description: 'Metadata fields to change: name, description, and/or author.',
+            properties: {
+                name: { type: 'string', description: 'Project name; non-empty after trimming, at most 120 characters.' },
+                description: {
+                    type: 'string',
+                    description: 'Project description; at most 500 characters. An empty string clears it.'
+                },
+                author: { type: 'string', description: 'Project author; at most 120 characters. An empty string clears it.' }
+            },
+            additionalProperties: false
+        },
+        summary: { type: 'string', description: 'Optional short description of the whole change.' }
+    },
+    required: ['updates'],
+    additionalProperties: false
+};
+
+const APPLY_PROJECT_METADATA_INPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string', description: 'Proposal id returned by nuke.openmc.previewProjectMetadata.' }
+    },
+    required: ['proposalId'],
+    additionalProperties: false
+};
+
+const PROJECT_METADATA_CHANGES_SCHEMA: NukeJsonSchemaProperty = {
+    type: 'array',
+    items: {
+        type: 'object',
+        properties: {
+            path: { type: 'string' },
+            label: { type: 'string' },
+            kind: { type: 'string', enum: ['add', 'update', 'remove'] },
+            before: {},
+            after: {}
+        },
+        required: ['path', 'label', 'kind'],
+        additionalProperties: false
+    }
+};
+
+const PROJECT_METADATA_CHANGE_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string' },
+        summary: { type: 'string' },
+        changes: PROJECT_METADATA_CHANGES_SCHEMA
+    },
+    required: ['proposalId', 'summary', 'changes'],
+    additionalProperties: false
+};
+
+const APPLY_PROJECT_METADATA_OUTPUT_SCHEMA: NukeJsonSchema = {
+    type: 'object',
+    properties: {
+        proposalId: { type: 'string' },
+        summary: { type: 'string' },
+        changes: PROJECT_METADATA_CHANGES_SCHEMA,
+        undoToken: { type: 'string', description: 'Session undo token for the applied project metadata change.' }
+    },
+    required: ['proposalId', 'summary', 'changes', 'undoToken'],
     additionalProperties: false
 };
 
@@ -276,15 +402,166 @@ function projectCounts(state: OpenMCState): Record<string, number> {
     };
 }
 
+/** True for a metadata field the preview may edit. */
+function isEditableMetadataField(field: string): field is OpenMCProjectMetadataField {
+    return (PROJECT_METADATA_EDITABLE_FIELDS as readonly string[]).includes(field);
+}
+
+/** Result of reading one editable metadata value. */
+type MetadataFieldReadResult = { ok: true; value: string } | { ok: false; message: string };
+
 /**
- * Registers the OpenMC project creation capability with the nuke-core registry.
+ * Trim and validate one editable metadata value. Names and authors are single
+ * line; descriptions may keep tabs and line breaks. An empty description or
+ * author clears the field.
+ */
+function readMetadataField(field: OpenMCProjectMetadataField, value: string): MetadataFieldReadResult {
+    const label = PROJECT_METADATA_FIELD_LABELS[field];
+    const normalized = value.trim();
+    if (field === 'name' && normalized.length === 0) {
+        return { ok: false, message: 'Project name must not be empty.' };
+    }
+    const controlCharacters =
+        field === 'description' ? DESCRIPTION_CONTROL_CHARACTER_PATTERN.test(normalized) : CONTROL_CHARACTER_PATTERN.test(normalized);
+    if (controlCharacters) {
+        return { ok: false, message: `${label} must not contain control characters.` };
+    }
+    const maximum = PROJECT_METADATA_MAX_LENGTH[field];
+    if (normalized.length > maximum) {
+        return { ok: false, message: `${label} must be ${maximum} characters or fewer.` };
+    }
+    return { ok: true, value: normalized };
+}
+
+/** Result of reading the preview `updates` map. */
+type MetadataUpdatesReadResult =
+    { ok: true; updates: Partial<Record<OpenMCProjectMetadataField, string>> } | { ok: false; message: string };
+
+/**
+ * Read and shape-check the preview `updates` map. Object keys are unique by
+ * construction, so an unknown key is the only field-level shape error; stored
+ * change rows are re-checked for duplicate fields before apply.
+ */
+function readMetadataUpdates(value: unknown): MetadataUpdatesReadResult {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return { ok: false, message: 'Provide an updates object with name, description, or author.' };
+    }
+    const updates: Partial<Record<OpenMCProjectMetadataField, string>> = {};
+    for (const [field, raw] of Object.entries(value as Record<string, unknown>)) {
+        if (PROJECT_METADATA_READ_ONLY_FIELDS.includes(field)) {
+            return {
+                ok: false,
+                message: `Project metadata field "${field}" is read-only. Editable fields: name, description, author.`
+            };
+        }
+        if (!isEditableMetadataField(field)) {
+            return {
+                ok: false,
+                message: `Unknown project metadata field "${field}". Editable fields: name, description, author.`
+            };
+        }
+        if (typeof raw !== 'string') {
+            return { ok: false, message: `${PROJECT_METADATA_FIELD_LABELS[field]} must be a string.` };
+        }
+        const read = readMetadataField(field, raw);
+        if (!read.ok) {
+            return { ok: false, message: read.message };
+        }
+        updates[field] = read.value;
+    }
+    return { ok: true, updates };
+}
+
+/** Default summary when the preview request does not provide one. */
+function defaultMetadataSummary(changes: readonly NukeChange[]): string {
+    return changes.length === 1 ? `Update ${changes[0].label.toLowerCase()}.` : `Update ${changes.length} project metadata fields.`;
+}
+
+/** Build the change set returned by the preview and apply capabilities. */
+function metadataChangeSet(proposal: Pick<OpenMCChangeProposal, 'id' | 'summary' | 'changes'>, applyCapability?: string): NukeChangeSet {
+    return {
+        id: proposal.id,
+        title: PROJECT_METADATA_CHANGE_TITLE,
+        summary: proposal.summary,
+        changes: proposal.changes,
+        ...(applyCapability ? { applyCapability } : {})
+    };
+}
+
+/** True when a value looks like a complete project metadata snapshot. */
+function isMetadataSnapshot(value: unknown): value is OpenMCProjectMetadata {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+    }
+    const record = value as Record<string, unknown>;
+    return ['version', 'name', 'created', 'modified'].every((key) => typeof record[key] === 'string');
+}
+
+/** Stable JSON serialization that sorts keys so metadata snapshots compare by value. */
+function canonicalMetadata(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(canonicalMetadata).join(',')}]`;
+    }
+    if (value !== null && typeof value === 'object') {
+        const entries = Object.entries(value as Record<string, unknown>)
+            .filter(([, entry]) => entry !== undefined)
+            .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+            .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalMetadata(entry)}`);
+        return `{${entries.join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'null';
+}
+
+/** One applied metadata change read back from a stored proposal. */
+type ProjectMetadataEdit = {
+    readonly field: OpenMCProjectMetadataField;
+    readonly before: string;
+    readonly after: string;
+};
+
+/** Result of reading the stored proposal changes back into metadata edits. */
+type ProjectMetadataEditsReadResult = { ok: true; edits: ProjectMetadataEdit[] } | { ok: false; message: string };
+
+/** Read and validate the per-field change rows of a stored metadata proposal. */
+function readProjectMetadataEdits(changes: readonly NukeChange[]): ProjectMetadataEditsReadResult {
+    if (changes.length === 0) {
+        return { ok: false, message: 'This project metadata preview has no changes. Preview again.' };
+    }
+    const edits: ProjectMetadataEdit[] = [];
+    const seen = new Set<OpenMCProjectMetadataField>();
+    for (const change of changes) {
+        const match = /^metadata\.([A-Za-z][A-Za-z0-9]*)$/.exec(change.path);
+        const field = match?.[1];
+        if (!field || !isEditableMetadataField(field)) {
+            return { ok: false, message: `The project metadata proposal contains an unsupported change path: ${change.path}.` };
+        }
+        if (change.kind !== 'update') {
+            return { ok: false, message: `The project metadata proposal contains an unsupported change kind: ${change.kind}.` };
+        }
+        if (seen.has(field)) {
+            return { ok: false, message: `The project metadata proposal changes ${field} more than once.` };
+        }
+        if (typeof change.before !== 'string' || typeof change.after !== 'string') {
+            return { ok: false, message: `The project metadata proposal is missing the values for ${change.path}.` };
+        }
+        seen.add(field);
+        edits.push({ field, before: change.before, after: change.after });
+    }
+    return { ok: true, edits };
+}
+
+/**
+ * Registers the OpenMC project creation and metadata capabilities with the
+ * nuke-core registry.
  */
 @injectable()
 export class OpenMCProjectCapabilities implements NukeCapabilityContribution {
     constructor(
         @inject(OpenMCStateManager) protected readonly stateManager: OpenMCStateManager,
         @inject(OpenMCStudioBackendService) protected readonly backendService: OpenMCStudioBackendService,
-        @inject(FileService) protected readonly fileService: FileService
+        @inject(FileService) protected readonly fileService: FileService,
+        @inject(OpenMCChangeProposalService) protected readonly proposalService: OpenMCChangeProposalService,
+        @inject(NukeUndoService) protected readonly undoService: NukeUndoService
     ) {}
 
     registerCapabilities(registry: NukeCapabilityRegistry): void {
@@ -317,6 +594,47 @@ export class OpenMCProjectCapabilities implements NukeCapabilityContribution {
             ],
             when: () => true,
             invoke: async (input, context) => this.createProject(input, context)
+        });
+
+        registry.register({
+            id: PREVIEW_PROJECT_METADATA_CAPABILITY_ID,
+            title: 'Preview OpenMC project metadata change',
+            description:
+                'Validate proposed project name, description, and author edits, return a before/after diff, and store an in-memory proposal without changing project state.',
+            category: ['OpenMC', 'Project'],
+            inputSchema: PREVIEW_PROJECT_METADATA_INPUT_SCHEMA,
+            outputSchema: PROJECT_METADATA_CHANGE_OUTPUT_SCHEMA,
+            risk: 'read',
+            annotations: deriveAnnotations('read'),
+            examples: [
+                {
+                    description: 'Rename the project and set its author.',
+                    input: { updates: { name: 'Pincell assembly', author: 'Ada Lovelace' } }
+                },
+                {
+                    description: 'Clear the project description.',
+                    input: { updates: { description: '' } }
+                }
+            ],
+            when: () => true,
+            invoke: async (input) => this.previewProjectMetadata(input)
+        });
+
+        registry.register({
+            id: APPLY_PROJECT_METADATA_CAPABILITY_ID,
+            title: 'Apply OpenMC project metadata change',
+            description:
+                'Apply a previously previewed project metadata change, reject stale previews, and register an in-memory undo for the changed fields.',
+            category: ['OpenMC', 'Project'],
+            inputSchema: APPLY_PROJECT_METADATA_INPUT_SCHEMA,
+            outputSchema: APPLY_PROJECT_METADATA_OUTPUT_SCHEMA,
+            risk: 'write',
+            annotations: deriveAnnotations('write'),
+            requiresConfirmation: true,
+            undoable: true,
+            examples: [{ description: 'Apply the previewed project metadata change.', input: { proposalId: 'proposal-id' } }],
+            when: () => true,
+            invoke: async (input) => this.applyProjectMetadata(input)
         });
     }
 
@@ -389,6 +707,142 @@ export class OpenMCProjectCapabilities implements NukeCapabilityContribution {
                     reason: 'Validate the new project before adding geometry or starting a run.'
                 }
             ]
+        };
+    }
+
+    /**
+     * Validate and diff proposed metadata edits without touching state. The
+     * stored proposal pins the current metadata so apply can detect a stale
+     * preview.
+     */
+    protected async previewProjectMetadata(input: unknown): Promise<NukeCapabilityResult> {
+        const record = readRecord(input);
+        const unknownKey = Object.keys(record).find((key) => key !== 'updates' && key !== 'summary');
+        if (unknownKey) {
+            return { ok: false, message: `Unknown input field "${unknownKey}". Provide updates and an optional summary.` };
+        }
+
+        const requested = readMetadataUpdates(record.updates);
+        if (!requested.ok) {
+            return { ok: false, message: requested.message };
+        }
+
+        const metadata = this.stateManager.getState().metadata;
+        const changes: NukeChange[] = [];
+        const updates: Partial<OpenMCProjectMetadata> = {};
+        for (const field of PROJECT_METADATA_EDITABLE_FIELDS) {
+            const proposed = requested.updates[field];
+            if (proposed === undefined) {
+                continue;
+            }
+            const current = metadata[field] ?? '';
+            if (proposed === current) {
+                return { ok: false, message: `${PROJECT_METADATA_FIELD_LABELS[field]} already has that value.` };
+            }
+            changes.push({
+                path: `metadata.${field}`,
+                label: PROJECT_METADATA_FIELD_LABELS[field],
+                kind: 'update',
+                before: current,
+                after: proposed
+            });
+            updates[field] = proposed;
+        }
+        if (changes.length === 0) {
+            return { ok: false, message: 'Provide at least one project metadata field to change.' };
+        }
+
+        const summary = readString(record, 'summary')?.trim() || defaultMetadataSummary(changes);
+        const proposal = this.proposalService.create({
+            scope: 'project',
+            summary,
+            changes,
+            before: metadata,
+            after: { ...metadata, ...updates }
+        });
+        return {
+            ok: true,
+            data: { proposalId: proposal.id, summary, changes },
+            changeSet: metadataChangeSet(proposal, APPLY_PROJECT_METADATA_CAPABILITY_ID),
+            nextActions: [
+                {
+                    capability: APPLY_PROJECT_METADATA_CAPABILITY_ID,
+                    reason: 'Apply the previewed project metadata change after confirmation.'
+                }
+            ]
+        };
+    }
+
+    /**
+     * Apply a live metadata proposal after verifying the pinned snapshot is
+     * still current, then register a field-scoped in-memory undo.
+     */
+    protected async applyProjectMetadata(input: unknown): Promise<NukeCapabilityResult> {
+        const record = readRecord(input);
+        const unknownKey = Object.keys(record).find((key) => key !== 'proposalId');
+        if (unknownKey) {
+            return { ok: false, message: `Unknown input field "${unknownKey}". Provide proposalId.` };
+        }
+        const proposalId = readString(record, 'proposalId')?.trim();
+        if (!proposalId) {
+            return { ok: false, message: 'proposalId is required.' };
+        }
+
+        const proposal = this.proposalService.get(proposalId);
+        if (!proposal) {
+            return { ok: false, message: PROJECT_METADATA_PROPOSAL_MISSING };
+        }
+        const wrongScope = scopeError(proposal, 'project');
+        if (wrongScope) {
+            return { ok: false, message: wrongScope };
+        }
+        if (!isMetadataSnapshot(proposal.before)) {
+            return { ok: false, message: 'This project metadata preview is missing its metadata snapshot. Preview again.' };
+        }
+        const derived = readProjectMetadataEdits(proposal.changes);
+        if (!derived.ok) {
+            return { ok: false, message: derived.message };
+        }
+
+        const current = this.stateManager.getState().metadata;
+        if (canonicalMetadata(current) !== canonicalMetadata(proposal.before)) {
+            return { ok: false, message: PROJECT_METADATA_STALE };
+        }
+
+        const updates: Partial<Record<OpenMCProjectMetadataField, string>> = {};
+        for (const edit of derived.edits) {
+            updates[edit.field] = edit.after;
+        }
+        this.stateManager.updateMetadata(updates);
+        this.proposalService.remove(proposal.id);
+        const undoToken = this.undoService.register(this.createProjectMetadataUndo(proposal, derived.edits));
+        return {
+            ok: true,
+            data: { proposalId: proposal.id, summary: proposal.summary, changes: proposal.changes },
+            changeSet: metadataChangeSet(proposal),
+            undoToken,
+            nextActions: [{ capability: SUMMARIZE_PROJECT_CAPABILITY_ID, reason: 'Confirm the updated project metadata.' }]
+        };
+    }
+
+    /** Build the reverse handler for an applied metadata proposal. */
+    protected createProjectMetadataUndo(proposal: OpenMCChangeProposal, edits: readonly ProjectMetadataEdit[]): NukeUndoEntry {
+        return {
+            title: `Undo ${proposal.summary}`,
+            undo: async () => {
+                const current = this.stateManager.getState().metadata;
+                const changed = edits.some((edit) => (current[edit.field] ?? '') !== edit.after);
+                if (changed) {
+                    return { ok: false, message: PROJECT_METADATA_UNDO_STALE };
+                }
+
+                const updates: Partial<Record<OpenMCProjectMetadataField, string>> = {};
+                for (const edit of edits) {
+                    updates[edit.field] = edit.before;
+                }
+                this.stateManager.updateMetadata(updates);
+                return { ok: true, message: 'Project metadata change undone.' };
+            }
         };
     }
 }

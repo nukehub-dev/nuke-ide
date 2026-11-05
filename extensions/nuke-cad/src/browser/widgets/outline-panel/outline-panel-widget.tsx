@@ -86,7 +86,7 @@ import {
 } from './solid-summaries';
 import { buildFuseFeature, groupDiagnostics, selectionSolidIds, toggleSolidSelection } from './outline-interactions';
 import { buildBomCsvRows, compareParamRows, describeParamUsage, formatBomCsv, type ParamSortKey } from './param-table';
-import { NukeCheckbox, NukeSelect, NukeSwitch } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeCheckbox, NukeEmptyState, NukeSelect, NukeSwitch } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { materialColor } from 'nuke-essentials/lib/theme/browser/material-colors';
 import { collectMaterialTags, MATERIAL_LEGEND_LIMIT } from './outline-materials';
@@ -317,6 +317,7 @@ export class CadOutlinePanelWidget extends ReactWidget {
                 onToggleOriginAxes={() => this.handleToggleOriginAxes()}
                 onToggleOriginAxis={(axis) => this.handleToggleOriginAxis(axis)}
                 onExportBomCsv={() => void this.handleExportBomCsv()}
+                onOpenViewport={() => void this.commandService.executeCommand(NukeCadCommands.OPEN_CAD_VIEWPORT.id)}
                 onSaveNamedView={() => void this.commandService.executeCommand(NukeCadCommands.SAVE_NAMED_VIEW.id)}
                 onRestoreNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.RESTORE_NAMED_VIEW.id, id)}
                 onDeleteNamedView={(id) => void this.commandService.executeCommand(NukeCadCommands.DELETE_NAMED_VIEW.id, id)}
@@ -598,6 +599,7 @@ interface CadOutlinePanelComponentProps {
     readonly onToggleOriginAxes: () => void;
     readonly onToggleOriginAxis: (axis: OriginAxis) => void;
     readonly onExportBomCsv: () => void;
+    readonly onOpenViewport: () => void;
     /** Named Views: save the current camera, restore a row, or delete it by id. */
     readonly onSaveNamedView: () => void;
     readonly onRestoreNamedView: (id: string) => void;
@@ -740,65 +742,72 @@ function CadOutlinePanelComponent(props: CadOutlinePanelComponentProps): React.R
 
     return (
         <div className="cad-outline-panel">
-            <div className="cad-outline-header">
-                <div className="header-info">
-                    <h2>
-                        <i className="codicon codicon-nuke-cad-outline" />
-                        Model Outline
-                        <span className="cad-outline-body-count">{bodyCountLabel}</span>
-                    </h2>
-                    <p className="header-description">{scriptName ?? 'No CAD model open'}</p>
-                </div>
-                {model && (
-                    <div className="header-actions">
-                        {hiddenIds.length > 0 && (
-                            <Tooltip content={`Show all solids (${hiddenIds.length} hidden)`} position="left">
-                                <button className="theia-button secondary view-toggle-button" onClick={showAllSolids}>
-                                    <i className="codicon codicon-eye" />
+            {model && (
+                <div className="cad-outline-header">
+                    <div className="header-info">
+                        <h2>
+                            <i className="codicon codicon-nuke-cad-outline" />
+                            Model Outline
+                            <span className="cad-outline-body-count">{bodyCountLabel}</span>
+                        </h2>
+                        <p className="header-description">{scriptName ?? 'No CAD model open'}</p>
+                    </div>
+                    {model && (
+                        <div className="header-actions">
+                            {hiddenIds.length > 0 && (
+                                <Tooltip content={`Show all solids (${hiddenIds.length} hidden)`} position="left">
+                                    <button className="theia-button secondary view-toggle-button" onClick={showAllSolids}>
+                                        <i className="codicon codicon-eye" />
+                                    </button>
+                                </Tooltip>
+                            )}
+                            <Tooltip content={viewMode === 'list' ? 'Show as spreadsheet table' : 'Show as list'} position="left">
+                                <button
+                                    className="theia-button secondary view-toggle-button"
+                                    onClick={() => setViewMode(viewMode === 'list' ? 'table' : 'list')}
+                                >
+                                    <i className={`codicon ${viewMode === 'list' ? 'codicon-table' : 'codicon-list-tree'}`} />
                                 </button>
                             </Tooltip>
-                        )}
-                        <Tooltip content={viewMode === 'list' ? 'Show as spreadsheet table' : 'Show as list'} position="left">
-                            <button
-                                className="theia-button secondary view-toggle-button"
-                                onClick={() => setViewMode(viewMode === 'list' ? 'table' : 'list')}
+                            <Tooltip content="Export bill of materials as CSV (instance/body, label, material, volume)" position="left">
+                                <button className="theia-button secondary manifest-button" onClick={props.onExportBomCsv}>
+                                    <i className="codicon codicon-export" />
+                                    BOM
+                                </button>
+                            </Tooltip>
+                            <Tooltip
+                                content={
+                                    props.manifestExists
+                                        ? `Open ${props.manifestFileName} in the editor`
+                                        : `${props.manifestFileName} does not exist beside the model`
+                                }
+                                position="left"
                             >
-                                <i className={`codicon ${viewMode === 'list' ? 'codicon-table' : 'codicon-list-tree'}`} />
-                            </button>
-                        </Tooltip>
-                        <Tooltip content="Export bill of materials as CSV (instance/body, label, material, volume)" position="left">
-                            <button className="theia-button secondary manifest-button" onClick={props.onExportBomCsv}>
-                                <i className="codicon codicon-export" />
-                                BOM
-                            </button>
-                        </Tooltip>
-                        <Tooltip
-                            content={
-                                props.manifestExists
-                                    ? `Open ${props.manifestFileName} in the editor`
-                                    : `${props.manifestFileName} does not exist beside the model`
-                            }
-                            position="left"
-                        >
-                            <button
-                                className="theia-button secondary manifest-button"
-                                onClick={props.onOpenManifest}
-                                disabled={!props.manifestExists}
-                            >
-                                <i className="codicon codicon-json" />
-                                Manifest
-                            </button>
-                        </Tooltip>
-                    </div>
-                )}
-            </div>
+                                <button
+                                    className="theia-button secondary manifest-button"
+                                    onClick={props.onOpenManifest}
+                                    disabled={!props.manifestExists}
+                                >
+                                    <i className="codicon codicon-json" />
+                                    Manifest
+                                </button>
+                            </Tooltip>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {!model && (
-                <div className="cad-outline-empty">
-                    <i className="codicon codicon-nuke-cad-outline" />
-                    <p>No CAD model is open.</p>
-                    <span className="empty-hint">Open a model in the CAD viewport to inspect its volumes and surfaces.</span>
-                </div>
+                <NukeEmptyState
+                    variant="illustration"
+                    icon="nuke-cad-outline"
+                    title="No CAD model is open."
+                    message="Open a model in the CAD viewport to inspect its volumes and surfaces."
+                >
+                    <button className="theia-button" onClick={props.onOpenViewport}>
+                        <span className="codicon codicon-window" /> Open CAD Viewport
+                    </button>
+                </NukeEmptyState>
             )}
 
             {model && (

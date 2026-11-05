@@ -25,6 +25,26 @@ test('Welcome page renders the Nuke layout without duplicate registrations', asy
     await expect(page.locator('.gs-quote-text')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('.gs-main-column')).toHaveCount(0);
 
+    const container = page.locator('.gs-container');
+    const scroll = await container.evaluate((element) => ({
+        overflowY: getComputedStyle(element).overflowY,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight
+    }));
+    expect(scroll.overflowY).toBe('auto');
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+    const scrollTop = await container.evaluate((element) => {
+        element.scrollTo(0, element.scrollHeight);
+        return element.scrollTop;
+    });
+    expect(scrollTop).toBeGreaterThan(0);
+
+    const recent = page.locator('.gs-link-recent').first();
+    if ((await recent.count()) > 0) {
+        await recent.hover();
+        expect(await recent.evaluate((element) => getComputedStyle(element).textDecorationLine)).toBe('none');
+    }
+
     expect(duplicateWarnings).toEqual([]);
     expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
 });

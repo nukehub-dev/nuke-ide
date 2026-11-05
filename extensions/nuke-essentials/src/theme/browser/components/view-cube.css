@@ -64,6 +64,11 @@
     color: var(--theia-descriptionForeground);
 }
 
+.nuke-view-cube-knob:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
 .nuke-view-cube-axis-x {
     border-color: #d45a5a;
 }

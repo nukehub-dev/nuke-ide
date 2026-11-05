@@ -51,6 +51,7 @@ import type {
 } from 'nuke-core/lib/common/nuke-capability-protocol';
 import type { NukeUndoEntry, NukeUndoService } from 'nuke-core/lib/browser/capabilities/nuke-undo-service';
 import type { DAGMCInfo, OpenMCMaterial, OpenMCSettings, OpenMCState } from '../../common/openmc-state-schema';
+import { IFP_SCORES } from '../../common/kinetics-ifp';
 import type {
     ActiveSimulationInfo,
     NukeCADImportRequest,
@@ -71,6 +72,7 @@ import type { OpenMCSimulationRunner } from '../widgets/simulation-dashboard/sim
 import type { OpenMCXMLGenerationService } from '../xml-generator/xml-generation-service';
 import { OpenMCCapabilities, OpenMCContextContribution } from './openmc-capabilities';
 import { OpenMCChangeProposalService } from './openmc-change-proposal-service';
+import { SUPPORTED_SETTINGS_PATHS } from './openmc-settings-edit';
 
 const WORKSPACE = '/workspace';
 
@@ -102,6 +104,19 @@ function buildState(): OpenMCState {
         tallies: [],
         meshes: []
     };
+}
+
+function buildAdvancedState(): OpenMCState {
+    const state = buildState();
+    state.settings.output = { summary: false, tallies: true, path: 'runs/out' };
+    state.settings.cutoff = { energyNeutron: 1e-5, time: 1 };
+    state.settings.kinetics = { enabled: true, ifpNGenerations: 4, numPrecursorGroups: 6, computeBetaEff: true };
+    state.tallies = [
+        { id: 1, scores: [IFP_SCORES.timeNumerator], nuclides: [], filters: [] },
+        { id: 2, scores: [IFP_SCORES.betaNumerator], nuclides: [], filters: [] },
+        { id: 3, scores: [IFP_SCORES.denominator], nuclides: [], filters: [] }
+    ];
+    return state;
 }
 
 function buildDagmcInfo(): DAGMCInfo {
@@ -1111,6 +1126,207 @@ describe('OpenMC settings capabilities', () => {
         summary: string;
         changes: Array<{ path: string; label: string; kind: string; before?: unknown; after?: unknown }>;
     }
+
+    it('summarizes every supported path and the run mode', async () => {
+        const harness = createHarness();
+
+        const result = await harness.invoke('nuke.openmc.summarizeSettings', {});
+
+        expect(result.ok).toBe(true);
+        const data = result.data as { runMode: string; settings: Record<string, unknown> };
+        expect(data.runMode).toBe('eigenvalue');
+        expect(Object.keys(data.settings).sort()).toEqual([...SUPPORTED_SETTINGS_PATHS].sort());
+        expect(data.settings['run.particles']).toBe(1000);
+        expect(data.settings['run.inactive']).toBe(10);
+        expect(data.settings['output.summary']).toBeNull();
+        expect(data.settings['output.path']).toBeNull();
+        expect(data.settings['cutoff.energyNeutron']).toBeNull();
+        expect(data.settings['kinetics.enabled']).toBeNull();
+        expect(harness.stateManager.settingsUpdates).toEqual([]);
+    });
+
+    it('reports every advanced path from the current state', async () => {
+        const harness = createHarness({ state: buildAdvancedState() });
+
+        const result = await harness.invoke('nuke.openmc.summarizeSettings', {});
+
+        const data = result.data as { runMode: string; settings: Record<string, unknown> };
+        expect(data.runMode).toBe('eigenvalue');
+        expect(data.settings).toMatchObject({
+            'output.summary': false,
+            'output.tallies': true,
+            'output.path': 'runs/out',
+            'cutoff.energyNeutron': 1e-5,
+            'cutoff.time': 1,
+            'cutoff.weight': null,
+            'kinetics.enabled': true,
+            'kinetics.ifpNGenerations': 4,
+            'kinetics.numPrecursorGroups': 6,
+            'kinetics.computeBetaEff': true
+        });
+    });
+
+    it('declares the read summary with an empty input and read annotations', () => {
+        const harness = createHarness();
+        const capability = harness.registry.capabilities.get('nuke.openmc.summarizeSettings')!;
+
+        expect(capability.risk).toBe('read');
+        expect(capability.requiresConfirmation).toBeUndefined();
+        expect(capability.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+        expect(capability.inputSchema).toEqual({ type: 'object', properties: {} });
+        expect(capability.outputSchema?.type).toBe('object');
+        expect(capability.when!({ workspaceRoots: [WORKSPACE] })).toBe(true);
+    });
+
+    it('previews, applies, and undoes nested settings without clobbering unrelated keys', async () => {
+        const harness = createHarness({ state: buildAdvancedState() });
+        const preview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [
+                { path: 'output.summary', value: true },
+                { path: 'cutoff.energyNeutron', value: 1e-4 },
+                { path: 'kinetics.enabled', value: false }
+            ]
+        });
+        const data = preview.data as SettingsChangeData;
+
+        expect(preview.ok).toBe(true);
+        expect(data.changes).toEqual([
+            { path: 'output.summary', label: 'Write summary.h5', kind: 'update', before: false, after: true },
+            { path: 'cutoff.energyNeutron', label: 'Neutron energy cutoff', kind: 'update', before: 1e-5, after: 1e-4 },
+            { path: 'kinetics.enabled', label: 'Kinetics (IFP)', kind: 'update', before: true, after: false }
+        ]);
+
+        const applied = await harness.invoke('nuke.openmc.applySettings', { proposalId: data.proposalId });
+        expect(applied.ok).toBe(true);
+        expect(harness.stateManager.state.settings.output).toEqual({ summary: true, tallies: true, path: 'runs/out' });
+        expect(harness.stateManager.state.settings.cutoff).toEqual({ energyNeutron: 1e-4, time: 1 });
+        expect(harness.stateManager.state.settings.kinetics).toEqual({
+            enabled: false,
+            ifpNGenerations: 4,
+            numPrecursorGroups: 6,
+            computeBetaEff: true
+        });
+        expect(harness.stateManager.state.settings.run).toEqual({ mode: 'eigenvalue', particles: 1000, inactive: 10, batches: 50 });
+
+        const undo = await harness.undoService.undo(applied.undoToken!);
+
+        expect(undo).toEqual({ ok: true, message: 'Settings change undone.' });
+        expect(harness.stateManager.state.settings.output).toEqual({ summary: false, tallies: true, path: 'runs/out' });
+        expect(harness.stateManager.state.settings.cutoff).toEqual({ energyNeutron: 1e-5, time: 1 });
+        expect(harness.stateManager.state.settings.kinetics).toEqual({
+            enabled: true,
+            ifpNGenerations: 4,
+            numPrecursorGroups: 6,
+            computeBetaEff: true
+        });
+    });
+
+    it('undo preserves unrelated nested edits made after apply', async () => {
+        const harness = createHarness({ state: buildAdvancedState() });
+        const preview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'output.summary', value: true }]
+        });
+        const proposalId = (preview.data as SettingsChangeData).proposalId;
+        const applied = await harness.invoke('nuke.openmc.applySettings', { proposalId });
+        harness.stateManager.updateSettings({
+            output: { summary: true, tallies: false, path: 'runs/later' },
+            cutoff: { energyNeutron: 1e-5, time: 1, weight: 1e-30 }
+        });
+
+        const undo = await harness.undoService.undo(applied.undoToken!);
+
+        expect(undo.ok).toBe(true);
+        expect(harness.stateManager.state.settings.output).toEqual({ summary: false, tallies: false, path: 'runs/later' });
+        expect(harness.stateManager.state.settings.cutoff).toEqual({ energyNeutron: 1e-5, time: 1, weight: 1e-30 });
+        const undoUpdate = harness.stateManager.settingsUpdates[harness.stateManager.settingsUpdates.length - 1];
+        expect(Object.keys(undoUpdate).sort()).toEqual(['output']);
+    });
+
+    it('rejects an output path outside the workspace roots', async () => {
+        const harness = createHarness();
+
+        const outside = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'output.path', value: '/etc/openmc' }]
+        });
+        expect(outside.ok).toBe(false);
+        expect(outside.message).toContain('output.path must be project-relative or an absolute path inside the workspace');
+
+        const inside = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'output.path', value: `${WORKSPACE}/runs/out` }]
+        });
+        expect(inside.ok).toBe(true);
+
+        const relative = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'output.path', value: 'runs/out' }]
+        });
+        expect(relative.ok).toBe(true);
+    });
+
+    it('requires IFP tallies before enabling kinetics', async () => {
+        const harness = createHarness();
+        const missing = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'kinetics.enabled', value: true }]
+        });
+        expect(missing.ok).toBe(false);
+        expect(missing.message).toContain('requires the IFP tallies');
+
+        const withTallies = createHarness({ state: buildAdvancedState() });
+        withTallies.stateManager.state.settings.kinetics = undefined;
+        const result = await withTallies.invoke('nuke.openmc.previewSettings', {
+            changes: [
+                { path: 'kinetics.enabled', value: true },
+                { path: 'kinetics.ifpNGenerations', value: 4 }
+            ]
+        });
+        expect(result.ok).toBe(true);
+    });
+
+    it('rejects a later run.inactive change below ifpNGenerations', async () => {
+        const harness = createHarness({ state: buildAdvancedState() });
+
+        const result = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'run.inactive', value: 3 }]
+        });
+
+        expect(result.ok).toBe(false);
+        expect(result.message).toContain('kinetics.ifpNGenerations (4) must not exceed run.inactive (3)');
+    });
+
+    it('re-runs the cross-field check when applying', async () => {
+        const harness = createHarness({ state: buildAdvancedState() });
+        const preview = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'kinetics.ifpNGenerations', value: 6 }]
+        });
+        const proposalId = (preview.data as SettingsChangeData).proposalId;
+        harness.stateManager.state.settings.run = { mode: 'eigenvalue', particles: 1000, inactive: 3, batches: 50 };
+
+        const applied = await harness.invoke('nuke.openmc.applySettings', { proposalId });
+
+        expect(applied.ok).toBe(false);
+        expect(applied.message).toContain('must not exceed run.inactive');
+        expect(harness.stateManager.settingsUpdates).toEqual([]);
+        expect(harness.stateManager.state.settings.kinetics?.ifpNGenerations).toBe(4);
+    });
+
+    it('rejects duplicate paths across old and new paths and no-op nested edits', async () => {
+        const harness = createHarness({ state: buildAdvancedState() });
+
+        const duplicate = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [
+                { path: 'run.batches', value: 80 },
+                { path: 'output.summary', value: true },
+                { path: 'output.summary', value: false }
+            ]
+        });
+        expect(duplicate.ok).toBe(false);
+        expect(duplicate.message).toContain('only be changed once');
+
+        const noop = await harness.invoke('nuke.openmc.previewSettings', {
+            changes: [{ path: 'output.summary', value: false }]
+        });
+        expect(noop.ok).toBe(false);
+        expect(noop.message).toContain('already set to the requested value');
+    });
 
     it('previews a diff and stores a proposal without mutating state', async () => {
         const harness = createHarness();

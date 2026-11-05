@@ -55,8 +55,8 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
   mesh metadata is loaded by the DAGMC Editor. `docs/user/coverage.md` is the user-facing support matrix; update it with each
   feature and keep `docs/user/index.md`/`simulation-dashboard.md` free of full-coverage claims. See `docs/dev/xml-generation.md`.
 - NukeAI capabilities live in `src/browser/capabilities/`: project/run/settings in `openmc-capabilities.ts`, material edits in
-  `openmc-material-capabilities.ts`, tally edits in `openmc-tally-capabilities.ts`, project creation in
-  `openmc-project-capabilities.ts`, Python export in `openmc-script-capabilities.ts`, DAGMC volume-material edits in
+  `openmc-material-capabilities.ts`, tally edits in `openmc-tally-capabilities.ts`, project creation and metadata
+  preview/apply in `openmc-project-capabilities.ts`, Python export in `openmc-script-capabilities.ts`, DAGMC volume-material edits in
   `openmc-dagmc-capabilities.ts`, CSG authoring in `openmc-geometry-capabilities.ts` (pure reducer in
   `src/common/geometry-edit.ts`), and read inventories in `openmc-catalog-capabilities.ts`; they orchestrate existing
   state, XML, environment, and runner services instead of reimplementing XML or run logic. The material, tally, and
@@ -65,7 +65,15 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - `OpenMCChangeProposalService` (`src/browser/capabilities/openmc-change-proposal-service.ts`) stores scoped in-memory proposals
   (`settings`, `materials`, `tallies`, `project`, `geometry`, `dagmc`); apply capabilities reject a proposal from another scope.
   (max 20, 10-minute TTL, cloned snapshots); `previewSettings`/`applySettings` use the `settings` scope, and apply registers a
-  session undo that restores only the changed paths. See `docs/dev/ai-capabilities.md`.
+  session undo that restores only the changed paths. `previewProjectMetadata`/`applyProjectMetadata` edit only
+  `metadata.name`/`description`/`author` through a `project` proposal; version, created, modified, and `mgBackup` are
+  read-only, and undo restores only the changed fields. `nuke.openmc.summarizeSettings` is the read side of the settings
+  flow: it returns the run mode and every supported path value (`null` when unset). Edits cover run controls, `output.*`,
+  `cutoff.*`, and `kinetics.*`; nested writes keep unrelated keys, `ifpNGenerations` must not exceed `run.inactive`, and
+  enabling kinetics requires the dashboard-generated IFP tallies to exist. Apply re-runs cross-field checks.
+  `nuke.openmc.summarizeSources`/`previewSourceChange`/`applySourceChange` author independent sources on a fixed-source
+  run only through a `sources` proposal; file/compiled/mesh/tokamak sources stay read-only, indexes come from the
+  summary, and undo restores the previous source list. See `docs/dev/ai-capabilities.md`.
 - `nuke.openmc.previewMaterialChange`/`applyMaterialChange` add, update, or remove materials through a `materials` proposal;
   ids/macroscopic/CAD provenance are read-only, adds need unique names, and undo restores only changed materials.
 - `nuke.openmc.previewTallyChange`/`applyTallyChange` add, update, or remove tallies through a `tallies` proposal; scores must be
@@ -73,7 +81,9 @@ All files under `extensions/openmc-studio/` except generated artifacts (`lib/`, 
 - `nuke.openmc.diagnoseProject` / `diagnoseRun` are read-only: project diagnosis aggregates validation, environment, cross-section,
   and DAGMC findings; run diagnosis triages an active run's log tail. Findings cap at 20 with `findings-truncated`.
 - The Simulation dashboard validation/run toolbar renders `openmc.validation` / `openmc.run` actions from nuke-core's neutral
-  context-action registry; missing commands are omitted. See `nuke-core/docs/dev/context-actions.md`.
+  context-action registry; missing commands are omitted. The DAGMC Editor header renders `visualizer.dagmc` actions through
+  the shared `NukeActionMenu` (Diagnose Statepoint only after a statepoint loads); both surfaces keep the commands enabled
+  and let their existing preflight warnings explain missing state. See `nuke-core/docs/dev/context-actions.md`.
 
 ## Work Guidance
 

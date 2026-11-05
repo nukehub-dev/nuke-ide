@@ -55,7 +55,14 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { seriesCandidatePaths } from './tally-series-model';
 import { URI } from '@theia/core/lib/common/uri';
 import { SimpleLoadingSpinner, LoadingAnimations } from 'nuke-essentials/lib/theme/browser/components/loading-spinner';
-import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import {
+    availableNukeActionDescriptors,
+    NukeActionMenu,
+    NukeEmptyState,
+    Tooltip,
+    type NukeActionDescriptor
+} from 'nuke-essentials/lib/theme/browser/components';
+import { NukeContextActionRegistry } from 'nuke-core/lib/common/nuke-context-action-protocol';
 import { DomainStatepointIcon } from '../../../../widgets/domain-icons';
 import { PlotlyComponent } from '../../../../plotly/plotly-component';
 
@@ -94,6 +101,9 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
 
     @inject(CommandRegistry)
     protected readonly commandRegistry!: CommandRegistry;
+
+    @inject(NukeContextActionRegistry)
+    protected readonly contextActions!: NukeContextActionRegistry;
 
     private statepointUri: URI | null = null;
     private statepointInfo: OpenMCStatepointFullInfo | null = null;
@@ -631,6 +641,19 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
         URL.revokeObjectURL(url);
     }
 
+    /** Command-backed actions for the loaded or empty statepoint surface. */
+    private nukeAiActions(): NukeActionDescriptor[] {
+        return availableNukeActionDescriptors(
+            this.contextActions.getActions('visualizer.tally'),
+            (commandId) => this.commandRegistry.getCommand(commandId) !== undefined
+        );
+    }
+
+    /** Run the selected command; its own preflight explains missing state. */
+    private executeNukeAiAction(action: NukeActionDescriptor): void {
+        void this.commandRegistry.executeCommand(action.id);
+    }
+
     protected render(): React.ReactNode {
         if (this.isLoading) {
             return (
@@ -650,10 +673,19 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                         message="Open a statepoint HDF5 file to inspect k-effective, tallies, and run performance."
                         hint="Statepoint files are written by OpenMC during and after a simulation run."
                     >
-                        <button className="theia-button" onClick={() => this.handleBrowse()}>
-                            <i className={codicon('folder-opened')}></i>
-                            Browse Statepoint File
-                        </button>
+                        <div className="statepoint-empty-actions">
+                            <button className="theia-button" onClick={() => this.handleBrowse()}>
+                                <i className={codicon('folder-opened')}></i>
+                                Browse Statepoint File
+                            </button>
+                            <NukeActionMenu
+                                actions={this.nukeAiActions()}
+                                onExecute={(action) => this.executeNukeAiAction(action)}
+                                label="NukeAI actions"
+                                iconClass="codicon-hubot"
+                                showLabel={false}
+                            />
+                        </div>
                     </NukeEmptyState>
                 </div>
             );
@@ -675,6 +707,14 @@ export class OpenMCStatepointViewerWidget extends ReactWidget {
                             </div>
                         </div>
                         <div className="header-actions">
+                            <NukeActionMenu
+                                className="statepoint-nuke-ai-actions"
+                                actions={this.nukeAiActions()}
+                                onExecute={(action) => this.executeNukeAiAction(action)}
+                                label="NukeAI actions"
+                                iconClass="codicon-hubot"
+                                showLabel={false}
+                            />
                             <span className={`run-mode run-mode-${info.runMode}`}>{info.runMode}</span>
                             <Tooltip content="Close" position="top">
                                 <button className="close-btn" onClick={() => this.handleClose()}>

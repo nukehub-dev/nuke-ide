@@ -55,13 +55,39 @@ function expectFailure(result: ComponentTemplateResolveResult): string {
     return result.message;
 }
 
-function pincell(): ComponentTemplate {
-    const template = getComponentTemplate('pincell');
+function templateById(id: string): ComponentTemplate {
+    const template = getComponentTemplate(id);
     if (template === undefined) {
-        throw new Error('pincell template is missing');
+        throw new Error(`${id} template is missing`);
     }
     return template;
 }
+
+function pincell(): ComponentTemplate {
+    return templateById('pincell');
+}
+
+const PRIMITIVE_IDS = ['box', 'cone', 'cylinder', 'plate-with-hole', 'sphere', 'tube'] as const;
+const MECHANICAL_IDS = ['l-bracket', 'flange', 'stepped-shaft', 'pipe-with-bore', 'bolt-circle-plate'] as const;
+const NUCLEAR_IDS = ['hex-cell', 'control-rod-guide-tube', 'assembly-grid-plate', 'pincell'] as const;
+const ALL_TEMPLATE_IDS = [...PRIMITIVE_IDS, ...MECHANICAL_IDS, ...NUCLEAR_IDS];
+const ALL_TEMPLATE_IDS_BY_NAME = [
+    'assembly-grid-plate',
+    'bolt-circle-plate',
+    'box',
+    'cone',
+    'control-rod-guide-tube',
+    'cylinder',
+    'flange',
+    'hex-cell',
+    'l-bracket',
+    'pincell',
+    'pipe-with-bore',
+    'plate-with-hole',
+    'sphere',
+    'stepped-shaft',
+    'tube'
+];
 
 function countTemplate(): ComponentTemplate {
     return {
@@ -77,7 +103,7 @@ function countTemplate(): ComponentTemplate {
 
 describe('component template library', () => {
     it('ships a valid pincell template', () => {
-        expect(COMPONENT_TEMPLATES.map((template) => template.id)).toEqual(['pincell']);
+        expect(COMPONENT_TEMPLATES.map((template) => template.id)).toEqual(ALL_TEMPLATE_IDS);
         const template = pincell();
         expect(template.name).toBe('Pincell');
         expect(template.category).toBe('nuclear');
@@ -86,18 +112,70 @@ describe('component template library', () => {
         expect(validateNukeCadDocument(template.document).valid).toBe(true);
     });
 
+    it('ships the six primitive templates', () => {
+        for (const id of PRIMITIVE_IDS) {
+            const template = templateById(id);
+            expect(template.category, id).toBe('primitives');
+            expect(template.document.units, id).toBe('cm');
+            expect(template.parameters.length, id).toBeLessThanOrEqual(12);
+            expect(validateComponentTemplate(template), id).toEqual([]);
+            expect(validateNukeCadDocument(template.document).valid, id).toBe(true);
+            expect(
+                template.document.features.some((feature) => feature.type === 'import'),
+                id
+            ).toBe(false);
+        }
+    });
+
+    it('leaves every primitive body labelled and untagged', () => {
+        for (const id of PRIMITIVE_IDS) {
+            const template = templateById(id);
+            expect(template.document.bodies.length, id).toBeGreaterThan(0);
+            for (const body of template.document.bodies) {
+                expect(body.label?.trim(), id).toBeTruthy();
+                expect(body.material, id).toBeUndefined();
+            }
+        }
+    });
+
     it('tags every pincell body with a bare material', () => {
         const materials = Object.fromEntries(pincell().document.bodies.map((body) => [body.label, body.material]));
         expect(materials).toEqual({ clad: 'Zircaloy-4', fuel: 'UO2', moderator: 'H2O' });
     });
 
     it('lists and filters templates by category and query', () => {
-        expect(listComponentTemplates()).toHaveLength(1);
-        expect(listComponentTemplates({ category: 'nuclear' }).map((template) => template.id)).toEqual(['pincell']);
-        expect(listComponentTemplates({ category: 'primitives' })).toEqual([]);
-        expect(listComponentTemplates({ query: 'PWR' }).map((template) => template.id)).toEqual(['pincell']);
+        expect(listComponentTemplates()).toHaveLength(ALL_TEMPLATE_IDS.length);
+        expect(listComponentTemplates().map((template) => template.id)).toEqual(ALL_TEMPLATE_IDS_BY_NAME);
+        expect(listComponentTemplates({ category: 'nuclear' }).map((template) => template.id)).toEqual([
+            'assembly-grid-plate',
+            'control-rod-guide-tube',
+            'hex-cell',
+            'pincell'
+        ]);
+        expect(listComponentTemplates({ category: 'primitives' }).map((template) => template.id)).toEqual([...PRIMITIVE_IDS]);
+        expect(listComponentTemplates({ category: 'mechanical' }).map((template) => template.id)).toEqual([
+            'bolt-circle-plate',
+            'flange',
+            'l-bracket',
+            'pipe-with-bore',
+            'stepped-shaft'
+        ]);
+        expect(listComponentTemplates({ query: 'PWR' }).map((template) => template.id)).toEqual([
+            'assembly-grid-plate',
+            'control-rod-guide-tube',
+            'pincell'
+        ]);
         expect(listComponentTemplates({ query: 'pin cell' }).map((template) => template.id)).toEqual(['pincell']);
-        expect(listComponentTemplates({ query: 'three-body' }).map((template) => template.id)).toEqual(['pincell']);
+        expect(listComponentTemplates({ query: 'three-body' }).map((template) => template.id)).toEqual(['hex-cell', 'pincell']);
+        expect(listComponentTemplates({ query: 'box' }).map((template) => template.id)).toEqual(['box']);
+        expect(listComponentTemplates({ query: 'hole' }).map((template) => template.id)).toEqual([
+            'bolt-circle-plate',
+            'l-bracket',
+            'plate-with-hole',
+            'assembly-grid-plate',
+            'flange'
+        ]);
+        expect(listComponentTemplates({ query: 'cylinder' }).map((template) => template.id)).toEqual(['cylinder', 'pipe-with-bore']);
         expect(listComponentTemplates({ query: 'no-such-template' })).toEqual([]);
         expect(getComponentTemplate('missing')).toBeUndefined();
     });
@@ -261,6 +339,135 @@ describe('componentParameterSketchIds', () => {
         };
         expect(componentParameterSketchIds(document, 'pitch')).toEqual(['moderator-sketch', 'curve-1']);
         expect(componentParameterSketchIds(document, 'fuelRadius')).toEqual(['fuel-sketch', 'clad-sketch']);
+    });
+});
+
+describe('primitive component templates', () => {
+    it('resolves every default into the document parameter table', () => {
+        for (const id of [...PRIMITIVE_IDS, 'pincell']) {
+            const template = templateById(id);
+            const result = expectSuccess(resolveComponentTemplateParameters(template, {}));
+            expect(result.values, id).toEqual(template.document.parameters);
+            expect(
+                result.resolved.map((parameter) => parameter.name),
+                id
+            ).toEqual(template.parameters.map((parameter) => parameter.name));
+            for (const parameter of result.resolved) {
+                expect(parameter.derived, `${id}:${parameter.name}`).toBe(true);
+            }
+        }
+    });
+
+    it('resolves representative overrides for every primitive', () => {
+        const cases: ReadonlyArray<{ id: string; overrides: Record<string, number>; expected: Record<string, number> }> = [
+            { id: 'box', overrides: { length: 12, width: 7, height: 5 }, expected: { length: 12, width: 7, height: 5 } },
+            { id: 'cylinder', overrides: { diameter: 6, height: 10 }, expected: { radius: 3, height: 10 } },
+            {
+                id: 'tube',
+                overrides: { outerDiameter: 8, innerDiameter: 5, height: 9 },
+                expected: { outerRadius: 4, innerRadius: 2.5, height: 9 }
+            },
+            { id: 'sphere', overrides: { diameter: 7 }, expected: { radius: 3.5 } },
+            {
+                id: 'cone',
+                overrides: { bottomDiameter: 8, topDiameter: 4, height: 9 },
+                expected: { bottomRadius: 4, topRadius: 2, height: 9 }
+            },
+            {
+                id: 'plate-with-hole',
+                overrides: { length: 14, width: 9, thickness: 0.8, holeDiameter: 3, holeOffsetX: 1.5, holeOffsetY: -1 },
+                expected: { length: 14, width: 9, thickness: 0.8, holeDiameter: 3, holeOffsetX: 1.5, holeOffsetY: -1 }
+            }
+        ];
+        for (const testCase of cases) {
+            const result = expectSuccess(resolveComponentTemplateParameters(templateById(testCase.id), testCase.overrides));
+            for (const [name, value] of Object.entries(testCase.expected)) {
+                expect(result.values[name], `${testCase.id}:${name}`).toBeCloseTo(value);
+            }
+            for (const parameter of result.resolved) {
+                if (!Object.prototype.hasOwnProperty.call(testCase.overrides, parameter.name)) {
+                    continue;
+                }
+                expect(parameter.derived, `${testCase.id}:${parameter.name}`).toBe(false);
+            }
+        }
+    });
+
+    it('converts primitive length inputs from millimetres', () => {
+        const box = expectSuccess(resolveComponentTemplateParameters(templateById('box'), { length: 100, width: 60, height: 40 }, 'mm'));
+        expect(box.values).toEqual({ length: 10, width: 6, height: 4 });
+
+        const cylinder = expectSuccess(resolveComponentTemplateParameters(templateById('cylinder'), { diameter: 50, height: 80 }, 'mm'));
+        expect(cylinder.values.radius).toBeCloseTo(2.5);
+        expect(cylinder.values.height).toBeCloseTo(8);
+
+        const sphere = expectSuccess(resolveComponentTemplateParameters(templateById('sphere'), { diameter: 70 }, 'mm'));
+        expect(sphere.values.radius).toBeCloseTo(3.5);
+    });
+
+    it('keeps radius/diameter aliases consistent and rejects disagreements', () => {
+        const cylinder = templateById('cylinder');
+        const both = expectSuccess(resolveComponentTemplateParameters(cylinder, { radius: 2.5, diameter: 5 }));
+        expect(both.values.radius).toBeCloseTo(2.5);
+        expect(both.resolved.find((parameter) => parameter.name === 'radius')!.derived).toBe(false);
+        expect(both.resolved.find((parameter) => parameter.name === 'diameter')!.derived).toBe(false);
+        expect(expectFailure(resolveComponentTemplateParameters(cylinder, { radius: 2.5, diameter: 6 }))).toContain('disagree');
+
+        const tube = templateById('tube');
+        expect(
+            expectSuccess(resolveComponentTemplateParameters(tube, { outerRadius: 3, outerDiameter: 6 })).values.outerRadius
+        ).toBeCloseTo(3);
+        expect(expectFailure(resolveComponentTemplateParameters(tube, { outerRadius: 3, outerDiameter: 7 }))).toContain('disagree');
+
+        const sphere = templateById('sphere');
+        expect(expectFailure(resolveComponentTemplateParameters(sphere, { radius: 3, diameter: 7 }))).toContain('disagree');
+    });
+
+    it('rejects unknown and out-of-range primitive overrides', () => {
+        const box = templateById('box');
+        expect(expectFailure(resolveComponentTemplateParameters(box, { length: 0 }))).toContain('length');
+        expect(expectFailure(resolveComponentTemplateParameters(box, { length: 300 }))).toContain('length');
+        expect(expectFailure(resolveComponentTemplateParameters(box, { nope: 1 }))).toContain("'nope'");
+
+        const plate = templateById('plate-with-hole');
+        expect(expectFailure(resolveComponentTemplateParameters(plate, { thickness: 0.001 }))).toContain('thickness');
+        expect(expectFailure(resolveComponentTemplateParameters(plate, { holeOffsetX: 500 }))).toContain('holeOffsetX');
+
+        expect(expectFailure(resolveComponentTemplateParameters(templateById('tube'), { outerDiameter: 0.1 }))).toContain('outerDiameter');
+        expect(expectFailure(resolveComponentTemplateParameters(templateById('sphere'), { diameter: 0.05 }))).toContain('diameter');
+        expect(expectFailure(resolveComponentTemplateParameters(templateById('cone'), { topDiameter: 500 }))).toContain('topDiameter');
+    });
+
+    it('references every document parameter from at least one primitive sketch', () => {
+        for (const id of [...PRIMITIVE_IDS, 'pincell']) {
+            const document = templateById(id).document;
+            for (const name of Object.keys(document.parameters)) {
+                expect(componentParameterSketchIds(document, name).length, `${id}:${name}`).toBeGreaterThan(0);
+            }
+        }
+    });
+
+    it('includes the straight sweep path for box and plate extrusion parameters', () => {
+        expect(componentParameterSketchIds(templateById('box').document, 'height')).toEqual(['box-profile', 'box-height-path']);
+        expect(componentParameterSketchIds(templateById('plate-with-hole').document, 'thickness')).toEqual([
+            'plate-profile',
+            'plate-thickness-path'
+        ]);
+        expect(componentParameterSketchIds(templateById('cylinder').document, 'radius')).toEqual(['cylinder-profile']);
+        expect(componentParameterSketchIds(templateById('cylinder').document, 'diameter')).toEqual([]);
+    });
+
+    it('instantiates a primitive without sharing the template body', () => {
+        const template = templateById('box');
+        const clone = instantiateComponentTemplate(template, 'My box');
+        expect(clone.name).toBe('My box');
+        expect(clone).not.toBe(template.document);
+        expect(validateNukeCadDocument(clone).valid).toBe(true);
+
+        clone.parameters.length = 99;
+        clone.bodies[0].label = 'mutated';
+        expect(template.document.parameters.length).toBe(10);
+        expect(template.document.bodies[0].label).toBe('box');
     });
 });
 

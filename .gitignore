@@ -32,6 +32,7 @@ coverage.xml
 *.nuke-cache.zip
 *.step
 *.step.key
+extensions/nuke-cad/tests/e2e/assets/*.regions.json
 
 # nuke-cad example-project JSON is generated from the canonical e2e .nuke-cad
 # fixtures by scripts/copy-cad-samples.js during the build; do not commit copies

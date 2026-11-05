@@ -90,11 +90,19 @@
 }
 
 .nuclear-data-widget .library-path-label {
+    flex: 0 0 auto;
     font-weight: 600;
     color: var(--theia-descriptionForeground);
 }
 
+/* Tooltip wrapper around the path keeps the row's shrinking/ellipsis slot. */
+.nuclear-data-widget .library-path-row > span:nth-child(2) {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .nuclear-data-widget .library-path-value {
+    display: block;
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;

@@ -568,6 +568,8 @@ export class CadViewportWidget extends ReactWidget {
     private sectionActive = false;
     /** Body targeted by the Appearance dialog (display-only color/opacity override). */
     private appearanceTarget?: BodyAppearanceTarget;
+    /** Theme-adaptive body color shown by the Appearance dialog when no color override exists. */
+    private appearanceThemeColor = BODY_APPEARANCE_DEFAULT_COLOR;
     /** Distinct body ids owning the viewport selection when the Appearance dialog opened. */
     private appearanceSelectionBodyIds: readonly string[] = [];
     /** Pending “Import CAD as Body…” dialog; undefined when closed. */
@@ -728,9 +730,17 @@ export class CadViewportWidget extends ReactWidget {
         }
         const label = body.label !== undefined && body.label.length > 0 ? `${body.name} · ${body.label}` : body.name;
         this.appearanceTarget = { bodyId, label };
+        this.appearanceThemeColor = this.resolveAppearanceThemeColor();
         this.appearanceSelectionBodyIds = this.selectedBodyIdsForAppearance();
         this.update();
     };
+
+    /** Read the same theme-adaptive body color the viewport material uses. */
+    protected resolveAppearanceThemeColor(): string {
+        const background = readThemeColor(this.node, '--theia-editor-background', '#1e1e1e');
+        const foreground = readThemeColor(this.node, '--theia-foreground', '#cccccc');
+        return cadViewportColors(background, foreground).body;
+    }
 
     protected readonly handleCloseAppearance = (): void => {
         this.appearanceTarget = undefined;
@@ -4232,7 +4242,6 @@ export class CadViewportWidget extends ReactWidget {
                 tessData={this.tessData}
                 error={this.buildError}
                 warnings={this.buildWarnings}
-                dirty={this.documentStore.dirty}
                 sketchSetupVisible={this.sketchSetupVisible}
                 sketchEditing={this.editingSketchId !== undefined}
                 sketchEntering={this.sketchEntering}
@@ -4373,6 +4382,7 @@ export class CadViewportWidget extends ReactWidget {
                 onClearSelection={this.handleClearSelection}
                 onRevealFeature={this.handleRevealFeature}
                 appearanceTarget={this.appearanceTarget}
+                appearanceThemeColor={this.appearanceThemeColor}
                 appearancePresets={this.appearancePresets()}
                 appearanceSelectionBodyIds={this.appearanceSelectionBodyIds}
                 onOpenAppearance={this.handleOpenAppearance}
@@ -4400,7 +4410,6 @@ interface CadViewportComponentProps {
     readonly tessData?: TessData;
     readonly error?: string;
     readonly warnings: readonly string[];
-    readonly dirty: boolean;
     readonly sketchSetupVisible: boolean;
     readonly sketchEditing: boolean;
     readonly sketchEntering: boolean;
@@ -4579,6 +4588,8 @@ interface CadViewportComponentProps {
     readonly onRevealFeature: (featureId: string) => void;
     /** Per-body Appearance dialog target; undefined when the dialog is closed. */
     readonly appearanceTarget?: BodyAppearanceTarget;
+    /** Theme-adaptive body color shown when a body has no color override. */
+    readonly appearanceThemeColor: string;
     /** Normalized user appearance presets (preference-scoped). */
     readonly appearancePresets: readonly AppearancePreset[];
     /** Distinct body ids owning the viewport selection when the dialog opened. */
@@ -5434,7 +5445,6 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
 
     const documentEmpty = props.tessData === undefined && props.documentStore.hasDocument && !props.loading && !sketchActive;
     const noDocument = props.tessData === undefined && !props.documentStore.hasDocument && !props.loading;
-    const dirtyMarker = props.dirty ? <span className="cad-viewport-dirty-marker" title="Unsaved changes" /> : null;
     // New Sketch can create the document before the viewport controller's lazy
     // chunk has loaded. Show progress instead of a dead-looking empty document;
     // the datum picker mounts as soon as the controller publishes.
@@ -5460,6 +5470,8 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
             ribbonLabels={props.ribbonLabels}
             ribbonPins={props.ribbonPins}
             onToggleRibbonPin={props.onToggleRibbonPin}
+            getNukeAiActions={props.getNukeAiActions}
+            onExecuteContextAction={props.onExecuteContextAction}
             templates={props.templates}
             onEnterSketch={props.onEnterSketch}
             onEnterSketchDraft={props.onEnterSketchDraft}
@@ -5778,7 +5790,6 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         return (
             <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
-                {dirtyMarker}
                 {setupPendingOverlay}
                 {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
                 <LoadingAnimations />
@@ -5811,7 +5822,6 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
         return (
             <div ref={containerRef} tabIndex={-1} className="cad-viewport empty">
                 {banners}
-                {dirtyMarker}
                 {setupPendingOverlay}
                 {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
                 <div className="cad-viewport-empty-wrapper">
@@ -5842,7 +5852,6 @@ function CadViewportComponent(props: CadViewportComponentProps): React.ReactElem
     return (
         <div ref={containerRef} tabIndex={-1} className="cad-viewport">
             {banners}
-            {dirtyMarker}
             {props.loading && <NukeLoadingOverlay message={props.loadingMessage} />}
             {setupPendingOverlay}
             {navCluster}
@@ -5909,6 +5918,7 @@ function BodyAppearanceDialogHost(props: CadViewportComponentProps): React.React
             key={target.bodyId}
             target={target}
             appearance={appearance}
+            defaultColor={props.appearanceThemeColor}
             presets={props.appearancePresets}
             selectionBodyIds={props.appearanceSelectionBodyIds}
             onApply={(next) => props.onApplyAppearance(target.bodyId, next)}

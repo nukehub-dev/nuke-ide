@@ -5,13 +5,27 @@ document samples are the JSON content of a `.nuke-cad` document, imported by
 `src/common/sample-projects.ts`; created documents are deep copies, never the
 shared module object.
 
-| File                         | Size   | Source                                                                                           |
-| ---------------------------- | ------ | ------------------------------------------------------------------------------------------------ |
-| `gui_pincell.json`           | 8.3 KB | Generated from `tests/e2e/assets/gui_pincell.nuke-cad` (in-repo GUI-authored pincell fixture).   |
-| `tokamak_with_divertor.json` | 404 KB | Generated from `tests/e2e/assets/tokamak_with_divertor.nuke-cad` (in-repo GUI-authored fixture). |
-| `w7x/w7x_geometry.json`      | 6.5 KB | Committed W7-X inventory metadata (10 coil shapes, 5 shells, source hash); not generated.        |
-| `w7x/w7x_study.json`         | 2.5 KB | Committed measured 4/5/6-module coil-study reports (same source hash); not generated.            |
-| `w7x/w7x_coils.json`         | 67 KB  | Committed 10 coil centerlines + reference metrics for the native shape study; not generated.     |
+| File                              | Size    | Source                                                                                                      |
+| --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `gui_pincell.json`                | 8.3 KB  | Generated from `tests/e2e/assets/gui_pincell.nuke-cad` (in-repo GUI-authored pincell fixture).              |
+| `gui_box.json`                    | 6.3 KB  | Generated from `tests/e2e/assets/gui_box.nuke-cad` (primitive component-template fixture).                  |
+| `gui_cylinder.json`               | 4.0 KB  | Generated from `tests/e2e/assets/gui_cylinder.nuke-cad` (primitive component-template fixture).             |
+| `gui_tube.json`                   | 7.5 KB  | Generated from `tests/e2e/assets/gui_tube.nuke-cad` (primitive component-template fixture).                 |
+| `gui_sphere.json`                 | 3.4 KB  | Generated from `tests/e2e/assets/gui_sphere.nuke-cad` (primitive component-template fixture).               |
+| `gui_cone.json`                   | 4.5 KB  | Generated from `tests/e2e/assets/gui_cone.nuke-cad` (primitive component-template fixture).                 |
+| `gui_plate_with_hole.json`        | 8.4 KB  | Generated from `tests/e2e/assets/gui_plate_with_hole.nuke-cad` (primitive component-template fixture).      |
+| `gui_l_bracket.json`              | 10.2 KB | Generated from `tests/e2e/assets/gui_l_bracket.nuke-cad` (mechanical component-template fixture).           |
+| `gui_flange.json`                 | 10.4 KB | Generated from `tests/e2e/assets/gui_flange.nuke-cad` (mechanical component-template fixture).              |
+| `gui_stepped_shaft.json`          | 6.3 KB  | Generated from `tests/e2e/assets/gui_stepped_shaft.nuke-cad` (mechanical component-template fixture).       |
+| `gui_pipe_with_bore.json`         | 7.5 KB  | Generated from `tests/e2e/assets/gui_pipe_with_bore.nuke-cad` (mechanical component-template fixture).      |
+| `gui_bolt_circle_plate.json`      | 6.9 KB  | Generated from `tests/e2e/assets/gui_bolt_circle_plate.nuke-cad` (mechanical component-template fixture).   |
+| `gui_hex_cell.json`               | 15.8 KB | Generated from `tests/e2e/assets/gui_hex_cell.nuke-cad` (nuclear component-template fixture).               |
+| `gui_control_rod_guide_tube.json` | 5.7 KB  | Generated from `tests/e2e/assets/gui_control_rod_guide_tube.nuke-cad` (nuclear component-template fixture). |
+| `gui_assembly_grid_plate.json`    | 19.0 KB | Generated from `tests/e2e/assets/gui_assembly_grid_plate.nuke-cad` (nuclear component-template fixture).    |
+| `tokamak_with_divertor.json`      | 404 KB  | Generated from `tests/e2e/assets/tokamak_with_divertor.nuke-cad` (in-repo GUI-authored fixture).            |
+| `w7x/w7x_geometry.json`           | 6.5 KB  | Committed W7-X inventory metadata (10 coil shapes, 5 shells, source hash); not generated.                   |
+| `w7x/w7x_study.json`              | 2.5 KB  | Committed measured 4/5/6-module coil-study reports (same source hash); not generated.                       |
+| `w7x/w7x_coils.json`              | 67 KB   | Committed 10 coil centerlines + reference metrics for the native shape study; not generated.                |
 
 The `.nuke-cad`-derived JSON files are **generated, not committed**:
 `scripts/copy-cad-samples.js` copies the canonical `.nuke-cad` fixtures here
@@ -45,6 +59,19 @@ and 50 assembly instances with no external download or `.parts` folder.
 
 - **Pincell demo** — authored in this repository as a three-body GUI document
   (fuel, clad, moderator) for the nuke-cad e2e suite. No external asset is
+  included.
+- **Primitive component templates** — box, cylinder, tube, sphere, cone, and
+  plate-with-hole are authored in this repository as GUI-path documents
+  (`src/browser/document/gui-build-primitives.test.ts`). They are the
+  geometry-bearing starters in the New Document picker, not example projects;
+  no external asset is included.
+- **Mechanical component templates** — L bracket, flange, stepped shaft, pipe
+  with bore, and bolt-circle plate are authored by
+  `src/browser/document/gui-build-mechanical.test.ts` from the same GUI-path
+  APIs; no external asset is included.
+- **Nuclear component templates** — hex cell, control-rod guide tube, and
+  assembly grid plate are authored by
+  `src/browser/document/gui-build-nuclear.test.ts`; no external asset is
   included.
 - **Tokamak with divertor** — the document is authored in this repository
   (`src/browser/document/gui-build-tokamak.test.ts`) by rebuilding the Paramak

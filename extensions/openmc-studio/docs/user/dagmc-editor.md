@@ -171,6 +171,19 @@ Click **3D View** in the header to open the full model in the 3D viewer:
 
 For large models, use **"View in 3D"** from a volume modal to load only the selected volumes and reduce memory usage.
 
+## NukeAI Actions
+
+The editor header also carries a **NukeAI actions** menu (the bot-icon button):
+
+- **Capture View** — capture the active DAGMC viewport and describe the preview.
+- **Diagnose Statepoint** — appears after a statepoint is loaded in the Visualizer; triages its metadata.
+- **Ask About Context** — open a focused NukeAI chat with the active DAGMC context attached.
+
+The menu is additive: the same actions stay in the NukeAI sidebar and Command
+Palette. Rows stay enabled, and the command's preflight warning explains a
+missing viewer or statepoint without opening a chat. On narrow editor panels the
+trigger collapses to its icon with the same accessible name.
+
 ---
 
 ## Switching Files

@@ -215,6 +215,12 @@
     color: var(--theia-foreground);
 }
 
+.nuke-color-picker-close:focus-visible,
+.nuke-color-swatch:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
 .nuke-color-groups {
     display: flex;
     flex-direction: column;
@@ -295,4 +301,5 @@
 .nuke-color-hex-input input:focus {
     outline: none;
     border-color: var(--theia-focusBorder);
+    box-shadow: var(--nuke-focus-glow);
 }

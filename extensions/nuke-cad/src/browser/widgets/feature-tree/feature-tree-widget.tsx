@@ -61,6 +61,7 @@ import {
 import { type FeatureResult } from '../../../common/nuke-cad-protocol';
 import { type DocumentSelection } from '../../document/cad-document-store';
 import { type TopologyRef } from '../../../common/topology-refs';
+import { NukeEmptyState } from 'nuke-essentials/lib/theme/browser/components';
 import { Tooltip, useTooltip } from 'nuke-essentials/lib/theme/browser/components/tooltip';
 import { CurveDialog } from './curve-dialog';
 import { featureTreeCommand, featureTreeIcon } from './feature-tree-model';
@@ -171,6 +172,8 @@ export class CadFeatureTreeWidget extends ReactWidget {
                 onRepairRef={(path, fingerprint) => this.handleRepairRef(path, fingerprint)}
                 onEditSketch={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_SKETCH.id, id)}
                 onNewSketch={() => this.commandService.executeCommand(NukeCadCommands.NEW_SKETCH.id)}
+                onNewDocument={() => void this.commandService.executeCommand(NukeCadCommands.NEW_DOCUMENT.id)}
+                onOpenViewport={() => void this.commandService.executeCommand(NukeCadCommands.OPEN_CAD_VIEWPORT.id)}
                 onEditFeature={(id) => this.commandService.executeCommand(NukeCadCommands.EDIT_FEATURE.id, id)}
                 onExportPython={() => void this.commandService.executeCommand(NukeCadCommands.EXPORT_PYTHON.id)}
                 fileDialogService={this.fileDialogService}
@@ -352,6 +355,8 @@ interface CadFeatureTreeComponentProps {
     readonly onEditSketch: (id: string) => void;
     readonly onEditFeature: (id: string) => void;
     readonly onNewSketch: () => void;
+    readonly onNewDocument: () => void;
+    readonly onOpenViewport: () => void;
     readonly onExportPython?: () => void;
     readonly fileDialogService: FileDialogService;
     readonly fileService: FileService;
@@ -432,39 +437,52 @@ function CadFeatureTreeComponent(props: CadFeatureTreeComponentProps): React.Rea
 
     return (
         <div className="cad-feature-tree-panel">
-            <div className="cad-feature-tree-header">
-                <div className="header-info">
-                    <h2>
-                        <i className="codicon codicon-nuke-cad-feature-tree" />
-                        Feature Tree
-                    </h2>
-                    <p className="header-description">{doc?.name ?? 'No CAD document open'}</p>
-                </div>
-                {doc !== undefined && props.onExportPython !== undefined && (
-                    <Tooltip content="Export as Python" position="left">
-                        <button className="theia-button secondary" onClick={props.onExportPython}>
-                            <span className="codicon codicon-code" />
-                        </button>
-                    </Tooltip>
-                )}
-            </div>
-
-            {!doc && (
-                <div className="cad-feature-tree-empty">
-                    <i className="codicon codicon-nuke-cad-feature-tree" />
-                    <p>No CAD document is open.</p>
-                    <span className="empty-hint">Create or open a .nuke-cad document to edit its feature tree.</span>
+            {doc && (
+                <div className="cad-feature-tree-header">
+                    <div className="header-info">
+                        <h2>
+                            <i className="codicon codicon-nuke-cad-feature-tree" />
+                            Feature Tree
+                        </h2>
+                        <p className="header-description">{doc?.name ?? 'No CAD document open'}</p>
+                    </div>
+                    {doc !== undefined && props.onExportPython !== undefined && (
+                        <Tooltip content="Export as Python" position="left">
+                            <button className="theia-button secondary" onClick={props.onExportPython}>
+                                <span className="codicon codicon-code" />
+                            </button>
+                        </Tooltip>
+                    )}
                 </div>
             )}
 
+            {!doc && (
+                <NukeEmptyState
+                    variant="illustration"
+                    icon="nuke-cad-feature-tree"
+                    title="No CAD document is open."
+                    message="Create or open a .nuke-cad document to edit its feature tree."
+                >
+                    <button className="theia-button" onClick={props.onNewDocument}>
+                        <span className="codicon codicon-add" /> New CAD Document
+                    </button>
+                    <button className="theia-button secondary" onClick={props.onOpenViewport}>
+                        <span className="codicon codicon-window" /> Open CAD Viewport
+                    </button>
+                </NukeEmptyState>
+            )}
+
             {doc && !hasContent && (
-                <div className="cad-feature-tree-empty">
-                    <i className="codicon codicon-nuke-cad-sketch" />
-                    <p>This document is empty.</p>
+                <NukeEmptyState
+                    variant="illustration"
+                    icon="nuke-cad-sketch"
+                    title="This document is empty."
+                    message="Create the first sketch to start the feature tree."
+                >
                     <button className="theia-button" onClick={props.onNewSketch}>
                         <span className="codicon codicon-add" /> New Sketch
                     </button>
-                </div>
+                </NukeEmptyState>
             )}
 
             {doc && hasContent && (

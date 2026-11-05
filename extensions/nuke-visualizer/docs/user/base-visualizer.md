@@ -219,13 +219,16 @@ closed grammar:
 **Select** highlights the matching tuples in orange on the canvas; **Clear**
 drops the highlight; **Extract CSV** downloads index/value rows for the
 selection. Non-finite values never match. The highlight is view-only and is
-cleared when the dataset reloads.
+cleared when the dataset reloads. Find Data shares the upper-right overlay
+slot with Probe, so opening one closes the other; opening the bottom-bar Clip
+or Shading card closes both as well.
 
 ### Probe
 
 The pulse button on the native viewer bottom bar opens **Probe** as a floating card in the canvas's
 upper-right. The card scrolls internally and keeps its point history and line chart clear of the
-bottom navigation bar:
+bottom navigation bar. It shares that overlay slot with Find Data, so opening Probe closes an open
+Find Data card:
 
 - **Point** tab: click **Pick points**, then click the canvas. Each sample
   records X/Y/Z, the active array, and its value; **Clear** resets the list and
@@ -271,7 +274,8 @@ preference, keyed by the viewer tab.
 
 Drag to orbit, use the wheel to zoom, and right-drag to pan. The labeled **ViewCube** snaps to a standard
 orientation when you click a face or knob, and the bottom bar offers **ISO**, **T**, **F**, **R**, **Fit view**, and
-zoom. Viewer Settings → **View** adds explicit X/Y/Z axis snaps.
+zoom. Viewer Settings → **View** adds explicit X/Y/Z axis snaps. On narrow editor panels the bottom-bar
+buttons wrap into a second row instead of running off the left edge.
 
 ### Background
 
@@ -394,6 +398,16 @@ This path needs **pydagmc** and the **moab** package (which provides `pymoab`), 
 
 Select a volume in the canvas or the DAGMC Outline, then hide, isolate, or frame it. The viewer still loads the full
 multiblock model; visibility changes never re-run the conversion. See **DAGMC Outline Sidebar** below.
+
+### NukeAI Actions
+
+DAGMC viewers keep **Capture View**, **Diagnose Statepoint**, and **Ask About
+Context** in the right-click canvas menu. The DAGMC Editor header also exposes
+the same rows in a compact **NukeAI actions** menu; **Diagnose Statepoint**
+appears after a statepoint is loaded. The same rows remain in the NukeAI
+sidebar. Rows stay enabled: if no DAGMC viewer or statepoint is available, the
+command's existing preflight warning explains what to open first and no chat
+starts.
 
 ### Color by Material, Volume, and Group
 

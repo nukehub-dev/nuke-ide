@@ -100,10 +100,10 @@
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M8 1.5 14 4.5 8 7.5 2 4.5Z'/%3E%3Cpath d='M2 8l6 3 6-3M2 11.5l6 3 6-3'/%3E%3C/svg%3E");
 }
 
-/* Node hierarchy — Feature Tree. */
+/* Indented tree list — Feature Tree (distinct from OpenMC's cell hierarchy). */
 .codicon-nuke-cad-feature-tree {
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='5.5' y='1.5' width='5' height='3.4' rx='.5'/%3E%3Crect x='1.5' y='11' width='5' height='3.4' rx='.5'/%3E%3Crect x='9.5' y='11' width='5' height='3.4' rx='.5'/%3E%3Cpath d='M8 4.9v3.1M4 11V8h8v3'/%3E%3C/svg%3E");
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='5.5' y='1.5' width='5' height='3.4' rx='.5'/%3E%3Crect x='1.5' y='11' width='5' height='3.4' rx='.5'/%3E%3Crect x='9.5' y='11' width='5' height='3.4' rx='.5'/%3E%3Cpath d='M8 4.9v3.1M4 11V8h8v3'/%3E%3C/svg%3E");
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.5' y='1.8' width='13' height='3.2' rx='.6'/%3E%3Crect x='6.5' y='6.6' width='8' height='3.2' rx='.6'/%3E%3Crect x='6.5' y='11.4' width='8' height='3.2' rx='.6'/%3E%3Cpath d='M3.5 5v9.6M3.5 8.2h3M3.5 13h3'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='1.5' y='1.8' width='13' height='3.2' rx='.6'/%3E%3Crect x='6.5' y='6.6' width='8' height='3.2' rx='.6'/%3E%3Crect x='6.5' y='11.4' width='8' height='3.2' rx='.6'/%3E%3Cpath d='M3.5 5v9.6M3.5 8.2h3M3.5 13h3'/%3E%3C/svg%3E");
 }
 
 /* Pencil — sketches. */

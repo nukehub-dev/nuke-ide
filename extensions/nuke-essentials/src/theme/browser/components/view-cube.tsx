@@ -170,6 +170,7 @@ export const ViewCube = React.forwardRef<ViewCubeHandle, ViewCubeProps>(({ onSna
                         <Tooltip content={viewCubeSnapLabel(axis.id)} position="left">
                             <button
                                 className={`nuke-view-cube-knob nuke-view-cube-axis-${viewCubeAxisFamily(axis.id)}${axis.id.startsWith('-') ? ' nuke-view-cube-knob-negative' : ''}`}
+                                aria-label={viewCubeSnapLabel(axis.id)}
                                 onClick={() => onSnapRef.current(axis.direction)}
                             >
                                 {viewCubeKnobLabel(axis.id)}

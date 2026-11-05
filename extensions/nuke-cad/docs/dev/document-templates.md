@@ -4,10 +4,10 @@ Nuke CAD ships two separate starting-point registries for new documents. They
 share the New Document picker but have different contracts and different
 creation flows.
 
-| Registry            | Module                              | Shipped entries    | What it supplies                                                          |
-| ------------------- | ----------------------------------- | ------------------ | ------------------------------------------------------------------------- |
-| Parameter presets   | `src/common/document-templates.ts`  | `empty`, `tokamak` | A shallow `parameters` map merged over an empty schema-v3 document.       |
-| Component templates | `src/common/component-templates.ts` | `pincell`          | A complete validated document plus typed, bounded, unit-aware parameters. |
+| Registry            | Module                             | Shipped entries                                         | What it supplies                                                          |
+| ------------------- | ---------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Parameter presets   | `src/common/document-templates.ts` | `empty`, `tokamak`                                      | A shallow `parameters` map merged over an empty schema-v3 document.       |
+| Component templates | `src/common/component-templates/`  | 15 templates across primitives, mechanical, and nuclear | A complete validated document plus typed, bounded, unit-aware parameters. |
 
 Parameter presets carry no geometry and store no template metadata in the
 document. `applyDocumentTemplate` only merges the preset values into the empty
@@ -27,8 +27,17 @@ interface ComponentTemplate {
   keywords: readonly string[];
   parameters: readonly ComponentTemplateParameter[];
   document: NukeCadDocument; // validated v3 body, declared units, no import features
+  validate?(values: Readonly<Record<string, number>>): string | undefined; // cross-parameter check
+  configure?(document: NukeCadDocument, values: Readonly<Record<string, number>>): NukeCadDocument; // creation-time topology
 }
 ```
+
+`validate` runs after defaults, pairs, and unit conversions resolve. It returns
+an error message to reject the request; creation and AI previews call the same
+resolver, so the check applies everywhere. `configure` receives a detached
+template body plus every resolved value and returns the document to build. Use
+it when the generic sketch-parameter cascade cannot express the topology, such
+as a pattern count or a regenerated hole array.
 
 | Parameter field | Contract                                                                                                            |
 | --------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -42,6 +51,7 @@ interface ComponentTemplate {
 | `description`   | Optional one-line help.                                                                                             |
 | `pair`          | Optional mutual counterpart, used for radius/diameter aliases. The declaration must name another parameter.         |
 | `derived`       | Optional `{ parameter, factor }` alias: the input is stored in the named document parameter after `input × factor`. |
+| `binding`       | Optional `'template'`: a creation-time parameter applied by `configure`, never stored as a document parameter.      |
 
 Resolution rules in `resolveComponentTemplateParameters`:
 
@@ -50,6 +60,9 @@ Resolution rules in `resolveComponentTemplateParameters`:
   ignore the caller unit.
 - `count` overrides must be positive integers; every numeric override must be
   finite. Unknown parameter names reject the whole request.
+- A `binding: 'template'` parameter must not be a document parameter or a
+  derived alias. Its resolved value is returned in `templateValues` and passed
+  to `validate`/`configure`, not written to `document.parameters`.
 - `min`/`max` are validated in the declared unit. A derived alias is also
   checked against its target parameter's range after the factor conversion.
 - A `pair` must be mutual. Supplying both sides at once is accepted only when
@@ -83,7 +96,11 @@ Add a component template only when all of these hold:
 1. **Canonical fixture.** The document body comes from a validated `.nuke-cad`
    fixture (or generated sample JSON derived from one), never a hand-edited
    copy. The pincell body is generated from
-   `tests/e2e/assets/gui_pincell.nuke-cad`.
+   `tests/e2e/assets/gui_pincell.nuke-cad`; the primitive family is generated
+   by `src/browser/document/gui-build-primitives.test.ts` into
+   `tests/e2e/assets/gui_<id>.nuke-cad` under `NUKE_CAD_WRITE_FIXTURE=1` and
+   compared byte-for-byte afterwards. `scripts/copy-cad-samples.js` copies each
+   fixture to `src/common/samples/gui_<id>.json` during the build.
 2. **Declared ↔ referenced parameters.** `validateComponentTemplateLibrary()`
    returns no errors: every document parameter is declared, every declared
    canonical parameter is a document parameter, and every derived alias points
@@ -123,6 +140,82 @@ Add a component template only when all of these hold:
 - Registry order does not control the picker; `listComponentTemplates` ranks
   exact id, keyword/id substring, name, then description matches and caps the
   result at 50.
+
+## Shipped entries: primitives
+
+All six primitives are category `primitives`, document units `cm`, and carry
+one labelled, untagged body. Their sketches are solved at generation time and
+their canonical fixtures live under `tests/e2e/assets/`.
+
+| Id                | Body       | Parameters (default; bounds in cm)                                                                                                                     | Shape features                 |
+| ----------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
+| `box`             | `box`      | `length` 10 (1–200), `width` 6 (1–200), `height` 4 (1–200)                                                                                             | Straight sweep                 |
+| `cylinder`        | `cylinder` | `radius` 2.5 (0.05–100), `height` 8 (0.1–200), `diameter` 5 alias                                                                                      | Revolve rectangle about Z      |
+| `tube`            | `tube`     | `outerRadius` 3 (0.1–100), `innerRadius` 2 (0.05–99.9), `height` 6 (0.1–200), `outerDiameter` 6 and `innerDiameter` 4 aliases                          | Revolve outer profile + groove |
+| `sphere`          | `sphere`   | `radius` 3 (0.05–100), `diameter` 6 alias                                                                                                              | Revolve semicircle about Z     |
+| `cone`            | `cone`     | `bottomRadius` 3 (0.05–100), `topRadius` 1.5 (0.01–99.9), `height` 6 (0.1–200), `bottomDiameter` 6 and `topDiameter` 3 aliases                         | Revolve trapezoid about Z      |
+| `plate-with-hole` | `plate`    | `length` 12 (1–200), `width` 8 (1–200), `thickness` 0.6 (0.01–50), `holeDiameter` 2 (0.01–100), `holeOffsetX` 0 (−100–100), `holeOffsetY` 0 (−100–100) | Straight sweep with inner wire |
+
+Radius/diameter pairs follow the pincell convention: the radius is the canonical
+document parameter and the diameter is a `derived` alias with factor `0.5`. The
+alias carries no separate bounds; its target's range is enforced after
+conversion. The plate hole uses `holeDiameter` directly because a circle profile
+carries a diameter dimension.
+
+`box` and `plate-with-hole` use a straight sweep instead of a pad because a pad's
+`length` is numeric-only in the document schema and cannot be bound to a sketch
+parameter. The profile sketch carries a construction dimension for `height` /
+`thickness`, and the straight path curve uses the same parameter. Changing the
+value re-solves the sketch and resamples the path, so the extrusion height is
+fully parameter-driven. The e2e suite builds every default fixture and asserts
+one solid at the shipped size:
+
+```bash
+NUKE_TEST_PYTHON=$HOME/.conda/envs/nuke/bin/python \
+  yarn test:python:full extensions/nuke-cad/tests/e2e/test_component_templates.py
+```
+
+## Shipped entries: mechanical
+
+All five are category `mechanical`, document units `cm`, and carry one labelled,
+untagged body. Their canonical fixtures live under `tests/e2e/assets/` and are
+authored by `src/browser/document/gui-build-mechanical.test.ts`.
+
+| Id                  | Body                | Parameters (default; bounds in cm)                                                                                                                                                              | Shape features                       |
+| ------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `l-bracket`         | `l-bracket`         | `legLength` 8 (2–100), `legWidth` 2.5 (0.5–50), `thickness` 0.6 (0.1–20), `holeDiameter` 0.8 (0.2–20), `holeCount` 2 (1–12)                                                                     | L-profile sweep with two holes       |
+| `flange`            | `flange`            | `outerRadius` 6 (0.5–50), `innerRadius` 3.5 (0.25–49.5), `thickness` 1 (0.2–20), `boltCircleRadius` 4.8 (0.5–49.5), `boltHoleDiameter` 1 (0.2–10), `boltCount` 6 (1–24), three diameter aliases | Revolve, bore groove, 6-hole pattern |
+| `stepped-shaft`     | `stepped-shaft`     | `stepRadius` 1.2 (0.1–49.9), `shaftRadius` 2 (0.25–50), `stepLength` 3 (0.2–199), `totalLength` 12 (1–200), two diameter aliases                                                                | Two-diameter stepped revolve         |
+| `pipe-with-bore`    | `pipe-with-bore`    | `outerRadius` 3 (0.25–50), `boreRadius` 2.4 (0.1–49.9), `length` 10 (1–200), two diameter aliases                                                                                               | Revolve with bore groove             |
+| `bolt-circle-plate` | `bolt-circle-plate` | `radius` 5 (0.5–100), `thickness` 0.8 (0.05–50), `holeDiameter` 0.9 (0.1–20), `holeCount` 4 (1–24), `holeCircleRadius` 3.5 (0.2–99.9), two diameter aliases                                     | Revolve, bolt-hole pattern           |
+
+## Shipped entries: nuclear
+
+`hex-cell`, `control-rod-guide-tube`, and `assembly-grid-plate` are category
+`nuclear`, document units `cm`, and authored by
+`src/browser/document/gui-build-nuclear.test.ts`. The pincell is the fourth
+nuclear entry.
+
+| Id                       | Body                     | Parameters (default; bounds in cm)                                                                                                                             | Bodies / materials                             |
+| ------------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `hex-cell`               | `hex-cell`               | `pitch` 1.26 (0.02–20), `fuelRadius` 0.4 (0.01–10), `cladRadius` 0.47 (0.02–12), `height` 1 (0.1–200), two diameter aliases                                    | `fuel` UO2, `clad` Zircaloy-4, `moderator` H2O |
+| `control-rod-guide-tube` | `control-rod-guide-tube` | `outerRadius` 0.6 (0.05–100), `innerRadius` 0.54 (0.025–99.9), `length` 30 (0.5–200), `wallThickness` 0.06 (0.001–50), two diameter aliases                    | `guide-tube` Zircaloy-4                        |
+| `assembly-grid-plate`    | `assembly-grid-plate`    | `width` 4.2 (0.5–200), `height` 4.2 (0.5–200), `plateThickness` 0.3 (0.05–50), `cellPitch` 1.26 (0.05–20), `cellCount` 3 (1–17), `cellDiameter` 0.95 (0.05–10) | `grid-plate` Zircaloy-4                        |
+
+Pattern counts (`holeCount`, `boltCount`, `cellCount`) are creation-time
+template parameters with `binding: 'template'`. They validate and resolve like
+every other input but are not stored in the created document's editable
+parameter table, because the document schema stores a pattern count as a plain
+number. The template's optional `configure` hook applies them to a detached
+document before the candidate build: the flange and bolt-circle plate set the
+`circularPattern` count, while the L bracket and assembly grid plate rebuild
+their hole sketch for the requested count. The canonical fixtures keep the
+shipped default counts; the e2e suite also builds override fixtures and asserts
+the changed face counts. The `control-rod-guide-tube` wall thickness must equal
+half the difference between its outer and inner diameters. The template
+declares an optional `validate` hook that runs `validateGuideTubeWall` after
+defaults, pairs, and unit conversions resolve, so an inconsistent triple is
+rejected before any build.
 
 ## Shipped entry: `pincell`
 

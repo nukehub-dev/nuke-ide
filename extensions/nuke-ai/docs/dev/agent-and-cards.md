@@ -9,10 +9,15 @@ for finished Nuke capability calls.
 
 - extends `AbstractStreamParsingChatAgent` and is bound as both `Agent` and `ChatAgent`;
 - uses the `chat` language-model purpose and the `nuke-system` prompt;
-- declares `nuke.context` and the capability tool names in its `functions` list;
-- references every capability tool through `~{toolName}` in the prompt, where `toolName` is the sanitized name
-  registered by the bridge (for example `nuke_cad_summarizeDocument`), not the capability id, so the model receives
+- declares `nuke.context` and the chat capability tool names in its `functions` list, both derived from
+  `src/common/nuke-capability-catalog.ts`;
+- references every capability tool through `~{toolName}` in a generated one-line entry, where `toolName` is the sanitized
+  name registered by the bridge (for example `nuke_cad_summarizeDocument`), not the capability id, so the model receives
   the typed tools without a separate registration step.
+
+The catalog is the single source of truth for the chat prompt and tool list, the Diagnostics tool list, and the MCP
+allowlist. A `chat: true` entry produces one prompt line and one `functions` entry; a diagnostics-only entry uses
+`chat: false`. The catalog test checks names, `~{toolName}` references, dotted ids, consumer lists, and the prompt budget.
 
 The system prompt introduces the CAD → DAGMC → OpenMC → statepoint workflow, lists read-only tools first, and tells
 the model to ask before a write, execute, or destructive tool. Export, import, run, and viewer-open tools keep their
@@ -75,12 +80,17 @@ it. Result cards render tool output, so their text is covered by the same rule.
 `src/browser/agent/nuke-diagnostics-agent.ts` registers the read-only `Nuke Diagnostics` agent
 (`NUKE_DIAGNOSTICS_AGENT_ID`). It is bound as both `Agent` and `ChatAgent`, uses the `chat` language-model purpose,
 the `nuke-diagnostics-system` prompt set, `#nukeContext`, and a `functions` list of the six diagnostics tools plus
-the read-only support tools:
+the read-only support tools, all derived from catalog entries with `diagnostics: true`:
 
 - diagnostics: `nuke_cad_diagnoseModel`, `nuke_openmc_diagnoseProject`, `nuke_openmc_diagnoseRun`,
   `nuke_viz_diagnoseStatepoint`, `nuke_viz_compareStatepoints`, `nuke_viz_analyzeTallySeries`;
 - support: `nuke_cad_summarizeDocument`, `nuke_cad_inspectSelection`, `nuke_openmc_summarizeProject`,
-  `nuke_openmc_validateProject`, `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`.
+  `nuke_openmc_summarizeSettings`, `nuke_openmc_summarizeSources`, `nuke_openmc_validateProject`,
+  `nuke_openmc_getRunStatus`, `nuke_viz_summarizeStatepoint`.
+
+`nuke_viz_compareStatepoints` and `nuke_viz_analyzeTallySeries` are diagnostics-only catalog entries with `chat: false`;
+they never enter the NukeAI tool list or prompt. The diagnostics prompt is curated rather than generated, so the catalog
+test checks that every `diagnostics: true` entry appears there by name, `~{toolName}`, and dotted id.
 
 The prompt forbids every write, execute, and destructive tool. It requires severity-ordered findings (`error`, then
 `warning`, then `info`), tool-backed evidence for each finding, a separation between observation and hypothesis, and

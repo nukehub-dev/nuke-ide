@@ -50,7 +50,9 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - `nuke.viz.diagnoseStatepoint` triages loaded statepoint metadata only (k-effective uncertainty, batch counts, tally
   coverage); it never reads raw tally values or replaces the loaded file. See `docs/dev/ai-capabilities.md`.
 - DAGMC and tally context menus append `visualizer.dagmc` / `visualizer.tally` actions from nuke-core's neutral registry;
-  missing commands are omitted and the tally group needs a loaded dataset. See `nuke-core/docs/dev/context-actions.md`.
+  missing commands are omitted and the tally group needs a loaded dataset. The statepoint viewer header and empty loader
+  also render `visualizer.tally` through the shared `NukeActionMenu`; rows stay enabled and the command preflight warns
+  for a missing statepoint. See `nuke-core/docs/dev/context-actions.md`.
 - `nuke.viz.compareStatepoints` / `nuke.viz.analyzeTallySeries` live in `visualizer-diagnostics-capabilities.ts` with
   pure thresholds in `visualizer-diagnostics.ts`; both use `OpenMCBackendService` only, never `OpenMCService.loadStatepoint`.
 - Diagnostic paths stay absolute and inside a workspace root; series reads cap at 50 files and report aggregate steps
@@ -132,10 +134,11 @@ All files under `extensions/nuke-visualizer/` except generated artifacts (`lib/`
 - `contributions/visualizer-tools-contribution.ts` exposes commands in the Nuke Tools sidebar under `Visualizer` and
   `Visualizer > OpenMC`; 3D chrome comes from `nuke-essentials` (`ViewCube`/`ViewerNavBar`/`ViewBadge`,
   `.nuke-viewer-status-line`) — never local gizmo/nav widgets.
-- File-specific empty states use `NukeEmptyState` with `iconNode`; reusable domain illustrations live in
-  `src/browser/widgets/domain-icons.tsx` instead of generic repo/database codicons. Widget/command `iconClass`
-  hooks and Nuke Tools `iconClass` rows use the matching `nuke-visualizer-icon-<domain>` CSS mask classes, not
-  generic `fa`/`codicon` glyphs.
+- Panel empty states use `NukeEmptyState`, with `variant="illustration"` plus `icon` or an `iconNode` domain SVG,
+  and stay top-aligned in tall sidebars. Reusable domain illustrations live in `src/browser/widgets/domain-icons.tsx`
+  instead of generic repo/database codicons. Widget/command `iconClass` hooks and Nuke Tools rows use the matching
+  `nuke-visualizer-icon-<domain>` CSS mask classes; the shared CSG glyph is `nuke-domain-icon-csg` from
+  `nuke-essentials`, not a generic `fa`/`codicon` glyph.
 
 ## Work Guidance
 

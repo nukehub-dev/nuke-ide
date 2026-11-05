@@ -219,7 +219,7 @@ export class OpenMCRandomRayResultsWidget extends NativeVtkViewerWidget {
         }
         const { fluxGroups, sources, ids } = this.quickSelect;
         return (
-            <div className="openmc-output-viewer-header" title="Quick-select colors the grid instantly">
+            <div className="openmc-output-viewer-header">
                 {fluxGroups.length > 0 && (
                     <div className="openmc-output-viewer-control">
                         Flux group

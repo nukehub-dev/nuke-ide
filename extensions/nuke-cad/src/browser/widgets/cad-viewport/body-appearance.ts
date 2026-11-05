@@ -41,7 +41,7 @@
 import { materialColor } from 'nuke-essentials/lib/theme/browser/material-colors';
 import type { BodyAppearance, NukeCadDocument } from '../../../common/cad-document';
 
-/** Dialog/default color when a body has no color override. */
+/** Fallback color when the theme-adaptive body color cannot be read; presets still store a concrete color. */
 export const BODY_APPEARANCE_DEFAULT_COLOR = '#c4c7cc';
 
 /** Dialog/default opacity when a body has no opacity override. */

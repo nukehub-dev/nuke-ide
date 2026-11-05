@@ -48,6 +48,10 @@ export { NukeDialog } from './nuke-dialog';
 export type { NukeDialogProps } from './nuke-dialog';
 export { NukeToolbar, NukeToolbarGroup } from './nuke-toolbar';
 export type { NukeToolbarProps, NukeToolbarGroupProps } from './nuke-toolbar';
+export { NukeActionMenu } from './nuke-action-menu';
+export type { NukeActionDescriptor, NukeActionMenuProps } from './nuke-action-menu';
+export { availableNukeActionDescriptors, toNukeActionDescriptors } from './nuke-action-menu-model';
+export type { NukeCommandActionLike } from './nuke-action-menu-model';
 export { NukeRibbon, NukeRibbonSection } from './nuke-ribbon';
 export type { NukeRibbonDensity, NukeRibbonItem, NukeRibbonProps, NukeRibbonSectionProps } from './nuke-ribbon';
 export {

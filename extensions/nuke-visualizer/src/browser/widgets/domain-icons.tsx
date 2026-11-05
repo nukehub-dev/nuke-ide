@@ -97,6 +97,17 @@ export const DomainStatepointIcon: React.FC<DomainIconProps> = (props) => (
 );
 
 /**
+ * CSG: overlapping circle and rounded rectangle, the classic constructive
+ * solid geometry primitive-union motif. Distinct from the hierarchy icon.
+ */
+export const DomainCsgIcon: React.FC<DomainIconProps> = (props) => (
+    <DomainIconSvg {...props}>
+        <circle cx="25" cy="25" r="17" />
+        <rect x="23" y="23" width="33" height="33" rx="4" />
+    </DomainIconSvg>
+);
+
+/**
  * Tally: one clean histogram, not a grid plus a detached bar chart.
  */
 export const DomainTallyIcon: React.FC<DomainIconProps> = (props) => (

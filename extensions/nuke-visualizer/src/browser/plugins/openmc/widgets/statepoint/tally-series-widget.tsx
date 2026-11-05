@@ -399,7 +399,7 @@ export class OpenMCTallySeriesWidget extends ReactWidget {
                     <span className="tally-series-step-label">
                         Step {this.stepIndex + 1} of {series.steps.length} · {step.fileName}
                     </span>
-                    <span className="tally-series-value" title="Value ± standard deviation">
+                    <span className="tally-series-value">
                         {formatSeriesNumber(step.value)} ± {formatSeriesNumber(step.std)}
                     </span>
                 </div>

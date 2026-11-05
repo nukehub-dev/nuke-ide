@@ -7,8 +7,11 @@
     right: 8px;
     z-index: 15;
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
     gap: 2px;
+    max-width: calc(100% - 16px);
     padding: 3px;
     border: 1px solid var(--theia-panel-border);
     border-radius: 6px;

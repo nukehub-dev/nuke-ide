@@ -62,6 +62,11 @@
     background: var(--theia-editorWidget-background);
 }
 
+.nuke-searchable-multi-select-input:focus-within {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
 .nuke-searchable-multi-select-input .codicon-search {
     color: var(--theia-descriptionForeground);
     font-size: 14px;

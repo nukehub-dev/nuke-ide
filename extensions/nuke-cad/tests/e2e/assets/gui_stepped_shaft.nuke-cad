@@ -1,0 +1,289 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "stepped-shaft",
+      "name": "stepped-shaft"
+    }
+  ],
+  "curves": [],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "stepped-shaft-revolve",
+      "name": "Stepped shaft",
+      "params": {
+        "angle": 360,
+        "axis": "z"
+      },
+      "sketchId": "stepped-shaft-profile",
+      "suppressed": false,
+      "type": "revolve"
+    }
+  ],
+  "name": "stepped-shaft",
+  "parameters": {
+    "shaftRadius": 2,
+    "stepLength": 3,
+    "stepRadius": 1.2,
+    "totalLength": 12
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-13",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-14",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-15",
+          "l_id": "line-9",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-16",
+          "l_id": "line-10",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-17",
+          "l_id": "line-11",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-18",
+          "l_id": "line-12",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "stepRadius",
+          "driving": true,
+          "id": "distance-step-radius",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "stepLength",
+          "driving": true,
+          "id": "distance-step-length",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-3",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "shaftRadius",
+          "driving": true,
+          "id": "distance-shaft-radius",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "totalLength",
+          "driving": true,
+          "id": "distance-total-length",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-5",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xz",
+      "dimensions": [
+        {
+          "constraintId": "distance-step-radius",
+          "driving": true,
+          "id": "dimension-step-radius",
+          "kind": "distanceH",
+          "parameter": "stepRadius",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 1.2
+        },
+        {
+          "constraintId": "distance-step-length",
+          "driving": true,
+          "id": "dimension-step-length",
+          "kind": "distanceV",
+          "parameter": "stepLength",
+          "targetIds": [
+            "point-3",
+            "point-1"
+          ],
+          "value": 3
+        },
+        {
+          "constraintId": "distance-shaft-radius",
+          "driving": true,
+          "id": "dimension-shaft-radius",
+          "kind": "distanceH",
+          "parameter": "shaftRadius",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 2
+        },
+        {
+          "constraintId": "distance-total-length",
+          "driving": true,
+          "id": "dimension-total-length",
+          "kind": "distanceV",
+          "parameter": "totalLength",
+          "targetIds": [
+            "point-5",
+            "point-1"
+          ],
+          "value": 12
+        }
+      ],
+      "id": "stepped-shaft-profile",
+      "name": "stepped-shaft-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-1",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 1.2,
+          "y": 0
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 1.2,
+          "y": 3
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": 2,
+          "y": 3
+        },
+        {
+          "construction": false,
+          "id": "point-5",
+          "type": "point",
+          "x": 2,
+          "y": 12
+        },
+        {
+          "construction": false,
+          "id": "point-6",
+          "type": "point",
+          "x": 0,
+          "y": 12
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-9",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-10",
+          "p1_id": "point-4",
+          "p2_id": "point-5",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-11",
+          "p1_id": "point-5",
+          "p2_id": "point-6",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-12",
+          "p1_id": "point-6",
+          "p2_id": "point-1",
+          "type": "line"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

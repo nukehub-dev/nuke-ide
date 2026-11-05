@@ -46,6 +46,7 @@ import {
 } from '../commands/visualizer-commands';
 import { OpenMCCommands } from '../plugins/openmc/commands';
 import { OpenViewerSettingsCommand } from '../viewer-settings/viewer-settings-contribution';
+import { OpenCsgOutlineCommand } from '../csg-outline/csg-outline-contribution';
 import { OpenDagmcOutlineCommand } from '../dagmc-outline/dagmc-outline-contribution';
 import { OpenDatasetInspectorCommand } from '../dataset-inspector/dataset-inspector-contribution';
 
@@ -86,12 +87,23 @@ export class VisualizerToolsContribution implements NukeToolsContribution {
         });
 
         registry.registerItem({
+            id: 'nuke-visualizer.csg-outline',
+            label: 'CSG Outline',
+            commandId: OpenCsgOutlineCommand.id,
+            category: ['Visualizer'],
+            sectionOrder: 'c',
+            order: 'd',
+            iconClass: 'nuke-domain-icon nuke-domain-icon-csg',
+            description: 'Open the CSG Outline sidebar for the active geometry viewer.'
+        });
+
+        registry.registerItem({
             id: 'nuke-visualizer.dataset-inspector',
             label: 'Dataset Inspector',
             commandId: OpenDatasetInspectorCommand.id,
             category: ['Visualizer'],
             sectionOrder: 'c',
-            order: 'd',
+            order: 'e',
             icon: 'table',
             description: 'Inspect dataset summary, arrays, and a table preview for the active viewer.'
         });

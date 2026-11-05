@@ -55,6 +55,8 @@ export interface CadCommandSearchLauncherProps {
     readonly actions: readonly CadCommandSearchAction[];
     /** A task panel/dialog/pick mode owns the keyboard: `/` and the popover stay inert. */
     readonly blocked: boolean;
+    /** Optional controls rendered in the same floating pill row, for example the NukeAI menu. */
+    readonly children?: React.ReactNode;
 }
 
 /** Marks the launcher trigger so the outside-pointerdown closer ignores it (its click toggles). */
@@ -134,6 +136,7 @@ export function CadCommandSearchLauncher(props: CadCommandSearchLauncherProps): 
                         </kbd>
                     </button>
                 </Tooltip>
+                {props.children}
             </div>
             <CadCommandSearch open={open} actions={props.actions} onClose={close} />
         </>

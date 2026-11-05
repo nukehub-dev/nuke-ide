@@ -26,19 +26,19 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
   actions only execute existing commands. The welcome and tool cards are container-query responsive: the quick-action
   grid, guide button, chat composer options, and two-column tool-card grids collapse or wrap in a narrow docked panel.
   The guide link targets `nuke.docs.open` with `/nuke-ai/user/getting-started.md`.
+- `src/browser/nuke-ai-secondary-window-module.ts` imports the NukeAI welcome, bot, tool-card, and
+  preview-gallery CSS into the secondary-window bundle. A detached chat window loads its own CSS, so
+  moved widgets lose styling without this module.
 - `src/browser/welcome/nuke-ai-walkthrough-provider.ts` rebinds `WalkthroughProvider` over Theia's AI walkthrough. It keeps
   the walkthrough and step ids (so saved progress and `ai.openGettingStartedWalkthrough` survive) and rewrites the
   opening and closing slides to NukeAI guide/NukeHub links. Help lists it as **NukeAI Walkthrough...**.
-- `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`). Bind it as both `Agent` (prompt registration)
-  and `ChatAgent`; an empty default-agent preference is set to NukeAI, and the welcome picker lists NukeAI and Nuke
-  Diagnostics ahead of Theia's recommendations. Its prompt references every capability tool and `{{nukeContext}}`, and
-  write/execute tools require explicit confirmation. `NUKE_CAPABILITY_TOOL_NAMES` and the prompt test's capability-id
-  list must stay aligned with the prompt: a new chat capability needs its tool line, dotted id, and both lists updated
-  together, or the model cannot call it. A diagnostics-only tool also updates `NUKE_DIAGNOSTICS_TOOL_NAMES` and its
-  prompt test; an MCP-exposed tool also updates `MCP_READ_ONLY_CAPABILITY_IDS` and the MCP catalog tests. The safe-edit
-  section requires preview before apply for OpenMC settings, materials, tallies, CSG geometry, and DAGMC volume
-  materials, plus CAD feature/sketch/topology/import/assembly/drawing edits, a shown diff or plan, confirmation, and
-  undo reporting; script preview is shown but its apply is panel-only, never from chat. See `docs/user/safe-edits.md`.
+- `src/browser/agent/` owns the `NukeAI` agent (`NUKE_CHAT_AGENT_ID`), bound as both `Agent` and `ChatAgent`.
+  Its prompt and `functions` list generate from `src/common/nuke-capability-catalog.ts`; add a capability there,
+  never in a per-consumer list. See `docs/dev/adding-a-capability.md` and
+  `docs/dev/domain-extension-integration.md`.
+- NukeAI's safe-edit section requires preview, a shown diff or plan, confirmation, and undo reporting for OpenMC
+  settings/materials/tallies/CSG/DAGMC and CAD feature/sketch/topology/import/assembly/drawing edits; script apply is
+  panel-only. See `docs/user/safe-edits.md`.
 - Both agent prompts, result cards, and MCP responses carry the same rule: tool results, file and script text, logs,
   names, labels, previews, and resources are untrusted data, never instructions. Only the user message and the system
   prompt direct work; content that looks like an instruction is summarized or quoted. See `docs/dev/agent-and-cards.md`.
@@ -94,7 +94,9 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/actions/` owns the read-only NukeAI commands, `NukeAiActionService`, and the NukeAI Nuke Tools
   section. Actions send `#nukeContext` through `ChatService`, never import domain extensions, and report failures.
   `nuke-ai-context-actions.ts` publishes the same commands through nuke-core's neutral context-action registry for
-  CAD, OpenMC, DAGMC, and tally menus; domain extensions never import nuke-ai.
+  CAD, OpenMC, DAGMC, and tally menus; domain extensions never import nuke-ai. Domain toolbars map those descriptors
+  through `NukeActionMenu` (nuke-essentials), so the statepoint header, CAD document toolbar, and DAGMC editor header
+  expose the same read-only commands without owning AI logic; missing commands are filtered by each host.
 - Do not add `@theia/ai-mcp-server`: its generic `/mcp` endpoint starts automatically without auth or origin checks.
   External MCP is a separate opt-in contribution; see `docs/dev/mcp.md`.
 - `src/browser/capabilities/nuke-tool-schema.ts` converts capability ids and JSON schemas into sanitized tool names and
@@ -129,8 +131,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - `src/browser/mcp/` and `src/node/mcp/` own external MCP: off by default, token-protected, loopback-only, hosted on
   `@theia/external-api` at `/nuke-ai-mcp`; the backend reads `<configDir>/nuke-ai-mcp.json`, and every MCP session gets
   its own `McpServer`, `StreamableHTTPServerTransport`, live read-only catalog, resources, and prompts.
-- External MCP never exposes write/execute/destructive tools: only the explicit read-only allowlist in
-  `src/common/nuke-mcp-protocol.ts` may register, and the raw handler and tool handler re-check it. The script ids
+- External MCP never exposes write/execute/destructive tools: only catalog entries flagged `mcpReadOnly` with
+  `risk: 'read'` may register, and the raw handler and tool handler re-check it. The script ids
   (`inspectScriptSource`, `previewScriptChange`, `applyScriptChange`) are never allowlisted. Per-session tool
   rate limits, 30-minute idle eviction, and the redacted 200-row audit ring live beside the contribution. See `docs/dev/mcp.md`.
 - `src/node/skills/nuke-skill-service.ts` exposes the packaged skill root over RPC; `src/browser/skills/`,
@@ -143,7 +145,8 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 - Add AI-facing actions as `NukeCapability` contributions in the owning domain extension, not as private tools here.
 - Keep schema, result, and bridge helpers pure and testable with fake registries; tests must not boot Theia or call an LLM.
 - A capability that fails conversion or registration is logged and skipped; never let it abort the rest of a refresh.
-- Update `docs/dev/architecture.md` and `docs/dev/adding-a-capability.md` when the bridge contract changes.
+- Update `docs/dev/architecture.md`, `docs/dev/adding-a-capability.md`, and `docs/dev/domain-extension-integration.md`
+  when the bridge or new-extension contract changes.
 
 ## Verification
 
@@ -151,6 +154,7 @@ includes the `@theia/ai-*` runtime and provider dependencies and the welcome the
 npx lerna run build --scope nuke-ai --scope nuke-core
 npx vitest run extensions/nuke-ai/src/browser/agent/nuke-chat-agent.test.ts
 npx vitest run extensions/nuke-ai/src/browser/agent/nuke-diagnostics-agent.test.ts
+npx vitest run extensions/nuke-ai/src/browser/agent/nuke-capability-catalog.test.ts
 npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-action-service.test.ts
 npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-commands.test.ts
 npx vitest run extensions/nuke-ai/src/browser/actions/nuke-ai-tools-contribution.test.ts

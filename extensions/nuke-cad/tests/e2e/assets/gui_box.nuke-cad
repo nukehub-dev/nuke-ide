@@ -1,0 +1,318 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "box",
+      "name": "box"
+    }
+  ],
+  "curves": [
+    {
+      "id": "box-height-path",
+      "name": "box height path",
+      "samples": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0.5714285714
+        ],
+        [
+          0,
+          0,
+          1.1428571429
+        ],
+        [
+          0,
+          0,
+          1.7142857143
+        ],
+        [
+          0,
+          0,
+          2.2857142857
+        ],
+        [
+          0,
+          0,
+          2.8571428571
+        ],
+        [
+          0,
+          0,
+          3.4285714286
+        ],
+        [
+          0,
+          0,
+          4
+        ]
+      ],
+      "source": {
+        "kind": "parametric",
+        "sampleCount": 8,
+        "tEnd": 1,
+        "tStart": 0,
+        "x": "0",
+        "y": "0",
+        "z": "height*t"
+      }
+    }
+  ],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "box-sweep",
+      "name": "Box",
+      "params": {
+        "binormal": [
+          1,
+          0,
+          0
+        ],
+        "orientation": "fixedBinormal",
+        "pathCurveId": "box-height-path"
+      },
+      "sketchId": "box-profile",
+      "suppressed": false,
+      "type": "sweep"
+    }
+  ],
+  "name": "box",
+  "parameters": {
+    "height": 4,
+    "length": 10,
+    "width": 6
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-9",
+          "l_id": "line-5",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-10",
+          "l_id": "line-6",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-11",
+          "l_id": "line-7",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-12",
+          "l_id": "line-8",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "symmetric-13",
+          "p1_id": "point-1",
+          "p2_id": "point-3",
+          "p_id": "point-center",
+          "type": "p2p_symmetric_ppp"
+        },
+        {
+          "driving": true,
+          "id": "vertical-14",
+          "l_id": "line-height",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "length",
+          "driving": true,
+          "id": "distance-length",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "width",
+          "driving": true,
+          "id": "distance-width",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "height",
+          "driving": true,
+          "id": "distance-height",
+          "param1": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-height",
+            "prop": "y"
+          },
+          "type": "difference"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "distance-length",
+          "driving": true,
+          "id": "dimension-length",
+          "kind": "distanceH",
+          "parameter": "length",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 10
+        },
+        {
+          "constraintId": "distance-width",
+          "driving": true,
+          "id": "dimension-width",
+          "kind": "distanceV",
+          "parameter": "width",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 6
+        },
+        {
+          "constraintId": "distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "height",
+          "targetIds": [
+            "point-height",
+            "point-4"
+          ],
+          "value": 4
+        }
+      ],
+      "id": "box-profile",
+      "name": "box-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "id": "point-1",
+          "type": "point",
+          "x": -5,
+          "y": -3
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 5,
+          "y": -3
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 5,
+          "y": 3
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": -5,
+          "y": 3
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "point-height",
+          "type": "point",
+          "x": -5,
+          "y": 7
+        },
+        {
+          "construction": false,
+          "id": "line-5",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-6",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-7",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-8",
+          "p1_id": "point-4",
+          "p2_id": "point-1",
+          "type": "line"
+        },
+        {
+          "construction": true,
+          "id": "line-height",
+          "p1_id": "point-4",
+          "p2_id": "point-height",
+          "type": "line"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

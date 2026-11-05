@@ -209,14 +209,24 @@ function WeightWindowCard(props: {
                 <div className="ww-set-actions">
                     {props.onExport && (
                         <Tooltip content="Export this set to MCNP WWINP" position="top">
-                            <button type="button" className="theia-button secondary small" onClick={props.onExport}>
-                                <i className="codicon codicon-file-export"></i>
+                            <button
+                                type="button"
+                                className="theia-button secondary small"
+                                onClick={props.onExport}
+                                aria-label="Export weight-window set"
+                            >
+                                <i className="codicon codicon-file-export" aria-hidden="true"></i>
                             </button>
                         </Tooltip>
                     )}
                     <Tooltip content="Delete this weight-window set" position="top">
-                        <button type="button" className="theia-button secondary small" onClick={props.onDelete}>
-                            <i className="codicon codicon-trash"></i>
+                        <button
+                            type="button"
+                            className="theia-button secondary small"
+                            onClick={props.onDelete}
+                            aria-label="Delete weight-window set"
+                        >
+                            <i className="codicon codicon-trash" aria-hidden="true"></i>
                         </button>
                     </Tooltip>
                 </div>

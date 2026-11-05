@@ -177,6 +177,13 @@
     width: 100%;
 }
 
+/* The tab strip scrolls horizontally; keep the ring inside the scroll box
+   so it is never clipped by overflow. */
+.tally-configurator-container .tab-button:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
 .tally-configurator-container .tally-configurator-content {
     flex: 1;
     overflow: hidden;
@@ -582,6 +589,18 @@
     letter-spacing: 0.5px;
 }
 
+/* Checkbox rows are prose, not field captions: keep them in sentence case
+   even when they sit inside a form-group (score, trigger, and output rows). */
+.tally-configurator-container .form-group label.score-checkbox-label,
+.tally-configurator-container .form-group.checkbox label:not([aria-hidden='true']),
+.tally-configurator-container .form-group .checkbox-row > label {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--theia-foreground);
+}
+
 .tally-configurator-container .form-group input[type='text'],
 .tally-configurator-container .form-group input[type='number'] {
     padding: 8px 10px;
@@ -798,7 +817,7 @@
 
 .tally-configurator-container .nuclide-badge {
     background-color: var(--theia-focusBorder);
-    color: white;
+    color: var(--theia-button-foreground);
     padding: 4px 8px;
     border-radius: 4px;
     display: flex;
@@ -814,7 +833,7 @@
 .tally-configurator-container .remove-nuclide-btn {
     background: none;
     border: none;
-    color: white;
+    color: var(--theia-button-foreground);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -829,7 +848,7 @@
 
 .tally-configurator-container .remove-nuclide-btn:hover {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.2);
+    background: color-mix(in srgb, var(--theia-button-foreground) 20%, transparent);
 }
 
 .tally-configurator-container .nuclide-input-row {
@@ -1123,6 +1142,7 @@
 
 .tally-configurator-container .mesh-grid-token-remove:focus-visible {
     outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
 }
 
 .tally-configurator-container .mesh-grid-stats {
@@ -1496,6 +1516,7 @@
 
 .tally-configurator-container .custom-mt-input input:focus {
     border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theia-focusBorder) 24%, transparent);
 }
 
 .tally-configurator-container .custom-mt-input input::placeholder {
@@ -1778,7 +1799,7 @@
 
 .tally-configurator-container .filter-chip-remove:hover {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.16);
+    background: color-mix(in srgb, currentColor 16%, transparent);
 }
 
 .tally-configurator-container .filter-reaction-suggestions,

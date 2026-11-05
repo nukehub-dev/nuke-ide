@@ -27,11 +27,26 @@ attempt to install packages or download nuclear data through chat.
 
 ## Summarize the project
 
-Call `nuke_openmc_summarizeProject` with `{}`. It returns the project path, name, description, dirty flag, entity
-counts (surfaces, cells, universes, lattices, materials, tallies, meshes), and run settings (mode, particles,
+Call `nuke_openmc_summarizeProject` with `{}`. It returns the project path, name, description, author, dirty flag,
+entity counts (surfaces, cells, universes, lattices, materials, tallies, meshes), and run settings (mode, particles,
 inactive batches, batches, and the DAGMC file when set).
 
 Use the summary to answer questions about project contents and run settings without touching the backend.
+
+## Preview, apply, and undo project metadata
+
+The project name, description, and author are editable through the same preview/apply/undo flow. Version, creation
+and modification timestamps, and the multi-group backup are never editable.
+
+1. **Preview** with `nuke_openmc_previewProjectMetadata` and `{ "updates": { ... } }`. At least one of `name`,
+   `description`, or `author` must change. The name must be non-empty after trimming and at most 120 characters,
+   the description at most 500, and the author at most 120. An empty description or author clears the field. The
+   preview rejects unknown fields, non-string values, a field already at the requested value, and a request that
+   changes nothing.
+2. **Apply** with `nuke_openmc_applyProjectMetadata` and only the preview proposal id after explicit confirmation.
+   A stale preview is rejected when the project metadata changed since the preview; preview again instead of
+   guessing.
+3. **Undo** restores only the changed metadata fields and fails if any of them changed again after apply.
 
 ## Read inventories before an edit
 
@@ -58,8 +73,9 @@ or report the issues to the user first.
 
 ## Preview, apply, and undo settings
 
-Change basic run settings only through the preview, apply, and undo flow. Never describe a setting as changed until an
-apply result confirms it.
+Change run settings only through the preview, apply, and undo flow. Never describe a setting as changed until an
+apply result confirms it. Read `nuke_openmc_summarizeSettings` first to get the run mode and every current value;
+unset optional values are `null`.
 
 1. **Preview** with `nuke_openmc_previewSettings`:
 
@@ -81,22 +97,59 @@ apply result confirms it.
 
 Supported paths:
 
-| Path                      | Rule                                                      |
-| ------------------------- | --------------------------------------------------------- |
-| `run.particles`           | integer >= 1                                              |
-| `run.inactive`            | integer >= 0; only when the current run mode has inactive |
-| `run.batches`             | integer >= 1                                              |
-| `seed`                    | integer >= 0                                              |
-| `threads`                 | integer >= 1                                              |
-| `verbosity`               | integer 1 to 10                                           |
-| `energyMode`              | `continuous-energy` or `multigroup`                       |
-| `photonTransport`         | boolean                                                   |
-| `electronTreatment`       | `led` or `ttb`                                            |
-| `atomicRelaxation`        | boolean                                                   |
-| `sourceRejectionFraction` | number from 0 to 1                                        |
+| Path                          | Rule                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------ |
+| `run.particles`               | integer >= 1                                                                         |
+| `run.inactive`                | integer >= 0; only when the current run mode has inactive                            |
+| `run.batches`                 | integer >= 1                                                                         |
+| `seed`                        | integer >= 0                                                                         |
+| `threads`                     | integer >= 1                                                                         |
+| `verbosity`                   | integer 1 to 10                                                                      |
+| `energyMode`                  | `continuous-energy` or `multigroup`                                                  |
+| `photonTransport`             | boolean                                                                              |
+| `electronTreatment`           | `led` or `ttb`                                                                       |
+| `atomicRelaxation`            | boolean                                                                              |
+| `sourceRejectionFraction`     | number from 0 to 1                                                                   |
+| `output.summary`              | boolean                                                                              |
+| `output.tallies`              | boolean                                                                              |
+| `output.path`                 | non-empty string, no control characters, at most 255; relative or workspace-absolute |
+| `cutoff.energyNeutron`        | finite number greater than 0                                                         |
+| `cutoff.energyPhoton`         | finite number greater than 0                                                         |
+| `cutoff.time`                 | finite number greater than 0                                                         |
+| `cutoff.timePhoton`           | finite number greater than 0                                                         |
+| `cutoff.weight`               | finite number greater than 0                                                         |
+| `cutoff.weightAvg`            | finite number greater than 0                                                         |
+| `kinetics.enabled`            | boolean; the dashboard-generated IFP tallies must already exist                      |
+| `kinetics.ifpNGenerations`    | integer greater than 0 and at most the inactive batches                              |
+| `kinetics.numPrecursorGroups` | integer 1 to 8 (1 means total only)                                                  |
+| `kinetics.computeBetaEff`     | boolean                                                                              |
 
-Source and advanced settings are out of scope for this flow. CSG geometry and DAGMC edits have their own flows
-below. Report the rejection message instead of trying another path.
+Nested writes preserve unrelated keys in `output`, `cutoff`, and `kinetics`. Enabling kinetics does not add the IFP
+tallies; they must already exist. `kinetics.ifpNGenerations` cannot exceed `run.inactive`, including when a later
+change lowers the inactive count. `output.path` is not created or deleted. Sources use their own flow below, and
+random ray, CMFD, and geometry have separate controls. Report the rejection message instead of trying another path.
+
+## Preview, apply, and undo source edits
+
+Source edits only apply to fixed-source runs. Read `nuke_openmc_summarizeSources` first for the run mode, the
+`fixedSource` flag, and every source index; file, compiled, mesh, and tokamak rows are read-only.
+
+1. **Preview** with `nuke_openmc_previewSourceChange` and 1 to 16 actions:
+   - `{ "action": "add", "source": { "spatial": { ... }, "energy": { ... }, "angle": { ... }, "time": { ... }, "particle": "neutron" } }`
+   - `{ "action": "update", "index": 0, "source": { ... } }`
+   - `{ "action": "remove", "index": 1 }`
+     An independent source needs a spatial and energy distribution; angle, time, particle, and strength are optional.
+     Spatial types are point, box, sphere, cylinder, cartesian, cylindrical, spherical, and pointcloud; mesh, file,
+     compiled, and tokamak sources are rejected. Energy types are discrete, uniform, Maxwell, Watt, normal, power law,
+     tabular, mixture, decay spectrum, and Muir; angles are isotropic, monodirectional, and mu-phi; times are delta,
+     uniform, discrete, tabular, and mixture. The preview rejects duplicate or out-of-range indexes, non-finite values,
+     non-positive sizes and radii, mu outside [-1, 1], phi outside [0, 2π], and any source that cannot serialize.
+2. **Apply** with `nuke_openmc_applySourceChange` and only the preview proposal id after explicit confirmation. A
+   stale preview is rejected when the source list changed; preview again.
+3. **Undo** restores the previous source list only while the applied list is unchanged.
+
+An eigenvalue or other run mode rejects the preview with `Sources only apply to fixed-source runs.` Never switch the
+run mode to make a source edit succeed.
 
 ## Preview, apply, and undo material edits
 

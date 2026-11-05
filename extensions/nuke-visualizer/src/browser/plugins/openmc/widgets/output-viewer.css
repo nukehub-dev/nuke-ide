@@ -16,6 +16,49 @@
     outline: none;
 }
 
+/* Native checkboxes in viewer tool rows stay real inputs but paint from the
+   Theia checkbox tokens instead of the light-only UA default. */
+.openmc-output-viewer-container input[type='checkbox']:not(.nuke-checkbox-input) {
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-grid;
+    place-content: center;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    border: 1px solid var(--theia-checkbox-border, var(--theia-input-border));
+    border-radius: 3px;
+    background: var(--theia-checkbox-background, var(--theia-input-background));
+    color: var(--theia-checkbox-foreground, var(--theia-button-foreground));
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.openmc-output-viewer-container input[type='checkbox']:not(.nuke-checkbox-input)::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    transform: scale(0);
+    background: currentColor;
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+    transition: transform 80ms ease-out;
+}
+
+.openmc-output-viewer-container input[type='checkbox']:not(.nuke-checkbox-input):checked::before {
+    transform: scale(1);
+}
+
+.openmc-output-viewer-container input[type='checkbox']:not(.nuke-checkbox-input):focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.openmc-output-viewer-container input[type='checkbox']:not(.nuke-checkbox-input):disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .openmc-output-viewer-header {
     display: flex;
     align-items: center;
@@ -125,6 +168,11 @@
 
 .openmc-output-viewer-control input:focus {
     border-color: var(--theia-focusBorder);
+}
+
+.openmc-output-viewer-control input:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
 }
 
 .openmc-output-viewer-control input:disabled {
@@ -726,29 +774,54 @@
     padding: 1px 8px;
 }
 
-/* Find Data dialog floats over the 3D canvas, below the nav cluster. */
+/* Find Data dialog floats over the 3D canvas below the orientation cube
+   (top: 92px clears its 12 + 68px overlay). Like the probe host it reserves
+   the bottom-bar strip and only the card takes pointer events, so the two
+   overlays share one slot without covering the viewer chrome. */
 .find-data-host {
     position: absolute;
-    top: 54px;
+    top: 92px;
     right: 14px;
+    bottom: 76px;
     z-index: 30;
     width: 360px;
     max-width: calc(100% - 28px);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+}
+
+.find-data-host > .find-data-dialog {
+    max-height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    pointer-events: auto;
 }
 
 /* Generic probe card shares the anchored slot; the dialog scrolls
-   internally so the canvas stays fully interactive around it. */
+   internally so the canvas stays fully interactive around it. The host
+   clears the orientation cube and reserves the bottom-bar strip
+   (bottom: 76px, two wrapped nav rows); only the card takes pointer events, so a short viewport
+   can never clip the card behind the navigation bar. */
 .probe-host {
     position: absolute;
-    top: 54px;
+    top: 92px;
     right: 14px;
+    bottom: 76px;
     z-index: 30;
     width: 430px;
     max-width: calc(100% - 28px);
-    max-height: calc(100% - 120px);
     min-height: 0;
     display: flex;
-    overflow: hidden;
+    flex-direction: column;
+    pointer-events: none;
+}
+
+.probe-host > .probe-dialog {
+    max-height: min(620px, 100%);
+    min-height: 0;
+    pointer-events: auto;
 }
 
 .nuke-viewer-legend-vertical .nuke-viewer-legend-range {

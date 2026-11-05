@@ -48,6 +48,33 @@
     height: 50px;
 }
 
+.nuke-empty-state-illustration-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 50px;
+    line-height: 1;
+}
+
+/* Theia's `.codicon` shorthand sets 16px; the compound selector makes the
+   illustrated tile use the intended 48px glyph size. */
+.nuke-empty-state-illustration .nuke-empty-state-illustration-icon {
+    font-size: 48px;
+    line-height: 1;
+    color: var(--theia-focusBorder);
+}
+
+/* CAD's custom mask icons set a fixed 16px box in cad-icons.css; scale the
+   mask itself so the same icon fills the empty-state illustration tile. */
+.nuke-empty-state-illustration .codicon[class*='codicon-nuke-cad-'] {
+    width: 50px;
+    height: 50px;
+    color: var(--theia-focusBorder);
+    -webkit-mask-size: 50px 50px;
+    mask-size: 50px 50px;
+}
+
 .nuke-empty-state-title {
     font-size: var(--theia-ui-font-size2);
     font-weight: 600;

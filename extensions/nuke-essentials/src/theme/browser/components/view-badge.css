@@ -14,3 +14,19 @@
     white-space: nowrap;
     max-width: 40%;
 }
+
+/* The pill stays click-through, but its text re-enables pointer events so
+   the shared Tooltip can reveal a truncated file name. */
+.nuke-view-badge > span {
+    max-width: 100%;
+    pointer-events: auto;
+}
+
+.nuke-view-badge-text {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

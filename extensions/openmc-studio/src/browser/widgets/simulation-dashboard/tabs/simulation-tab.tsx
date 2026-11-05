@@ -239,8 +239,9 @@ export class SimulationTabContribution implements DashboardTabContribution {
                                 className="theia-button secondary small"
                                 onClick={() => host.stateManager.updateSettings({ restartFile: undefined })}
                                 disabled={host.isRunning}
+                                aria-label="Clear restart file"
                             >
-                                <i className="codicon codicon-close"></i>
+                                <i className="codicon codicon-close" aria-hidden="true"></i>
                             </button>
                         </Tooltip>
                     </span>
@@ -597,7 +598,7 @@ export class SimulationTabContribution implements DashboardTabContribution {
                 {groups.map((group) => (
                     <div className="nuke-ai-action-group" key={group.id}>
                         <span className="nuke-ai-action-group-label">
-                            <i className="codicon codicon-beaker" aria-hidden="true"></i>
+                            <i className="codicon codicon-hubot" aria-hidden="true"></i>
                             {group.label}
                         </span>
                         {group.actions.map((action) => (

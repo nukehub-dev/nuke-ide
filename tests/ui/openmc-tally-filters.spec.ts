@@ -51,6 +51,17 @@ test('creates a cell-instance filter with a pair and keeps it editable', async (
 
     const widget = await openConfigurator(page);
     const editor = await addTally(page, widget);
+
+    // Checkbox rows are prose and keep the shared themed box; the uppercase
+    // field-caption treatment belongs to actual form labels only.
+    const outputCheckboxLabel = editor.locator('.tally-output-options label.score-checkbox-label').first();
+    await expect(outputCheckboxLabel).toBeVisible();
+    expect(await outputCheckboxLabel.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
+    const checkboxAppearance = await outputCheckboxLabel
+        .locator('input')
+        .evaluate((element) => getComputedStyle(element).getPropertyValue('appearance'));
+    expect(checkboxAppearance).toBe('none');
+
     await editor.getByRole('button', { name: '+ Cell Instance' }).click();
 
     const card = editor.locator('.filter-item[data-filter-type="cellinstance"]');
@@ -150,6 +161,48 @@ test('particle filter uses the themed selector and custom PDG field', async ({ p
     expect(styles).toEqual(formStyles);
 
     expect(errors, `console/page errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('light theme keeps tally form fields on the themed input chrome', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.addInitScript(() => {
+        localStorage.setItem('theme', 'nukeide-light');
+        localStorage.setItem('nuke-theme', JSON.stringify({ id: 'nukeide-light', label: 'Light' }));
+    });
+    await page.goto('/');
+    await waitForShell(page);
+    await expect
+        .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--theia-editor-background').trim()))
+        .toBe('#fdfcf9');
+
+    const widget = await openConfigurator(page);
+    const editor = await addTally(page, widget);
+    await editor.getByRole('button', { name: '+ Particle', exact: true }).click();
+    const card = editor.locator('.filter-item[data-filter-type="particle"]');
+
+    // The custom PDG field and a normal form field share the same themed
+    // background/border/color in light mode, so neither falls back to the
+    // browser-default field chrome.
+    const customStyles = await card.locator('.particle-type-custom-field input').evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, color: style.color, border: style.borderColor };
+    });
+    const formStyles = await editor
+        .locator('.form-group input[type="text"]')
+        .first()
+        .evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, color: style.color, border: style.borderColor };
+        });
+    expect(customStyles).toEqual(formStyles);
+
+    const checkboxAppearance = await card
+        .locator('.particle-type-check input')
+        .first()
+        .evaluate((element) => getComputedStyle(element).getPropertyValue('appearance'));
+    expect(checkboxAppearance).toBe('none');
+
+    expect(errors, `console/page errors in the light theme:\n${errors.join('\n')}`).toEqual([]);
 });
 
 test('narrow panel stacks filter cards and scrolls pair tables inside the card', async ({ page }) => {

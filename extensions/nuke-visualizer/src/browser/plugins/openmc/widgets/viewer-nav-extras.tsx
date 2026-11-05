@@ -138,6 +138,7 @@ export const ViewerClipTrigger: React.FC<ViewerClipTriggerProps> = ({ clipEnable
             className={`${navButtonClass(clipEnabled)} viewer-nav-clip-trigger`}
             disabled={disabled}
             onClick={onToggle}
+            aria-label={clipEnabled ? 'Clip planes on' : 'Clip planes off'}
             aria-pressed={clipEnabled}
             aria-expanded={open}
         >
@@ -235,6 +236,7 @@ export const ViewerShadingTrigger: React.FC<ViewerShadingTriggerProps> = ({ shad
                 className={`${navButtonClass(shading !== 'shaded')} viewer-nav-shading-trigger`}
                 disabled={disabled}
                 onClick={onToggle}
+                aria-label={`Shading: ${current.label}`}
                 aria-expanded={open}
             >
                 <span className={`codicon ${VIEWER_SHADING_MENU_ICONS[shading]}`} />
@@ -290,6 +292,7 @@ export const LinkCamerasTrigger: React.FC<LinkCamerasTriggerProps> = ({ linked, 
             className={`${navButtonClass(linked)} viewer-nav-link-cameras`}
             disabled={disabled}
             onClick={onToggle}
+            aria-label={linked ? 'Unlink cameras' : 'Link cameras'}
             aria-pressed={linked}
         >
             <span className="codicon codicon-link" />
@@ -319,14 +322,24 @@ export const ViewerPanelActions: React.FC<ViewerPanelActionsProps> = ({
 }) => (
     <>
         <Tooltip content="Open Viewer Settings" position="left">
-            <button className={`${navButtonClass(false)} viewer-nav-viewer-settings`} disabled={disabled} onClick={onOpenSettings}>
-                <span className="codicon codicon-settings-gear" />
+            <button
+                className={`${navButtonClass(false)} viewer-nav-viewer-settings`}
+                disabled={disabled}
+                onClick={onOpenSettings}
+                aria-label="Open Viewer Settings"
+            >
+                <span className="codicon codicon-settings-gear" aria-hidden="true" />
             </button>
         </Tooltip>
         {onOpenOutline && (
             <Tooltip content="Open DAGMC Outline" position="left">
-                <button className={`${navButtonClass(false)} viewer-nav-dagmc-outline`} disabled={disabled} onClick={onOpenOutline}>
-                    <span className="codicon codicon-list-tree" />
+                <button
+                    className={`${navButtonClass(false)} viewer-nav-dagmc-outline`}
+                    disabled={disabled}
+                    onClick={onOpenOutline}
+                    aria-label="Open DAGMC Outline"
+                >
+                    <span className="codicon codicon-list-tree" aria-hidden="true" />
                 </button>
             </Tooltip>
         )}
@@ -336,8 +349,9 @@ export const ViewerPanelActions: React.FC<ViewerPanelActionsProps> = ({
                     className={`${navButtonClass(false)} viewer-nav-dataset-inspector`}
                     disabled={disabled}
                     onClick={onOpenDatasetInspector}
+                    aria-label="Open Dataset Inspector"
                 >
-                    <span className="codicon codicon-table" />
+                    <span className="codicon codicon-table" aria-hidden="true" />
                 </button>
             </Tooltip>
         )}
@@ -356,8 +370,14 @@ export interface FindDataTriggerProps {
 
 export const FindDataTrigger: React.FC<FindDataTriggerProps> = ({ active, disabled, onClick }) => (
     <Tooltip content={active ? 'Find Data (selection active)' : 'Find Data by value, id, or name'} position="left">
-        <button className={`${navButtonClass(active)} viewer-nav-find-data`} disabled={disabled} onClick={onClick} aria-pressed={active}>
-            <span className="codicon codicon-search" />
+        <button
+            className={`${navButtonClass(active)} viewer-nav-find-data`}
+            disabled={disabled}
+            onClick={onClick}
+            aria-label="Find Data"
+            aria-pressed={active}
+        >
+            <span className="codicon codicon-search" aria-hidden="true" />
         </button>
     </Tooltip>
 );
@@ -375,8 +395,14 @@ export interface ProbeTriggerProps {
 
 export const ProbeTrigger: React.FC<ProbeTriggerProps> = ({ active, disabled, onClick }) => (
     <Tooltip content="Probe point values and line profiles" position="left">
-        <button className={`${navButtonClass(active)} viewer-nav-probe`} disabled={disabled} onClick={onClick} aria-pressed={active}>
-            <span className="codicon codicon-pulse" />
+        <button
+            className={`${navButtonClass(active)} viewer-nav-probe`}
+            disabled={disabled}
+            onClick={onClick}
+            aria-label="Probe point values and line profiles"
+            aria-pressed={active}
+        >
+            <span className="codicon codicon-pulse" aria-hidden="true" />
         </button>
     </Tooltip>
 );
@@ -410,8 +436,13 @@ export const DagmcIsolateActions: React.FC<DagmcIsolateActionsProps> = ({ select
                 }
                 position="left"
             >
-                <button className={navButtonClass(false)} disabled={disabled || !hasSelection} onClick={onExclude}>
-                    <span className="codicon codicon-eye-closed" />
+                <button
+                    className={navButtonClass(false)}
+                    disabled={disabled || !hasSelection}
+                    onClick={onExclude}
+                    aria-label="Exclude selected volume"
+                >
+                    <span className="codicon codicon-eye-closed" aria-hidden="true" />
                 </button>
             </Tooltip>
             <Tooltip
@@ -422,8 +453,13 @@ export const DagmcIsolateActions: React.FC<DagmcIsolateActionsProps> = ({ select
                 }
                 position="left"
             >
-                <button className={navButtonClass(false)} disabled={disabled || !hasSelection} onClick={onIsolate}>
-                    <span className="codicon codicon-eye" />
+                <button
+                    className={navButtonClass(false)}
+                    disabled={disabled || !hasSelection}
+                    onClick={onIsolate}
+                    aria-label="Isolate selected volume"
+                >
+                    <span className="codicon codicon-eye" aria-hidden="true" />
                 </button>
             </Tooltip>
         </>
@@ -447,14 +483,24 @@ export interface ViewerFileActionsProps {
 export const ViewerFileActions: React.FC<ViewerFileActionsProps> = ({ disabled, onScreenshot, onReload, exportMenu }) => (
     <>
         <Tooltip content="Download PNG screenshot" position="left">
-            <button className={`${navButtonClass(false)} viewer-nav-screenshot`} disabled={disabled} onClick={onScreenshot}>
-                <span className="codicon codicon-device-camera" />
+            <button
+                className={`${navButtonClass(false)} viewer-nav-screenshot`}
+                disabled={disabled}
+                onClick={onScreenshot}
+                aria-label="Download PNG screenshot"
+            >
+                <span className="codicon codicon-device-camera" aria-hidden="true" />
             </button>
         </Tooltip>
         {exportMenu}
         <Tooltip content="Reload file" position="left">
-            <button className={`${navButtonClass(false)} viewer-nav-reload`} disabled={disabled} onClick={onReload}>
-                <span className="codicon codicon-refresh" />
+            <button
+                className={`${navButtonClass(false)} viewer-nav-reload`}
+                disabled={disabled}
+                onClick={onReload}
+                aria-label="Reload file"
+            >
+                <span className="codicon codicon-refresh" aria-hidden="true" />
             </button>
         </Tooltip>
     </>

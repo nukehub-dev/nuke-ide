@@ -76,8 +76,8 @@ export const NuclideSelector: React.FC<NuclideSelectorProps> = ({ nuclides, onUp
                     <div key={nuclide} className="nuclide-badge">
                         <span className="nuclide-name">{nuclide}</span>
                         <Tooltip content="Remove nuclide" position="top">
-                            <button className="remove-nuclide-btn" onClick={() => removeNuclide(nuclide)} aria-label="Remove">
-                                <i className="codicon codicon-close"></i>
+                            <button className="remove-nuclide-btn" onClick={() => removeNuclide(nuclide)} aria-label={`Remove ${nuclide}`}>
+                                <i className="codicon codicon-close" aria-hidden="true"></i>
                             </button>
                         </Tooltip>
                     </div>
@@ -92,6 +92,7 @@ export const NuclideSelector: React.FC<NuclideSelectorProps> = ({ nuclides, onUp
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="e.g. U235, Pu239"
+                        aria-label="Nuclide name"
                     />
                     <span className="nuclide-input-hint">Press Enter to add</span>
                 </div>

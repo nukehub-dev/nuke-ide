@@ -654,6 +654,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                 <Tooltip content="Reload series" position="bottom">
                     <button
                         className="theia-button secondary"
+                        aria-label="Reload series"
                         onClick={() => this.fileUri && this.setSeriesFile(this.fileUri)}
                         disabled={this.isLoading || exporting || !this.fileUri}
                     >
@@ -980,7 +981,7 @@ export class ExodusTimeSliderWidget extends ReactWidget implements ViewerSetting
                     {step.mesh.nElements.toLocaleString()} elements in {step.mesh.blocks.length} block(s)
                 </span>
                 {summary && range ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }} title={`${arrayName} at this step`}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {this.toolbar.showScalarBar && mapping ? (
                             <>
                                 <span>{formatRangeValue(range[0])}</span>

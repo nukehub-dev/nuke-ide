@@ -1,0 +1,1273 @@
+{
+  "bodies": [
+    {
+      "id": "body-1",
+      "label": "grid-plate",
+      "material": "Zircaloy-4",
+      "name": "grid-plate"
+    }
+  ],
+  "curves": [
+    {
+      "id": "grid-plate-thickness-path",
+      "name": "grid-plate thickness path",
+      "samples": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0.0428571429
+        ],
+        [
+          0,
+          0,
+          0.0857142857
+        ],
+        [
+          0,
+          0,
+          0.1285714286
+        ],
+        [
+          0,
+          0,
+          0.1714285714
+        ],
+        [
+          0,
+          0,
+          0.2142857143
+        ],
+        [
+          0,
+          0,
+          0.2571428571
+        ],
+        [
+          0,
+          0,
+          0.3
+        ]
+      ],
+      "source": {
+        "kind": "parametric",
+        "sampleCount": 8,
+        "tEnd": 1,
+        "tStart": 0,
+        "x": "0",
+        "y": "0",
+        "z": "plateThickness*t"
+      }
+    }
+  ],
+  "datums": [
+    {
+      "id": "datum-xy",
+      "kind": "XY",
+      "name": "XY Plane"
+    },
+    {
+      "id": "datum-yz",
+      "kind": "YZ",
+      "name": "YZ Plane"
+    },
+    {
+      "id": "datum-xz",
+      "kind": "XZ",
+      "name": "XZ Plane"
+    }
+  ],
+  "features": [
+    {
+      "body": "body-1",
+      "dependsOn": [],
+      "id": "grid-plate-sweep",
+      "name": "Grid plate",
+      "params": {
+        "binormal": [
+          1,
+          0,
+          0
+        ],
+        "orientation": "fixedBinormal",
+        "pathCurveId": "grid-plate-thickness-path"
+      },
+      "sketchId": "grid-plate-profile",
+      "suppressed": false,
+      "type": "sweep"
+    }
+  ],
+  "name": "gui_assembly_grid_plate_4_cells",
+  "parameters": {
+    "cellDiameter": 0.9,
+    "cellPitch": 1.2,
+    "height": 6,
+    "plateThickness": 0.3,
+    "width": 6
+  },
+  "sketches": [
+    {
+      "constraints": [
+        {
+          "driving": true,
+          "id": "horizontal-1",
+          "l_id": "line-1",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-2",
+          "l_id": "line-2",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "horizontal-3",
+          "l_id": "line-3",
+          "type": "horizontal_l"
+        },
+        {
+          "driving": true,
+          "id": "vertical-4",
+          "l_id": "line-4",
+          "type": "vertical_l"
+        },
+        {
+          "driving": true,
+          "id": "profile-vertical-height",
+          "l_id": "profile-line-height",
+          "type": "vertical_l"
+        },
+        {
+          "difference": "width",
+          "driving": true,
+          "id": "distance-width",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-2",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "height",
+          "driving": true,
+          "id": "distance-height",
+          "param1": {
+            "o_id": "point-1",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-4",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "plateThickness",
+          "driving": true,
+          "id": "profile-distance-height",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "profile-point-height",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-x-00",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-00",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-y-00",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-00",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-00",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-00",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-x-01",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-01",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-y-01",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-01",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-01",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-01",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-x-02",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-02",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-y-02",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-02",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-02",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-02",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-x-03",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-03",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-y-03",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-03",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-03",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-03",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-x-10",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-10",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-y-10",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-10",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-10",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-10",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-x-11",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-11",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-y-11",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-11",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-11",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-11",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-x-12",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-12",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-y-12",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-12",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-12",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-12",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-x-13",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-13",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-y-13",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-13",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-13",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-13",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-x-20",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-20",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-y-20",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-20",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-20",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-20",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-x-21",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-21",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-y-21",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-21",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-21",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-21",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-x-22",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-22",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-y-22",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-22",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-22",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-22",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-x-23",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-23",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-y-23",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-23",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-23",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-23",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "-1.8",
+          "driving": true,
+          "id": "hole-x-30",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-30",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-y-30",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-30",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-30",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-30",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "-0.6",
+          "driving": true,
+          "id": "hole-x-31",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-31",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-y-31",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-31",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-31",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-31",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "0.6",
+          "driving": true,
+          "id": "hole-x-32",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-32",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-y-32",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-32",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-32",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-32",
+          "type": "circle_diameter"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-x-33",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "x"
+          },
+          "param2": {
+            "o_id": "point-hole-33",
+            "prop": "x"
+          },
+          "type": "difference"
+        },
+        {
+          "difference": "1.8",
+          "driving": true,
+          "id": "hole-y-33",
+          "param1": {
+            "o_id": "point-center",
+            "prop": "y"
+          },
+          "param2": {
+            "o_id": "point-hole-33",
+            "prop": "y"
+          },
+          "type": "difference"
+        },
+        {
+          "c_id": "circle-hole-33",
+          "diameter": "cellDiameter",
+          "driving": true,
+          "id": "diameter-hole-33",
+          "type": "circle_diameter"
+        }
+      ],
+      "datumId": "datum-xy",
+      "dimensions": [
+        {
+          "constraintId": "distance-width",
+          "driving": true,
+          "id": "dimension-width",
+          "kind": "distanceH",
+          "parameter": "width",
+          "targetIds": [
+            "point-2",
+            "point-1"
+          ],
+          "value": 6
+        },
+        {
+          "constraintId": "distance-height",
+          "driving": true,
+          "id": "dimension-height",
+          "kind": "distanceV",
+          "parameter": "height",
+          "targetIds": [
+            "point-4",
+            "point-1"
+          ],
+          "value": 6
+        },
+        {
+          "constraintId": "profile-distance-height",
+          "driving": true,
+          "id": "dimension-thickness",
+          "kind": "distanceV",
+          "parameter": "plateThickness",
+          "targetIds": [
+            "profile-point-height",
+            "point-center"
+          ],
+          "value": 0.3
+        },
+        {
+          "constraintId": "diameter-hole-00",
+          "driving": true,
+          "id": "dimension-hole-00",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-00"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-01",
+          "driving": true,
+          "id": "dimension-hole-01",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-01"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-02",
+          "driving": true,
+          "id": "dimension-hole-02",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-02"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-03",
+          "driving": true,
+          "id": "dimension-hole-03",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-03"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-10",
+          "driving": true,
+          "id": "dimension-hole-10",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-10"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-11",
+          "driving": true,
+          "id": "dimension-hole-11",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-11"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-12",
+          "driving": true,
+          "id": "dimension-hole-12",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-12"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-13",
+          "driving": true,
+          "id": "dimension-hole-13",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-13"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-20",
+          "driving": true,
+          "id": "dimension-hole-20",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-20"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-21",
+          "driving": true,
+          "id": "dimension-hole-21",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-21"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-22",
+          "driving": true,
+          "id": "dimension-hole-22",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-22"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-23",
+          "driving": true,
+          "id": "dimension-hole-23",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-23"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-30",
+          "driving": true,
+          "id": "dimension-hole-30",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-30"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-31",
+          "driving": true,
+          "id": "dimension-hole-31",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-31"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-32",
+          "driving": true,
+          "id": "dimension-hole-32",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-32"
+          ],
+          "value": 0.9
+        },
+        {
+          "constraintId": "diameter-hole-33",
+          "driving": true,
+          "id": "dimension-hole-33",
+          "kind": "diameter",
+          "parameter": "cellDiameter",
+          "targetIds": [
+            "circle-hole-33"
+          ],
+          "value": 0.9
+        }
+      ],
+      "id": "grid-plate-profile",
+      "name": "grid-plate-profile",
+      "primitives": [
+        {
+          "construction": false,
+          "id": "point-1",
+          "type": "point",
+          "x": -3,
+          "y": -3
+        },
+        {
+          "construction": false,
+          "id": "point-2",
+          "type": "point",
+          "x": 3,
+          "y": -3
+        },
+        {
+          "construction": false,
+          "id": "point-3",
+          "type": "point",
+          "x": 3,
+          "y": 3
+        },
+        {
+          "construction": false,
+          "id": "point-4",
+          "type": "point",
+          "x": -3,
+          "y": 3
+        },
+        {
+          "construction": false,
+          "id": "line-1",
+          "p1_id": "point-1",
+          "p2_id": "point-2",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-2",
+          "p1_id": "point-2",
+          "p2_id": "point-3",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-3",
+          "p1_id": "point-3",
+          "p2_id": "point-4",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "line-4",
+          "p1_id": "point-4",
+          "p2_id": "point-1",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "point-center",
+          "type": "point",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "construction": true,
+          "id": "profile-point-height",
+          "type": "point",
+          "x": 0,
+          "y": 0.3
+        },
+        {
+          "construction": true,
+          "id": "profile-line-height",
+          "p1_id": "point-center",
+          "p2_id": "profile-point-height",
+          "type": "line"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-00",
+          "type": "point",
+          "x": -1.8,
+          "y": -1.8
+        },
+        {
+          "c_id": "point-hole-00",
+          "construction": false,
+          "id": "circle-hole-00",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-01",
+          "type": "point",
+          "x": -0.6,
+          "y": -1.8
+        },
+        {
+          "c_id": "point-hole-01",
+          "construction": false,
+          "id": "circle-hole-01",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-02",
+          "type": "point",
+          "x": 0.6,
+          "y": -1.8
+        },
+        {
+          "c_id": "point-hole-02",
+          "construction": false,
+          "id": "circle-hole-02",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-03",
+          "type": "point",
+          "x": 1.8,
+          "y": -1.8
+        },
+        {
+          "c_id": "point-hole-03",
+          "construction": false,
+          "id": "circle-hole-03",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-10",
+          "type": "point",
+          "x": -1.8,
+          "y": -0.6
+        },
+        {
+          "c_id": "point-hole-10",
+          "construction": false,
+          "id": "circle-hole-10",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-11",
+          "type": "point",
+          "x": -0.6,
+          "y": -0.6
+        },
+        {
+          "c_id": "point-hole-11",
+          "construction": false,
+          "id": "circle-hole-11",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-12",
+          "type": "point",
+          "x": 0.6,
+          "y": -0.6
+        },
+        {
+          "c_id": "point-hole-12",
+          "construction": false,
+          "id": "circle-hole-12",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-13",
+          "type": "point",
+          "x": 1.8,
+          "y": -0.6
+        },
+        {
+          "c_id": "point-hole-13",
+          "construction": false,
+          "id": "circle-hole-13",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-20",
+          "type": "point",
+          "x": -1.8,
+          "y": 0.6
+        },
+        {
+          "c_id": "point-hole-20",
+          "construction": false,
+          "id": "circle-hole-20",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-21",
+          "type": "point",
+          "x": -0.6,
+          "y": 0.6
+        },
+        {
+          "c_id": "point-hole-21",
+          "construction": false,
+          "id": "circle-hole-21",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-22",
+          "type": "point",
+          "x": 0.6,
+          "y": 0.6
+        },
+        {
+          "c_id": "point-hole-22",
+          "construction": false,
+          "id": "circle-hole-22",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-23",
+          "type": "point",
+          "x": 1.8,
+          "y": 0.6
+        },
+        {
+          "c_id": "point-hole-23",
+          "construction": false,
+          "id": "circle-hole-23",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-30",
+          "type": "point",
+          "x": -1.8,
+          "y": 1.8
+        },
+        {
+          "c_id": "point-hole-30",
+          "construction": false,
+          "id": "circle-hole-30",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-31",
+          "type": "point",
+          "x": -0.6,
+          "y": 1.8
+        },
+        {
+          "c_id": "point-hole-31",
+          "construction": false,
+          "id": "circle-hole-31",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-32",
+          "type": "point",
+          "x": 0.6,
+          "y": 1.8
+        },
+        {
+          "c_id": "point-hole-32",
+          "construction": false,
+          "id": "circle-hole-32",
+          "radius": 0.45,
+          "type": "circle"
+        },
+        {
+          "construction": false,
+          "id": "point-hole-33",
+          "type": "point",
+          "x": 1.8,
+          "y": 1.8
+        },
+        {
+          "c_id": "point-hole-33",
+          "construction": false,
+          "id": "circle-hole-33",
+          "radius": 0.45,
+          "type": "circle"
+        }
+      ]
+    }
+  ],
+  "units": "cm",
+  "version": 3
+}

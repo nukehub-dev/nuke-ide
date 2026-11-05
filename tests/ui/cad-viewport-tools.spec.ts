@@ -612,3 +612,43 @@ test('empty viewport launchers open their pickers and cancel cleanly', async ({ 
     const severe = severeErrors(errors);
     expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
 });
+
+test('command search launcher exposes the NukeAI action menu with keyboard dismissal', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/');
+    await waitForWorkbench(page);
+    await openCadFixture(page, 'cad-pincell.nuke-cad');
+
+    const launcher = page.locator('.cad-command-search-launcher').first();
+    const trigger = launcher.getByRole('button', { name: 'NukeAI actions' });
+    await expect(trigger).toBeVisible();
+    await expect(trigger.locator('.codicon-hubot')).toHaveCount(1);
+    await expect(trigger).toHaveClass(/nuke-action-menu-trigger-icon-only/);
+    await expect(trigger.locator('.nuke-action-menu-label')).toHaveCount(0);
+    await trigger.click();
+    const menu = launcher.locator('.nuke-action-menu-popup');
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole('menuitem')).toHaveCount(4);
+    await expect(menu.locator('.nuke-action-menu-item-label')).toHaveText([
+        'Ask About Context',
+        'Diagnose CAD Model',
+        'Explain Selection',
+        'Check Active CAD Model'
+    ]);
+
+    // The floating launcher sits at the bottom, so the menu must open upward
+    // instead of clipping below the viewport.
+    const triggerBox = await trigger.boundingBox();
+    const menuBox = await menu.boundingBox();
+    expect(triggerBox).not.toBeNull();
+    expect(menuBox).not.toBeNull();
+    expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(triggerBox!.y + 1);
+
+    // Escape closes the menu and returns focus to the trigger.
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+
+    const severe = severeErrors(errors);
+    expect(severe, `unexpected severe errors:\n${severe.join('\n')}`).toEqual([]);
+});

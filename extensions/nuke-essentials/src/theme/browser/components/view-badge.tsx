@@ -26,6 +26,7 @@
 // *****************************************************************************
 
 import * as React from '@theia/core/shared/react';
+import { Tooltip } from './tooltip';
 
 /**
  * Shared dataset/view badge for the 3D viewers (nuke-cad viewport and
@@ -36,16 +37,18 @@ import * as React from '@theia/core/shared/react';
  * text, so there is no state and no pure helper to unit-test. Placement
  * (top-left offsets below the toolbar chrome) stays with the host
  * extension; the pill look lives in `view-badge.css` (`.nuke-view-badge`).
+ * The pill truncates long file names with an ellipsis, so the shared
+ * Tooltip reveals the full label.
  */
 export interface ViewBadgeProps {
     /** Pill text (view name or dataset label). */
     readonly text: string;
-    /** Native tooltip (the pill itself never uses the Nuke Tooltip). */
-    readonly title?: string;
 }
 
-export const ViewBadge: React.FC<ViewBadgeProps> = ({ text, title }) => (
-    <div className="nuke-view-badge" title={title ?? text}>
-        {text}
+export const ViewBadge: React.FC<ViewBadgeProps> = ({ text }) => (
+    <div className="nuke-view-badge">
+        <Tooltip content={text} position="bottom">
+            <span className="nuke-view-badge-text">{text}</span>
+        </Tooltip>
     </div>
 );

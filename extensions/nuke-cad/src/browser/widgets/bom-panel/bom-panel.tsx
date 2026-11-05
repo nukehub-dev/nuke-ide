@@ -41,10 +41,12 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Disposable } from '@theia/core/lib/common/disposable';
+import { CommandService } from '@theia/core/lib/common/command';
+import { NukeCadCommands } from '../../commands';
 import { NukeCadStateManager } from '../../state/nuke-cad-state-manager';
 import { CadDocumentStore, getAssemblySection } from '../../document/cad-document-store';
 import { buildBomRows, instanceSolidIds, type BomRow } from '../cad-viewport/assembly-view';
-import { Tooltip } from 'nuke-essentials/lib/theme/browser/components';
+import { NukeEmptyState, Tooltip } from 'nuke-essentials/lib/theme/browser/components';
 import './bom-panel.css';
 
 @injectable()
@@ -57,6 +59,9 @@ export class CadBomPanelWidget extends ReactWidget {
 
     @inject(CadDocumentStore)
     protected readonly documentStore: CadDocumentStore;
+
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
 
     constructor(options?: any) {
         super(options);
@@ -97,6 +102,7 @@ export class CadBomPanelWidget extends ReactWidget {
                 rows={rows}
                 hasModel={this.stateManager.model !== undefined}
                 onSelect={(instanceId) => this.selectInstance(instanceId)}
+                onOpenViewport={() => void this.commandService.executeCommand(NukeCadCommands.OPEN_CAD_VIEWPORT.id)}
             />
         );
     }
@@ -106,6 +112,7 @@ interface CadBomPanelComponentProps {
     readonly rows: readonly BomRow[];
     readonly hasModel: boolean;
     readonly onSelect: (instanceId: string) => void;
+    readonly onOpenViewport: () => void;
 }
 
 function CadBomPanelComponent(props: CadBomPanelComponentProps): React.ReactElement {
@@ -124,11 +131,16 @@ function CadBomPanelComponent(props: CadBomPanelComponentProps): React.ReactElem
                 </div>
             )}
             {props.rows.length === 0 ? (
-                <div className="cad-bom-empty">
-                    <i className="codicon codicon-nuke-cad-bom" />
-                    <p>No assembly instances</p>
-                    <span className="empty-hint">Add part instances in the CAD viewport assembly panel to list them here.</span>
-                </div>
+                <NukeEmptyState
+                    variant="illustration"
+                    icon="nuke-cad-bom"
+                    title="No assembly instances"
+                    message="Add part instances in the CAD viewport assembly panel to list them here."
+                >
+                    <button className="theia-button" onClick={props.onOpenViewport}>
+                        <span className="codicon codicon-window" /> Open CAD Viewport
+                    </button>
+                </NukeEmptyState>
             ) : (
                 <div className="cad-bom-table">
                     <div className="cad-bom-head">

@@ -435,6 +435,19 @@ A readiness checklist (with an `N / M configured` badge) verifies the model befo
 | **Optimization**   | Open the [Optimization](optimization.md) widget                                                  |
 | **Restart…**       | Resume from a selected statepoint (sets `settings.restartFile`, shown as a dismissible chip)     |
 
+Below the run buttons, two NukeAI action groups stay visible without opening a
+chat first:
+
+- **NukeAI · Validation** — **Diagnose Project**, **Validate and Explain**,
+  **Diagnose CSG Geometry**, and **Diagnose DAGMC Model**.
+- **NukeAI · Run** — **Diagnose Run** and **Explain Run**.
+
+Each button runs the same read-only command as its NukeAI sidebar and Command
+Palette entry. The buttons stay enabled; when a project or run is missing, the
+command's preflight warning names the prerequisite and no model request starts.
+If NukeAI is excluded from the build, the commands are absent and the groups
+disappear.
+
 If you reload the browser tab or window while a simulation is running, the dashboard automatically re-attaches to the in-flight backend run: **Stop** keeps working and live progress and the log resume where they left off.
 
 The **Run Summary** card mirrors the launch configuration: mode, particles, batches, OpenMP threads,
